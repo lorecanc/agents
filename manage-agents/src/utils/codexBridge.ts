@@ -3,6 +3,7 @@ import path from "node:path"
 import type { AgentInfo } from "./agents.js"
 import { buildInferenceIndex, DEFAULT_TRANSLATION_CONFIG, resolveModelTarget, authorName } from "./translationConfig.js"
 import type { TranslationConfig } from "./translationConfig.js"
+import { assertInsideRealWorkspace, realpathThroughExistingAncestor } from "./pathValidation.js"
 
 type ResolvedModelTarget = ReturnType<typeof resolveModelTarget>
 type ResolvedTargets = Map<string, ResolvedModelTarget>
@@ -389,42 +390,38 @@ export function writeCodexPlugin(
   pluginName: string,
   prefix: string,
   outputDir: string,
+  workspaceRoot: string,
   config: TranslationConfig = DEFAULT_TRANSLATION_CONFIG,
-  workspaceRoot?: string,
   resolvedTargets: ReadonlyMap<string, ResolvedModelTarget> = resolveTargets(agents, config)
 ): CodexBridgeResult {
+  if (typeof workspaceRoot !== "string" || !workspaceRoot) {
+    throw new Error("writeCodexPlugin requires a workspaceRoot")
+  }
   const warnings: string[] = []
   const normalizedPluginName = pluginNameValue(pluginName)
   const aliases = buildAgentAliasMap(agents, prefix)
   const translatedAgents = agents.map(agent => convertCodexAgent(agent, prefix, aliases, config, warnings, agents, resolvedTargets))
   const emitSkills = config.codex.emitSkills !== false
-  const mcpResult = workspaceRoot
-    ? buildCodexMcpConfig(workspaceRoot, requiredMcpServers(agents))
-    : { config: null, warnings: [] }
+  const mcpResult = buildCodexMcpConfig(workspaceRoot, requiredMcpServers(agents))
   const emitMcp = config.codex.emitMcp !== false && Boolean(mcpResult.config)
   warnings.push(...mcpResult.warnings)
   const plugin = buildPlugin(translatedAgents, normalizedPluginName, emitSkills)
 
-  let pluginDir = path.resolve(outputDir)
-  if (workspaceRoot) {
-    // Mirror writeClaudeCodePlugin: resolve symlinks through the nearest
-    // existing ancestor so the containment check cannot be fooled by links.
-    let existingAncestor = pluginDir
-    const remaining: string[] = []
-    while (!fs.existsSync(existingAncestor)) {
-      remaining.unshift(path.basename(existingAncestor))
-      existingAncestor = path.dirname(existingAncestor)
-    }
-    pluginDir = path.join(fs.realpathSync(existingAncestor), ...remaining)
-    const relativeOutputDir = path.relative(fs.realpathSync(workspaceRoot), pluginDir)
-    if (relativeOutputDir.startsWith("..") || path.isAbsolute(relativeOutputDir)) {
-      throw new Error(`Invalid plugin output path outside workspace: ${outputDir}`)
-    }
-  }
+  // Mirror writeClaudeCodePlugin: resolve symlinks through the nearest
+  // existing ancestor so the containment check cannot be fooled by links.
+  const pluginDir = realpathThroughExistingAncestor(path.resolve(outputDir))
+  assertInsideRealWorkspace(workspaceRoot, pluginDir, outputDir)
   const codexAgentsDir = path.join(pluginDir, ".codex", "agents")
   const manifestDir = path.join(pluginDir, ".codex-plugin")
+  fs.mkdirSync(pluginDir, { recursive: true })
+  // Post-creation gate before creating .codex/agents, .codex-plugin, skills/*
+  // or writing any files. Residual race: if a symlink target did not
+  // pre-exist, empty dirs may be created there before this gate throws.
+  assertInsideRealWorkspace(workspaceRoot, fs.realpathSync(pluginDir), outputDir)
   fs.mkdirSync(codexAgentsDir, { recursive: true })
   fs.mkdirSync(manifestDir, { recursive: true })
+  assertInsideRealWorkspace(workspaceRoot, fs.realpathSync(codexAgentsDir), outputDir)
+  assertInsideRealWorkspace(workspaceRoot, fs.realpathSync(manifestDir), outputDir)
 
   const files: string[] = []
   const manifestPath = path.join(manifestDir, "plugin.json")
@@ -448,6 +445,7 @@ export function writeCodexPlugin(
     for (const agent of translatedAgents) {
       const skillDir = path.join(skillsDir, agent.name)
       fs.mkdirSync(skillDir, { recursive: true })
+      assertInsideRealWorkspace(workspaceRoot, fs.realpathSync(skillDir), outputDir)
       const skillPath = path.join(skillDir, "SKILL.md")
       fs.writeFileSync(skillPath, renderCodexSkill(agent))
       files.push(skillPath)
@@ -481,15 +479,8 @@ export function bridgeToCodex(
   pluginNameInput: string,
   prefix: string,
   outputDir: string,
-  _workspaceRootOrConfig?: string | TranslationConfig,
+  workspaceRoot: string,
   config: TranslationConfig = DEFAULT_TRANSLATION_CONFIG
 ): CodexBridgeResult {
-  // Keep parity with bridgeToClaudeCode (which receives workspaceRoot), while
-  // also accepting the config as the fifth argument for direct callers.
-  const effectiveConfig = typeof _workspaceRootOrConfig === "object"
-    ? _workspaceRootOrConfig
-    : config
-  const workspaceRoot = typeof _workspaceRootOrConfig === "string" ? _workspaceRootOrConfig : undefined
-  const resolvedTargets = resolveTargets(agents, effectiveConfig)
-  return writeCodexPlugin(agents, pluginNameInput, prefix, outputDir, effectiveConfig, workspaceRoot, resolvedTargets)
+  return writeCodexPlugin(agents, pluginNameInput, prefix, outputDir, workspaceRoot, config)
 }

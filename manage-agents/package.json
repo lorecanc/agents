@@ -14,7 +14,7 @@
   "scripts": {
     "build": "esbuild src/index.tsx --bundle --platform=node --format=esm --outfile=dist/index.js --external:@opentui/core --external:yaml",
     "typecheck": "tsc --noEmit",
-    "test": "npm run typecheck && node --import tsx --test \"src/utils/*.test.ts\" \"../agents/general/tools/_python.test.mjs\""
+    "test": "npm run typecheck && node --import tsx --test \"src/utils/*.test.ts\" \"../agents/general/tools/_python.test.mjs\" \"../agents/general/tools/_safeName.test.mjs\""
   },
   "dependencies": {
     "@opentui/core": "^0.4.3",

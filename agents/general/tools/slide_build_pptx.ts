@@ -1,4 +1,5 @@
 import { tool } from "@opencode-ai/plugin"
+import { safeProjectSegment } from "./_safeName.js"
 
 export default tool({
   description:
@@ -25,6 +26,12 @@ export default tool({
       ),
   },
   async execute(args, context) {
+    let projectName
+    try {
+      projectName = safeProjectSegment(args.projectName)
+    } catch (e) {
+      return `Error: ${e.message}`
+    }
     const path = await import("path")
     const fs = await import("fs")
     const { spawn } = await import("child_process")
@@ -32,7 +39,7 @@ export default tool({
     const projectsRoot = path.join(process.cwd(), "projects")
     const projectDir = path.join(
       projectsRoot,
-      args.projectName,
+      projectName,
       "presentations",
     )
 
@@ -41,7 +48,12 @@ export default tool({
     }
 
     const layout = args.layout || "LAYOUT_16x9_1280"
-    const outputStem = path.parse(args.outputFilename).name
+    let outputStem
+    try {
+      outputStem = safeProjectSegment(path.parse(args.outputFilename).name, "outputFilename")
+    } catch (e) {
+      return `Error: ${e.message}`
+    }
     let outputPath = path.join(projectDir, `${outputStem}.pptx`)
 
     // Auto-version if file exists
@@ -71,7 +83,7 @@ export default tool({
 
     const runnerJs = opencodePath("pptx", "html2pptx_runner.js")
 
-    const tmpDir = path.join(process.cwd(), "projects", args.projectName, ".tmp")
+    const tmpDir = path.join(process.cwd(), "projects", projectName, ".tmp")
     fs.mkdirSync(tmpDir, { recursive: true })
 
     const nodeModulesPath = opencodePath("..", "node_modules")

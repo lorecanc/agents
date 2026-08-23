@@ -3,7 +3,7 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import test from "node:test"
-import { bridgeToClaudeCode, buildClaudeCodePlugin, normalizeClaudeAgentName } from "./bridge.js"
+import { bridgeToClaudeCode, buildClaudeCodePlugin, normalizeClaudeAgentName, writeClaudeCodePlugin } from "./bridge.js"
 import { DEFAULT_TRANSLATION_CONFIG, resolveRole, type TranslationConfig } from "./translationConfig.js"
 import { bridgeToCodex } from "./codexBridge.js"
 import type { AgentInfo } from "./agents.js"
@@ -49,8 +49,20 @@ test("Claude and Codex previews agree on role, tier, and source", () => {
   const agents = [fixture("copilot-pipeline-planner.md"), fixture("copilot-pipeline-worker.md")]
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "bridge-parity-"))
   const claude = bridgeToClaudeCode(agents, "pipeline", "copilot-pipeline-", path.join(workspace, "claude"), workspace)
-  const codex = bridgeToCodex(agents, "pipeline", "copilot-pipeline-", path.join(workspace, "codex"))
+  const codex = bridgeToCodex(agents, "pipeline", "copilot-pipeline-", path.join(workspace, "codex"), workspace)
   assert.deepEqual(claude.preview?.map(({ agent, role, tier, source }) => ({ agent, role, tier, source })), codex.preview.map(({ agent, role, tier, source }) => ({ agent, role, tier, source })))
+})
+
+test("writeClaudeCodePlugin refuses a symlinked output pointing outside the workspace", { skip: process.platform === "win32" }, () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "claude-bridge-symlink-ws-"))
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "claude-bridge-symlink-out-"))
+  fs.symlinkSync(outside, path.join(workspace, "out"), "dir")
+  const plugin = buildClaudeCodePlugin([fixture("copilot-pipeline-orchestrator.md")], "decent-pipeline", "copilot-pipeline-")
+  assert.throws(
+    () => writeClaudeCodePlugin(plugin, path.join(workspace, "out"), workspace),
+    /outside workspace/i
+  )
+  assert.equal(fs.readdirSync(outside).length, 0)
 })
 
 test("normalizes names to Claude's lower-hyphen form", () => {

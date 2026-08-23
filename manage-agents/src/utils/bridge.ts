@@ -5,6 +5,7 @@ import { escapeRegExp, normalizeAgentBody } from "./agents.js"
 import type { AgentInfo } from "./agents.js"
 import { buildInferenceIndex, DEFAULT_TRANSLATION_CONFIG, resolveModelTarget, authorName } from "./translationConfig.js"
 import type { TranslationConfig } from "./translationConfig.js"
+import { assertInsideRealWorkspace, realpathThroughExistingAncestor } from "./pathValidation.js"
 
 type ResolvedModelTarget = ReturnType<typeof resolveModelTarget>
 type ResolvedTargets = Map<string, ResolvedModelTarget>
@@ -647,18 +648,11 @@ export function writeClaudeCodePlugin(
   outputDir: string,
   workspaceRoot: string
 ): BridgeResult {
-  let existingAncestor = path.resolve(outputDir)
-  const remaining: string[] = []
-  while (!fs.existsSync(existingAncestor)) {
-    remaining.unshift(path.basename(existingAncestor))
-    existingAncestor = path.dirname(existingAncestor)
-  }
-  const resolvedOutputDir = path.join(fs.realpathSync(existingAncestor), ...remaining)
-  const resolvedWorkspaceRoot = fs.realpathSync(workspaceRoot)
-  const relativeOutputDir = path.relative(resolvedWorkspaceRoot, resolvedOutputDir)
-  if (relativeOutputDir.startsWith("..") || path.isAbsolute(relativeOutputDir)) {
-    throw new Error(`Invalid plugin output path outside workspace: ${outputDir}`)
-  }
+  // Resolve symlinks through the nearest existing ancestor so the containment
+  // check cannot be fooled by links planted where the output dir will live.
+  const resolvedOutputDir = realpathThroughExistingAncestor(path.resolve(outputDir))
+  assertInsideRealWorkspace(workspaceRoot, resolvedOutputDir, outputDir)
+  const relativeOutputDir = path.relative(fs.realpathSync(workspaceRoot), resolvedOutputDir)
   const relativePluginPath = relativeOutputDir
     ? `./${relativeOutputDir.split(path.sep).join("/")}`
     : "."
@@ -671,6 +665,12 @@ export function writeClaudeCodePlugin(
   const pluginMetaDir = path.join(resolvedOutputDir, ".claude-plugin")
   fs.mkdirSync(agentsDir, { recursive: true })
   fs.mkdirSync(pluginMetaDir, { recursive: true })
+  // Post-creation gate: re-check real paths now that the directories exist.
+  // Residual race: if a symlink target did not pre-exist, empty dirs may be
+  // created there before this gate throws.
+  assertInsideRealWorkspace(workspaceRoot, fs.realpathSync(resolvedOutputDir), outputDir)
+  assertInsideRealWorkspace(workspaceRoot, fs.realpathSync(agentsDir), outputDir)
+  assertInsideRealWorkspace(workspaceRoot, fs.realpathSync(pluginMetaDir), outputDir)
 
   // Write plugin.json
   const pluginJson = {

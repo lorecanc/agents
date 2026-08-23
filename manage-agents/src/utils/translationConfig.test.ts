@@ -35,6 +35,28 @@ test("authorName falls back to the default and honors AGENT_AUTHOR_NAME", () => 
   assert.equal(authorName({ AGENT_AUTHOR_NAME: "   " }), DEFAULT_AUTHOR_NAME)
 })
 
+test("authorName rejects unsafe or oversized AGENT_AUTHOR_NAME overrides", () => {
+  assert.equal(authorName({ AGENT_AUTHOR_NAME: "José García-López" }), "José García-López")
+  assert.equal(authorName({ AGENT_AUTHOR_NAME: "O'Brien Jr." }), "O'Brien Jr.")
+  assert.equal(authorName({ AGENT_AUTHOR_NAME: "Anne-Marie St. Clair" }), "Anne-Marie St. Clair")
+  assert.equal(authorName({ AGENT_AUTHOR_NAME: "A".repeat(100) }), "A".repeat(100))
+  assert.equal(authorName({ AGENT_AUTHOR_NAME: "Ada <script>" }), DEFAULT_AUTHOR_NAME)
+  assert.equal(authorName({ AGENT_AUTHOR_NAME: "../../etc/passwd" }), DEFAULT_AUTHOR_NAME)
+  assert.equal(authorName({ AGENT_AUTHOR_NAME: "ACME & Co" }), DEFAULT_AUTHOR_NAME)
+  assert.equal(authorName({ AGENT_AUTHOR_NAME: "A".repeat(101) }), DEFAULT_AUTHOR_NAME)
+
+  const originalError = console.error
+  const warnings: string[] = []
+  console.error = (...args: unknown[]) => { warnings.push(args.join(" ")) }
+  try {
+    assert.equal(authorName({ AGENT_AUTHOR_NAME: "Ada <script>" }), DEFAULT_AUTHOR_NAME)
+  } finally {
+    console.error = originalError
+  }
+  assert.equal(warnings.length, 1)
+  assert.match(warnings[0], /AGENT_AUTHOR_NAME/)
+})
+
 test("agent names normalize extensions, prefixes and case", () => {
   assert.equal(normalizeAgentName("copilot-pipeline-PlAnNeR.md", "copilot-pipeline-"), "planner")
   assert.equal(normalizeAgentName("planner", "copilot-pipeline-"), "planner")

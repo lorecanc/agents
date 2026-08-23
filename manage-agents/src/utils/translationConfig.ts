@@ -70,10 +70,17 @@ export const DEFAULT_TRANSLATION_CONFIG: TranslationConfig = {
 /** Default author name stamped into generated plugin manifests and READMEs. */
 export const DEFAULT_AUTHOR_NAME = "Lorenzo Cancellara"
 
+const AUTHOR_NAME_PATTERN = /^[\p{L}\p{N} '’.\-]{1,100}$/u
+
 /** Resolve the author name for generated artifacts (AGENT_AUTHOR_NAME overrides the default). */
 export function authorName(env: NodeJS.ProcessEnv = process.env): string {
   const override = env.AGENT_AUTHOR_NAME?.trim()
-  return override || DEFAULT_AUTHOR_NAME
+  if (!override) return DEFAULT_AUTHOR_NAME
+  if (!AUTHOR_NAME_PATTERN.test(override)) {
+    console.error(`Ignoring invalid AGENT_AUTHOR_NAME override ${JSON.stringify(override.slice(0, 80))}; using default author name instead`)
+    return DEFAULT_AUTHOR_NAME
+  }
+  return override
 }
 
 export function translationConfigPath(workspaceRoot: string): string {

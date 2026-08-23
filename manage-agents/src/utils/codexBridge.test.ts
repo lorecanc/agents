@@ -53,8 +53,9 @@ test("bridge emits manifest, Codex agents, skills and translated links", () => {
     ),
     agent("copilot-pipeline-fast_lane.md", "github-copilot/gpt-5.6-luna", {}, "Fast lane")
   ]
-  const output = fs.mkdtempSync(path.join(os.tmpdir(), "codex-bridge-"))
-  const result = bridgeToCodex(agents, "Decent Pipeline", "copilot-pipeline-", output)
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "codex-bridge-"))
+  const output = path.join(workspace, "bridges", "codex")
+  const result = bridgeToCodex(agents, "Decent Pipeline", "copilot-pipeline-", output, workspace)
 
   assert.equal(result.plugin.pluginName, "decent-pipeline")
   assert.equal(result.plugin.orchestratorName, "orchestrator")
@@ -86,11 +87,12 @@ test("role targets can be overridden without changing source agents", () => {
       execution: { ...DEFAULT_TRANSLATION_CONFIG.tiers.execution, codex: { model: "custom-default", reasoningEffort: "low" } } },
     codex: { ...DEFAULT_TRANSLATION_CONFIG.codex, emitSkills: false, emitReadme: false }
   }
-  const output = fs.mkdtempSync(path.join(os.tmpdir(), "codex-bridge-config-"))
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "codex-bridge-config-"))
+  const output = path.join(workspace, "bridges", "codex")
   const result = bridgeToCodex([
     agent("orchestrator.md", "any", { mode: "primary" }, ""),
     agent("worker.md", "different", {}, "")
-  ], "configured", "", output, undefined, config)
+  ], "configured", "", output, workspace, config)
 
   assert.equal(result.plugin.agents[0].model, "custom-primary")
   assert.equal(result.plugin.agents[1].model, "custom-default")
@@ -130,7 +132,7 @@ test("writeCodexPlugin rejects output directories escaping the workspace root", 
   const agents = [agent("orchestrator.md", "any", { mode: "primary" }, "")]
 
   assert.throws(
-    () => writeCodexPlugin(agents, "decent-pipeline", "", escapingOutput, DEFAULT_TRANSLATION_CONFIG, workspace),
+    () => writeCodexPlugin(agents, "decent-pipeline", "", escapingOutput, workspace, DEFAULT_TRANSLATION_CONFIG),
     /outside workspace/i
   )
   // The caller wiring (index.tsx) forwards workspaceRoot through bridgeToCodex.
@@ -149,8 +151,8 @@ test("writeCodexPlugin still writes the manifest for output inside the workspace
     "decent-pipeline",
     "",
     output,
-    DEFAULT_TRANSLATION_CONFIG,
-    workspace
+    workspace,
+    DEFAULT_TRANSLATION_CONFIG
   )
 
   const manifestPath = path.join(output, ".codex-plugin", "plugin.json")
@@ -161,16 +163,21 @@ test("writeCodexPlugin still writes the manifest for output inside the workspace
   assert.equal(JSON.parse(fs.readFileSync(manifestPath, "utf8")).name, "decent-pipeline")
 })
 
-test("writeCodexPlugin keeps succeeding without a workspaceRoot (legacy callers)", () => {
+test("writeCodexPlugin requires a workspaceRoot", () => {
   const output = fs.mkdtempSync(path.join(os.tmpdir(), "codex-bridge-legacy-"))
-  const result = writeCodexPlugin(
-    [agent("orchestrator.md", "any", { mode: "primary" }, "")],
-    "legacy-plugin",
-    "",
-    output
+  assert.throws(
+    () => (writeCodexPlugin as any)([agent("orchestrator.md", "any", { mode: "primary" }, "")], "legacy-plugin", "", output),
+    /workspaceRoot/i
   )
+})
 
-  const manifestPath = path.join(output, ".codex-plugin", "plugin.json")
-  assert.ok(fs.existsSync(manifestPath))
-  assert.ok(result.files.includes(manifestPath))
+test("writeCodexPlugin refuses a symlinked output pointing outside the workspace", { skip: process.platform === "win32" }, () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "codex-bridge-symlink-ws-"))
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "codex-bridge-symlink-out-"))
+  fs.symlinkSync(outside, path.join(workspace, "out"), "dir")
+  assert.throws(
+    () => writeCodexPlugin([agent("orchestrator.md", "any", { mode: "primary" }, "")], "decent-pipeline", "", path.join(workspace, "out"), workspace),
+    /outside workspace/i
+  )
+  assert.equal(fs.readdirSync(outside).length, 0)
 })
