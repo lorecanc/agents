@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<!--
+TEMPLATE: data_metrics
+Role: data
+Grid: z-grid-split (2 metrics) — variant: z-grid-thirds (3), z-grid-quarters (4)
+Variants: surface base (default), dark base for section data, accent base for emphasis
+Items: 2-4 metrics (each: stat-value + label + 1-line description + icon)
+Composition: preset-agnostic (deco-* classes resolve via _preset.css)
+
+FISSO zones are structural — do NOT modify zone heights, decoration positions, spacing.
+ADATTA zones are content — replace stat values, labels, icons, descriptions.
+GRID VARIANT: change z-grid-split to z-grid-thirds or z-grid-quarters for 3 or 4 metrics.
+-->
+<html>
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="./_theme.css">
+  <link rel="stylesheet" href="./_preset.css">
+  {{GOOGLE_FONTS_CDN}}
+</head>
+<body style="width:1280px;height:720px;margin:0;padding:0;overflow:hidden;">
+
+  <!-- ═══ FISSO: background layers ═══ -->
+  <div class="z-bg">
+    <div class="z-bg-layer z-bg-pattern deco-pattern-dots"></div>
+  </div>
+
+  <!-- ═══ FISSO: safe content area ═══ -->
+  <div class="z-safe z-content" style="display:flex;flex-direction:column;">
+
+    <!-- ═══ FISSO: header zone — altezza 96px ═══ -->
+    <div class="z-header" style="display:flex;flex-direction:column;justify-content:center;gap:6px;">
+      <!-- ≈≈≈ ADATTA: kicker — max 4 parole, opzionale ≈≈≈ -->
+      <!-- Esempio densità: "PERFORMANCE OVERVIEW" -->
+      <p class="kicker" style="margin:0;">PERFORMANCE OVERVIEW</p>
+      <!-- ≈≈≈ ADATTA: title — max 8 parole ≈≈≈ -->
+      <!-- Esempio densità: "Key Performance Indicators" (3 parole) -->
+      <h2 class="h-md" style="margin:0;">
+        Key Performance Indicators
+      </h2>
+    </div>
+
+    <!-- ═══ FISSO: divider sotto header ═══ -->
+    <div class="section-divider-accent" style="margin:0 0 32px 0;"></div>
+
+    <!-- ═══ FISSO: body zone — grid class varia per numero di metriche ═══ -->
+    <!-- Per 2 metriche: z-grid-split -->
+    <!-- Per 3 metriche: z-grid-thirds -->
+    <!-- Per 4 metriche: z-grid-quarters -->
+    <div class="z-body z-grid-split" style="display:flex;gap:24px;align-content:start;">
+
+      <!-- ≈≈≈ ADATTA: metrica 1 ≈≈≈ -->
+      <div class="slide-card" style="padding:28px;display:flex;flex-direction:column;gap:12px;">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div class="icon-circle-accent" style="width:40px;height:40px;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+              <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/>
+              <polyline points="17 6 23 6 23 12"/>
+            </svg>
+          </div>
+          <!-- ≈≈≈ ADATTA: label metrica 1 — max 4 parole ≈≈≈ -->
+          <p style="font-size:var(--text-sm);color:var(--color-text-secondary);margin:0;text-transform:uppercase;letter-spacing:0.05em;">
+            Revenue Growth
+          </p>
+        </div>
+        <!-- ≈≈≈ ADATTA: valore metrica 1 — max 8 caratteri numerici ≈≈≈ -->
+        <!-- Esempio densità: "340%" -->
+        <p class="stat-value" style="font-size:56px;margin:0;">340%</p>
+        <!-- ≈≈≈ ADATTA: descrizione metrica 1 — max 20 parole ≈≈≈ -->
+        <p style="font-size:var(--text-sm);color:var(--color-text-secondary);margin:0;line-height:1.5;">
+          Year-over-year increase driven by enterprise SaaS subscriptions and API monetization
+        </p>
+      </div>
+
+      <!-- ≈≈≈ ADATTA: metrica 2 ≈≈≈ -->
+      <div class="slide-card" style="padding:28px;display:flex;flex-direction:column;gap:12px;">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div class="icon-circle-muted" style="width:40px;height:40px;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+              <circle cx="9" cy="7" r="4"/>
+              <path d="M22 21v-2a4 4 0 0 0-3-3.87"/>
+              <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+            </svg>
+          </div>
+          <!-- ≈≈≈ ADATTA: label metrica 2 — max 4 parole ≈≈≈ -->
+          <p style="font-size:var(--text-sm);color:var(--color-text-secondary);margin:0;text-transform:uppercase;letter-spacing:0.05em;">
+            Active Users
+          </p>
+        </div>
+        <!-- ≈≈≈ ADATTA: valore metrica 2 — max 8 caratteri ≈≈≈ -->
+        <p class="stat-value" style="font-size:56px;margin:0;">12M</p>
+        <!-- ≈≈≈ ADATTA: descrizione metrica 2 — max 20 parole ≈≈≈ -->
+        <p style="font-size:var(--text-sm);color:var(--color-text-secondary);margin:0;line-height:1.5;">
+          Monthly active users across all platforms, up from 4.2M in the previous fiscal year
+        </p>
+      </div>
+
+      <!--
+      ═══ ADATTA: metrica 3 (opzionale) — decommenta e cambia grid a z-grid-thirds ═══
+      <div class="slide-card" style="padding:28px;display:flex;flex-direction:column;gap:12px;">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div class="icon-circle-accent" style="width:40px;height:40px;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="2" y1="12" x2="22" y2="12"/>
+              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+            </svg>
+          </div>
+          <p style="font-size:var(--text-sm);color:var(--color-text-secondary);margin:0;text-transform:uppercase;letter-spacing:0.05em;">
+            Market Reach
+          </p>
+        </div>
+        <p class="stat-value" style="font-size:56px;margin:0;">47</p>
+        <p style="font-size:var(--text-sm);color:var(--color-text-secondary);margin:0;line-height:1.5;">
+          Countries with active deployments, expanding into 12 new markets this quarter
+        </p>
+      </div>
+      -->
+
+      <!--
+      ═══ ADATTA: metrica 4 (opzionale) — decommenta e cambia grid a z-grid-quarters ═══
+      <div class="slide-card" style="padding:28px;display:flex;flex-direction:column;gap:12px;">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div class="icon-circle-muted" style="width:40px;height:40px;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            </svg>
+          </div>
+          <p style="font-size:var(--text-sm);color:var(--color-text-secondary);margin:0;text-transform:uppercase;letter-spacing:0.05em;">
+            Retention Rate
+          </p>
+        </div>
+        <p class="stat-value" style="font-size:56px;margin:0;">96%</p>
+        <p style="font-size:var(--text-sm);color:var(--color-text-secondary);margin:0;line-height:1.5;">
+          Enterprise customer retention maintained above industry benchmark for 8 consecutive quarters
+        </p>
+      </div>
+      -->
+
+    </div>
+
+    <!-- ═══ FISSO: footer zone ═══ -->
+    <div class="z-footer" style="display:flex;justify-content:flex-end;align-items:center;margin-top:auto;">
+      <p style="font-size:var(--text-xs);color:var(--color-text-secondary);margin:0;font-family:var(--font-mono);">
+        <!-- ≈≈≈ ADATTA: page number ≈≈≈ -->
+        03
+      </p>
+    </div>
+  </div>
+
+  <!-- ═══ FISSO: frame decorations ═══ -->
+  <div class="deco-stripe-top" style="position:absolute;top:0;left:0;right:0;z-index:10;"></div>
+  <div class="deco-bracket-tr" style="z-index:10;"></div>
+  <div class="deco-bracket-bl" style="z-index:10;"></div>
+
+</body>
+</html>

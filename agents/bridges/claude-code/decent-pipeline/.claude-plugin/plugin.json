@@ -1,0 +1,8 @@
+{
+  "name": "decent-pipeline",
+  "version": "1.0.0",
+  "description": "Pipeline agents bridged from OpenCode (decent-pipeline)",
+  "author": {
+    "name": "Lorenzo Cancellara"
+  }
+}

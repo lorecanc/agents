@@ -1,0 +1,51 @@
+{
+  "version": 2,
+  "target": "claude",
+  "pluginName": "decent-pipeline",
+  "prefix": "copilot-pipeline-",
+  "sourceDir": "general",
+  "inference": true,
+  "defaultTier": "execution",
+  "tiers": {
+    "planning": {
+      "description": "Agents that reason, plan and review",
+      "claude": {
+        "model": "opus"
+      },
+      "codex": {
+        "model": "gpt-5.6-sol",
+        "reasoningEffort": "high"
+      }
+    },
+    "execution": {
+      "description": "Agents that execute tasks, cheaper and faster",
+      "claude": {
+        "model": "sonnet"
+      },
+      "codex": {
+        "model": "gpt-5.6-luna",
+        "reasoningEffort": "max"
+      }
+    }
+  },
+  "roles": {
+    "orchestrator": "planning",
+    "planner": "planning",
+    "reasoner": "planning",
+    "critic": "planning",
+    "code_reviewer": "planning",
+    "executor": "execution",
+    "explorer": "execution",
+    "refactorer": "execution",
+    "tester": "execution",
+    "fast_lane": "execution"
+  },
+  "claude": {
+    "overrides": {}
+  },
+  "codex": {
+    "overrides": {},
+    "emitSkills": true,
+    "emitReadme": true
+  }
+}

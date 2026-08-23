@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<!--
+TEMPLATE: cover_hero
+Role: cover
+Grid: z-grid-full
+Variants: dark base (default), light base for minimal covers
+Items: hero image (required) + title + subtitle + optional kicker
+Composition: preset-agnostic (deco-* classes resolve via _preset.css)
+
+FISSO zones are structural — do NOT modify grid, zone heights, decoration positions, spacing.
+ADATTA zones are content — replace placeholder text, choose images, adjust per-item colors.
+-->
+<html>
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="./_theme.css">
+  <link rel="stylesheet" href="./_preset.css">
+  {{GOOGLE_FONTS_CDN}}
+  <style>
+    .hero-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(0,0,0,0.45);
+    }
+  </style>
+</head>
+<body style="width:1280px;height:720px;margin:0;padding:0;overflow:hidden;">
+
+  <!-- ═══ FISSO: background layers ═══ -->
+  <div class="z-bg">
+    <!-- ≈≈≈ ADATTA: hero image — sostituisci con immagine reale ./assets/hero.png ≈≈≈ -->
+    <img src="./assets/hero_cover.png" alt="" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:0;">
+    <div class="z-bg-layer z-bg-gradient hero-overlay"></div>
+    <div class="z-bg-layer z-bg-deco">
+      <div class="deco-orb deco-orb-lg" style="top:-100px;right:-80px;background:var(--color-accent);"></div>
+    </div>
+  </div>
+
+  <!-- ═══ FISSO: safe content area ═══ -->
+  <div class="z-safe z-content" style="display:flex;flex-direction:column;justify-content:flex-end;">
+
+    <!-- ≈≈≈ ADATTA: kicker — max 3 parole, opzionale (rimuovi se non serve) ≈≈≈ -->
+    <!-- Esempio densità corretta: "STRATEGIC OUTLOOK" -->
+    <div style="margin-bottom:12px;">
+      <span class="slide-badge" style="color:#fff;background:rgba(255,255,255,0.15);font-size:var(--text-xs);letter-spacing:0.12em;text-transform:uppercase;padding:6px 16px;border-radius:var(--radius-full);">STRATEGIC OUTLOOK 2026</span>
+    </div>
+
+    <!-- ≈≈≈ ADATTA: title — max 8 parole ≈≈≈ -->
+    <!-- Esempio densità corretta: "The Future of Digital Innovation" (6 parole) -->
+    <h1 class="display" style="font-size:56px;font-weight:700;line-height:1.1;color:#fff;margin:0 0 16px 0;max-width:900px;">
+      The Future of Digital Innovation
+    </h1>
+
+    <!-- ≈≈≈ ADATTA: subtitle — max 15 parole ≈≈≈ -->
+    <!-- Esempio densità corretta: "Transforming industries through AI-driven strategies" (6 parole) -->
+    <p style="font-size:var(--text-lg);color:rgba(255,255,255,0.8);margin:0;max-width:700px;font-family:var(--font-body);">
+      Transforming industries through AI-driven strategies and sustainable growth
+    </p>
+
+    <!-- ═══ FISSO: footer zone ═══ -->
+    <div class="z-footer" style="display:flex;justify-content:space-between;align-items:center;margin-top:auto;padding-top:24px;">
+      <div class="section-divider" style="background:rgba(255,255,255,0.2);"></div>
+      <p style="font-size:var(--text-xs);color:rgba(255,255,255,0.5);margin:0;font-family:var(--font-mono);">
+        <!-- ≈≈≈ ADATTA: organization name — max 3 parole ≈≈≈ -->
+        OpenCode Solutions
+      </p>
+    </div>
+  </div>
+
+  <!-- ═══ FISSO: frame decorations ═══ -->
+  <div class="deco-stripe-top" style="position:absolute;top:0;left:0;right:0;z-index:10;"></div>
+  <div class="deco-bracket-bl" style="z-index:10;"></div>
+  <div class="deco-bracket-br" style="z-index:10;"></div>
+
+</body>
+</html>

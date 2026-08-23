@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<!--
+TEMPLATE: content_two_col
+Role: content
+Grid: z-grid-split
+Variants: surface base (default), dark base for emphasis
+Items: 1-3 content blocks per column
+Composition: preset-agnostic (deco-* classes resolve via _preset.css)
+
+FISSO zones are structural — do NOT modify grid, zone heights, decoration positions, spacing.
+ADATTA zones are content — replace placeholder text, choose icons, adjust per-item colors.
+-->
+<html>
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="./_theme.css">
+  <link rel="stylesheet" href="./_preset.css">
+  {{GOOGLE_FONTS_CDN}}
+</head>
+<body style="width:1280px;height:720px;margin:0;padding:0;overflow:hidden;">
+
+  <!-- ═══ FISSO: background layers ═══ -->
+  <div class="z-bg">
+    <div class="z-bg-layer z-bg-pattern deco-pattern-dots"></div>
+  </div>
+
+  <!-- ═══ FISSO: safe content area ═══ -->
+  <div class="z-safe z-content" style="display:flex;flex-direction:column;">
+
+    <!-- ═══ FISSO: header zone — altezza 96px ═══ -->
+    <div class="z-header" style="display:flex;flex-direction:column;justify-content:center;gap:6px;">
+      <!-- ≈≈≈ ADATTA: kicker — max 4 parole, opzionale ≈≈≈ -->
+      <!-- Esempio densità: "MARKET ANALYSIS" -->
+      <p class="kicker" style="margin:0;">MARKET ANALYSIS</p>
+      <!-- ≈≈≈ ADATTA: title — max 10 parole ≈≈≈ -->
+      <!-- Esempio densità: "Key Drivers of Industry Growth" (6 parole) -->
+      <h2 class="h-md" style="margin:0;">
+        Key Drivers of Industry Growth
+      </h2>
+    </div>
+
+    <!-- ═══ FISSO: divider sotto header ═══ -->
+    <div class="section-divider-accent" style="margin:0 0 24px 0;"></div>
+
+    <!-- ═══ FISSO: body zone con grid split ═══ -->
+    <div class="z-body z-grid-split" style="display:flex;gap:24px;align-content:start;">
+
+      <!-- ≈≈≈ ADATTA: colonna sinistra — contenuto libero ≈≈≈ -->
+      <!-- Layout consigliato: heading + 2-3 paragrafi OPPURE cards con accent-bar-top -->
+      <div style="display:flex;flex-direction:column;gap:20px;">
+        <div class="slide-card accent-bar-top" style="padding:20px;">
+          <h3 class="h-sm" style="margin:0 0 12px 0;">
+            <!-- ≈≈≈ ADATTA: heading card 1 — max 6 parole ≈≈≈ -->
+            <!-- Esempio: "Technology Adoption" (2 parole) -->
+            Technology Adoption
+          </h3>
+          <p style="font-size:var(--text-sm);color:var(--color-text-secondary);margin:0 0 8px 0;line-height:1.6;">
+            <!-- ≈≈≈ ADATTA: corpo card 1 — max 80 parole ≈≈≈ -->
+            <!-- Esempio densità: 2 frasi sostanziali -->
+            Organizations that embrace emerging technologies see a 40% increase in operational efficiency. Cloud infrastructure, AI-powered analytics, and automation tools are driving the next wave of productivity gains across all sectors.
+          </p>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
+            <div class="icon-circle-accent" style="width:28px;height:28px;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12">
+                <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/>
+                <polyline points="17 6 23 6 23 12"/>
+              </svg>
+            </div>
+            <span class="stat-desc" style="margin:0;">
+              <!-- ≈≈≈ ADATTA: label card 1 — max 5 parole ≈≈≈ -->
+              340% growth in 2024
+            </span>
+          </div>
+        </div>
+        <div class="slide-card accent-bar-top" style="padding:20px;">
+          <h3 class="h-sm" style="margin:0 0 12px 0;">
+            <!-- ≈≈≈ ADATTA: heading card 2 — max 6 parole ≈≈≈ -->
+            Strategic Partnerships
+          </h3>
+          <p style="font-size:var(--text-sm);color:var(--color-text-secondary);margin:0 0 8px 0;line-height:1.6;">
+            <!-- ≈≈≈ ADATTA: corpo card 2 — max 80 parole ≈≈≈ -->
+            Cross-industry collaborations have unlocked new revenue streams worth $2.4B annually. Joint ventures between technology providers and traditional enterprises accelerate market penetration and reduce time-to-value.
+          </p>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
+            <div class="icon-circle-muted" style="width:28px;height:28px;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12">
+                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+                <circle cx="9" cy="7" r="4"/>
+                <path d="M22 21v-2a4 4 0 0 0-3-3.87"/>
+                <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+              </svg>
+            </div>
+            <span class="stat-desc" style="margin:0;">
+              <!-- ≈≈≈ ADATTA: label card 2 — max 5 parole ≈≈≈ -->
+              $2.4B annual revenue
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ≈≈≈ ADATTA: colonna destra — contenuto libero ≈≈≈ -->
+      <!-- Layout alternativo: heading + paragrafi liberi OPPURE lista con icone -->
+      <div style="display:flex;flex-direction:column;gap:16px;">
+        <h3 class="h-sm" style="margin:0;">
+          <!-- ≈≈≈ ADATTA: heading colonna destra — max 6 parole ≈≈≈ -->
+          Regional Performance
+        </h3>
+        <p style="font-size:var(--text-sm);color:var(--color-text-secondary);margin:0;line-height:1.6;">
+          <!-- ≈≈≈ ADATTA: paragrafo introduttivo — max 40 parole ≈≈≈ -->
+          Market dynamics vary significantly by region, with emerging markets showing the strongest growth trajectories in the past fiscal year.
+        </p>
+        <!-- ≈≈≈ ADATTA: lista items — 3-5 elementi, ognuno con titolo + 1 frase ≈≈≈ -->
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          <div class="timeline-node">
+            <div class="icon-circle-accent" style="width:32px;height:32px;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="2" y1="12" x2="22" y2="12"/>
+                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+              </svg>
+            </div>
+            <div>
+              <p style="font-weight:600;margin:0 0 2px 0;font-size:var(--text-sm);">Asia-Pacific</p>
+              <p style="color:var(--color-text-secondary);margin:0;font-size:var(--text-xs);">Led global growth with 28% increase in digital adoption</p>
+            </div>
+          </div>
+          <div class="timeline-node">
+            <div class="icon-circle-muted" style="width:32px;height:32px;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
+                <line x1="18" y1="20" x2="18" y2="10"/>
+                <line x1="12" y1="20" x2="12" y2="4"/>
+                <line x1="6" y1="20" x2="6" y2="14"/>
+              </svg>
+            </div>
+            <div>
+              <p style="font-weight:600;margin:0 0 2px 0;font-size:var(--text-sm);">North America</p>
+              <p style="color:var(--color-text-secondary);margin:0;font-size:var(--text-xs);">Maintained steady 12% growth driven by enterprise SaaS</p>
+            </div>
+          </div>
+          <div class="timeline-node">
+            <div class="icon-circle-muted" style="width:32px;height:32px;border:1px solid var(--color-border);">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" style="color:var(--color-accent);">
+                <path d="M12 5a7 7 0 0 1 7 7c0 2.5-1 4.5-2 5.5-1 .8-2.5 1-5 1h-4"/>
+                <path d="M8 18c-3-1-5-3-5-6"/>
+                <path d="M12 17v4"/>
+                <path d="M8 22h8"/>
+              </svg>
+            </div>
+            <div>
+              <p style="font-weight:600;margin:0 0 2px 0;font-size:var(--text-sm);">Europe</p>
+              <p style="color:var(--color-text-secondary);margin:0;font-size:var(--text-xs);">Regulatory clarity accelerated fintech investments by 19%</p>
+            </div>
+          </div>
+          <div class="timeline-node">
+            <div class="icon-circle-muted" style="width:32px;height:32px;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
+                <path d="M15.5 9.5l-3.5-4-3.5 4"/>
+                <rect x="8" y="4" width="8" height="5" rx="1"/>
+                <path d="M8 11h8v8a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2z"/>
+                <circle cx="12" cy="15" r="1"/>
+              </svg>
+            </div>
+            <div>
+              <p style="font-weight:600;margin:0 0 2px 0;font-size:var(--text-sm);">Latin America</p>
+              <p style="color:var(--color-text-secondary);margin:0;font-size:var(--text-xs);">Emerging as a high-growth market with 34% mobile-first adoption</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ═══ FISSO: footer zone ═══ -->
+    <div class="z-footer" style="display:flex;justify-content:flex-end;align-items:center;margin-top:auto;">
+      <p style="font-size:var(--text-xs);color:var(--color-text-secondary);margin:0;font-family:var(--font-mono);">
+        <!-- ≈≈≈ ADATTA: page number ≈≈≈ -->
+        02
+      </p>
+    </div>
+  </div>
+
+  <!-- ═══ FISSO: frame decorations ═══ -->
+  <div class="deco-stripe-left" style="position:absolute;top:0;left:0;bottom:0;z-index:10;"></div>
+
+</body>
+</html>

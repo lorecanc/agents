@@ -1,0 +1,52 @@
+{
+  "mcpServers": {
+    "chrome-devtools": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "chrome-devtools-mcp@latest"
+      ]
+    },
+    "codebase-memory-mcp": {
+      "command": "codebase-memory-mcp"
+    },
+    "shadcn": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "shadcn@latest",
+        "mcp"
+      ]
+    },
+    "magic": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@21st-dev/magic@latest"
+      ],
+      "env": {
+        "API_KEY": "${TWENTYFIRST_API_KEY}"
+      }
+    },
+    "cupertino": {
+      "command": "cupertino",
+      "args": [
+        "serve"
+      ]
+    },
+    "axiom": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "axiom-mcp"
+      ]
+    },
+    "cwe-search": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "cwe-search-mcp@latest"
+      ]
+    }
+  }
+}

@@ -1,0 +1,20 @@
+# macOS
+.DS_Store
+
+# Node/Bun
+manage-agents/node_modules/
+manage-agents/dist/
+manage-agents/*.log
+agents/**/node_modules/
+agents/**/dist/
+
+# Generated agent workspace artifacts
+agents/backups/
+agents/.tmp/
+*.swp
+*.swo
+*~
+
+# Python caches
+__pycache__/
+*.pyc

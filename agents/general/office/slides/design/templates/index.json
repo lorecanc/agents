@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "description": "Layout templates for the standard slide pipeline. Each template is a complete HTML document with FISSO (fixed structure) and ADATTA (adaptable content) zones. Templates are preset-agnostic — they use z-* grid/layer classes from _theme.css and deco-* decoration classes from _preset.css.",
+  "templates": {
+    "cover_hero": {
+      "file": "cover_hero.html",
+      "role": "cover",
+      "grid": "z-grid-full",
+      "description": "Full-bleed background image with centered title overlay and optional kicker. Best for impactful opening slides.",
+      "items_range": null,
+      "variants": "dark base (default), light base for minimal covers",
+      "advice": "Always pair with a strong hero image or generated background. Title should be 4-8 words."
+    },
+    "content_two_col": {
+      "file": "content_two_col.html",
+      "role": "content",
+      "grid": "z-grid-split",
+      "description": "Header with kicker + title, then two equal columns for text, lists, or cards. The workhorse template.",
+      "items_range": "1-3 content blocks per column",
+      "variants": "surface base (default), dark base for emphasis",
+      "advice": "Each column can hold different content types: text + cards, text + list, image + text. Keep both columns balanced in visual weight."
+    },
+    "data_metrics": {
+      "file": "data_metrics.html",
+      "role": "data",
+      "grid": "z-grid-split",
+      "description": "Header with kicker + title, then 2-4 large metric cards with stat values, descriptions, and icons.",
+      "items_range": "2-4 metrics",
+      "variants": "surface base (default), dark base for section data, accent base for emphasis",
+      "advice": "Grid adapts: z-grid-split for 2 metrics, z-grid-thirds for 3, z-grid-quarters for 4. Each metric should have a stat value, label, and 1-line description."
+    }
+  }
+}
