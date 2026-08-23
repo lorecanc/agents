@@ -82,7 +82,7 @@ export default tool({
 
     return new Promise((resolve, reject) => {
       const proc = spawn(
-        "node",
+        process.execPath,
         [
           runnerJs,
           "--output", outputPath,

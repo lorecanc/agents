@@ -1,6 +1,6 @@
 import { execSync } from "node:child_process"
 
-const FALLBACK_MODELS = [
+export const FALLBACK_MODELS = [
   "opencode/big-pickle",
   "opencode/deepseek-v4-flash-free",
   "opencode/hy3-free",

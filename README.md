@@ -54,7 +54,7 @@ cd ..
 node manage-agents/manage-agents.mjs
 ```
 
-The launcher adds `--experimental-ffi` automatically when it re-executes Node.
+On Node.js `>= 26.1.0`, `manage-agents.mjs` re-executes Node with `--experimental-ffi` automatically.
 
 ### Windows
 

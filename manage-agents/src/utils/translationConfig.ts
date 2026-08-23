@@ -67,6 +67,15 @@ export const DEFAULT_TRANSLATION_CONFIG: TranslationConfig = {
   codex: { overrides: {}, emitSkills: true, emitReadme: true }
 }
 
+/** Default author name stamped into generated plugin manifests and READMEs. */
+export const DEFAULT_AUTHOR_NAME = "Lorenzo Cancellara"
+
+/** Resolve the author name for generated artifacts (AGENT_AUTHOR_NAME overrides the default). */
+export function authorName(env: NodeJS.ProcessEnv = process.env): string {
+  const override = env.AGENT_AUTHOR_NAME?.trim()
+  return override || DEFAULT_AUTHOR_NAME
+}
+
 export function translationConfigPath(workspaceRoot: string): string {
   return path.join(workspaceRoot, ".agent-manager", "translation-config.json")
 }

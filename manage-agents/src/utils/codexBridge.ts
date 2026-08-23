@@ -1,7 +1,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import type { AgentInfo } from "./agents.js"
-import { buildInferenceIndex, DEFAULT_TRANSLATION_CONFIG, resolveModelTarget } from "./translationConfig.js"
+import { buildInferenceIndex, DEFAULT_TRANSLATION_CONFIG, resolveModelTarget, authorName } from "./translationConfig.js"
 import type { TranslationConfig } from "./translationConfig.js"
 
 type ResolvedModelTarget = ReturnType<typeof resolveModelTarget>
@@ -243,12 +243,12 @@ function renderManifest(plugin: CodexPlugin, emitSkills: boolean, emitMcp: boole
     name: plugin.pluginName,
     version: "1.0.0",
     description: "Translated Codex agents and skills generated from the source pipeline.",
-    author: { name: "Lorenzo Cancellara" },
+    author: { name: authorName() },
     interface: {
       displayName: plugin.pluginName,
       shortDescription: "Translated pipeline skills and Codex agent configuration.",
       longDescription: "A generated translation layer that preserves the Copilot pipeline routing while applying the configured Sol/Luna model policy.",
-      developerName: "Lorenzo Cancellara",
+      developerName: authorName(),
       category: "Developer Tools",
       capabilities: emitSkills ? ["Skills", "Subagents"] : ["Subagents"],
       defaultPrompt: ["Use the translated pipeline agents and skills for this task."]
@@ -364,6 +364,8 @@ function renderReadme(plugin: CodexPlugin, warnings: string[], mcpConfig: Record
     "- `.codex/agents/` — project-scoped Codex subagent definitions.",
     plugin.skills.length > 0 ? "- `skills/` — plugin skills containing translated instructions." : "",
     "",
+    "Note: custom prompts in `~/.codex/prompts` are deprecated; prefer skills such as the ones generated here.",
+    "",
     ...renderCodexMcpSetup(mcpConfig),
     `Primary agent: ${plugin.orchestratorName ? `@${plugin.orchestratorName}` : "(none detected)"}`,
     ""
@@ -403,7 +405,22 @@ export function writeCodexPlugin(
   warnings.push(...mcpResult.warnings)
   const plugin = buildPlugin(translatedAgents, normalizedPluginName, emitSkills)
 
-  const pluginDir = path.resolve(outputDir)
+  let pluginDir = path.resolve(outputDir)
+  if (workspaceRoot) {
+    // Mirror writeClaudeCodePlugin: resolve symlinks through the nearest
+    // existing ancestor so the containment check cannot be fooled by links.
+    let existingAncestor = pluginDir
+    const remaining: string[] = []
+    while (!fs.existsSync(existingAncestor)) {
+      remaining.unshift(path.basename(existingAncestor))
+      existingAncestor = path.dirname(existingAncestor)
+    }
+    pluginDir = path.join(fs.realpathSync(existingAncestor), ...remaining)
+    const relativeOutputDir = path.relative(fs.realpathSync(workspaceRoot), pluginDir)
+    if (relativeOutputDir.startsWith("..") || path.isAbsolute(relativeOutputDir)) {
+      throw new Error(`Invalid plugin output path outside workspace: ${outputDir}`)
+    }
+  }
   const codexAgentsDir = path.join(pluginDir, ".codex", "agents")
   const manifestDir = path.join(pluginDir, ".codex-plugin")
   fs.mkdirSync(codexAgentsDir, { recursive: true })

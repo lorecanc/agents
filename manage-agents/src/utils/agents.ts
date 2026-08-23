@@ -9,6 +9,18 @@ function isValidFrontmatter(v: unknown): v is Record<string, any> {
   return typeof v === "object" && v !== null && !Array.isArray(v) && Object.keys(v).length > 0
 }
 
+const FRONTMATTER_RE = /^---[ \t]*\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/
+
+/**
+ * Extract YAML frontmatter from agent file content, tolerating CRLF line endings.
+ * Returns yamlText=null (and body=content) when no frontmatter block is present.
+ */
+export function extractFrontmatter(content: string): { yamlText: string | null; body: string } {
+  const match = content.match(FRONTMATTER_RE)
+  if (!match) return { yamlText: null, body: content }
+  return { yamlText: match[1], body: content.substring(match[0].length) }
+}
+
 export interface AgentInfo {
   filename: string
   currentPath: string
@@ -342,8 +354,6 @@ export function auditSecurityPermissions(agents: AgentInfo[]) {
 }
 
 /**
- * Analyzes an agent filename against the naming convention:
-/**
  * Computes recurring prefixes across filenames to identify known categories or family-category pairs.
  * E.g., 'copilot-pipeline', 'go-pipeline', 'slides', 'docs', 'wiki'.
  */
@@ -484,15 +494,15 @@ export function renameAgent(
     const content = fs.readFileSync(readPath, "utf-8")
     if (!content.includes(oldNameNoExt)) continue
 
-    const frontmatterMatch = content.match(/^---\s*\n([\s\S]*?)\n---(?:\n|$)/)
-    if (!frontmatterMatch) {
+    const { yamlText, body } = extractFrontmatter(content)
+    if (yamlText === null) {
       skipped.push(path.basename(filePath))
       continue
     }
 
     let frontmatter: Record<string, any>
     try {
-      const parsed = YAML.parse(frontmatterMatch[1])
+      const parsed = YAML.parse(yamlText)
       if (!isValidFrontmatter(parsed)) {
         skipped.push(path.basename(filePath))
         continue
@@ -502,7 +512,6 @@ export function renameAgent(
       skipped.push(path.basename(filePath))
       continue
     }
-    const body = content.substring(frontmatterMatch[0].length)
 
     let modified = false
     const taskPerm = frontmatter.permission?.task
@@ -698,19 +707,16 @@ export function parseAgentFile(filePath: string, workspaceRoot: string): AgentIn
   let frontmatter: Record<string, any> = {}
   let body = content
 
-  if (content.startsWith("---")) {
-    const endOfFrontmatter = content.indexOf("---", 3)
-    if (endOfFrontmatter !== -1) {
-      const yamlText = content.substring(3, endOfFrontmatter).trim()
-      body = content.substring(endOfFrontmatter + 3)
-      try {
-        const parsed = YAML.parse(yamlText)
-        if (isValidFrontmatter(parsed)) {
-          frontmatter = parsed
-        }
-      } catch (e) {
-        console.error(`YAML parsing error in ${filePath}:`, e)
+  const { yamlText, body: contentBody } = extractFrontmatter(content)
+  if (yamlText !== null) {
+    body = contentBody
+    try {
+      const parsed = YAML.parse(yamlText)
+      if (isValidFrontmatter(parsed)) {
+        frontmatter = parsed
       }
+    } catch (e) {
+      console.error(`YAML parsing error in ${filePath}:`, e)
     }
   }
 
@@ -805,6 +811,14 @@ export function createBackup(workspaceRoot: string): string | null {
 }
 
 /**
+ * True when the path points inside a `general/agents` directory
+ * (separator-agnostic, so it works with POSIX and Windows paths).
+ */
+export function isInGeneralAgents(p: string): boolean {
+  return /(^|[/\\])general[/\\]agents([/\\]|$)/.test(p)
+}
+
+/**
  * Reorganize agents by copying them to their corresponding category directory
  * and adding/updating the "category" key in the copy's frontmatter.
  */
@@ -815,18 +829,18 @@ export function organizeAgents(workspaceRoot: string, agents: AgentInfo[]): { co
   const copied: string[] = []
   const skipped: string[] = []
   for (const agent of agents) {
-    const isOriginal = agent.currentPath.includes("general/agents")
+    const isOriginal = isInGeneralAgents(agent.currentPath)
     const isAtTarget = agent.currentPath === agent.targetPath
 
     if (isOriginal && !isAtTarget) {
       const sourceContent = fs.readFileSync(agent.currentPath, "utf-8")
-      const sourceMatch = sourceContent.match(/^---\s*\n([\s\S]*?)\n---(?:\n|$)/)
-      if (!sourceMatch) {
+      const { yamlText } = extractFrontmatter(sourceContent)
+      if (yamlText === null) {
         skipped.push(agent.filename)
         continue
       }
       try {
-        if (!isValidFrontmatter(YAML.parse(sourceMatch[1]))) {
+        if (!isValidFrontmatter(YAML.parse(yamlText))) {
           skipped.push(agent.filename)
           continue
         }
@@ -904,7 +918,7 @@ export function forkCategory(
   // Find all agents under general/agents/ belonging to sourceCategory
   const allAgents = findAgentFiles(workspaceRoot, "general")
   let sourceAgents = allAgents.filter(
-    (agent) => agent.category === sourceCategory && agent.currentPath.includes("general/agents")
+    (agent) => agent.category === sourceCategory && isInGeneralAgents(agent.currentPath)
   )
 
   // If specific files are selected, only fork those selected files
@@ -947,20 +961,18 @@ export function forkCategory(
 
     // Parse the updated content to frontmatter and body
     let frontmatter: Record<string, any>
-    let body = updatedContent
+    const { yamlText, body } = extractFrontmatter(updatedContent)
 
-    const frontmatterMatch = updatedContent.match(/^---\s*\n([\s\S]*?)\n---(?:\n|$)/)
-    if (!frontmatterMatch) {
+    if (yamlText === null) {
       skipped.push(filename)
       continue
     }
     try {
-      frontmatter = YAML.parse(frontmatterMatch[1])
+      frontmatter = YAML.parse(yamlText)
       if (!isValidFrontmatter(frontmatter)) {
         skipped.push(filename)
         continue
       }
-      body = updatedContent.substring(frontmatterMatch[0].length)
     } catch (e) {
       skipped.push(filename)
       continue

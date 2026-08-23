@@ -4,7 +4,9 @@ import os from "node:os"
 import path from "node:path"
 import test from "node:test"
 import {
+  DEFAULT_AUTHOR_NAME,
   DEFAULT_TRANSLATION_CONFIG,
+  authorName,
   buildInferenceIndex,
   loadTranslationConfig,
   normalizeAgentName,
@@ -23,6 +25,14 @@ test("translation defaults define the planning and execution roles", () => {
   assert.deepEqual(DEFAULT_TRANSLATION_CONFIG.tiers.planning.codex, { model: "gpt-5.6-sol", reasoningEffort: "high" })
   assert.equal(DEFAULT_TRANSLATION_CONFIG.tiers.execution.claude.model, "sonnet")
   assert.deepEqual(DEFAULT_TRANSLATION_CONFIG.tiers.execution.codex, { model: "gpt-5.6-luna", reasoningEffort: "max" })
+})
+
+test("authorName falls back to the default and honors AGENT_AUTHOR_NAME", () => {
+  assert.equal(DEFAULT_AUTHOR_NAME, "Lorenzo Cancellara")
+  assert.equal(authorName({}), DEFAULT_AUTHOR_NAME)
+  assert.equal(authorName({ AGENT_AUTHOR_NAME: "Ada Lovelace" }), "Ada Lovelace")
+  assert.equal(authorName({ AGENT_AUTHOR_NAME: "  Grace Hopper  " }), "Grace Hopper")
+  assert.equal(authorName({ AGENT_AUTHOR_NAME: "   " }), DEFAULT_AUTHOR_NAME)
 })
 
 test("agent names normalize extensions, prefixes and case", () => {

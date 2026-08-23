@@ -38,5 +38,5 @@ Why no broader change was needed.
 - Test/check, or "not run" with reason.
 
 ## Escalation
-If needed: `@explorer`, `@planner`, or `@reasoner`.
+If needed: `@decent-pipeline:explorer`, `@decent-pipeline:planner`, or `@decent-pipeline:reasoner`.
 ```

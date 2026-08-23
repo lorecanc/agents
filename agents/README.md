@@ -15,7 +15,7 @@ agents/
 ├── categories/       # Category-organized agent mirrors
 ├── bridges/          # Claude Code and Codex translation layers
 ├── docs/             # OpenCode and MCP documentation
-├── wiki/             # Agent-workspace documentation
+├── wiki-generator/  # Wiki generation and update agents
 └── .agent-manager/   # Translation tiers, roles, and overrides
 ```
 
@@ -43,8 +43,6 @@ The blueprint is portable across macOS, Linux, Windows/WSL, and selectively disa
 - `categories/` contains organized copies used for browsing and category-specific workflows.
 - `bridges/claude-code/` and `bridges/codex/` contain generated translation layers.
 - `.agent-manager/translation-config.json` defines target models, tiers, roles, overrides, and bridge output settings.
-
-The translation configuration and model-resolution rules are documented in [`wiki/config/translation-config.md`](wiki/config/translation-config.md). The catalog structure and generated artifacts are described in [`wiki/modules/pipeline-catalogs.md`](wiki/modules/pipeline-catalogs.md).
 
 ## Manager
 

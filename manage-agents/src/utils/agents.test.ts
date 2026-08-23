@@ -3,7 +3,7 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import test from "node:test"
-import { getExportDestination, parseAgentFile, saveAgentFile } from "./agents.js"
+import { extractFrontmatter, getExportDestination, isInGeneralAgents, parseAgentFile, saveAgentFile } from "./agents.js"
 
 test("agent save is idempotent and keeps one blank line after frontmatter", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "agent-save-workspace-"))
@@ -69,4 +69,91 @@ test("export destination does not depend on directory existence", (t) => {
   assert.equal(getExportDestination({}), expected)
   fs.mkdirSync(expected, { recursive: true })
   assert.equal(getExportDestination({}), expected)
+})
+
+test("isInGeneralAgents accepts POSIX, Windows and mixed separators", () => {
+  assert.equal(isInGeneralAgents("/w/general/agents/x.md"), true)
+  assert.equal(isInGeneralAgents("C:\\repo\\general\\agents\\x.md"), true)
+  assert.equal(isInGeneralAgents("/w/general\\agents/x.md"), true)
+})
+
+test("isInGeneralAgents rejects suffix traps and unrelated directories", () => {
+  assert.equal(isInGeneralAgents("/w/general/agents-old/x.md"), false)
+  assert.equal(isInGeneralAgents("/w/categories/pipeline/x.md"), false)
+})
+
+test("extractFrontmatter splits LF frontmatter from body", () => {
+  const content = "---\ndescription: X\n---\n\nBody line\n"
+  const { yamlText, body } = extractFrontmatter(content)
+  assert.equal(yamlText, "description: X")
+  assert.equal(body, "\nBody line\n")
+})
+
+test("extractFrontmatter tolerates CRLF line endings", () => {
+  const content = "---\r\ndescription: X\r\n---\r\n\r\nBody\r\n"
+  const { yamlText, body } = extractFrontmatter(content)
+  assert.equal(yamlText, "description: X")
+  assert.equal(body, "\r\nBody\r\n")
+})
+
+test("extractFrontmatter returns null yamlText when the closer is missing", () => {
+  const content = "---\ndescription: X\nno closing fence"
+  const { yamlText, body } = extractFrontmatter(content)
+  assert.equal(yamlText, null)
+  assert.equal(body, content)
+})
+
+test("extractFrontmatter returns null yamlText when text precedes the opening fence", () => {
+  const content = "intro text\n---\ndescription: X\n---\nbody"
+  const { yamlText, body } = extractFrontmatter(content)
+  assert.equal(yamlText, null)
+  assert.equal(body, content)
+})
+
+test("extractFrontmatter does not mis-split on a literal --- inside a YAML value", () => {
+  const content = [
+    "---",
+    "description: Multi",
+    "note: |",
+    "  ---",
+    "  still value",
+    "---",
+    "",
+    "body"
+  ].join("\n")
+  const { yamlText, body } = extractFrontmatter(content)
+  assert.equal(yamlText, "description: Multi\nnote: |\n  ---\n  still value")
+  assert.equal(body, "\nbody")
+})
+
+test("extractFrontmatter keeps --- separators inside the body intact", () => {
+  const content = "---\nkey: value\n---\n\npara\n\n---\n\nafter-hr\n"
+  const { yamlText, body } = extractFrontmatter(content)
+  assert.equal(yamlText, "key: value")
+  assert.equal(body, "\npara\n\n---\n\nafter-hr\n")
+})
+
+test("parseAgentFile parses frontmatter fields from a CRLF agent file", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "agent-crlf-"))
+  const filePath = path.join(workspace, "general", "agents", "crlf-agent.md")
+  fs.mkdirSync(path.dirname(filePath), { recursive: true })
+  fs.writeFileSync(filePath, [
+    "---",
+    "description: CRLF agent",
+    "model: crlf/model",
+    "permission:",
+    "  task:",
+    '    "*": deny',
+    "    helper_agent: allow",
+    "---",
+    "",
+    "# CRLF Body"
+  ].join("\r\n"))
+
+  const parsed = parseAgentFile(filePath, workspace)
+  assert.ok(parsed)
+  assert.equal(parsed.description, "CRLF agent")
+  assert.equal(parsed.model, "crlf/model")
+  assert.deepEqual(parsed.allowedSubagents, ["helper_agent"])
+  assert.match(parsed.body, /# CRLF Body/)
 })

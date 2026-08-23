@@ -2,10 +2,11 @@ import { createCliRenderer } from "@opentui/core"
 import { createRoot } from "@opentui/react"
 import React from "react"
 import fs from "node:fs"
+import os from "node:os"
 import path from "node:path"
 import readline from "node:readline"
 import { App } from "./App.js"
-import { fetchModels } from "./utils/models.js"
+import { fetchModels, FALLBACK_MODELS } from "./utils/models.js"
 import { exportAgents, getExportDestination, analyzeAgentName, renameAgent, auditSecurityPermissions, importAgents, updateAgentParams, sanitizeFilename } from "./utils/agents.js"
 import {
   DEFAULT_TRANSLATION_CONFIG,
@@ -27,6 +28,13 @@ function askQuestion(query: string): Promise<string> {
       resolve(answer.trim())
     })
   )
+}
+
+/** Shorten the user's home directory prefix to `~` for display. */
+function shortenHome(p: string): string {
+  const home = os.homedir()
+  if (!home || home === path.sep) return p
+  return p === home ? "~" : p.startsWith(home + path.sep) ? "~" + p.slice(home.length) : p
 }
 
 async function runCreate(agentNameArg: string | undefined, workspaceRoot: string) {
@@ -71,13 +79,7 @@ async function runCreate(agentNameArg: string | undefined, workspaceRoot: string
   try {
     models = fetchModels()
   } catch (e) {
-    models = [
-      "opencode-o/qwen3.7-plus",
-      "opencode-o/gpt-5.4-mini",
-      "opencode-o/claude-4.2-sonnet",
-      "vertex-ai/gemini-2.5-pro",
-      "vertex-ai/gemini-2.5-flash"
-    ]
+    models = FALLBACK_MODELS
   }
 
   console.log("\n🤖 Select an LLM model:")
@@ -261,7 +263,7 @@ Options:
   let orchestratorName = "orchestrator"
   if (target === "codex") {
     const { bridgeToCodex } = await import("./utils/codexBridge.js")
-    const codexResult = bridgeToCodex(categoryAgents, safePluginName, prefix, outputDir, { ...config, sourceDir })
+    const codexResult = bridgeToCodex(categoryAgents, safePluginName, prefix, outputDir, workspaceRoot, { ...config, sourceDir })
     result = codexResult
     orchestratorName = codexResult.plugin.orchestratorName || orchestratorName
   } else {
@@ -336,7 +338,7 @@ Options:
     }
   }
 
-  const destination = getExportDestination().replace(/\/Users\/[^\/]+/, "~")
+  const destination = shortenHome(getExportDestination())
 
   console.log(`\n📦 Export to OpenCode`)
   console.log(`   ------------------------------------------`)
@@ -356,9 +358,9 @@ Options:
 
   console.log(`\n✅ Export complete!`)
   console.log(`   Exported ${result.exported.length} agents to:`)
-  console.log(`   ${result.destinationPath.replace(/\/Users\/[^\/]+/, "~")}`)
+  console.log(`   ${shortenHome(result.destinationPath)}`)
   console.log(`\n   Backup at:`)
-  console.log(`   ${result.backupPath.replace(/\/Users\/[^\/]+/, "~")}\n`)
+  console.log(`   ${shortenHome(result.backupPath)}\n`)
 
   if (result.skipped.length > 0) {
     console.log(`   ⚠ Skipped ${result.skipped.length} files:`)
@@ -508,7 +510,7 @@ async function runImportCLI(workspaceRoot: string) {
   try {
     const res = importAgents(workspaceRoot)
     console.log(`\n✅ Successfully imported ${res.imported.length} agents!`)
-    console.log(`   ${res.backupPath ? `Backup saved to: ${res.backupPath.replace(/\/Users\/[^\/]+/, "~")}` : "No backup needed"}\n`)
+    console.log(`   ${res.backupPath ? `Backup saved to: ${shortenHome(res.backupPath)}` : "No backup needed"}\n`)
   } catch (e: any) {
     console.error(`Error during import: ${e.message || e}`)
   }

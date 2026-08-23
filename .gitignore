@@ -11,6 +11,7 @@ agents/**/dist/
 # Generated agent workspace artifacts
 agents/backups/
 agents/.tmp/
+*.zip
 *.swp
 *.swo
 *~

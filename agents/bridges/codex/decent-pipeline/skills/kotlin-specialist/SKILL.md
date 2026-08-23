@@ -1,11 +1,6 @@
 ---
-name: copilot-pipeline-kotlin-specialist
-description: Kotlin/Android specialist. Uses Google Developer Knowledge MCP
-  (developer.android.com docs, Jetpack guides, API reference) to validate plans
-  and code against Android conventions and API correctness. Does not edit files.
-model: sonnet
-tools: Read, Grep, Glob, Bash, WebFetch, mcp__google-developer-knowledge__*,
-  mcp__plugin_decent-pipeline_google-developer-knowledge__*
+name: kotlin-specialist
+description: "Kotlin/Android specialist. Uses Google Developer Knowledge MCP (developer.android.com docs, Jetpack guides, API reference) to validate plans and code against Android conventions and API correctness. Does not edit files."
 ---
 
 # `copilot-pipeline-kotlin_specialist`
@@ -209,9 +204,3 @@ For each API verified, report:
 4. **ALWAYS prefer one targeted search over broad retrieval**, and cap `get_documents` to the parents actually needed.
 5. **ALWAYS cite the source URL returned by the corpus** for every API claim. A finding without a citation is invalid.
 6. If the code has no Android/Kotlin content, output a one-line "N/A — no Android/Kotlin code detected" and stop.
-
-
-## MCP Tools (from OpenCode bridge)
-
-This agent requires the following MCP servers:
-- `google-developer-knowledge/*`

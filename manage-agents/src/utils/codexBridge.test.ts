@@ -6,6 +6,7 @@ import test from "node:test"
 import {
   bridgeToCodex,
   resolveCodexModel,
+  writeCodexPlugin,
 } from "./codexBridge.js"
 import { DEFAULT_TRANSLATION_CONFIG, type TranslationConfig } from "./translationConfig.js"
 import type { AgentInfo } from "./agents.js"
@@ -119,4 +120,57 @@ test("Codex plugin mirrors enabled MCP servers in a valid companion layer", () =
   assert.deepEqual(Object.keys(mcp.mcpServers), ["docs", "cupertino"])
   assert.match(fs.readFileSync(path.join(output, "README.md"), "utf8"), /## MCP setup/)
   assert.ok(result.files.some(file => file.endsWith("/.mcp.json")))
+})
+
+test("writeCodexPlugin rejects output directories escaping the workspace root", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "codex-bridge-ws-"))
+  const tmpParent = path.dirname(workspace)
+  const escapeTarget = path.join(tmpParent, "codex-bridge-escape-target")
+  const escapingOutput = path.join(workspace, "bridges", "..", "..", "codex-bridge-escape-target")
+  const agents = [agent("orchestrator.md", "any", { mode: "primary" }, "")]
+
+  assert.throws(
+    () => writeCodexPlugin(agents, "decent-pipeline", "", escapingOutput, DEFAULT_TRANSLATION_CONFIG, workspace),
+    /outside workspace/i
+  )
+  // The caller wiring (index.tsx) forwards workspaceRoot through bridgeToCodex.
+  assert.throws(
+    () => bridgeToCodex(agents, "decent-pipeline", "", escapingOutput, workspace),
+    /outside workspace/i
+  )
+  assert.ok(!fs.existsSync(escapeTarget), "no plugin files may be written outside the workspace")
+})
+
+test("writeCodexPlugin still writes the manifest for output inside the workspace", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "codex-bridge-ws-"))
+  const output = path.join(workspace, "bridges", "codex", "decent-pipeline")
+  const result = writeCodexPlugin(
+    [agent("orchestrator.md", "any", { mode: "primary" }, "")],
+    "decent-pipeline",
+    "",
+    output,
+    DEFAULT_TRANSLATION_CONFIG,
+    workspace
+  )
+
+  const manifestPath = path.join(output, ".codex-plugin", "plugin.json")
+  assert.ok(fs.existsSync(manifestPath))
+  // pluginDir is resolved through fs.realpathSync, so compare real paths
+  // (os.tmpdir() is a symlink on macOS).
+  assert.ok(result.files.includes(fs.realpathSync(manifestPath)))
+  assert.equal(JSON.parse(fs.readFileSync(manifestPath, "utf8")).name, "decent-pipeline")
+})
+
+test("writeCodexPlugin keeps succeeding without a workspaceRoot (legacy callers)", () => {
+  const output = fs.mkdtempSync(path.join(os.tmpdir(), "codex-bridge-legacy-"))
+  const result = writeCodexPlugin(
+    [agent("orchestrator.md", "any", { mode: "primary" }, "")],
+    "legacy-plugin",
+    "",
+    output
+  )
+
+  const manifestPath = path.join(output, ".codex-plugin", "plugin.json")
+  assert.ok(fs.existsSync(manifestPath))
+  assert.ok(result.files.includes(manifestPath))
 })

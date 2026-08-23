@@ -2,7 +2,7 @@
 name: code-reviewer
 description: Reviews code changes for correctness, simplicity, maintainability,
   regressions, and security. Does not implement by default.
-model: sonnet
+model: opus
 tools: Read, Grep, Glob, Bash, mcp__codebase-memory-mcp__*,
   mcp__plugin_decent-pipeline_codebase-memory-mcp__*
 ---
