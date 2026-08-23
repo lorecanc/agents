@@ -1,4 +1,5 @@
 import { tool } from "@opencode-ai/plugin"
+import { safeProjectSegment } from "./_safeName.js"
 
 export default tool({
   description:
@@ -24,6 +25,15 @@ export default tool({
       .describe("Number of columns in the grid (3-6, default 5)"),
   },
   async execute(args, context) {
+    let outputPrefix: string | undefined
+    if (args.outputPrefix) {
+      try {
+        outputPrefix = safeProjectSegment(args.outputPrefix, "outputPrefix")
+      } catch (e) {
+        return `Error: ${e.message}`
+      }
+    }
+
     const path = await import("path")
     const fs = await import("fs")
     const { spawn } = await import("child_process")
@@ -40,7 +50,7 @@ export default tool({
     }
 
     const stem = path.parse(pptxPath).name
-    const prefix = args.outputPrefix || path.join(path.dirname(pptxPath), `${stem}_thumbnails`)
+    const prefix = outputPrefix || path.join(path.dirname(pptxPath), `${stem}_thumbnails`)
     const cols = args.columns || 5
 
     const thumbnailScript = opencodePath("pptx", "thumbnail.py")

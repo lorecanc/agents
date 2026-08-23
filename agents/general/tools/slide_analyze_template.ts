@@ -1,4 +1,5 @@
 import { tool } from "@opencode-ai/plugin"
+import { safeProjectSegment } from "./_safeName.js"
 
 export default tool({
   description:
@@ -16,6 +17,13 @@ export default tool({
       .describe("Re-analyze even if template fingerprint hasn't changed"),
   },
   async execute(args, context) {
+    let designName
+    try {
+      designName = safeProjectSegment(args.designName, "designName")
+    } catch (e) {
+      return `Error: ${e.message}`
+    }
+
     const path = await import("path")
     const fs = await import("fs")
     const { spawn } = await import("child_process")
@@ -34,7 +42,7 @@ export default tool({
     const cmdArgs = [
       scriptPy,
       "--input", args.templatePath,
-      "--design-name", args.designName,
+      "--design-name", designName,
       "--output-dir", designDir,
     ]
 

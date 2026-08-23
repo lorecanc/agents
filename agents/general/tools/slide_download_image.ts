@@ -1,4 +1,5 @@
 import { tool } from "@opencode-ai/plugin"
+import { safeProjectSegment } from "./_safeName.js"
 
 export default tool({
   description:
@@ -15,19 +16,32 @@ export default tool({
       .describe("Desired filename with extension (e.g. 'logo.png')"),
   },
   async execute(args, context) {
+    let projectName
+    try {
+      projectName = safeProjectSegment(args.projectName)
+    } catch (e) {
+      return `Error: ${e.message}`
+    }
+    let imageName
+    try {
+      imageName = safeProjectSegment(args.imageName, "imageName")
+    } catch (e) {
+      return `Error: ${e.message}`
+    }
+
     const path = await import("path")
     const fs = await import("fs")
 
     const projectsRoot = path.join(process.cwd(), "projects")
     const assetsDir = path.join(
       projectsRoot,
-      args.projectName,
+      projectName,
       "presentations",
       "assets",
     )
     fs.mkdirSync(assetsDir, { recursive: true })
 
-    const outputPath = path.join(assetsDir, args.imageName)
+    const outputPath = path.join(assetsDir, imageName)
 
     const response = await fetch(args.url, {
       headers: { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" },
@@ -44,7 +58,7 @@ export default tool({
     }
 
     // Validate via file extension / known image signatures
-    const ext = path.extname(args.imageName).toLowerCase()
+    const ext = path.extname(imageName).toLowerCase()
     const validExts = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".ico"]
     if (!validExts.includes(ext)) {
       return `Error: Unrecognized image extension '${ext}'. Use .png, .jpg, .jpeg, .gif, .webp, .svg, or .bmp.`

@@ -1,4 +1,5 @@
 import { tool } from "@opencode-ai/plugin"
+import { safeProjectSegment } from "./_safeName.js"
 
 export default tool({
   description:
@@ -35,6 +36,19 @@ export default tool({
       .describe("For insert only: insert AFTER start_line instead of before."),
   },
   async execute(args, context) {
+    let projectName
+    try {
+      projectName = safeProjectSegment(args.projectName)
+    } catch (e) {
+      return `Error: ${e.message}`
+    }
+    let documentName
+    try {
+      documentName = safeProjectSegment(args.documentName, "documentName")
+    } catch (e) {
+      return `Error: ${e.message}`
+    }
+
     const path = await import("path")
     const { spawn } = await import("child_process")
     const { getPythonPath } = await import("./_python.js")
@@ -59,8 +73,8 @@ export default tool({
     return new Promise((resolve, reject) => {
       const proc = spawn(getPythonPath(), [
         script,
-        args.projectName,
-        args.documentName,
+        projectName,
+        documentName,
         args.operation,
         JSON.stringify(callArgs),
       ], {

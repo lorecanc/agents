@@ -1,4 +1,5 @@
 import { tool } from "@opencode-ai/plugin"
+import { safeProjectSegment } from "./_safeName.js"
 
 export default tool({
   description:
@@ -27,6 +28,13 @@ export default tool({
       ),
   },
   async execute(args, context) {
+    let projectName
+    try {
+      projectName = safeProjectSegment(args.projectName)
+    } catch (e) {
+      return `Error: ${e.message}`
+    }
+
     const path = await import("path")
     const fs = await import("fs")
     const { spawn } = await import("child_process")
@@ -34,14 +42,26 @@ export default tool({
 
     const { opencodePath } = await import("./_paths.js")
 
+    let outputStem
+    try {
+      outputStem = safeProjectSegment(path.parse(args.outputFilename).name, "outputFilename")
+    } catch (e) {
+      return `Error: ${e.message}`
+    }
+    let slideNames: string[]
+    try {
+      slideNames = args.slideNames.map((n, i) => safeProjectSegment(n, `slideNames[${i}]`))
+    } catch (e) {
+      return `Error: ${e.message}`
+    }
+
     const projectsRoot = path.join(process.cwd(), "projects")
-    const projectDir = path.join(projectsRoot, args.projectName, "presentations")
+    const projectDir = path.join(projectsRoot, projectName, "presentations")
 
     if (!fs.existsSync(projectDir)) {
       return `Error: Project directory not found: ${projectDir}`
     }
 
-    const outputStem = path.parse(args.outputFilename).name
     let outputPath = path.join(projectDir, `${outputStem}.pptx`)
 
     if (fs.existsSync(outputPath)) {
@@ -57,7 +77,7 @@ export default tool({
     }
 
     const slidePaths: string[] = []
-    for (const name of args.slideNames) {
+    for (const name of slideNames) {
       const filename = name.endsWith(".html") ? name : `${name}.html`
       const sp = path.join(projectDir, filename)
       if (!fs.existsSync(sp))

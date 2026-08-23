@@ -1,4 +1,5 @@
 import { tool } from "@opencode-ai/plugin"
+import { safeProjectSegment } from "./_safeName.js"
 
 export default tool({
   description:
@@ -12,6 +13,19 @@ export default tool({
       .describe("Filename of the DOCX export to restore from, e.g. 'report.docx' or 'report_v2.docx'."),
   },
   async execute(args, context) {
+    let projectName
+    try {
+      projectName = safeProjectSegment(args.projectName)
+    } catch (e) {
+      return `Error: ${e.message}`
+    }
+    let docxFilename
+    try {
+      docxFilename = safeProjectSegment(args.docxFilename, "docxFilename")
+    } catch (e) {
+      return `Error: ${e.message}`
+    }
+
     const path = await import("path")
     const { spawn } = await import("child_process")
     const { getPythonPath } = await import("./_python.js")
@@ -21,7 +35,7 @@ export default tool({
     const script = path.join(scriptDir, "restore_document.py")
 
     return new Promise((resolve, reject) => {
-      const proc = spawn(getPythonPath(), [script, args.projectName, args.docxFilename], { timeout: 10000 })
+      const proc = spawn(getPythonPath(), [script, projectName, docxFilename], { timeout: 10000 })
       let stdout = ""
       let stderr = ""
       proc.stdout.on("data", (d) => (stdout += d))

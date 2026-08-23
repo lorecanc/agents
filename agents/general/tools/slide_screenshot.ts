@@ -1,4 +1,5 @@
 import { tool } from "@opencode-ai/plugin"
+import { safeProjectSegment } from "./_safeName.js"
 
 export default tool({
   description:
@@ -16,6 +17,19 @@ export default tool({
       .describe("Optional output image path (.jpg or .png). Defaults to a temp file."),
   },
   async execute(args, context) {
+    let projectName
+    try {
+      projectName = safeProjectSegment(args.projectName)
+    } catch (e) {
+      return `Error: ${e.message}`
+    }
+    let slideName
+    try {
+      slideName = safeProjectSegment(args.slideName, "slideName")
+    } catch (e) {
+      return `Error: ${e.message}`
+    }
+
     const path = await import("path")
     const fs = await import("fs")
     const os = await import("os")
@@ -24,12 +38,12 @@ export default tool({
     const projectsRoot = path.join(process.cwd(), "projects")
     const projectDir = path.join(
       projectsRoot,
-      args.projectName,
+      projectName,
       "presentations",
     )
-    const slideFilename = args.slideName.endsWith(".html")
-      ? args.slideName
-      : `${args.slideName}.html`
+    const slideFilename = slideName.endsWith(".html")
+      ? slideName
+      : `${slideName}.html`
     const slidePath = path.join(projectDir, slideFilename)
 
     if (!fs.existsSync(slidePath)) {

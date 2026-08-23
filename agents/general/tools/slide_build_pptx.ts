@@ -36,6 +36,13 @@ export default tool({
     const fs = await import("fs")
     const { spawn } = await import("child_process")
 
+    let slideNames: string[]
+    try {
+      slideNames = args.slideNames.map((n, i) => safeProjectSegment(n, `slideNames[${i}]`))
+    } catch (e) {
+      return `Error: ${e.message}`
+    }
+
     const projectsRoot = path.join(process.cwd(), "projects")
     const projectDir = path.join(
       projectsRoot,
@@ -71,7 +78,7 @@ export default tool({
 
     // Resolve slide paths
     const slidePaths: string[] = []
-    for (const name of args.slideNames) {
+    for (const name of slideNames) {
       const filename = name.endsWith(".html") ? name : `${name}.html`
       const sp = path.join(projectDir, filename)
       if (!fs.existsSync(sp))

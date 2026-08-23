@@ -6,20 +6,35 @@ Standalone terminal manager for the OpenCode agent catalog in the sibling `agent
 
 - Bun `>= 1.2.0` is recommended because OpenTUI uses FFI.
 - Node.js `>= 26.1.0` is supported with automatic `--experimental-ffi` re-execution.
-- Windows requires Windows Terminal with PowerShell 7; the Unix launcher is Bash-only.
+- Windows: Bun >= 1.2.0 (Windows 10 1809+) or Node >= 26.1.0 both work — invoke manage-agents.mjs directly; use WSL or Git Bash for ./manage-agents.sh.
 
 The manager does not contain a copy of the agent definitions. It resolves the workspace containing `general/agents/` from the current directory, so it can be launched from the monorepo root, `agents/`, or `manage-agents/`.
 
 ## Install And Run
 
-From the monorepo root:
+Install dependencies once:
 
 ```bash
 cd manage-agents
-bun install
-cd ..
-./manage-agents.sh
+npm ci   # or: bun install
 ```
+
+macOS and Linux — from the monorepo root, launch with the bundled script (prefers Bun, falls back to Node) or invoke directly:
+
+```bash
+./manage-agents.sh
+bun manage-agents/manage-agents.mjs   # or: node manage-agents/manage-agents.mjs
+npm start --prefix manage-agents      # cross-platform npm script
+```
+
+Windows — invoke the entry point directly from any shell:
+
+```powershell
+bun .\manage-agents\manage-agents.mjs   # or: node .\manage-agents\manage-agents.mjs
+npm start --prefix manage-agents
+```
+
+Use WSL or Git Bash for `./manage-agents.sh`.
 
 Useful commands:
 
@@ -27,24 +42,6 @@ Useful commands:
 ./manage-agents.sh lint
 ./manage-agents.sh create example-agent
 bun manage-agents/manage-agents.mjs bridge --help
-```
-
-With Node.js instead of Bun:
-
-```bash
-cd manage-agents
-npm ci
-cd ..
-node manage-agents/manage-agents.mjs
-```
-
-On Windows PowerShell 7, run the equivalent paths with backslashes:
-
-```powershell
-Set-Location .\manage-agents
-bun install
-Set-Location ..
-bun .\manage-agents\manage-agents.mjs
 ```
 
 ## Workspace Contract

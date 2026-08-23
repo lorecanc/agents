@@ -1,4 +1,5 @@
 import { tool } from "@opencode-ai/plugin"
+import { safeProjectSegment } from "./_safeName.js"
 import { execSync } from "node:child_process"
 
 interface DecorationBlock {
@@ -190,6 +191,19 @@ export default tool({
       .describe("Composition preset name"),
   },
   async execute(args, context) {
+    let projectName
+    try {
+      projectName = safeProjectSegment(args.projectName)
+    } catch (e) {
+      return `Error: ${e.message}`
+    }
+    let presetName
+    try {
+      presetName = safeProjectSegment(args.preset, "preset")
+    } catch (e) {
+      return `Error: ${e.message}`
+    }
+
     const fs = await import("fs")
     const path = await import("path")
     const { opencodePath } = await import("./_paths.js")
@@ -197,7 +211,7 @@ export default tool({
     const designRoot = opencodePath("..", "office", "slides", "design")
     const compDir = path.join(designRoot, "composition")
     const presetsDir = path.join(compDir, "presets")
-    const presetPath = path.join(presetsDir, `${args.preset}.json`)
+    const presetPath = path.join(presetsDir, `${presetName}.json`)
 
     if (!fs.existsSync(presetPath)) {
       return `Error: Preset "${args.preset}" not found at ${presetPath}`
@@ -211,7 +225,7 @@ export default tool({
     }
 
     const projectsRoot = path.join(process.cwd(), "projects")
-    const projectDir = path.join(projectsRoot, args.projectName, "presentations")
+    const projectDir = path.join(projectsRoot, projectName, "presentations")
     const assetsDir = path.join(projectDir, "assets")
     fs.mkdirSync(projectDir, { recursive: true })
     fs.mkdirSync(assetsDir, { recursive: true })

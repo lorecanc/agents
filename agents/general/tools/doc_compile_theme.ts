@@ -1,4 +1,5 @@
 import { tool } from "@opencode-ai/plugin"
+import { safeProjectSegment } from "./_safeName.js"
 
 //
 // Token mappings for built-in systems.
@@ -343,25 +344,38 @@ export default tool({
       ),
   },
   async execute(args, context) {
+    let designSystem
+    try {
+      designSystem = safeProjectSegment(args.designSystem, "designSystem")
+    } catch (e) {
+      return `Error: ${e.message}`
+    }
+    let projectName
+    try {
+      projectName = safeProjectSegment(args.projectName)
+    } catch (e) {
+      return `Error: ${e.message}`
+    }
+
     const fs = await import("fs")
     const path = await import("path")
     const { opencodePath } = await import("./_paths.js")
 
     const designRoot = opencodePath("..", "office", "docs", "design")
 
-    const dsDir = path.join(designRoot, args.designSystem)
+    const dsDir = path.join(designRoot, designSystem)
 
     if (!fs.existsSync(dsDir)) {
       const available = listDirs(designRoot)
-      return `Error: Design system "${args.designSystem}" not found in .opencode/office/docs/design/. Available: ${available.join(", ")}`
+      return `Error: Design system "${designSystem}" not found in .opencode/office/docs/design/. Available: ${available.join(", ")}`
     }
 
     // ── Resolve tokens ─────────────────────────────────────────
-    const isBuiltin = args.designSystem in DEFAULTS
+    const isBuiltin = designSystem in DEFAULTS
     let tokens: TokenMap
 
     if (isBuiltin) {
-      const base = DEFAULTS[args.designSystem]
+      const base = DEFAULTS[designSystem]
       const overrides = (args.tokens as Partial<TokenMap> | undefined) || {}
       tokens = { ...base, ...overrides }
     } else {
@@ -369,7 +383,7 @@ export default tool({
       const typographyPath = path.join(dsDir, "typography.md")
 
       if (!fs.existsSync(colorsPath) && !fs.existsSync(typographyPath)) {
-        return `Error: Custom design system "${args.designSystem}" has no colors.md or typography.md files.`
+        return `Error: Custom design system "${designSystem}" has no colors.md or typography.md files.`
       }
 
       let colorsMd = ""
@@ -398,9 +412,9 @@ export default tool({
     }
 
     const mode = args.themeMode ||
-      (args.designSystem === "default-dark" ? "dark" : "light")
+      (designSystem === "default-dark" ? "dark" : "light")
 
-    const dsName = args.designSystem
+    const dsName = designSystem
 
     // ── Fonts: local files or Google Fonts import ──────────────
     const fontsDir = path.join(dsDir, "fonts")
@@ -412,7 +426,7 @@ export default tool({
     if (hasLocalFonts) {
       fontFaceDeclarations = generateFontFaces(fontsDir)
     } else {
-      googleFontsImport = GOOGLE_FONTS_IMPORT[args.designSystem] || GOOGLE_FONTS_IMPORT["default-light"]
+      googleFontsImport = GOOGLE_FONTS_IMPORT[designSystem] || GOOGLE_FONTS_IMPORT["default-light"]
     }
 
     // ── Brand interaction classes ─────────────────────────────
@@ -458,7 +472,7 @@ export default tool({
 
     // ── Write _theme.css to project documents directory ─────────
     const projectsRoot = path.join(process.cwd(), "projects")
-    const projectDir = path.join(projectsRoot, args.projectName, "documents")
+    const projectDir = path.join(projectsRoot, projectName, "documents")
     fs.mkdirSync(projectDir, { recursive: true })
 
     const themePath = path.join(projectDir, "_theme.css")

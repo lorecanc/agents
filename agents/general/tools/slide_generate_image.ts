@@ -1,4 +1,5 @@
 import { tool } from "@opencode-ai/plugin"
+import { safeProjectSegment } from "./_safeName.js"
 
 export default tool({
   description:
@@ -40,6 +41,19 @@ export default tool({
       ),
   },
   async execute(args, context) {
+    let projectName
+    try {
+      projectName = safeProjectSegment(args.projectName)
+    } catch (e) {
+      return `Error: ${e.message}`
+    }
+    let assetName
+    try {
+      assetName = safeProjectSegment(args.assetName, "assetName")
+    } catch (e) {
+      return `Error: ${e.message}`
+    }
+
     const path = await import("path")
     const fs = await import("fs")
     const { spawn } = await import("child_process")
@@ -53,13 +67,13 @@ export default tool({
     const projectsRoot = path.join(process.cwd(), "projects")
     const assetsDir = path.join(
       projectsRoot,
-      args.projectName,
+      projectName,
       "presentations",
       "assets",
     )
     fs.mkdirSync(assetsDir, { recursive: true })
 
-    const outputPath = path.join(assetsDir, args.assetName)
+    const outputPath = path.join(assetsDir, assetName)
 
     // Build a self-contained Python generation script
     const script = `
@@ -113,7 +127,7 @@ if img.width > 1024 or img.height > 1024:
     new_size = (int(img.width * 0.75), int(img.height * 0.75))
     img = img.resize(new_size, Image.Resampling.LANCZOS)
 img.save("${outputPath}", "JPEG", quality=80, optimize=True)
-print(f"Image saved to ./assets/${args.assetName}")
+print(f"Image saved to ./assets/${assetName}")
 `
 
     return new Promise((resolve) => {
@@ -123,7 +137,7 @@ print(f"Image saved to ./assets/${args.assetName}")
         {
           env: { ...process.env },
           timeout: 120_000,
-          cwd: path.join(process.cwd(), "projects", args.projectName, "presentations"),
+          cwd: path.join(process.cwd(), "projects", projectName, "presentations"),
         },
       )
 

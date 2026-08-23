@@ -1,4 +1,5 @@
 import { tool } from "@opencode-ai/plugin"
+import { safeProjectSegment } from "./_safeName.js"
 
 //
 // Token mappings for built-in systems.
@@ -329,25 +330,38 @@ export default tool({
       ),
   },
   async execute(args, context) {
+    let designSystem
+    try {
+      designSystem = safeProjectSegment(args.designSystem, "designSystem")
+    } catch (e) {
+      return `Error: ${e.message}`
+    }
+    let projectName
+    try {
+      projectName = safeProjectSegment(args.projectName)
+    } catch (e) {
+      return `Error: ${e.message}`
+    }
+
     const fs = await import("fs")
     const path = await import("path")
     const { opencodePath } = await import("./_paths.js")
 
     const designRoot = opencodePath("..", "office", "slides", "design")
 
-    const dsDir = path.join(designRoot, args.designSystem)
+    const dsDir = path.join(designRoot, designSystem)
 
     if (!fs.existsSync(dsDir)) {
       const available = listDirs(designRoot)
-      return `Error: Design system "${args.designSystem}" not found in .opencode/office/slides/design/. Available: ${available.join(", ")}`
+      return `Error: Design system "${designSystem}" not found in .opencode/office/slides/design/. Available: ${available.join(", ")}`
     }
 
     // ── Resolve tokens ─────────────────────────────────────────
-    const isBuiltin = args.designSystem in DEFAULTS
+    const isBuiltin = designSystem in DEFAULTS
     let tokens: TokenMap
 
     if (isBuiltin) {
-      const base = DEFAULTS[args.designSystem]
+      const base = DEFAULTS[designSystem]
       const overrides = (args.tokens as Partial<TokenMap> | undefined) || {}
       tokens = { ...base, ...overrides }
     } else {
@@ -356,7 +370,7 @@ export default tool({
       const typographyPath = path.join(dsDir, "typography.md")
 
       if (!fs.existsSync(colorsPath) && !fs.existsSync(typographyPath)) {
-        return `Error: Custom design system "${args.designSystem}" has no colors.md or typography.md files.`
+        return `Error: Custom design system "${designSystem}" has no colors.md or typography.md files.`
       }
 
       let colorsMd = ""
@@ -385,9 +399,9 @@ export default tool({
     }
 
     const mode = args.themeMode ||
-      (       args.designSystem === "default-dark" ? "dark" : "light")
+      (       designSystem === "default-dark" ? "dark" : "light")
 
-    const dsName = args.designSystem
+    const dsName = designSystem
 
     // ── Fonts: local files or Google CDN ───────────────────────
     const fontsDir = path.join(dsDir, "fonts")
@@ -443,7 +457,7 @@ export default tool({
 
     // ── Write _theme.css ───────────────────────────────────────
     const projectsRoot = path.join(process.cwd(), "projects")
-    const projectDir = path.join(projectsRoot, args.projectName, "presentations")
+    const projectDir = path.join(projectsRoot, projectName, "presentations")
     fs.mkdirSync(projectDir, { recursive: true })
 
     const themePath = path.join(projectDir, "_theme.css")
@@ -486,7 +500,7 @@ export default tool({
     if (hasLocalFonts) {
       lines.push(`Font families available via CSS: var(--font-display), var(--font-heading), var(--font-body)`)
     } else {
-      const cdn = GOOGLE_FONTS_CDN[args.designSystem] || GOOGLE_FONTS_CDN["default-light"]
+      const cdn = GOOGLE_FONTS_CDN[designSystem] || GOOGLE_FONTS_CDN["default-light"]
       lines.push(`Google Fonts CDN for slide <head>: ${cdn}`)
     }
 

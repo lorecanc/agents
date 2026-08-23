@@ -1,4 +1,5 @@
 import { tool } from "@opencode-ai/plugin"
+import { safeProjectSegment } from "./_safeName.js"
 
 export default tool({
   description:
@@ -22,6 +23,19 @@ export default tool({
       .describe("If true, overwrites existing document. Default false."),
   },
   async execute(args, context) {
+    let projectName
+    try {
+      projectName = safeProjectSegment(args.projectName)
+    } catch (e) {
+      return `Error: ${e.message}`
+    }
+    let documentName
+    try {
+      documentName = safeProjectSegment(args.documentName, "documentName")
+    } catch (e) {
+      return `Error: ${e.message}`
+    }
+
     const path = await import("path")
     const fs = await import("fs")
     const os = await import("os")
@@ -39,8 +53,8 @@ export default tool({
     return new Promise((resolve, reject) => {
       const proc = spawn(getPythonPath(), [
         script,
-        args.projectName,
-        args.documentName,
+        projectName,
+        documentName,
         args.contentType,
         tmpFile,
         overwriteFlag,

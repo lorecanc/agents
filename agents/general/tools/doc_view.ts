@@ -1,4 +1,5 @@
 import { tool } from "@opencode-ai/plugin"
+import { safeProjectSegment } from "./_safeName.js"
 
 export default tool({
   description:
@@ -20,6 +21,19 @@ export default tool({
       .describe("Optional end line number (1-based, inclusive) for a range view."),
   },
   async execute(args, context) {
+    let projectName
+    try {
+      projectName = safeProjectSegment(args.projectName)
+    } catch (e) {
+      return `Error: ${e.message}`
+    }
+    let documentName
+    try {
+      documentName = safeProjectSegment(args.documentName, "documentName")
+    } catch (e) {
+      return `Error: ${e.message}`
+    }
+
     const path = await import("path")
     const { spawn } = await import("child_process")
     const { getPythonPath } = await import("./_python.js")
@@ -28,7 +42,7 @@ export default tool({
     const scriptDir = opencodePath("docx", "scripts")
     const script = path.join(scriptDir, "view_document.py")
 
-    const procArgs = [script, args.projectName, args.documentName]
+    const procArgs = [script, projectName, documentName]
     if (args.startLine && args.endLine) {
       procArgs.push(String(args.startLine), String(args.endLine))
     }

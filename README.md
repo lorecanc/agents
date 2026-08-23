@@ -26,54 +26,85 @@ Public monorepo for OpenCode agent catalogs and the companion `manage-agents` te
 
 ## Quick Start
 
-### Bun
+### Prerequisites
 
-From the monorepo root:
+You need one runtime: Node.js `>= 26.1.0` or Bun `>= 1.2.0`. Bun is recommended because OpenTUI uses FFI.
 
-```bash
-cd manage-agents
-bun install
-cd ..
-./manage-agents.sh
-```
+Download either runtime per https://docs.npmjs.com/downloading-and-installing-node-js-and-npm, which also covers version managers (`nvm` or `n` on macOS and Linux, `nvm-windows` or `nodist` on Windows). The `engines` field in `manage-agents/package.json` declares these minimums; npm treats them as an advisory warning unless you enable `engine-strict`.
 
-Bun `>= 1.2.0` is recommended because OpenTUI uses FFI. The manager can also be invoked directly:
-
-```bash
-bun manage-agents/manage-agents.mjs bridge --help
-```
-
-### Node.js fallback
-
-Node.js `>= 26.1.0` is supported. Install dependencies with npm, then launch from the monorepo root:
+Install dependencies once from the monorepo root:
 
 ```bash
 cd manage-agents
 npm ci
-cd ..
-node manage-agents/manage-agents.mjs
 ```
+
+Bun users can substitute `bun install`.
 
 On Node.js `>= 26.1.0`, `manage-agents.mjs` re-executes Node with `--experimental-ffi` automatically.
 
-### Windows
+### macOS
 
-Use Windows Terminal with PowerShell 7. The Unix `manage-agents.sh` launcher is Bash-only:
+Launch with the bundled script from the monorepo root (it prefers Bun and falls back to Node):
 
-```powershell
-Set-Location .\manage-agents
-bun install
-Set-Location ..
-bun .\manage-agents\manage-agents.mjs
+```bash
+./manage-agents.sh
 ```
 
-For the Node.js fallback:
+Or invoke the entry point directly:
+
+```bash
+bun manage-agents/manage-agents.mjs
+node manage-agents/manage-agents.mjs
+```
+
+Or use the cross-platform npm script:
+
+```bash
+npm start --prefix manage-agents
+```
+
+### Linux
+
+Linux follows the same launcher flow as macOS:
+
+```bash
+./manage-agents.sh
+```
+
+Direct invocation and the npm script behave identically:
+
+```bash
+bun manage-agents/manage-agents.mjs
+node manage-agents/manage-agents.mjs
+npm start --prefix manage-agents
+```
+
+For distro packages or a version manager such as `nvm` or `n`, follow the npm install guide linked under Prerequisites.
+
+### Windows
+
+Run the entry point directly from any shell — no Unix launcher required:
 
 ```powershell
-Set-Location .\manage-agents
-npm ci
-Set-Location ..
+bun .\manage-agents\manage-agents.mjs
 node .\manage-agents\manage-agents.mjs
+```
+
+Bun supports Windows natively since v1.1 (Windows 10 1809+): see bun.sh/docs/installation and bun.sh/blog/bun-v1.1.
+
+In PowerShell, the call operator (`&`) is needed whenever you invoke a quoted command string — most commonly a path containing spaces, e.g. `& "C:\my tools\agents\manage-agents\manage-agents.mjs"` — see learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_operators.
+
+To run the Bash launcher instead, use WSL (recommended): see learn.microsoft.com/windows/wsl/about — or Git Bash from gitforwindows.org:
+
+```bash
+./manage-agents.sh
+```
+
+The npm script works from any shell:
+
+```powershell
+npm start --prefix manage-agents
 ```
 
 The manager resolves the sibling `agents/` workspace automatically when launched from the monorepo root, `agents/`, or `manage-agents/`.
