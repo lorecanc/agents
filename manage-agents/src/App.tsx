@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react"
+import path from "node:path"
 import { useKeyboard, useTerminalDimensions } from "@opentui/react"
 import {
   findAgentFiles,
@@ -28,6 +29,7 @@ import { fetchModels } from "./utils/models.js"
 import { bridgeToClaudeCode } from "./utils/bridge.js"
 import { bridgeToCodex } from "./utils/codexBridge.js"
 import { buildInferenceIndex, loadTranslationConfig, resolveModelTarget, resolveRole, saveTranslationConfig, type TranslationConfig } from "./utils/translationConfig.js"
+import { AUTO_COMMIT_MESSAGES, repositoryTransaction } from "./utils/repositoryTransaction.js"
 
 interface AppProps {
   workspaceRoot: string
@@ -138,6 +140,8 @@ interface ColorTreeItem {
 }
 
 export function App({ workspaceRoot }: AppProps) {
+  const mutate = <T,>(paths: string[], operation: keyof typeof AUTO_COMMIT_MESSAGES, fn: () => T): T =>
+    repositoryTransaction(workspaceRoot, paths, AUTO_COMMIT_MESSAGES[operation], fn)
   // Data State
   const [agents, setAgents] = useState<AgentInfo[]>([])
   const [models, setModels] = useState<string[]>([])
@@ -182,7 +186,7 @@ export function App({ workspaceRoot }: AppProps) {
   const [bridgeFocusedField, setBridgeFocusedField] = useState<"name" | "prefix" | "sourceDir">("name")
   const [translationConfig, setTranslationConfig] = useState<TranslationConfig | null>(() => {
     try {
-      return loadTranslationConfig(workspaceRoot)
+      return loadTranslationConfig(workspaceRoot, undefined, { persistMigration: false })
     } catch {
       return null
     }
@@ -323,18 +327,20 @@ export function App({ workspaceRoot }: AppProps) {
   const generateBridge = () => {
     if (!bridgePluginName) return
     try {
-      const bridgeConfig = loadTranslationConfig(workspaceRoot)
+      const bridgeConfig = loadTranslationConfig(workspaceRoot, undefined, { persistMigration: false })
       const sourceAgents = findAgentFiles(workspaceRoot, bridgeSourceDir)
       const selectedAgents = selectedAgentPaths.size > 0
         ? agents.filter((a) => selectedAgentPaths.has(a.currentPath))
         : sourceAgents.filter((a) => a.category === (activeItems[focusedIndex]?.category || ""))
       const safePluginName = sanitizeFilename(bridgePluginName)
-      saveTranslationConfig(workspaceRoot, { ...bridgeConfig, pluginName: bridgePluginName, prefix: bridgePipelinePrefix, sourceDir: bridgeSourceDir })
       const bridgeFolder = bridgeTarget === "codex" ? "codex" : "claude-code"
       const outputDir = `${workspaceRoot}/bridges/${bridgeFolder}/${safePluginName}`
-      const result = bridgeTarget === "codex"
-        ? bridgeToCodex(selectedAgents, bridgePluginName, bridgePipelinePrefix, outputDir, workspaceRoot, { ...bridgeConfig, pluginName: bridgePluginName, prefix: bridgePipelinePrefix, sourceDir: bridgeSourceDir })
-        : bridgeToClaudeCode(selectedAgents, bridgePluginName, bridgePipelinePrefix, outputDir, workspaceRoot, { ...bridgeConfig, pluginName: bridgePluginName, prefix: bridgePipelinePrefix, sourceDir: bridgeSourceDir })
+      const result = mutate([path.join(workspaceRoot, ".agent-manager", "translation-config.json"), outputDir], "bridge", () => {
+        saveTranslationConfig(workspaceRoot, { ...bridgeConfig, pluginName: bridgePluginName, prefix: bridgePipelinePrefix, sourceDir: bridgeSourceDir })
+        return bridgeTarget === "codex"
+          ? bridgeToCodex(selectedAgents, bridgePluginName, bridgePipelinePrefix, outputDir, workspaceRoot, { ...bridgeConfig, pluginName: bridgePluginName, prefix: bridgePipelinePrefix, sourceDir: bridgeSourceDir })
+          : bridgeToClaudeCode(selectedAgents, bridgePluginName, bridgePipelinePrefix, outputDir, workspaceRoot, { ...bridgeConfig, pluginName: bridgePluginName, prefix: bridgePipelinePrefix, sourceDir: bridgeSourceDir })
+      })
       setSelectedAgentPaths(new Set())
       setActionResultTitle(`Bridge to ${bridgeTarget === "codex" ? "Codex" : "Claude Code"} Complete`)
       const lines = [`${bridgeTarget === "codex" ? "Translation layer" : "Plugin"} '${safePluginName}' generated successfully!`, `Output directory:`, `  ${result.pluginDir}`, ``, `Generated ${result.files.length} files:`, ...result.files.map((f) => `  * ${f}`)]
@@ -835,7 +841,7 @@ export function App({ workspaceRoot }: AppProps) {
       } else if (isUppercaseF && inspectorTab === "security" && activeItems[focusedIndex]?.agent) {
         const ag = activeItems[focusedIndex].agent!
         try {
-          const fixed = fixPermissionOrder(ag)
+          const fixed = mutate([ag.currentPath], "tune", () => fixPermissionOrder(ag))
           if (fixed) {
             refreshData()
             setActionResultTitle("Permission Order Fixed")
@@ -920,7 +926,7 @@ export function App({ workspaceRoot }: AppProps) {
               const selectedAgents = selectedAgentPaths.size > 0
                 ? agents.filter((a) => selectedAgentPaths.has(a.currentPath))
                 : (activeItems[focusedIndex]?.agent ? [activeItems[focusedIndex].agent!] : [])
-              updateAgentsModel(selectedAgents, selectedModel)
+              mutate(selectedAgents.map(a => a.currentPath), "tune", () => updateAgentsModel(selectedAgents, selectedModel))
               refreshData()
               setSelectedAgentPaths(new Set())
               setActionResultTitle("Model Updated Successfully")
@@ -959,8 +965,8 @@ export function App({ workspaceRoot }: AppProps) {
           const impacted = agents.filter(agent => !targetAgents.some(target => target.currentPath === agent.currentPath) && roles.has(resolveRole(agent, translationConfig)))
           const nextConfig = { ...translationConfig, roles: { ...translationConfig.roles } }
           roles.forEach(role => { nextConfig.roles[role] = chosenTier })
-          saveTranslationConfig(workspaceRoot, nextConfig)
-          setTranslationConfig(loadTranslationConfig(workspaceRoot))
+           mutate([path.join(workspaceRoot, ".agent-manager", "translation-config.json")], "config", () => saveTranslationConfig(workspaceRoot, nextConfig))
+           setTranslationConfig(loadTranslationConfig(workspaceRoot, undefined, { persistMigration: false }))
           refreshData()
           setSelectedAgentPaths(new Set())
           setActionResultTitle("Tier Assigned Successfully")
@@ -981,7 +987,7 @@ export function App({ workspaceRoot }: AppProps) {
       // 4. Auto-organize confirm mode
       if (key === "y" || key === "enter" || key === "return") {
         try {
-           const { copied, skipped, backupsPath } = organizeAgents(workspaceRoot, agents)
+            const { copied, skipped, backupsPath } = mutate(agents.flatMap(a => [a.currentPath, a.targetPath]), "organize", () => organizeAgents(workspaceRoot, agents))
           refreshData()
           setActionResultTitle("Reorganization Complete")
           setActionResultLines([
@@ -1014,7 +1020,7 @@ export function App({ workspaceRoot }: AppProps) {
         if (!forkFindQuery) return
         try {
           const selectedPaths: string[] | undefined = selectedAgentPaths.size > 0 ? Array.from(selectedAgentPaths) : undefined
-          const result = forkCategory(workspaceRoot, forkSourceCategory, forkFindQuery, forkReplaceQuery, selectedPaths)
+           const result = mutate([path.join(workspaceRoot, "general", "agents")], "fork", () => forkCategory(workspaceRoot, forkSourceCategory, forkFindQuery, forkReplaceQuery, selectedPaths))
           refreshData()
           setSelectedAgentPaths(new Set())
           setActionResultTitle("Fork Category Complete")
@@ -1140,7 +1146,7 @@ export function App({ workspaceRoot }: AppProps) {
               const selectedAgents = selectedAgentPaths.size > 0
                 ? agents.filter((a) => selectedAgentPaths.has(a.currentPath))
                 : (activeItems[focusedIndex]?.agent ? [activeItems[focusedIndex].agent!] : [])
-              updateAgentsColor(selectedAgents, selectedColor)
+              mutate(selectedAgents.map(a => a.currentPath), "tune", () => updateAgentsColor(selectedAgents, selectedColor))
               refreshData()
               setSelectedAgentPaths(new Set())
               setActionResultTitle("Color Updated Successfully")
@@ -1167,7 +1173,7 @@ export function App({ workspaceRoot }: AppProps) {
           ? agents.filter((a) => selectedAgentPaths.has(a.currentPath))
           : (activeItems[focusedIndex]?.agent ? [activeItems[focusedIndex].agent!] : [])
         try {
-          applySafetyPreset(targetAgents, preset.key)
+           mutate(targetAgents.map(a => a.currentPath), "tune", () => applySafetyPreset(targetAgents, preset.key))
           refreshData()
           setSelectedAgentPaths(new Set())
           setActionResultTitle("Safety Preset Applied")
@@ -1217,7 +1223,7 @@ export function App({ workspaceRoot }: AppProps) {
         if (delegationTargetAgent) {
           const allowedNames: string[] = Array.from(selectedDelegations)
           try {
-            updateAgentDelegations(delegationTargetAgent, allowedNames)
+             mutate([delegationTargetAgent.currentPath], "tune", () => updateAgentDelegations(delegationTargetAgent, allowedNames))
             refreshData()
             setActionResultTitle("Delegation Graph Updated")
             setActionResultLines([`Updated subagent delegation permissions for:`, `  ${delegationTargetAgent.filename}`, ``, `Allowed subagents (${allowedNames.length}):`, ...allowedNames.map((name) => `  * ${name}`)])
@@ -1272,12 +1278,12 @@ export function App({ workspaceRoot }: AppProps) {
         }
 
         try {
-          updateAgentParams(targetAgents, {
+          mutate(targetAgents.map(a => a.currentPath), "tune", () => updateAgentParams(targetAgents, {
           steps: stepsNum,
           temperature: tempNum,
           mode: tuningMode,
           hidden: tuningHidden
-          })
+          }))
           refreshData()
           setSelectedAgentPaths(new Set())
           setActionResultTitle("Parameters Updated Successfully")
@@ -1329,7 +1335,8 @@ export function App({ workspaceRoot }: AppProps) {
         if (!renameTargetAgent || !cat || !role) return
         const newFilename = fam ? `${fam}-${cat}-${role}.md` : `${cat}-${role}.md`
         try {
-          const result = renameAgent(workspaceRoot, renameTargetAgent.currentPath, newFilename, agents)
+           const destination = path.join(path.dirname(renameTargetAgent.currentPath), sanitizeFilename(newFilename))
+           const result = mutate([renameTargetAgent.currentPath, destination, ...agents.map(a => a.currentPath)], "rename", () => renameAgent(workspaceRoot, renameTargetAgent.currentPath, newFilename, agents))
           refreshData()
           setSelectedAgentPaths(new Set())
           setActionResultTitle("Rename Complete")
@@ -1394,7 +1401,7 @@ export function App({ workspaceRoot }: AppProps) {
          }
       } else if (key === "enter" || key === "return") {
         try {
-          const result = importAgents(workspaceRoot)
+           const result = mutate([path.join(workspaceRoot, "general", "agents")], "import", () => importAgents(workspaceRoot))
           refreshData()
           setActionResultTitle("Import Complete")
           setActionResultLines([

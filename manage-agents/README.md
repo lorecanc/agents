@@ -68,3 +68,7 @@ npm run build
 ```
 
 The package exposes `manage-agents.mjs` as its executable entry point and keeps generated `dist/` output out of version control.
+
+## Auto-commit safety
+
+Auto-commit requires a clean worktree and refuses local scopes containing symlinks. Commits are unsigned with hooks bypassed and include only declared paths/scopes after fingerprint verification. If mutation, staging, verification, or commit fails, no rollback/reset/clean is attempted: files and index remain as produced and the error reports recovery status. Mutation callbacks are trusted synchronous operations; concurrent external writes during their execution are unsupported because they cannot be attributed. Changes detected after the operation observation are refused and preserved for manual recovery. Disable it with `--no-auto-commit` or `AGENT_MANAGER_AUTO_COMMIT=0`. The advisory lock coordinates manager processes only. This behavior uses portable Node.js APIs on macOS, Linux, and Windows (including Windows separators, spaces, and Unicode paths).

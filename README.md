@@ -127,6 +127,10 @@ Copy-Item agents\general\opencode.json "$env:USERPROFILE\.config\opencode\openco
 
 The manager configuration is stored in `agents/.agent-manager/translation-config.json`. Generated bridges are written under `agents/bridges/`.
 
+### Repository auto-commit
+
+Repository-local mutations made by the manager are auto-committed by default with an operation-specific `chore(agent-manager):` message. The manager requires a globally clean Git worktree, refuses symlink-containing scopes, and commits only declared manager paths/scopes after verification. Commits are unsigned and hooks are bypassed. On any post-mutation failure it never rolls back, resets, or deletes user paths: the changed workspace/index is left for manual recovery and the error reports current status. Mutation callbacks are trusted synchronous operations; external writes during callback execution cannot be attributed and are unsupported. Writes detected after the operation observation abort without rollback and remain for recovery. Use `--no-auto-commit` (anywhere in the CLI arguments) or `AGENT_MANAGER_AUTO_COMMIT=0` to opt out. External exports and ignored backups are never committed. A bridge output explicitly supplied outside the Git root is external and is not committed; if the same operation changes local translation config, only that local config is included in the single bridge transaction commit. The implementation uses portable Node.js filesystem/process APIs and Git path handling on macOS, Linux, and Windows; the manager lock only coordinates manager processes (it is not a general Git/user-worktree lock).
+
 ## Development
 
 The manager is an independent TypeScript project:

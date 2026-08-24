@@ -16,6 +16,7 @@ import {
   type TranslationConfig,
   type TranslationTarget
 } from "./utils/translationConfig.js"
+import { AUTO_COMMIT_MESSAGES, isRepositoryLocalPath, repositoryTransaction } from "./utils/repositoryTransaction.js"
 
 function askQuestion(query: string): Promise<string> {
   const rl = readline.createInterface({
@@ -120,7 +121,7 @@ Write agent instructions and prompts here.
     fs.mkdirSync(agentsDir, { recursive: true })
   }
 
-  fs.writeFileSync(targetPath, frontmatter, "utf-8")
+  repositoryTransaction(workspaceRoot, [targetPath], AUTO_COMMIT_MESSAGES.create, () => fs.writeFileSync(targetPath, frontmatter, "utf-8"))
 
   console.log("\n------------------------------------------")
   console.log(`🎉 Agent successfully created!`)
@@ -139,7 +140,8 @@ async function askWithDefault(question: string, fallback: string): Promise<strin
 async function runTranslationWizard(
   workspaceRoot: string,
   current: TranslationConfig,
-  configPath?: string
+  configPath?: string,
+  persist = true
 ): Promise<TranslationConfig> {
   console.log("\n🧭 Translation bridge configuration wizard")
   console.log("   This writes only a bridge config layer; source agents are not changed.\n")
@@ -163,7 +165,9 @@ async function runTranslationWizard(
     execution: { ...next.tiers.execution, claude: { ...next.tiers.execution.claude, model: executionClaude }, codex: { ...next.tiers.execution.codex, model: executionCodex } }
   }
 
-  const savedPath = saveTranslationConfig(workspaceRoot, next, configPath)
+  const savedPath = persist
+    ? saveTranslationConfig(workspaceRoot, next, configPath)
+    : configPath || path.join(workspaceRoot, ".agent-manager", "translation-config.json")
   console.log(`\n✅ Configuration saved to ${savedPath}`)
   console.log(`   Selected target: ${targetAnswer}`)
   return next
@@ -224,9 +228,9 @@ Options:
     }
   }
 
-  const loaded = loadTranslationConfig(workspaceRoot, configFile || undefined)
+  const loaded = loadTranslationConfig(workspaceRoot, configFile || undefined, { persistMigration: false })
   const config = wizard
-    ? await runTranslationWizard(workspaceRoot, loaded, configFile || undefined)
+    ? await runTranslationWizard(workspaceRoot, loaded, configFile || undefined, false)
     : loaded
   if (!targetSpecified) target = config.target
   pluginName = pluginName || config.pluginName || DEFAULT_TRANSLATION_CONFIG.pluginName
@@ -263,12 +267,22 @@ Options:
   let orchestratorName = "orchestrator"
   if (target === "codex") {
     const { bridgeToCodex } = await import("./utils/codexBridge.js")
-    const codexResult = bridgeToCodex(categoryAgents, safePluginName, prefix, outputDir, workspaceRoot, { ...config, sourceDir })
+    const bridgeConfigPath = configFile || path.join(workspaceRoot, ".agent-manager", "translation-config.json")
+    const bridgePlan = { localPaths: [bridgeConfigPath].filter(file => isRepositoryLocalPath(workspaceRoot, file)).concat(isRepositoryLocalPath(workspaceRoot, outputDir) ? [outputDir] : []), externalPaths: [bridgeConfigPath, outputDir].filter(file => !isRepositoryLocalPath(workspaceRoot, file)) }
+    const codexResult = repositoryTransaction(workspaceRoot, bridgePlan, AUTO_COMMIT_MESSAGES.bridge, () => {
+      if (wizard) saveTranslationConfig(workspaceRoot, config, configFile || undefined)
+      return bridgeToCodex(categoryAgents, safePluginName, prefix, outputDir, workspaceRoot, { ...config, sourceDir })
+    })
     result = codexResult
     orchestratorName = codexResult.plugin.orchestratorName || orchestratorName
   } else {
     const { bridgeToClaudeCode } = await import("./utils/bridge.js")
-    const claudeResult = bridgeToClaudeCode(categoryAgents, safePluginName, prefix, outputDir, workspaceRoot, { ...config, sourceDir })
+    const bridgeConfigPath = configFile || path.join(workspaceRoot, ".agent-manager", "translation-config.json")
+    const bridgePlan = { localPaths: [bridgeConfigPath].filter(file => isRepositoryLocalPath(workspaceRoot, file)).concat(isRepositoryLocalPath(workspaceRoot, outputDir) ? [outputDir] : []), externalPaths: [bridgeConfigPath, outputDir].filter(file => !isRepositoryLocalPath(workspaceRoot, file)) }
+    const claudeResult = repositoryTransaction(workspaceRoot, bridgePlan, AUTO_COMMIT_MESSAGES.bridge, () => {
+      if (wizard) saveTranslationConfig(workspaceRoot, config, configFile || undefined)
+      return bridgeToClaudeCode(categoryAgents, safePluginName, prefix, outputDir, workspaceRoot, { ...config, sourceDir })
+    })
     result = claudeResult
   }
 
@@ -326,7 +340,7 @@ Options:
     }
   }
 
-  const allAgents = findAgentFiles(workspaceRoot, loadTranslationConfig(workspaceRoot).sourceDir)
+  const allAgents = findAgentFiles(workspaceRoot, loadTranslationConfig(workspaceRoot, undefined, { persistMigration: false }).sourceDir)
   let agentsToExport = allAgents
 
   if (category) {
@@ -371,7 +385,7 @@ Options:
 
 async function runLint(workspaceRoot: string) {
   const { findAgentFiles } = await import("./utils/agents.js")
-  const agents = findAgentFiles(workspaceRoot, loadTranslationConfig(workspaceRoot).sourceDir)
+  const agents = findAgentFiles(workspaceRoot, loadTranslationConfig(workspaceRoot, undefined, { persistMigration: false }).sourceDir)
   const allFilenames = agents.map(a => a.filename)
 
   console.log(`\n🔍 Naming Convention Lint Report`)
@@ -406,7 +420,7 @@ async function runFixNames(workspaceRoot: string) {
   const args = process.argv.slice(3)
   const isDryRun = args.includes("--dry-run")
 
-  const agents = findAgentFiles(workspaceRoot, loadTranslationConfig(workspaceRoot).sourceDir)
+  const agents = findAgentFiles(workspaceRoot, loadTranslationConfig(workspaceRoot, undefined, { persistMigration: false }).sourceDir)
   const allFilenames = agents.map(a => a.filename)
   const nonCompliant = agents.map(a => ({ agent: a, analysis: analyzeAgentName(a.filename, allFilenames) })).filter(item => !item.analysis.isValid)
 
@@ -434,18 +448,28 @@ async function runFixNames(workspaceRoot: string) {
     return
   }
 
+  const plans = nonCompliant.filter(item => item.analysis.suggestedName).map(({ agent, analysis }) => ({
+    agent,
+    destination: path.join(path.dirname(agent.currentPath), analysis.suggestedName!)
+  }))
+  const plannedPaths = [...agents.map(agent => agent.currentPath), ...plans.map(plan => plan.destination)]
   let successCount = 0
   let totalRefs = 0
-
-  for (const { agent, analysis } of nonCompliant) {
-    if (!analysis.suggestedName) continue
-    try {
-      const res = renameAgent(workspaceRoot, agent.currentPath, analysis.suggestedName, agents)
-      successCount++
-      totalRefs += res.updatedReferences.length
-    } catch (e: any) {
-      console.error(`Failed to rename ${agent.filename}: ${e.message || e}`)
-    }
+  try {
+    const results = repositoryTransaction(workspaceRoot, plannedPaths, AUTO_COMMIT_MESSAGES.rename, () => {
+      const renamed = []
+      for (const plan of plans) {
+        const result = renameAgent(workspaceRoot, plan.agent.currentPath, path.basename(plan.destination), agents)
+        if (!result.success) throw new Error(result.error || `Failed to rename ${plan.agent.filename}`)
+        renamed.push(result)
+      }
+      return renamed
+    })
+    successCount = results.length
+    totalRefs = results.reduce((count, result) => count + result.updatedReferences.length, 0)
+  } catch (e: any) {
+    console.error(`Failed to rename agents: ${e.message || e}`)
+    return
   }
 
   console.log(`\n✅ Batch refactoring complete!`)
@@ -455,7 +479,7 @@ async function runFixNames(workspaceRoot: string) {
 
 async function runAudit(workspaceRoot: string) {
   const { findAgentFiles } = await import("./utils/agents.js")
-  const agents = findAgentFiles(workspaceRoot, loadTranslationConfig(workspaceRoot).sourceDir)
+  const agents = findAgentFiles(workspaceRoot, loadTranslationConfig(workspaceRoot, undefined, { persistMigration: false }).sourceDir)
   const audit = auditSecurityPermissions(agents)
 
   console.log(`\n🛡️  Security & Permission Audit Report`)
@@ -508,7 +532,7 @@ async function runImportCLI(workspaceRoot: string) {
   }
 
   try {
-    const res = importAgents(workspaceRoot)
+    const res = repositoryTransaction(workspaceRoot, [path.join(workspaceRoot, "general", "agents")], AUTO_COMMIT_MESSAGES.import, () => importAgents(workspaceRoot))
     console.log(`\n✅ Successfully imported ${res.imported.length} agents!`)
     console.log(`   ${res.backupPath ? `Backup saved to: ${shortenHome(res.backupPath)}` : "No backup needed"}\n`)
   } catch (e: any) {
@@ -530,7 +554,7 @@ async function runTuneCLI(workspaceRoot: string) {
     else if ((args[i] === "--category" || args[i] === "-c") && args[i + 1]) category = args[++i]
   }
 
-  const agents = findAgentFiles(workspaceRoot, loadTranslationConfig(workspaceRoot).sourceDir)
+  const agents = findAgentFiles(workspaceRoot, loadTranslationConfig(workspaceRoot, undefined, { persistMigration: false }).sourceDir)
   const targetAgents = category ? agents.filter(a => a.category === category) : agents
 
   console.log(`\n🎯 Parameter Tuning CLI`)
@@ -538,11 +562,15 @@ async function runTuneCLI(workspaceRoot: string) {
   console.log(`   Steps:       ${steps !== undefined ? steps : "unchanged"}`)
   console.log(`   Temperature: ${temp !== undefined ? temp : "unchanged"}\n`)
 
-  updateAgentParams(targetAgents, { steps, temperature: temp })
+  repositoryTransaction(workspaceRoot, targetAgents.map(a => a.currentPath), AUTO_COMMIT_MESSAGES.tune, () => updateAgentParams(targetAgents, { steps, temperature: temp }))
   console.log(`✅ Successfully updated parameters for ${targetAgents.length} agents!\n`)
 }
 
 async function run() {
+  if (process.argv.includes("--no-auto-commit")) {
+    process.env.AGENT_MANAGER_AUTO_COMMIT = "0"
+    process.argv = process.argv.filter(arg => arg !== "--no-auto-commit")
+  }
   const workingDirectory = path.resolve(process.cwd())
   const workspaceCandidates = [
     workingDirectory,
