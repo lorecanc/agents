@@ -1,6 +1,11 @@
 import assert from "node:assert/strict"
+import path from "node:path"
 import { test } from "node:test"
 import { resolvePythonPath } from "./_python.js"
+
+// Tests inject a posix platform but may run on a Windows host, where
+// path.join composes backslash separators; normalize before comparing.
+const toPosix = (p) => p.split(path.sep).join("/")
 
 test("win32 finds the venv interpreter at Scripts/python.exe", () => {
   const probed = []
@@ -27,12 +32,14 @@ test("win32 without a venv falls back to python3", () => {
 })
 
 test("posix finds the venv interpreter at bin/python3", () => {
+  const venvRoot = "/workspace/venv"
+  const venvPython = path.join(venvRoot, "bin", "python3")
   const p = resolvePythonPath({
     platform: "linux",
-    exists: (candidate) => candidate.endsWith("bin/python3"),
-    venvRoot: "/workspace/venv"
+    exists: (candidate) => candidate === venvPython,
+    venvRoot
   })
-  assert.equal(p, "/workspace/venv/bin/python3")
+  assert.equal(p, venvPython)
 })
 
 test("posix ignores a Scripts-only venv layout", () => {
@@ -46,5 +53,5 @@ test("posix ignores a Scripts-only venv layout", () => {
     venvRoot: "/workspace/venv"
   })
   assert.equal(p, "python3")
-  assert.deepEqual(probed, ["/workspace/venv/bin/python3"])
+  assert.deepEqual(probed.map(toPosix), ["/workspace/venv/bin/python3"])
 })

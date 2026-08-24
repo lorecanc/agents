@@ -121,7 +121,7 @@ test("Codex plugin mirrors enabled MCP servers in a valid companion layer", () =
   const mcp = JSON.parse(fs.readFileSync(path.join(output, ".mcp.json"), "utf8"))
   assert.deepEqual(Object.keys(mcp.mcpServers), ["docs", "cupertino"])
   assert.match(fs.readFileSync(path.join(output, "README.md"), "utf8"), /## MCP setup/)
-  assert.ok(result.files.some(file => file.endsWith("/.mcp.json")))
+  assert.ok(result.files.some(file => file.split(path.sep).join("/").endsWith("/.mcp.json")))
 })
 
 test("writeCodexPlugin rejects output directories escaping the workspace root", () => {
