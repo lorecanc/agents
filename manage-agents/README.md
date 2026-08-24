@@ -4,9 +4,9 @@ Standalone terminal manager for the OpenCode agent catalog in the sibling `agent
 
 ## Runtime
 
-- Bun `>= 1.2.0` is recommended because OpenTUI uses FFI.
-- Node.js `>= 26.1.0` is supported with automatic `--experimental-ffi` re-execution.
-- Windows: Bun >= 1.2.0 (Windows 10 1809+) or Node >= 26.1.0 both work — invoke manage-agents.mjs directly; use WSL or Git Bash for ./manage-agents.sh.
+- Bun `>= 1.3.0` is recommended because OpenTUI uses FFI.
+- Node.js `>= 26.4.0` is supported with automatic `--experimental-ffi` re-execution.
+- Windows: Bun >= 1.3.0 (Windows 10 1809+) or Node >= 26.4.0 both work — invoke manage-agents.mjs directly; use WSL or Git Bash for ./manage-agents.sh.
 
 The manager does not contain a copy of the agent definitions. It resolves the workspace containing `general/agents/` from the current directory, so it can be launched from the monorepo root, `agents/`, or `manage-agents/`.
 

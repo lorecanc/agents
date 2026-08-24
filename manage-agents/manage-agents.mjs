@@ -5,8 +5,17 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { spawnSync } from "node:child_process"
 import { constants as osConstants } from "node:os"
 
+// Defensive UTF-8 codepage pin; openTUI >= 0.5.0 writes via WriteConsoleW so this is belt-and-suspenders for older/fallback paths.
+if (process.platform === "win32") {
+  try {
+    spawnSync("chcp", ["65001"], { shell: true, stdio: "ignore" })
+  } catch {
+    // non-fatal
+  }
+}
+
 if (!process.versions.bun) {
-  const requiredNode = [26, 1, 0]
+  const requiredNode = [26, 4, 0]
   const versionMatch = process.versions.node.match(/^((?:0|[1-9]\d*))\.((?:0|[1-9]\d*))\.((?:0|[1-9]\d*))(?:-(?:(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/)
   const actualNode = versionMatch ? versionMatch.slice(1).map(Number) : [0, 0, 0]
   const isSupported = actualNode[0] > requiredNode[0] ||
@@ -14,7 +23,7 @@ if (!process.versions.bun) {
       (actualNode[1] === requiredNode[1] && actualNode[2] >= requiredNode[2])))
 
   if (!isSupported) {
-    console.error(`manage-agents requires Node.js >= 26.1.0 (found ${process.versions.node}). OpenTUI uses FFI; install Bun, or upgrade Node to >= 26.1.0.`)
+    console.error(`manage-agents requires Node.js >= 26.4.0 (found ${process.versions.node}). OpenTUI uses FFI; install Bun, or upgrade Node to >= 26.4.0.`)
     process.exit(1)
   }
 

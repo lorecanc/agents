@@ -28,7 +28,7 @@ Public monorepo for OpenCode agent catalogs and the companion `manage-agents` te
 
 ### Prerequisites
 
-You need one runtime: Node.js `>= 26.1.0` or Bun `>= 1.2.0`. Bun is recommended because OpenTUI uses FFI.
+You need one runtime: Node.js `>= 26.4.0` or Bun `>= 1.3.0`. Bun is recommended because OpenTUI uses FFI.
 
 Download either runtime per https://docs.npmjs.com/downloading-and-installing-node-js-and-npm, which also covers version managers (`nvm` or `n` on macOS and Linux, `nvm-windows` or `nodist` on Windows). The `engines` field in `manage-agents/package.json` declares these minimums; npm treats them as an advisory warning unless you enable `engine-strict`.
 
@@ -41,7 +41,7 @@ npm ci
 
 Bun users can substitute `bun install`.
 
-On Node.js `>= 26.1.0`, `manage-agents.mjs` re-executes Node with `--experimental-ffi` automatically.
+On Node.js `>= 26.4.0`, `manage-agents.mjs` re-executes Node with `--experimental-ffi` automatically.
 
 ### macOS
 
