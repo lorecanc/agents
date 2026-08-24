@@ -2,181 +2,148 @@ import crypto from "node:crypto"
 import fs from "node:fs"
 import path from "node:path"
 
-export type CategoryResource = { kind: "file"; source: string; target: string; primary?: boolean; dependency?: string }
+export type ContentPolicy = "text" | "binary" | "mixed"
+export type CategoryResource = {
+  kind: "file" | "directory"; source: string; target: string; policy: ContentPolicy
+  extensions?: string[]; primary?: boolean; dependency?: string
+}
 export type CategoryGenerated = { kind: "config"; id: "opencode-local-codebase-memory-v1"; target: string }
 export type CategoryManifest = {
-  schemaVersion: 1
-  id: string
-  title: string
-  description: string
-  output: string
-  resources: CategoryResource[]
-  generated: CategoryGenerated[]
+  schemaVersion: 2; distributionVersion: string; id: string; title: string; description: string; output: string; allowRequirements?: boolean
+  resources: CategoryResource[]; generated: CategoryGenerated[]
 }
-export type CategoryDistributionResult = { status: "current" | "stale"; missing: string[]; changed: string[]; extra: string[]; manifestHash: string }
-export type CategoryDistributionOptions = { rename?: typeof fs.renameSync; onLockAcquired?: () => void }
+export type CategoryDistributionResult = { status: "current" | "stale"; missing: string[]; changed: string[]; extra: string[]; manifestHash: string; distributionVersion: string }
+export type CategoryDistributionOptions = { rename?: typeof fs.renameSync; onLockAcquired?: () => void; onPhase?: (phase: string) => void }
+export type CategoryPackageResult = { output: string; dryRun: boolean; categories: string[]; files: string[]; inventory: string }
+export type PackageCategory = { id: string; version: string; manifestHash: string; root: string; treeHash: string }
+export type PackageEntry = { path: string; sha256: string; size: number }
+export type CategoryPackageMarker = { schema: 1; kind: "category-package"; packageVersion: string; sourceSha?: string; categories: PackageCategory[]; entries: PackageEntry[]; contentDigest: string }
 
 const GENERATED = "opencode-local-codebase-memory-v1"
-const RESERVED_TARGETS = new Set(["license", "readme.md", "category.json", "provenance.json", "opencode.json"])
-const RESOURCE_KINDS = new Set(["file"])
-const ROOT_LICENSE = `MIT License
-
-Copyright (c) 2026 Lorenzo Cancellara
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
-Third-party software and services retain their own licenses and terms. This
-license covers project-owned code, prompts, agents, skills, commands, and
-documentation only.
-`
+const SCHEMA_VERSION = 2
+const RESERVED = new Set(["license", "readme.md", "category.json", "provenance.json", "opencode.json"])
+const TEXT_EXTENSIONS = new Set([".md", ".markdown", ".txt", ".json", ".yaml", ".yml", ".toml", ".css", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".py", ".xml", ".xsd", ".html"])
+const ROOT_LICENSE = `MIT License\n\nCopyright (c) 2026 Lorenzo Cancellara\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the "Software"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n\nThird-party software and services retain their own licenses and terms. This\nlicense covers project-owned code, prompts, agents, skills, commands, and\ndocumentation only.\n`
 const GENERATED_OPENCODE = JSON.stringify({ mcp: { "codebase-memory-mcp": { type: "local", command: ["codebase-memory-mcp"], enabled: true } } }, null, 2) + "\n"
+const fail = (message: string): never => { throw new Error(`Invalid category distribution: ${message}`) }
+const digest = (value: Buffer | string) => crypto.createHash("sha256").update(value).digest("hex")
+const treeHash = (directory: string): string | null => {
+  if (!fs.existsSync(directory)) return null
+  const entries = outputFiles(directory).map(file => `${file}\0${digest(fs.readFileSync(path.join(directory, file)))}\0${fs.statSync(path.join(directory, file)).size}`).join("\n")
+  return digest(entries)
+}
+function durableJournal(file: string, value: unknown): void {
+  const temporary = `${file}.tmp-${process.pid}-${Date.now()}`
+  const fd = fs.openSync(temporary, "w", 0o600)
+  try { const bytes = Buffer.from(JSON.stringify(value) + "\n"); fs.writeSync(fd, bytes); fs.fsyncSync(fd) } finally { fs.closeSync(fd) }
+  fs.renameSync(temporary, file)
+  try { const dirfd = fs.openSync(path.dirname(file), "r"); try { fs.fsyncSync(dirfd) } finally { fs.closeSync(dirfd) } } catch { /* directory fsync is unavailable on Windows */ }
+}
+const text = (value: Buffer) => Buffer.from(new TextDecoder("utf-8", { fatal: true }).decode(value).replace(/\r\n?/g, "\n").replace(/\n*$/, "\n"))
+const safeRelative = (value: string, label: string) => { if (!value || path.isAbsolute(value) || value.split(/[\\/]/).some(p => !p || p === "." || p === "..")) fail(`${label} is unsafe: ${value}`) }
+const strictKeys = (value: Record<string, unknown>, allowed: string[], label: string) => { for (const key of Object.keys(value)) if (!allowed.includes(key)) fail(`${label} has unknown field ${key}`) }
+const folded = (value: string) => value.toLocaleLowerCase("und")
 
-function fail(message: string): never { throw new Error(`Invalid category distribution: ${message}`) }
-function hash(value: Buffer | string): string { return crypto.createHash("sha256").update(value).digest("hex") }
-function normalized(value: Buffer | string): Buffer {
-  const decoded = typeof value === "string" ? value : new TextDecoder("utf-8", { fatal: true }).decode(value)
-  return Buffer.from(decoded.replace(/\r\n?/g, "\n").replace(/\n*$/, "\n"), "utf8")
+function assertSafeTree(root: string, candidate: string, recurse = false): void {
+  const rootAbsolute = path.resolve(root), absolute = path.resolve(candidate)
+  const rel = path.relative(rootAbsolute, absolute)
+  if (rel.startsWith("..") || path.isAbsolute(rel)) fail(`path escapes repository: ${candidate}`)
+  let current = rootAbsolute
+  for (const part of rel.split(path.sep).filter(Boolean)) { current = path.join(current, part); let stat: fs.Stats; try { stat = fs.lstatSync(current) } catch (e: any) { if (e.code === "ENOENT") break; throw e }; if (stat.isSymbolicLink()) fail(`symlink is not allowed: ${path.relative(rootAbsolute, current)}`); if (!stat.isDirectory() && !stat.isFile()) fail(`special file is not allowed: ${path.relative(rootAbsolute, current)}`) }
+  if (recurse && fs.existsSync(absolute)) { const stat = fs.lstatSync(absolute); if (stat.isDirectory()) for (const child of fs.readdirSync(absolute)) assertSafeTree(root, path.join(absolute, child), true) }
 }
-function safeRelative(value: string, label: string): void {
-  if (!value || path.isAbsolute(value) || value.split(/[\\/]/).some(part => !part || part === "." || part === "..")) fail(`${label} is unsafe: ${value}`)
+function sourceAllowed(source: string): boolean {
+  return source === "general/AGENTS.md" || source === "general/requirements.txt" || /^(general)\/(agents|commands|skills|tools)(\/|$)/.test(source) || /^(office)\/(docs|slides)(\/|$)/.test(source)
 }
-function strictKeys(value: Record<string, unknown>, allowed: string[], label: string): void {
-  for (const key of Object.keys(value)) if (!allowed.includes(key)) fail(`${label} has unknown field ${key}`)
-}
-/** Check every existing component, including the component that will be created later. */
-function assertNoSymlinkComponents(root: string, candidate: string): void {
-  const absoluteRoot = path.resolve(root), absolute = path.resolve(candidate)
-  if (absolute !== absoluteRoot && !absolute.startsWith(absoluteRoot + path.sep)) fail(`path escapes repository: ${candidate}`)
-  let current = absoluteRoot
-  const parts = path.relative(absoluteRoot, absolute).split(path.sep).filter(Boolean)
-  for (const part of parts) {
-    current = path.join(current, part)
-    try { if (fs.lstatSync(current).isSymbolicLink()) fail(`symlink is not allowed: ${path.relative(absoluteRoot, current)}`) }
-    catch (error: any) { if (error.code !== "ENOENT") throw error; break }
-  }
-}
-function assertNoSymlinkTree(root: string, candidate: string): void {
-  assertNoSymlinkComponents(root, candidate)
-  if (!fs.existsSync(candidate)) return
-  const stat = fs.lstatSync(candidate)
-  if (stat.isSymbolicLink()) fail(`symlink is not allowed: ${path.relative(root, candidate)}`)
-  if (stat.isDirectory()) for (const name of fs.readdirSync(candidate)) assertNoSymlinkTree(root, path.join(candidate, name))
-}
-function sourcePath(workspaceRoot: string, source: string): string {
-  safeRelative(source, "source")
-  const resolved = path.resolve(workspaceRoot, source)
-  assertNoSymlinkComponents(workspaceRoot, resolved)
-  return resolved
-}
-function targetCollision(targets: string[]): void {
-  const reserved = new Set(["license", "readme.md", "category.json", "provenance.json"])
-  const folded = new Map<string, string>()
-  for (const target of targets) {
-    const key = target.toLocaleLowerCase("en-US")
-    if (reserved.has(key) || key.split("/").some(part => reserved.has(part))) fail(`target is reserved for generator-owned metadata: ${target}`)
-    if (folded.has(key)) fail(`duplicate/case-folded target ${target}`)
-    folded.set(key, target)
-  }
-  for (const a of targets) for (const b of targets) { const aa = a.toLocaleLowerCase("en-US"), bb = b.toLocaleLowerCase("en-US"); if (a !== b && (aa.startsWith(`${bb}/`) || bb.startsWith(`${aa}/`))) fail("file-directory target collision") }
-}
+function sourcePath(workspaceRoot: string, source: string) { safeRelative(source, "source"); if (!sourceAllowed(source)) fail(`source is outside the canonical allowlist: ${source}`); const resolved = path.resolve(workspaceRoot, source); assertSafeTree(workspaceRoot, resolved, true); return resolved }
+function targetCollision(targets: string[]) { const seen = new Map<string, string>(); for (const target of targets) { const key = folded(target); if (RESERVED.has(key) || key.split("/").some(p => RESERVED.has(p))) fail(`target is reserved: ${target}`); if (seen.has(key)) fail(`duplicate/case-folded target ${target}`); seen.set(key, target) }; for (const a of targets) for (const b of targets) { const aa = folded(a), bb = folded(b); if (a !== b && (aa.startsWith(`${bb}/`) || bb.startsWith(`${aa}/`))) fail("file-directory target collision") } }
+function semver(value: unknown): value is string { return typeof value === "string" && /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.test(value) }
 
 export function validateCategoryManifest(manifest: unknown, workspaceRoot: string): asserts manifest is CategoryManifest {
-  if (!manifest || typeof manifest !== "object") fail("manifest must be an object")
-  const value = manifest as Record<string, unknown>
-  strictKeys(value, ["schemaVersion", "id", "title", "description", "output", "resources", "generated"], "manifest")
-  if (value.schemaVersion !== 1 || typeof value.id !== "string" || !/^[a-z0-9][a-z0-9-]*$/.test(value.id) || typeof value.title !== "string" || typeof value.description !== "string" || typeof value.output !== "string" || !Array.isArray(value.resources) || !Array.isArray(value.generated)) fail("schema, identity, or collection fields are invalid")
-  safeRelative(value.output as string, "output")
-  if (value.output !== `categories/${value.id}`) fail("output must be categories/<id>")
+  if (!manifest || typeof manifest !== "object") fail("manifest must be an object"); const value = manifest as Record<string, unknown>
+  strictKeys(value, ["schemaVersion", "distributionVersion", "id", "title", "description", "output", "allowRequirements", "resources", "generated"], "manifest")
+  if (value.schemaVersion !== SCHEMA_VERSION || !semver(value.distributionVersion) || typeof value.id !== "string" || !/^[a-z0-9][a-z0-9-]*$/.test(value.id) || typeof value.title !== "string" || typeof value.description !== "string" || typeof value.output !== "string" || !Array.isArray(value.resources) || !Array.isArray(value.generated)) fail("schema, identity, or collection fields are invalid")
+  safeRelative(value.output as string, "output"); if (value.output !== `categories/${value.id}`) fail("output must be categories/<id>")
+  if (value.allowRequirements !== undefined && typeof value.allowRequirements !== "boolean") fail("allowRequirements must be boolean")
   const targets: string[] = [], sources = new Set<string>()
-  for (const raw of value.resources as unknown[]) {
-    if (!raw || typeof raw !== "object") fail("resource must be an object")
-    const entry = raw as Record<string, unknown>
-    strictKeys(entry, ["kind", "source", "target", "primary", "dependency"], "resource")
-    if (!RESOURCE_KINDS.has(entry.kind as string) || typeof entry.source !== "string" || typeof entry.target !== "string") fail("resource fields are invalid")
-    safeRelative(entry.source, "source"); safeRelative(entry.target, "target")
-    if (RESERVED_TARGETS.has(entry.target.toLocaleLowerCase("en-US"))) fail(`target is reserved by the generator: ${entry.target}`)
-    if (sources.has(entry.source)) fail(`duplicate source ${entry.source}`); sources.add(entry.source); targets.push(entry.target)
-    if (entry.primary !== undefined && typeof entry.primary !== "boolean") fail("primary must be boolean")
-    if (entry.dependency !== undefined && (typeof entry.dependency !== "string" || !sources.has(entry.dependency))) fail("dependency must refer to an earlier resource")
-    const file = sourcePath(workspaceRoot, entry.source)
-    if (!fs.existsSync(file) || !fs.lstatSync(file).isFile()) fail(`source is not a file: ${entry.source}`)
-    if (entry.source === "categories" || entry.source.startsWith("categories/") || entry.source === "wiki-generator" || entry.source.startsWith("wiki-generator/") || entry.source.includes("/generated/")) fail(`generated source is not allowed: ${entry.source}`)
+  for (const raw of value.resources as unknown[]) { if (!raw || typeof raw !== "object") fail("resource must be an object"); const entry = raw as Record<string, unknown>; const kind = entry.kind as string, sourceName = entry.source as string, targetName = entry.target as string, policy = entry.policy as string; strictKeys(entry, ["kind", "source", "target", "policy", "extensions", "primary", "dependency"], "resource"); if (kind !== "file" && kind !== "directory" || typeof sourceName !== "string" || typeof targetName !== "string" || !["text", "binary", "mixed"].includes(policy)) fail("resource fields are invalid"); safeRelative(sourceName, "source"); safeRelative(targetName, "target"); if (sourceName === "general/requirements.txt" && value.allowRequirements !== true) fail("requirements.txt requires allowRequirements"); if (sources.has(sourceName)) fail(`duplicate source ${sourceName}`); sources.add(sourceName); targets.push(targetName); if (kind === "directory" && policy === "mixed" && (!Array.isArray(entry.extensions) || !entry.extensions.every(x => typeof x === "string" && TEXT_EXTENSIONS.has(x)))) fail("mixed directories require a reviewed text extension allowlist"); if (entry.extensions !== undefined && (!Array.isArray(entry.extensions) || !entry.extensions.every(x => typeof x === "string"))) fail("extensions must be strings"); if (entry.primary !== undefined && typeof entry.primary !== "boolean") fail("primary must be boolean"); if (entry.dependency !== undefined && (typeof entry.dependency !== "string" || !sources.has(entry.dependency))) fail("dependency must refer to an earlier resource"); const source = sourcePath(workspaceRoot, sourceName); const stat = fs.lstatSync(source); if (kind === "file" ? !stat.isFile() : !stat.isDirectory()) fail(`source kind does not match: ${sourceName}`) }
+  for (const raw of value.generated as unknown[]) { if (!raw || typeof raw !== "object") fail("generated entry must be an object"); const entry = raw as Record<string, unknown>; const targetName = entry.target as string; strictKeys(entry, ["kind", "id", "target"], "generated entry"); if (entry.kind !== "config" || entry.id !== GENERATED || typeof targetName !== "string") fail("unknown generated entry"); safeRelative(targetName, "target"); targets.push(targetName) }
+  // Resource targets may not shadow generator-owned metadata.  The generated
+  // config is the sole intentional exception: it must be exactly the
+  // generator's canonical target, not an arbitrary reserved filename.
+  const resourceCount = (value.resources as unknown[]).length
+  targetCollision(targets.slice(0, resourceCount))
+  for (const target of targets.slice(resourceCount)) {
+    if (folded(target) !== "opencode.json") fail(`target is reserved or invalid for generated config: ${target}`)
   }
-  for (const raw of value.generated as unknown[]) {
-    if (!raw || typeof raw !== "object") fail("generated entry must be an object")
-    const entry = raw as Record<string, unknown>
-    strictKeys(entry, ["kind", "id", "target"], "generated entry")
-    if (entry.kind !== "config" || entry.id !== GENERATED || typeof entry.target !== "string") fail("unknown generated entry")
-    safeRelative(entry.target, "target"); targets.push(entry.target)
-  }
-  targetCollision(targets)
-  assertNoSymlinkComponents(workspaceRoot, path.resolve(workspaceRoot, value.output as string))
+  assertSafeTree(workspaceRoot, path.resolve(workspaceRoot, value.output as string))
 }
-export function loadCategoryManifest(repoRoot: string, id: string): CategoryManifest {
-  safeRelative(id, "category")
-  const file = path.join(repoRoot, "agents", ".agent-manager", "categories", `${id}.json`)
-  if (!fs.existsSync(file)) fail(`manifest not found: ${file}`)
-  let parsed: unknown
-  try { parsed = JSON.parse(normalized(fs.readFileSync(file)).toString("utf8")) } catch (error: any) { fail(`manifest is not valid UTF-8 JSON: ${error.message}`) }
-  validateCategoryManifest(parsed, path.join(repoRoot, "agents")); return parsed
-}
-function manifestHash(manifest: CategoryManifest): string { return hash(JSON.stringify(manifest) + "\n") }
-function expected(workspaceRoot: string, manifest: CategoryManifest): Map<string, Buffer> {
-  const result = new Map<string, Buffer>([["LICENSE", normalized(ROOT_LICENSE)]])
-  for (const resource of manifest.resources) result.set(resource.target, normalized(fs.readFileSync(sourcePath(workspaceRoot, resource.source))))
-  for (const generated of manifest.generated) result.set(generated.target, Buffer.from(GENERATED_OPENCODE))
-  return result
-}
-function generatedReadme(manifest: CategoryManifest): Buffer { return normalized(`# ${manifest.title}\n\n${manifest.description}\n\nThis directory is a generated category distribution and is never canonical. Edit sources under agents/general/ and regenerate with manage-agents category build ${manifest.id}. The Wiki pilot is the first complete, publishable distribution; other category directories are legacy browsing mirrors until they have manifests. Components are selected by the manifest and dependencies, not by filename.\n\nFiles use UTF-8, LF endings, and one final newline. See CATEGORY.json, LICENSE, and PROVENANCE.json.\n`) }
-function categoryLock(manifest: CategoryManifest): Buffer { return normalized(JSON.stringify({ schemaVersion: 1, category: manifest.id, manifestHash: manifestHash(manifest), resources: manifest.resources.map(r => ({ kind: r.kind, source: r.source, target: r.target })) }, null, 2)) }
-function provenance(manifest: CategoryManifest, contents: Map<string, Buffer>): Buffer {
-  const entries = [...contents].sort(([a], [b]) => a.localeCompare(b)).map(([target, bytes]) => ({ target, ...(target === "LICENSE" ? { generated: "repository-license-v1" } : manifest.resources.find(r => r.target === target) ? { source: manifest.resources.find(r => r.target === target)!.source } : { generated: manifest.generated.find(g => g.target === target)?.id || "category-metadata-v1" }), hash: hash(bytes) }))
-  return normalized(JSON.stringify({ schemaVersion: 1, category: manifest.id, manifestHash: manifestHash(manifest), entries }, null, 2))
-}
-function filesUnder(dir: string): string[] { if (!fs.existsSync(dir)) return []; const out: string[] = []; const visit = (current: string) => { for (const name of fs.readdirSync(current)) { const file = path.join(current, name); const stat = fs.lstatSync(file); if (stat.isSymbolicLink()) fail(`symlink is not allowed in output: ${name}`); stat.isDirectory() ? visit(file) : out.push(path.relative(dir, file).split(path.sep).join("/")) } }; visit(dir); return out.sort() }
-function paths(workspaceRoot: string, manifest: CategoryManifest) { const output = path.resolve(workspaceRoot, manifest.output); const categories = path.join(workspaceRoot, "categories"); return { output, categories, lock: path.join(workspaceRoot, ".agent-manager", `category-${manifest.id}.lock`) } }
-function contentsFor(workspaceRoot: string, manifest: CategoryManifest) { const contents = expected(workspaceRoot, manifest); contents.set("README.md", generatedReadme(manifest)); contents.set("CATEGORY.json", categoryLock(manifest)); contents.set("PROVENANCE.json", provenance(manifest, new Map([...contents]))); return contents }
+export function loadCategoryManifest(repoRoot: string, id: string): CategoryManifest { safeRelative(id, "category"); const file = path.join(repoRoot, "agents", ".agent-manager", "categories", `${id}.json`); if (!fs.existsSync(file)) fail(`manifest not found: ${id}`); let parsed: unknown; try { parsed = JSON.parse(text(fs.readFileSync(file) as Buffer).toString("utf8")) } catch (e: any) { fail(`manifest is not valid UTF-8 JSON: ${e.message}`) }; validateCategoryManifest(parsed, path.join(repoRoot, "agents")); return parsed }
+const manifestHash = (manifest: CategoryManifest) => digest(JSON.stringify(manifest) + "\n")
+function filesFor(resource: CategoryResource, workspaceRoot: string): Array<[string, Buffer]> { const source = sourcePath(workspaceRoot, resource.source), base = resource.kind === "file" ? path.dirname(source) : source; const items: string[] = []; const visit = (file: string) => { const stat = fs.lstatSync(file); if (stat.isDirectory()) for (const child of fs.readdirSync(file).sort((a, b) => a.codePointAt(0)! - b.codePointAt(0)!)) visit(path.join(file, child)); else if (stat.isFile()) items.push(file) }; visit(source); return items.map(file => { const relative = resource.kind === "file" ? path.basename(file) : path.relative(base, file).split(path.sep).join("/"); const target = resource.kind === "file" ? resource.target : path.posix.join(resource.target, relative); const bytes = fs.readFileSync(file); const isText = resource.policy === "text" || resource.policy === "mixed" && (resource.extensions || []).includes(path.extname(file).toLowerCase()); return [target, isText ? text(bytes) : bytes] }) }
+function expected(workspaceRoot: string, manifest: CategoryManifest) { const out = new Map<string, Buffer>([["LICENSE", text(Buffer.from(ROOT_LICENSE))]]); for (const resource of manifest.resources) for (const [target, bytes] of filesFor(resource, workspaceRoot)) out.set(target, bytes); for (const generated of manifest.generated) out.set(generated.target, Buffer.from(GENERATED_OPENCODE)); return out }
+function contentsFor(workspaceRoot: string, manifest: CategoryManifest) { const contents = expected(workspaceRoot, manifest); contents.set("README.md", text(Buffer.from(`# ${manifest.title}\n\n${manifest.description}\n\nThis is a generated category distribution. Edit canonical sources and run manage-agents category build ${manifest.id}. Generated-only files must not be edited.\n`))); const entries = [...contents].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([target, bytes]) => ({ target, hash: digest(bytes) })); contents.set("CATEGORY.json", text(Buffer.from(JSON.stringify({ schemaVersion: SCHEMA_VERSION, distributionVersion: manifest.distributionVersion, category: manifest.id, manifestHash: manifestHash(manifest), generatorVersion: "2.0.0", entries }, null, 2)))); contents.set("PROVENANCE.json", text(Buffer.from(JSON.stringify({ schemaVersion: SCHEMA_VERSION, distributionVersion: manifest.distributionVersion, category: manifest.id, manifestHash: manifestHash(manifest), generatorVersion: "2.0.0", bundleDigest: digest(Buffer.concat([...contents.values()])), entries }, null, 2)))); return contents }
+function outputFiles(dir: string): string[] { if (!fs.existsSync(dir)) return []; const result: string[] = []; const visit = (current: string) => { for (const name of fs.readdirSync(current)) { const file = path.join(current, name), stat = fs.lstatSync(file); if (stat.isSymbolicLink() || (!stat.isDirectory() && !stat.isFile())) fail(`unsafe output entry: ${name}`); stat.isDirectory() ? visit(file) : result.push(path.relative(dir, file).split(path.sep).join("/")) } }; visit(dir); return result.sort((a, b) => a < b ? -1 : a > b ? 1 : 0) }
+function paths(workspaceRoot: string, manifest: CategoryManifest) { const output = path.resolve(workspaceRoot, manifest.output); return { output, control: path.join(workspaceRoot, ".agent-manager", "category-control"), lock: path.join(workspaceRoot, ".agent-manager", `category-${manifest.id}.lock`) } }
+function withLock<T>(workspaceRoot: string, manifest: CategoryManifest, operation: () => T, callback?: () => void): T { const { control, lock } = paths(workspaceRoot, manifest); assertSafeTree(workspaceRoot, control); fs.mkdirSync(control, { recursive: true, mode: 0o700 }); const fd = (() => { try { return fs.openSync(lock, "wx", 0o600) } catch (e: any) { if (e.code === "EEXIST") throw new Error(`Another category ${manifest.id} build is already running.`); throw e } })(); const identity = fs.fstatSync(fd); try { callback?.(); return operation() } finally { fs.closeSync(fd); try { const stat = fs.lstatSync(lock); if (stat.dev === identity.dev && stat.ino === identity.ino && stat.isFile()) fs.unlinkSync(lock) } catch {} } }
+function categoryIds(repoRoot: string): string[] { const dir = path.join(repoRoot, "agents", ".agent-manager", "categories"); assertSafeTree(repoRoot, dir); return fs.readdirSync(dir).filter(file => file.endsWith(".json")).map(file => file.slice(0, -5)).sort((a, b) => a < b ? -1 : a > b ? 1 : 0) }
+function assertPackageOutput(repoRoot: string, output: string, ids: string[], create = true): string { safeRelative(output, "package output"); const absolute = path.resolve(repoRoot, output); if (create && !fs.existsSync(absolute)) fs.mkdirSync(absolute, { recursive: true }); assertSafeTree(repoRoot, absolute, true); const relative = path.relative(repoRoot, absolute).split(path.sep).join("/"); if (!relative || relative === "agents" || relative.startsWith("agents/") || relative === ".git" || relative.startsWith(".git/") || ids.some(id => relative === `agents/categories/${id}` || relative.startsWith(`agents/categories/${id}/`)) || (relative.includes(".agent-manager") && relative !== ".agent-manager" && !relative.startsWith(".agent-manager/") && !relative.startsWith("manage-agents/.agent-manager/"))) fail("package output overlaps canonical, generated, control, or Git paths"); if (fs.existsSync(absolute) && outputFiles(absolute).length && !fs.existsSync(path.join(absolute, "CATEGORY-PACKAGE.json"))) fail("package output is not an owned artifact directory"); return absolute }
 
-export function checkCategoryDistribution(repoRoot: string, id: string): CategoryDistributionResult {
-  const manifest = loadCategoryManifest(repoRoot, id), workspaceRoot = path.join(repoRoot, "agents"), { output, categories } = paths(workspaceRoot, manifest)
-  assertNoSymlinkComponents(repoRoot, workspaceRoot); assertNoSymlinkComponents(repoRoot, categories); assertNoSymlinkComponents(repoRoot, output); if (fs.existsSync(output)) assertNoSymlinkTree(repoRoot, output)
-  const contents = contentsFor(workspaceRoot, manifest), missing: string[] = [], changed: string[] = []
-  for (const [target, bytes] of contents) { const file = path.join(output, target); if (!fs.existsSync(file)) missing.push(target); else if (hash(fs.readFileSync(file)) !== hash(bytes)) changed.push(target) }
-  const extra = filesUnder(output).filter(file => !contents.has(file))
-  return { status: missing.length || changed.length || extra.length ? "stale" : "current", missing: missing.sort(), changed: changed.sort(), extra, manifestHash: manifestHash(manifest) }
+const packageDigest = (entries: PackageEntry[]) => digest(entries.slice().sort((a, b) => a.path.localeCompare(b.path)).map(e => `${e.path}\0${e.sha256}\0${e.size}`).join("\n"))
+function packageFiles(root: string): PackageEntry[] {
+  const entries: PackageEntry[] = []
+  const visit = (current: string) => { const stat = fs.lstatSync(current); if (stat.isSymbolicLink() || (!stat.isFile() && !stat.isDirectory())) fail(`unsafe package entry: ${path.relative(root, current)}`); if (stat.isDirectory()) for (const child of fs.readdirSync(current).sort()) visit(path.join(current, child)); else entries.push({ path: path.relative(root, current).split(path.sep).join("/"), sha256: digest(fs.readFileSync(current)), size: stat.size }) }
+  visit(root); return entries
 }
-type Identity = { dev: number; ino: number }
-function same(a: Identity, b: Identity) { return a.dev === b.dev && a.ino === b.ino }
-function withLock<T>(workspaceRoot: string, manifest: CategoryManifest, operation: () => T, callback?: () => void): T {
-  const { categories, lock } = paths(workspaceRoot, manifest); assertNoSymlinkComponents(workspaceRoot, workspaceRoot); assertNoSymlinkComponents(workspaceRoot, categories); assertNoSymlinkComponents(workspaceRoot, path.dirname(lock)); fs.mkdirSync(path.dirname(lock), { recursive: true }); assertNoSymlinkComponents(workspaceRoot, path.dirname(lock))
-  let fd: number | undefined, identity: Identity | undefined
-  try { fd = fs.openSync(lock, "wx"); const stat = fs.fstatSync(fd); identity = { dev: stat.dev, ino: stat.ino }; fs.writeFileSync(fd, `agent-manager category ${manifest.id} lock\n`); callback?.(); return operation() }
-  catch (error: any) { if (error.code === "EEXIST") throw new Error(`Another category ${manifest.id} build is already running.`); throw error }
-  finally { if (fd !== undefined && identity) { fs.closeSync(fd); try { const stat = fs.lstatSync(lock); if (!stat.isSymbolicLink() && same(identity, { dev: stat.dev, ino: stat.ino })) fs.unlinkSync(lock); else console.error(`Category lock ownership could not be proven; leaving ${lock}.`) } catch {} } }
-}
-export function buildCategoryDistribution(repoRoot: string, id: string, options: CategoryDistributionOptions = {}): CategoryDistributionResult {
-  const manifest = loadCategoryManifest(repoRoot, id), workspaceRoot = path.join(repoRoot, "agents")
-  return withLock(workspaceRoot, manifest, () => { const { output, categories } = paths(workspaceRoot, manifest); assertNoSymlinkComponents(repoRoot, workspaceRoot); assertNoSymlinkComponents(repoRoot, categories); fs.mkdirSync(categories, { recursive: true }); assertNoSymlinkComponents(repoRoot, output); const parent = path.dirname(output); const marker = crypto.randomBytes(16).toString("hex"); const staging = fs.mkdtempSync(path.join(parent, `.category-${id}-`)); const backup = path.join(parent, `.category-${id}-backup-${marker}`); const rename = options.rename || fs.renameSync; const contents = contentsFor(workspaceRoot, manifest); assertNoSymlinkComponents(repoRoot, staging); try { for (const [target, bytes] of contents) { const file = path.join(staging, target); assertNoSymlinkComponents(repoRoot, file); fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, bytes) }; if (fs.existsSync(output)) { assertNoSymlinkTree(repoRoot, output); rename(output, backup) }; rename(staging, output); if (fs.existsSync(backup)) { const stat = fs.lstatSync(backup); if (!stat.isDirectory()) throw new Error("Backup ownership could not be proven"); fs.rmSync(backup, { recursive: true, force: true }) }; return checkCategoryDistribution(repoRoot, id) } catch (error) { if (fs.existsSync(backup) && !fs.existsSync(output)) rename(backup, output); throw error } finally { if (fs.existsSync(staging)) fs.rmSync(staging, { recursive: true, force: true }) } }, options.onLockAcquired)
-}
-export function parseCategoryArgs(args: string[]): { action: "list" | "build" | "check" | "explain"; id?: string } { const [action, id, ...rest] = args.filter(a => a !== "--no-auto-commit"); if (!action || !["list", "build", "check", "explain"].includes(action)) fail("usage: category list|build|check|explain <id>"); if (action === "list") { if (id || rest.length) fail("category list takes no category"); return { action } }; if (!id || rest.length || id === "--all") fail("a single category id is required (or use --all after support is added)"); safeRelative(id, "category"); return { action: action as any, id } }
+function parsePackageMarker(value: unknown): CategoryPackageMarker { if (!value || typeof value !== "object") fail("package marker must be an object"); const v = value as any; if (v.schema !== 1 || v.kind !== "category-package" || !semver(v.packageVersion) || !Array.isArray(v.categories) || !Array.isArray(v.entries) || typeof v.contentDigest !== "string" || !/^[0-9a-f]{64}$/.test(v.contentDigest)) fail("invalid package marker schema"); for (const c of v.categories) if (!c || !/^[a-z0-9][a-z0-9-]*$/.test(c.id) || !semver(c.version) || !/^[0-9a-f]{64}$/.test(c.manifestHash) || !/^[0-9a-f]{64}$/.test(c.treeHash) || typeof c.root !== "string" || c.root !== c.id) fail("invalid package category"); for (const e of v.entries) if (!e || typeof e.path !== "string" || path.posix.isAbsolute(e.path) || e.path.split("/").some((p: string) => !p || p === "." || p === "..") || !/^[0-9a-f]{64}$/.test(e.sha256) || !Number.isSafeInteger(e.size) || e.size < 0) fail("invalid package entry"); const paths = v.entries.map((e: any) => e.path); if (new Set(paths).size !== paths.length || paths.some((p: string) => p.toLocaleLowerCase("und") !== p && paths.some((q: string) => q !== p && q.toLocaleLowerCase("und") === p.toLocaleLowerCase("und")))) fail("package path collision"); if (packageDigest(v.entries) !== v.contentDigest) fail("package content digest mismatch"); return v }
+export function validateCategoryPackage(directory: string, allowStale = false): CategoryPackageMarker { assertSafeTree(path.dirname(directory), directory, true); const markerPath = path.join(directory, "CATEGORY-PACKAGE.json"); if (!fs.existsSync(markerPath) || !fs.lstatSync(markerPath).isFile()) fail("package marker is missing"); let marker: CategoryPackageMarker; try { marker = parsePackageMarker(JSON.parse(fs.readFileSync(markerPath, "utf8"))) } catch (e: any) { if (e.message?.startsWith("Invalid category distribution")) throw e; fail(`invalid package marker: ${e.message}`) } const actual = packageFiles(directory).filter(e => e.path !== "CATEGORY-PACKAGE.json").sort((a, b) => a.path.localeCompare(b.path)); const expected = marker.entries.slice().sort((a, b) => a.path.localeCompare(b.path)); if (!allowStale && JSON.stringify(actual) !== JSON.stringify(expected)) fail("package entries do not match payload"); if (allowStale && expected.some(e => { const found = actual.find(a => a.path === e.path); return !found || found.sha256 !== e.sha256 || found.size !== e.size })) fail("package owned entry hash mismatch"); return marker }
+  export function packageCategoryDistributions(repoRoot: string, ids: string[], output: string, dryRun = false): CategoryPackageResult { const selected = (ids.length ? ids : categoryIds(repoRoot)).slice().sort(); if (!output) fail("package requires --output"); const destination = assertPackageOutput(repoRoot, output, selected, !dryRun); const payload = new Map<string, Buffer>(), categories: PackageCategory[] = []; for (const id of selected) { const result = checkCategoryDistribution(repoRoot, id); if (result.status !== "current") fail(`category ${id} is not current; build it before packaging`); const source = path.join(repoRoot, "agents", "categories", id), files = outputFiles(source); const categoryMarker = JSON.parse(fs.readFileSync(path.join(source, "CATEGORY.json"), "utf8")); const treeEntries = files.map(file => ({ path: file, sha256: digest(fs.readFileSync(path.join(source, file))), size: fs.statSync(path.join(source, file)).size })); categories.push({ id, version: categoryMarker.distributionVersion, manifestHash: categoryMarker.manifestHash, root: id, treeHash: packageDigest(treeEntries) }); for (const file of files) payload.set(`${id}/${file}`, fs.readFileSync(path.join(source, file))) }; const entries = [...payload].map(([p, b]) => ({ path: p, sha256: digest(b), size: b.length })).sort((a, b) => a.path.localeCompare(b.path)); const marker: CategoryPackageMarker = { schema: 1, kind: "category-package", packageVersion: "1.0.0", sourceSha: process.env.AGENT_MANAGER_SOURCE_SHA, categories, entries, contentDigest: packageDigest(entries) }; const inventory = JSON.stringify(marker, null, 2) + "\n"; if (!dryRun) { if (fs.existsSync(destination) && outputFiles(destination).length) validateCategoryPackage(destination, true); const control = path.join(repoRoot, "agents", ".agent-manager", "category-control", "transactions"); fs.mkdirSync(control, { recursive: true, mode: 0o700 }); const staging = fs.mkdtempSync(path.join(path.dirname(destination), `.${path.basename(destination)}-stage-`)), backup = `${destination}.backup-${process.pid}`; try { for (const [file, bytes] of payload) { const target = path.join(staging, file); fs.mkdirSync(path.dirname(target), { recursive: true }); fs.writeFileSync(target, bytes) } fs.writeFileSync(path.join(staging, "CATEGORY-PACKAGE.json"), inventory); validateCategoryPackage(staging); let same = false; if (fs.existsSync(destination) && outputFiles(destination).length) { try { same = JSON.stringify(validateCategoryPackage(destination)) === JSON.stringify(marker) } catch {} } if (same) { fs.rmSync(staging, { recursive: true, force: true }); return { output: destination, dryRun, categories: selected, files: entries.map(e => e.path), inventory } } if (fs.existsSync(destination)) fs.renameSync(destination, backup); fs.renameSync(staging, destination); if (fs.existsSync(backup)) fs.rmSync(backup, { recursive: true, force: true }) } catch (e) { if (fs.existsSync(backup) && !fs.existsSync(destination)) fs.renameSync(backup, destination); if (fs.existsSync(staging)) fs.rmSync(staging, { recursive: true, force: true }); throw e } } return { output: destination, dryRun, categories: selected, files: entries.map(e => e.path), inventory } }
+function legacyBuildAllCategoryDistributions(repoRoot: string, options: CategoryDistributionOptions = {}): CategoryDistributionResult[] { const root = path.join(repoRoot, "agents"), ids = categoryIds(repoRoot), manifests = ids.map(id => loadCategoryManifest(repoRoot, id)); const control = path.join(root, ".agent-manager", "category-control"); fs.mkdirSync(control, { recursive: true, mode: 0o700 }); const unresolved = path.join(control, "build-all.journal"); if (fs.existsSync(unresolved)) throw new Error(`Unresolved category build journal found at agents/.agent-manager/category-control/build-all.journal; inspect and recover before retrying.`); const globalLock = path.join(control, "build-all.lock"); let fd: number; try { fd = fs.openSync(globalLock, "wx", 0o600) } catch (e: any) { if (e.code === "EEXIST") throw new Error("Another all-category build is already running."); throw e }; const identity = fs.fstatSync(fd); const staging = fs.mkdtempSync(path.join(control, "all-staging-")), backups = path.join(control, "all-backups"); const staged = new Map<string, string>(); try { for (const manifest of manifests) { const destination = path.join(staging, manifest.id); fs.mkdirSync(destination, { recursive: true }); for (const [name, bytes] of contentsFor(root, manifest)) { const file = path.join(destination, name); fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, bytes) } staged.set(manifest.id, destination) }; fs.writeFileSync(unresolved, JSON.stringify({ schemaVersion: 1, categories: ids, staging, backups, state: "staged" }) + "\n", { mode: 0o600 }); fs.mkdirSync(backups, { recursive: true }); const moved: string[] = []; try { for (const id of ids) { const output = path.join(root, "categories", id), backup = path.join(backups, id); if (fs.existsSync(output)) fs.renameSync(output, backup); fs.renameSync(staged.get(id)!, output); moved.push(id) } fs.unlinkSync(unresolved); fs.rmSync(backups, { recursive: true, force: true }); return ids.map(id => checkCategoryDistribution(repoRoot, id)) } catch (error) { for (const id of moved.slice().reverse()) { const output = path.join(root, "categories", id), backup = path.join(backups, id); if (fs.existsSync(output)) fs.rmSync(output, { recursive: true, force: true }); if (fs.existsSync(backup)) fs.renameSync(backup, output) } throw error } } finally { if (fs.existsSync(staging)) fs.rmSync(staging, { recursive: true, force: true }); if (!fs.existsSync(unresolved) && fs.existsSync(backups)) fs.rmSync(backups, { recursive: true, force: true }); fs.closeSync(fd); try { const stat = fs.lstatSync(globalLock); if (stat.isFile() && stat.dev === identity.dev && stat.ino === identity.ino) fs.unlinkSync(globalLock) } catch {} } }
 
-// Compatibility aliases for callers of the pre-v1 module; the old file itself is removed.
+export function buildAllCategoryDistributions(repoRoot: string, options: CategoryDistributionOptions = {}): CategoryDistributionResult[] {
+  const root = path.join(repoRoot, "agents"), ids = categoryIds(repoRoot), manifests = ids.map(id => loadCategoryManifest(repoRoot, id))
+  const control = path.join(root, ".agent-manager", "category-control"), transactions = path.join(control, "transactions")
+  fs.mkdirSync(transactions, { recursive: true, mode: 0o700 }); const journal = path.join(control, "build-all.journal"), lock = path.join(control, "build-all.lock")
+  if (fs.existsSync(journal)) throw new Error("Unresolved category build journal found; run category recover explicitly before retrying.")
+  let fd: number; try { fd = fs.openSync(lock, "wx", 0o600) } catch { throw new Error("Another all-category build is already running.") }
+  const lockIdentity = fs.fstatSync(fd), rename = options.rename || fs.renameSync
+  let transaction: string | undefined
+  try {
+    const txid = crypto.randomBytes(16).toString("hex"); transaction = path.join(transactions, txid); options.onPhase?.("transaction-mkdir"); fs.mkdirSync(transaction, { recursive: true, mode: 0o700 })
+    const txIdentity = path.join(transaction, "identity.json"); options.onPhase?.("identity"); fs.writeFileSync(txIdentity, JSON.stringify({ schemaVersion: 4, txid }) + "\n", { flag: "wx", mode: 0o600 })
+    const slots = { new: path.join(transaction, "new"), old: path.join(transaction, "old"), quarantine: path.join(transaction, "quarantine") }; for (const slot of Object.values(slots)) fs.mkdirSync(slot, { mode: 0o700 })
+    const states = Object.fromEntries(ids.map(id => [id, { original: fs.existsSync(path.join(root, "categories", id)) }]))
+    const plans = Object.fromEntries(ids.map(id => { options.onPhase?.("tree-hash"); return [id, { oldHash: treeHash(path.join(root, "categories", id)), newHash: null as string | null, original: states[id].original }] }))
+    const writeJournal = (state: string, current?: string) => { options.onPhase?.("journal"); durableJournal(journal, { schemaVersion: 4, state, txid, ids, categories: plans, current }) }
+    for (const manifest of manifests) { const destination = path.join(slots.new, manifest.id); fs.mkdirSync(destination, { recursive: true }); for (const [name, bytes] of contentsFor(root, manifest)) { const file = path.join(destination, name); fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, bytes) }; plans[manifest.id].newHash = treeHash(destination) }
+    writeJournal("ready");
+     for (const id of ids) { const output = path.join(root, "categories", id), old = path.join(slots.old, id), staged = path.join(slots.new, id); fs.mkdirSync(path.dirname(output), { recursive: true }); writeJournal("backup-intent", id); if (states[id].original) rename(output, old); writeJournal("publish-intent", id); rename(staged, output); options.onPhase?.("published-before-journal"); writeJournal("published", id) }
+    for (const id of ids) if (checkCategoryDistribution(repoRoot, id).status !== "current") throw new Error(`category ${id} failed post-publish verification`)
+    writeJournal("commit-intent"); for (const slot of ["old", "new", "quarantine"] as const) { options.onPhase?.(`cleanup-${slot}`); fs.rmSync(slots[slot], { recursive: true, force: true }) }; writeJournal("cleanup-complete"); options.onPhase?.("cleanup-transaction"); fs.rmSync(transaction, { recursive: true, force: true }); options.onPhase?.("cleanup-journal"); fs.unlinkSync(journal); return ids.map(id => checkCategoryDistribution(repoRoot, id))
+  } finally { if (transaction && !fs.existsSync(journal)) try { fs.rmSync(transaction, { recursive: true, force: true }) } catch {} fs.closeSync(fd); try { const stat = fs.lstatSync(lock); if (stat.isFile() && stat.dev === lockIdentity.dev && stat.ino === lockIdentity.ino) fs.unlinkSync(lock) } catch {} }
+}
+
+export function recoverBuildAllCategoryDistributions(repoRoot: string, options: CategoryDistributionOptions = {}): void {
+  const root = path.join(repoRoot, "agents"), journal = path.join(root, ".agent-manager", "category-control", "build-all.journal")
+  if (!fs.existsSync(journal)) return
+  const record = JSON.parse(fs.readFileSync(journal, "utf8"))
+  const control = path.dirname(journal), plans = record.categories as Record<string, { oldHash: string | null; newHash: string; original: boolean }>
+  if (record.schemaVersion !== 4) throw new Error("Unsupported category build journal schema; v3 journals are not migrated. Remove or inspect the journal and run category recover with schema v4.")
+  if (!/^[a-f0-9]{32}$/.test(record.txid) || !Array.isArray(record.ids) || !record.ids.every((id: unknown) => typeof id === "string" && /^[a-z0-9][a-z0-9-]*$/.test(id)) || !plans || Object.keys(plans).some(id => !record.ids.includes(id)) || record.ids.some((id: string) => !plans[id] || (plans[id].oldHash !== null && !/^[0-9a-f]{64}$/.test(plans[id].oldHash)) || !/^[0-9a-f]{64}$/.test(plans[id].newHash))) throw new Error("Invalid category build recovery journal")
+  const transaction = path.join(control, "transactions", record.txid), identity = path.join(transaction, "identity.json")
+  const terminal = record.state === "cleanup-complete"
+  if (!terminal && (!fs.existsSync(identity) || JSON.parse(fs.readFileSync(identity, "utf8")).txid !== record.txid)) throw new Error("Invalid category build transaction identity")
+  const slots = { new: path.join(transaction, "new"), old: path.join(transaction, "old"), quarantine: path.join(transaction, "quarantine") }
+  const observed = record.ids.map((id: string) => { const p = plans[id], output = path.join(root, "categories", id), old = path.join(slots.old, id), staged = path.join(slots.new, id), quarantine = path.join(slots.quarantine, id); return { p, output, old, staged, quarantine, oh: treeHash(output), bh: treeHash(old), sh: treeHash(staged), qh: treeHash(quarantine) } })
+  if (terminal || record.state === "commit-intent") { if (observed.some(x => x.oh !== x.p.newHash)) throw new Error("Cannot roll forward an unverified category output"); if (terminal) { fs.rmSync(transaction, { recursive: true, force: true }); fs.unlinkSync(journal); return } for (const slot of ["old", "new", "quarantine"] as const) { options.onPhase?.(`cleanup-${slot}`); fs.rmSync(slots[slot], { recursive: true, force: true }) }; durableJournal(journal, { ...record, state: "cleanup-complete" }); options.onPhase?.("cleanup-transaction"); fs.rmSync(transaction, { recursive: true, force: true }); options.onPhase?.("cleanup-journal"); fs.unlinkSync(journal); return }
+  for (const item of observed) { const { p, oh, bh, sh, qh } = item; if (qh !== null || oh !== null && oh !== p.oldHash && oh !== p.newHash || bh !== null && bh !== p.oldHash || sh !== null && sh !== p.newHash || oh !== null && bh !== null && sh !== null || p.oldHash === null && bh !== null) throw new Error("Invalid category build recovery state") }
+  for (const item of observed.slice().reverse()) { if (item.oh === item.p.newHash && item.p.oldHash === null && !item.bh && !item.sh) { fs.renameSync(item.output, item.quarantine); fs.rmSync(item.quarantine, { recursive: true, force: true }) } else if (item.oh === item.p.newHash && item.bh === item.p.oldHash && !item.sh) { fs.renameSync(item.output, item.quarantine); fs.renameSync(item.old, item.output); fs.rmSync(item.quarantine, { recursive: true, force: true }) } else if (!item.oh && item.bh === item.p.oldHash) { fs.renameSync(item.old, item.output) } else if (item.oh === item.p.oldHash && !item.bh && item.sh === item.p.newHash) { } else if (!item.oh && !item.bh && item.sh === item.p.newHash) { } else if (item.oh === item.p.newHash || item.oh === item.p.oldHash) throw new Error("Invalid category build recovery state") }
+  fs.rmSync(transaction, { recursive: true, force: true }); fs.unlinkSync(journal)
+}
+
+export function checkCategoryDistribution(repoRoot: string, id: string): CategoryDistributionResult { const manifest = loadCategoryManifest(repoRoot, id), root = path.join(repoRoot, "agents"), { output } = paths(root, manifest); assertSafeTree(repoRoot, root); if (fs.existsSync(output)) assertSafeTree(repoRoot, output, true); const wanted = contentsFor(root, manifest), missing: string[] = [], changed: string[] = []; for (const [name, bytes] of wanted) { const file = path.join(output, name); if (!fs.existsSync(file)) missing.push(name); else if (!fs.lstatSync(file).isFile() || digest(fs.readFileSync(file)) !== digest(bytes)) changed.push(name) }; const extra = outputFiles(output).filter(name => !wanted.has(name)); return { status: missing.length || changed.length || extra.length ? "stale" : "current", missing: missing.sort(), changed: changed.sort(), extra, manifestHash: manifestHash(manifest), distributionVersion: manifest.distributionVersion } }
+export function buildCategoryDistribution(repoRoot: string, id: string, options: CategoryDistributionOptions = {}): CategoryDistributionResult { const manifest = loadCategoryManifest(repoRoot, id), root = path.join(repoRoot, "agents"); return withLock(root, manifest, () => { const { output, control } = paths(root, manifest); fs.mkdirSync(path.dirname(output), { recursive: true }); const staging = fs.mkdtempSync(path.join(control, `${id}-staging-`)), backup = path.join(control, `${id}-backup-${process.pid}`), rename = options.rename || fs.renameSync; try { for (const [name, bytes] of contentsFor(root, manifest)) { const file = path.join(staging, name); fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, bytes) } if (fs.existsSync(output)) rename(output, backup); rename(staging, output); if (fs.existsSync(backup)) fs.rmSync(backup, { recursive: true, force: true }); return checkCategoryDistribution(repoRoot, id) } catch (e) { if (fs.existsSync(backup) && !fs.existsSync(output)) rename(backup, output); throw e } finally { if (fs.existsSync(staging)) fs.rmSync(staging, { recursive: true, force: true }) } }, options.onLockAcquired) }
+export function parseCategoryArgs(args: string[]): { action: "list" | "build" | "check" | "explain" | "status" | "package" | "recover"; id?: string; ids?: string[]; json?: boolean; output?: string; dryRun?: boolean; sourceSha?: string } { const values = args.filter(a => a !== "--no-auto-commit"), action = values.shift(); if (!action || !["list", "build", "check", "explain", "status", "package", "recover"].includes(action)) fail("usage: category list|explain|status|build|check|package|recover"); if (action === "list") { if (values.length) fail("category list takes no arguments"); return { action: action as any } }; if (action === "recover") { if (values.length) fail("category recover takes no arguments"); return { action } }; let json = false, dryRun = false, output = "", id = "", sourceSha: string | undefined; for (let i = 0; i < values.length; i++) { const value = values[i]; if (value === "--json") json = true; else if (value === "--dry-run") dryRun = true; else if (value === "--output" && values[++i]) output = values[i]; else if (value === "--source-sha") { if (action !== "package" || sourceSha !== undefined || !values[++i] || !/^[0-9a-f]{40}$/i.test(values[i])) fail("--source-sha must be exactly once with a 40-character hexadecimal value"); sourceSha = values[i] } else if (!id) id = value; else fail("unexpected argument") }; if (!id) fail("a category id or --all is required"); if (id !== "--all") { safeRelative(id, "category"); if (!/^[a-z0-9][a-z0-9-]*$/.test(id)) fail(`invalid category id: ${id}`) }; return { action: action as any, ...(id === "--all" ? { ids: [] } : { id, ids: [id] }), json, output: output || undefined, dryRun, ...(sourceSha ? { sourceSha } : {}) } }
 export const validateTopicManifest = validateCategoryManifest
 export const loadTopicManifest = (repoRoot: string) => loadCategoryManifest(repoRoot, "wiki")
 export const checkTopicExport = (workspaceRoot: string) => checkCategoryDistribution(path.dirname(workspaceRoot), "wiki")

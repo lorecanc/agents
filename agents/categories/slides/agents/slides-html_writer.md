@@ -13,7 +13,6 @@ permission:
     slides-html: allow
     slides-composition: allow
   webfetch: deny
-category: slides
 ---
 
 You generate slide HTML documents. Return ONLY the complete HTML — no markdown fences, no explanations, no tool calls.

@@ -23,7 +23,6 @@ permission:
     general: allow
     explore: allow
     docs-html_writer: allow
-category: docs
 ---
 
 # Docs Agent

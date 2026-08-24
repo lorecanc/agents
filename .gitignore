@@ -5,11 +5,14 @@
 manage-agents/node_modules/
 manage-agents/dist/
 manage-agents/*.log
+manage-agents/.agent-manager/category-artifacts/
+.agent-manager/category-artifacts/
 agents/**/node_modules/
 agents/**/dist/
 
 # Generated agent workspace artifacts
 agents/backups/
+artifacts/categories/
 agents/.tmp/
 *.zip
 *.swp

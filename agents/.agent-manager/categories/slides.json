@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 2,
+  "distributionVersion": "2.0.0",
+  "id": "slides",
+  "title": "Slides category bundle",
+  "description": "Portable presentation agents, commands, skills, and OOXML tooling.",
+  "output": "categories/slides",
+  "allowRequirements": true,
+  "resources": [
+    { "kind": "file", "source": "general/AGENTS.md", "target": "AGENTS.md", "policy": "text", "primary": true },
+    { "kind": "file", "source": "general/agents/slides-orchestrator.md", "target": "agents/slides-orchestrator.md", "policy": "text", "primary": true },
+    { "kind": "file", "source": "general/agents/slides-planner.md", "target": "agents/slides-planner.md", "policy": "text", "primary": true },
+    { "kind": "file", "source": "general/agents/slides-html_writer.md", "target": "agents/slides-html_writer.md", "policy": "text", "primary": true },
+    { "kind": "file", "source": "general/agents/slides-template_planner.md", "target": "agents/slides-template_planner.md", "policy": "text", "primary": true },
+    { "kind": "file", "source": "general/agents/slides-template_writer.md", "target": "agents/slides-template_writer.md", "policy": "text", "primary": true },
+    { "kind": "file", "source": "general/agents/slides-composition_resolver.md", "target": "agents/slides-composition_resolver.md", "policy": "text", "primary": true },
+    { "kind": "file", "source": "general/commands/new-slides.md", "target": "commands/new-slides.md", "policy": "text", "primary": true },
+    { "kind": "file", "source": "general/commands/polish-slides.md", "target": "commands/polish-slides.md", "policy": "text", "primary": true },
+    { "kind": "file", "source": "general/commands/fix-slide.md", "target": "commands/fix-slide.md", "policy": "text" },
+    { "kind": "directory", "source": "general/skills/slides-composition", "target": "skills/slides-composition", "policy": "text" },
+    { "kind": "directory", "source": "general/skills/slides-template-html", "target": "skills/slides-template-html", "policy": "text" },
+    { "kind": "directory", "source": "general/tools/pptx", "target": "tools/pptx", "policy": "mixed", "extensions": [".py", ".js", ".ts", ".md", ".xsd", ".xml"] },
+    { "kind": "file", "source": "general/skills/slides-composition/THIRD_PARTY_NOTICES.md", "target": "THIRD_PARTY_NOTICES.md", "policy": "text", "primary": true }
+    ,{ "kind": "file", "source": "general/requirements.txt", "target": "requirements.txt", "policy": "text" }
+  ],
+  "generated": [{ "kind": "config", "id": "opencode-local-codebase-memory-v1", "target": "opencode.json" }]
+}

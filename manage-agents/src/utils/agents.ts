@@ -640,7 +640,7 @@ export function findAgentFiles(workspaceRoot: string, sourceDir: string = "gener
   if (!isPathInsideWorkspace(workspaceRoot, sourceDir)) {
     throw new Error(`sourceDir must stay inside workspace; received '${sourceDir}'`)
   }
-  if (!fs.existsSync(sourceRoot) || !fs.statSync(sourceRoot).isDirectory()) {
+  if (!fs.existsSync(sourceRoot) || !fs.lstatSync(sourceRoot).isDirectory() || fs.lstatSync(sourceRoot).isSymbolicLink()) {
     throw new Error(`Agent source directory does not exist: ${sourceRoot} (sourceDir='${sourceDir}')`)
   }
   const agents: AgentInfo[] = []
@@ -653,9 +653,16 @@ export function findAgentFiles(workspaceRoot: string, sourceDir: string = "gener
 
     let stats: fs.Stats
     try {
-      stats = fs.statSync(dir)
+      stats = fs.lstatSync(dir)
     } catch {
       return
+    }
+
+    // Discovery must never follow links: a linked directory could expose
+    // files outside the selected workspace and a linked markdown file could
+    // make export/organize operate on an unexpected target.
+    if (stats.isSymbolicLink()) {
+      throw new Error(`Refusing to discover agents through symlink: ${dir}`)
     }
 
     if (stats.isDirectory()) {
@@ -664,6 +671,10 @@ export function findAgentFiles(workspaceRoot: string, sourceDir: string = "gener
 
       for (const file of files) {
         const fullPath = path.join(dir, file)
+        const childStat = fs.lstatSync(fullPath)
+        if (childStat.isSymbolicLink()) {
+          throw new Error(`Refusing to discover agents through symlink: ${fullPath}`)
+        }
         if (isAgentsDir && file.endsWith(".md")) {
           try {
             const agent = parseAgentFile(fullPath, workspaceRoot)

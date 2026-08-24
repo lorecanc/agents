@@ -14,7 +14,6 @@ permission:
     docs-html: allow
     docs-design: allow
   webfetch: deny
-category: docs
 ---
 
 You generate HTML documents. Return ONLY the complete HTML — no markdown fences, no explanations, no tool calls.

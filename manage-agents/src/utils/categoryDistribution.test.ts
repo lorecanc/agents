@@ -3,9 +3,10 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { test } from "node:test"
-import { buildCategoryDistribution, checkCategoryDistribution, loadCategoryManifest, parseCategoryArgs, validateCategoryManifest } from "./categoryDistribution.js"
+import { buildCategoryDistribution, buildAllCategoryDistributions, checkCategoryDistribution, loadCategoryManifest, packageCategoryDistributions, parseCategoryArgs, recoverBuildAllCategoryDistributions, validateCategoryManifest, validateCategoryPackage } from "./categoryDistribution.js"
 import { findAgentFiles, organizeAgents } from "./agents.js"
 import { execFileSync } from "node:child_process"
+import crypto from "node:crypto"
 
 const repo = path.resolve(process.cwd(), "..")
 const sourceFiles = ["general/AGENTS.md", "general/agents/wiki-analyzer.md", "general/agents/wiki-indexer.md", "general/agents/wiki-orchestrator.md", "general/agents/wiki-updater.md", "general/agents/wiki-writer.md", "general/commands/wiki.md", "general/skills/wiki-conventions/SKILL.md", "general/skills/wiki-navigate/SKILL.md", "general/skills/wiki-templates/SKILL.md"]
@@ -103,11 +104,38 @@ test("failed publish restores the previous output and cleans staging", () => {
   assert.equal(fs.readdirSync(path.join(root, "agents/categories")).some(name => name.includes(".category-wiki-")), false)
 })
 
+test("CLI parser accepts one package SHA and rejects duplicates or non-package use", () => {
+  const sourceSha = "0123456789abcdef0123456789abcdef01234567"
+  assert.equal(parseCategoryArgs(["package", "wiki", "--source-sha", sourceSha]).sourceSha, sourceSha)
+  assert.throws(() => parseCategoryArgs(["package", "wiki", "--source-sha", sourceSha, "--source-sha", sourceSha]), /exactly once/)
+  assert.throws(() => parseCategoryArgs(["check", "wiki", "--source-sha", sourceSha]), /exactly once/)
+  assert.throws(() => parseCategoryArgs(["package", "wiki", "--source-sha", "not-a-sha"]), /exactly once/)
+})
+
 test("CLI parser supports list/build/check/explain, alias flags, and rejects traversal", () => {
   assert.deepEqual(parseCategoryArgs(["list"]), { action: "list" })
-  for (const action of ["build", "check", "explain"] as const) assert.deepEqual(parseCategoryArgs([action, "wiki", "--no-auto-commit"]), { action, id: "wiki" })
+  for (const action of ["build", "check", "explain"] as const) {
+    const parsed = parseCategoryArgs([action, "wiki", "--no-auto-commit"])
+    assert.equal(parsed.action, action)
+    assert.equal(parsed.id, "wiki")
+    assert.deepEqual(parsed.ids, ["wiki"])
+    assert.equal(parsed.json, false)
+    assert.equal(parsed.dryRun, false)
+  }
   assert.throws(() => parseCategoryArgs(["build", "../wiki"]), /unsafe/)
-  assert.throws(() => parseCategoryArgs(["list", "wiki"]), /takes no category/)
+  assert.throws(() => parseCategoryArgs(["list", "wiki"]), /takes no arguments/)
+})
+
+test("findAgentFiles fails closed for linked directories and files", () => {
+  const root = fixture(), workspace = path.join(root, "agents")
+  if (process.platform === "win32") return
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "agent-discovery-outside-"))
+  fs.writeFileSync(path.join(outside, "outside.md"), "---\ncategory: outside\n---\n")
+  fs.symlinkSync(outside, path.join(workspace, "general", "linked"), "dir")
+  assert.throws(() => findAgentFiles(workspace, "general"), /symlink/i)
+  fs.unlinkSync(path.join(workspace, "general", "linked"))
+  fs.symlinkSync(path.join(workspace, "general"), path.join(workspace, "general", "linked"), "dir")
+  assert.throws(() => findAgentFiles(workspace, "general/linked"), /source directory does not exist|symlink/i)
 })
 
 test("category build uses a per-category lock and releases it", () => {
@@ -156,4 +184,93 @@ test("deprecated topic-export alias does not create an old output", () => {
   execFileSync(process.execPath, [path.join(repo, "manage-agents/dist/index.js"), "topic-export", "--no-auto-commit"], { cwd: root, encoding: "utf8" })
   assert.equal(fs.existsSync(path.join(root, "agents/topic-export")), false)
   assert.equal(fs.existsSync(path.join(root, "agents/categories/wiki")), true)
+})
+
+test("package records byte hashes and removes stale files", () => {
+  const root = fixture(); buildCategoryDistribution(root, "wiki"); fs.mkdirSync(path.join(root, "artifacts"), { recursive: true }); const artifact = path.join(root, "artifacts/categories")
+  process.env.AGENT_MANAGER_SOURCE_SHA = "0123456789abcdef0123456789abcdef01234567"
+  packageCategoryDistributions(root, ["wiki"], "artifacts/categories")
+  const marker = validateCategoryPackage(artifact), entry = marker.entries.find(e => e.path === "wiki/AGENTS.md")!
+  assert.equal(marker.sourceSha, process.env.AGENT_MANAGER_SOURCE_SHA)
+  const hash = execFileSync("sh", ["-c", `shasum -a 256 ${JSON.stringify(path.join(artifact, entry.path))}`], { encoding: "utf8" }).split(" ")[0]
+  assert.equal(entry.sha256, hash); fs.writeFileSync(path.join(artifact, "stale.txt"), "stale")
+  assert.throws(() => validateCategoryPackage(artifact), /entries do not match/); packageCategoryDistributions(root, ["wiki"], "artifacts/categories")
+  assert.equal(fs.existsSync(path.join(artifact, "stale.txt")), false)
+  delete process.env.AGENT_MANAGER_SOURCE_SHA
+})
+
+test("recovery rejects v3 journals with migration guidance", () => {
+  const root = fixture(), journal = path.join(root, "agents/.agent-manager/category-control/build-all.journal")
+  fs.mkdirSync(path.dirname(journal), { recursive: true }); fs.writeFileSync(journal, JSON.stringify({ schemaVersion: 3 }))
+  assert.throws(() => recoverBuildAllCategoryDistributions(root), /v3 journals are not migrated/); assert.equal(fs.existsSync(journal), true)
+})
+
+test("v4 recovery restores identical output after rename-before-journal crash", () => {
+  const root = fixture(), original = path.join(output(root), "AGENTS.md")
+  buildCategoryDistribution(root, "wiki")
+  const before = fs.readFileSync(original, "utf8")
+  assert.throws(() => buildAllCategoryDistributions(root, { onPhase: phase => { if (phase === "published-before-journal") throw new Error("crash") } }), /crash/)
+  recoverBuildAllCategoryDistributions(root)
+  assert.equal(fs.readFileSync(original, "utf8"), before)
+  assert.equal(fs.existsSync(path.join(root, "agents/.agent-manager/category-control/build-all.journal")), false)
+})
+
+test("v4 recovery removes a newly published category when no original existed", () => {
+  const root = fixture()
+  assert.equal(fs.existsSync(output(root)), false)
+  assert.throws(() => buildAllCategoryDistributions(root, { onPhase: phase => { if (phase === "published-before-journal") throw new Error("crash") } }), /crash/)
+  assert.equal(fs.existsSync(output(root)), true)
+  recoverBuildAllCategoryDistributions(root)
+  assert.equal(fs.existsSync(output(root)), false)
+  assert.equal(fs.existsSync(path.join(root, "agents/.agent-manager/category-control/build-all.journal")), false)
+})
+
+test("commit-intent recovery preserves verified new output", () => {
+  const root = fixture(); buildCategoryDistribution(root, "wiki")
+  assert.throws(() => buildAllCategoryDistributions(root, { onPhase: phase => { if (phase === "cleanup-old") throw new Error("crash after commit intent") } }), /crash after commit intent/)
+  recoverBuildAllCategoryDistributions(root)
+  assert.equal(checkCategoryDistribution(root, "wiki").status, "current")
+})
+
+test("v4 recovery fails without mutation for equal-hash backup, staged, and output", () => {
+  const root = fixture(), control = path.join(root, "agents/.agent-manager/category-control"), txid = "0123456789abcdef0123456789abcdef", tx = path.join(control, "transactions", txid)
+  fs.mkdirSync(path.join(root, "agents/categories/wiki"), { recursive: true }); fs.writeFileSync(path.join(root, "agents/categories/wiki/file"), "same")
+  for (const slot of ["new", "old", "quarantine"]) fs.mkdirSync(path.join(tx, slot, "wiki"), { recursive: true })
+  fs.writeFileSync(path.join(tx, "identity.json"), JSON.stringify({ schemaVersion: 4, txid }))
+  for (const slot of ["new", "old"]) fs.writeFileSync(path.join(tx, slot, "wiki/file"), "same")
+  const plans = { wiki: { oldHash: (null as string | null), newHash: "0".repeat(64), original: true } }
+  fs.writeFileSync(path.join(control, "build-all.journal"), JSON.stringify({ schemaVersion: 4, state: "publish-intent", txid, ids: ["wiki"], categories: plans }))
+  const before = fs.readFileSync(path.join(root, "agents/categories/wiki/file")); assert.throws(() => recoverBuildAllCategoryDistributions(root), /Invalid category build recovery state/); assert.deepEqual(fs.readFileSync(path.join(root, "agents/categories/wiki/file")), before)
+})
+
+test("v4 setup failures always release the build-all lock", () => {
+  for (const phase of ["transaction-mkdir", "identity", "tree-hash", "journal"]) {
+    const root = fixture()
+    assert.throws(() => buildAllCategoryDistributions(root, { onPhase: actual => { if (actual === phase) throw new Error("setup failure") } }), /setup failure/)
+    assert.equal(fs.existsSync(path.join(root, "agents/.agent-manager/category-control/build-all.lock")), false)
+  }
+})
+
+test("v4 cleanup interruptions are recoverable and idempotent", () => {
+  for (const phase of ["cleanup-old", "cleanup-new", "cleanup-quarantine", "cleanup-transaction", "cleanup-journal"]) {
+    const root = fixture(); buildCategoryDistribution(root, "wiki")
+    assert.throws(() => buildAllCategoryDistributions(root, { onPhase: actual => { if (actual === phase) throw new Error("cleanup failure") } }), /cleanup failure/)
+    recoverBuildAllCategoryDistributions(root)
+    assert.equal(fs.existsSync(path.join(root, "agents/.agent-manager/category-control/build-all.journal")), false)
+    assert.equal(checkCategoryDistribution(root, "wiki").status, "current")
+  }
+})
+
+test("build refuses an unresolved journal until explicit recovery", () => {
+  const root = fixture(), journal = path.join(root, "agents/.agent-manager/category-control/build-all.journal")
+  fs.mkdirSync(path.dirname(journal), { recursive: true })
+  fs.writeFileSync(journal, "{}")
+  assert.throws(() => buildAllCategoryDistributions(root), /recover explicitly/)
+  assert.equal(fs.existsSync(journal), true)
+})
+
+test("publication workflow is dispatch-only and fully pinned", () => {
+  const workflow = fs.readFileSync(path.join(repo, ".github/workflows/publish-category.yml"), "utf8")
+  assert.match(workflow, /workflow_dispatch:/); assert.doesNotMatch(workflow, /^\s+(push|pull_request):/m); assert.match(workflow, /options: \[wiki, docs, slides\]/); assert.match(workflow, /category-publication/)
+  assert.match(workflow, /upload-artifact@[0-9a-f]{40}/); assert.match(workflow, /download-artifact@[0-9a-f]{40}/); assert.match(workflow, /actions\/checkout@[0-9a-f]{40}[\s\S]*?ref: \$\{\{ github\.sha \}\}[\s\S]*?persist-credentials: false/); assert.match(workflow, /actions\/setup-node@[0-9a-f]{40}/); assert.match(workflow, /npm ci[\s\S]*?working-directory: manage-agents/); assert.match(workflow, /npm run build[\s\S]*?working-directory: manage-agents/); assert.match(workflow, /--source-sha/); assert.match(workflow, /--confirm-remote/); assert.match(workflow, /CATEGORY_PUBLISH_TOKEN: \$\{\{ secrets\.CATEGORY_PUBLISH_TOKEN \}\}/)
 })

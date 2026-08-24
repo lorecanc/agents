@@ -29,7 +29,6 @@ permission:
     slides-html_writer: allow
     slides-template_planner: allow
     slides-template_writer: allow
-category: slides
 ---
 
 # Slides Agent

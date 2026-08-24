@@ -12,7 +12,6 @@ permission:
   task: deny
   skill: deny
   webfetch: deny
-category: slides
 ---
 
 You assign composition attributes to an existing slide outline. Output must be **valid JSON only** — no markdown fences, no explanations, no extra text.

@@ -1,7 +1,5 @@
 ---
-description: Creates structured document outline plans from task briefs. Returns
-  JSON only — assigns sections, layout hints, content hierarchy, and determines
-  narrative flow.
+description: Creates structured document outline plans from task briefs. Returns JSON only — assigns sections, layout hints, content hierarchy, and determines narrative flow.
 mode: subagent
 hidden: true
 temperature: 0.1
@@ -12,7 +10,6 @@ permission:
   skill: deny
   task: deny
   webfetch: deny
-category: docs
 ---
 
 You generate JSON plans for document creation. Output must be **valid JSON only** — no markdown fences, no explanations, no extra text.

@@ -17,7 +17,8 @@ import {
   type TranslationTarget
 } from "./utils/translationConfig.js"
 import { AUTO_COMMIT_MESSAGES, isRepositoryLocalPath, repositoryTransaction } from "./utils/repositoryTransaction.js"
-import { buildCategoryDistribution, checkCategoryDistribution, loadCategoryManifest, parseCategoryArgs } from "./utils/categoryDistribution.js"
+import { buildCategoryDistribution, buildAllCategoryDistributions, recoverBuildAllCategoryDistributions, checkCategoryDistribution, loadCategoryManifest, packageCategoryDistributions, parseCategoryArgs } from "./utils/categoryDistribution.js"
+import { publishCategory } from "./utils/categoryPublication.js"
 
 function askQuestion(query: string): Promise<string> {
   const rl = readline.createInterface({
@@ -567,20 +568,41 @@ async function runTuneCLI(workspaceRoot: string) {
   console.log(`✅ Successfully updated parameters for ${targetAgents.length} agents!\n`)
 }
 
-function runCategory(workspaceRoot: string) {
+async function runCategory(workspaceRoot: string) {
   const repoRoot = path.basename(workspaceRoot) === "agents" ? path.dirname(workspaceRoot) : workspaceRoot
   const args = process.argv.slice(3)
   if (args.includes("--help") || args.includes("-h")) {
-    console.log("Usage: manage-agents category list|build|check|explain <id> [--no-auto-commit]")
+    console.log("Usage: manage-agents category list|explain|status|build|check|package|publish <id> [options]")
+    return
+  }
+  if (args[0] === "publish") {
+    const category = args[1] as any
+    let packageRoot = "", confirmRemote = false, bootstrap = false, dryRun = false, sourceSha = ""
+    for (let i = 2; i < args.length; i++) {
+      if (args[i] === "--package" && args[++i]) packageRoot = path.resolve(args[i])
+      else if (args[i] === "--confirm-remote") confirmRemote = true
+      else if (args[i] === "--bootstrap") bootstrap = true
+      else if (args[i] === "--dry-run") dryRun = true
+      else if (args[i] === "--source-sha" && args[++i]) sourceSha = args[i]
+      else throw new Error(`Unexpected publish argument: ${args[i]}`)
+    }
+    sourceSha = sourceSha || process.env.GITHUB_SHA || process.env.SOURCE_SHA || ""
+    if (!packageRoot || !/^[0-9a-f]{40}$/i.test(sourceSha)) throw new Error("publish requires --package and source SHA")
+    const result = await publishCategory({ packageRoot, canonicalRoot: repoRoot, category, sourceSha, confirmRemote, bootstrap, dryRun, token: process.env.CATEGORY_PUBLISH_TOKEN })
+    console.log(dryRun ? JSON.stringify(result) : `${dryRun ? "Would publish" : "Published"} ${category} via ${result.branch}`)
     return
   }
   const parsed = parseCategoryArgs(args)
+  if (parsed.action === "recover") { recoverBuildAllCategoryDistributions(repoRoot); console.log("Recovered category build journal."); return }
   if (parsed.action === "list") { const dir = path.join(workspaceRoot, ".agent-manager", "categories"); console.log(fs.existsSync(dir) ? fs.readdirSync(dir).filter(file => file.endsWith(".json")).map(file => file.slice(0, -5)).sort().join("\n") : ""); return }
-  const manifest = loadCategoryManifest(repoRoot, parsed.id!)
-  if (parsed.action === "explain") { console.log(JSON.stringify(manifest, null, 2)); return }
-  const result = parsed.action === "check" ? checkCategoryDistribution(repoRoot, parsed.id!) : repositoryTransaction(repoRoot, [path.join("agents", "categories", parsed.id!)], `chore(agent-manager): build ${parsed.id} category`, () => buildCategoryDistribution(repoRoot, parsed.id!))
-  console.log(result.status === "current" ? `Category ${parsed.id} is current.` : `Category ${parsed.id} is stale.\nMissing: ${result.missing.join(", ") || "none"}\nChanged: ${result.changed.join(", ") || "none"}\nExtra: ${result.extra.join(", ") || "none"}`)
-  if (parsed.action === "check" && result.status !== "current") process.exitCode = 1
+  const ids = parsed.ids?.length ? parsed.ids : parsed.id ? [parsed.id] : fs.readdirSync(path.join(workspaceRoot, ".agent-manager", "categories")).filter(file => file.endsWith(".json")).map(file => file.slice(0, -5)).sort()
+  if (parsed.action === "explain") { const result = ids.map(id => loadCategoryManifest(repoRoot, id)); console.log(parsed.json ? JSON.stringify(result) : result.map(value => JSON.stringify(value, null, 2)).join("\n")); return }
+  if (parsed.action === "package") { if (parsed.sourceSha) process.env.AGENT_MANAGER_SOURCE_SHA = parsed.sourceSha; const result = packageCategoryDistributions(repoRoot, parsed.ids || ids, parsed.output || "", parsed.dryRun); console.log(parsed.json ? JSON.stringify(result) : `${parsed.dryRun ? "Would package" : "Packaged"} ${result.categories.join(", ")} to ${parsed.output}`); return }
+  const results = parsed.action === "build" && !parsed.id
+    ? buildAllCategoryDistributions(repoRoot)
+    : ids.map(id => parsed.action === "check" || parsed.action === "status" ? checkCategoryDistribution(repoRoot, id) : repositoryTransaction(repoRoot, [path.join("agents", "categories", id)], `chore(agent-manager): build ${id} category`, () => buildCategoryDistribution(repoRoot, id)))
+  if (parsed.json) console.log(JSON.stringify(results)); else results.forEach((result, index) => console.log(result.status === "current" ? `Category ${ids[index]} is current.` : `Category ${ids[index]} is stale.\nMissing: ${result.missing.join(", ") || "none"}\nChanged: ${result.changed.join(", ") || "none"}\nExtra: ${result.extra.join(", ") || "none"}`))
+  if ((parsed.action === "check" || parsed.action === "status") && results.some(result => result.status !== "current")) process.exitCode = 1
 }
 function runTopicExport(workspaceRoot: string) {
   console.error("Warning: topic-export is deprecated; use category build/check wiki.")
@@ -652,7 +674,7 @@ async function run() {
   }
 
   if (process.argv[2] === "category") {
-    runCategory(workspaceRoot)
+    await runCategory(workspaceRoot)
     return
   }
 

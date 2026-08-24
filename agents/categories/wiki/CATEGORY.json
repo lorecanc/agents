@@ -1,57 +1,61 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
+  "distributionVersion": "2.0.0",
   "category": "wiki",
-  "manifestHash": "20a8ebb0b07d5e5cf63efedf448891096ccee3192a3256107b1623fb4a5d9453",
-  "resources": [
+  "manifestHash": "23acdc8b5a611cae2715e56deddb5fccb8826e4dd72760a22183b616da75f5ad",
+  "generatorVersion": "2.0.0",
+  "entries": [
     {
-      "kind": "file",
-      "source": "general/AGENTS.md",
-      "target": "AGENTS.md"
+      "target": "AGENTS.md",
+      "hash": "7403a7b1c9af4f92940627ba8be99ba2782892019dc22b4e62c2b5bba222ea0e"
     },
     {
-      "kind": "file",
-      "source": "general/agents/wiki-analyzer.md",
-      "target": "agents/wiki-analyzer.md"
+      "target": "LICENSE",
+      "hash": "4648484047eae043e7aa936decb4b0886b084ae32a9eb35d4187f614ebf4f393"
     },
     {
-      "kind": "file",
-      "source": "general/agents/wiki-indexer.md",
-      "target": "agents/wiki-indexer.md"
+      "target": "README.md",
+      "hash": "ce6c5e78c30dcb60128326978939843f8b0afc9e3fbd4c23dd3821f519723d29"
     },
     {
-      "kind": "file",
-      "source": "general/agents/wiki-orchestrator.md",
-      "target": "agents/wiki-orchestrator.md"
+      "target": "agents/wiki-analyzer.md",
+      "hash": "8dc93586d76430d826bbf5c317c5d822fd0e2888de748f06eff480d4aa907fa4"
     },
     {
-      "kind": "file",
-      "source": "general/agents/wiki-updater.md",
-      "target": "agents/wiki-updater.md"
+      "target": "agents/wiki-indexer.md",
+      "hash": "aa438bcd80217860304611a41d53b96bf56aa34bedae80a26c65197d02984d9e"
     },
     {
-      "kind": "file",
-      "source": "general/agents/wiki-writer.md",
-      "target": "agents/wiki-writer.md"
+      "target": "agents/wiki-orchestrator.md",
+      "hash": "ecb1ef4f7e6e5783c6fe913294680213684370b4b5fce0a62a0a3c972e1dcba6"
     },
     {
-      "kind": "file",
-      "source": "general/commands/wiki.md",
-      "target": "commands/wiki.md"
+      "target": "agents/wiki-updater.md",
+      "hash": "30b7075cf1f6efe9ba6c8b872a4f28d733451b065ef1bb91b64b637287b36817"
     },
     {
-      "kind": "file",
-      "source": "general/skills/wiki-conventions/SKILL.md",
-      "target": "skills/wiki-conventions/SKILL.md"
+      "target": "agents/wiki-writer.md",
+      "hash": "c41427b33c478770e5a29c4452128f2a192c1b6f6d2df06d64465ff38e2b03cd"
     },
     {
-      "kind": "file",
-      "source": "general/skills/wiki-navigate/SKILL.md",
-      "target": "skills/wiki-navigate/SKILL.md"
+      "target": "commands/wiki.md",
+      "hash": "eb56e2f932fb0c1eaf1ad188a3519c6ec10ce30650d0192e5f54a69472eae295"
     },
     {
-      "kind": "file",
-      "source": "general/skills/wiki-templates/SKILL.md",
-      "target": "skills/wiki-templates/SKILL.md"
+      "target": "opencode.json",
+      "hash": "15111fab6d5571a3a9adc63527bbee2200d22123bced27d4be7724c7fee3ed0d"
+    },
+    {
+      "target": "skills/wiki-conventions/SKILL.md",
+      "hash": "c9090bc12ee7e8fbc7c77912c239d43a545e0bf70875d8049ab9a5a23aa50467"
+    },
+    {
+      "target": "skills/wiki-navigate/SKILL.md",
+      "hash": "87f4e7b6c8eb7ff876014885e31163900347c3689c8c563587cfc7b076573bbc"
+    },
+    {
+      "target": "skills/wiki-templates/SKILL.md",
+      "hash": "2268fa5e05bf1177c04a29811fbab9f5b20edd24560985eaf2706a6cf01ee5f6"
     }
   ]
 }

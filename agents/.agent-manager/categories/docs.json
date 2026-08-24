@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 2,
+  "distributionVersion": "2.0.0",
+  "id": "docs",
+  "title": "Documentation category bundle",
+  "description": "Portable documentation agents, commands, skills, and document tooling.",
+  "output": "categories/docs",
+  "allowRequirements": true,
+  "resources": [
+    { "kind": "file", "source": "general/AGENTS.md", "target": "AGENTS.md", "policy": "text", "primary": true },
+    { "kind": "file", "source": "general/agents/docs-orchestrator.md", "target": "agents/docs-orchestrator.md", "policy": "text", "primary": true },
+    { "kind": "file", "source": "general/agents/docs-planner.md", "target": "agents/docs-planner.md", "policy": "text", "primary": true },
+    { "kind": "file", "source": "general/agents/docs-html_writer.md", "target": "agents/docs-html_writer.md", "policy": "text", "primary": true },
+    { "kind": "file", "source": "general/commands/new-doc.md", "target": "commands/new-doc.md", "policy": "text", "primary": true },
+    { "kind": "file", "source": "general/commands/edit-doc.md", "target": "commands/edit-doc.md", "policy": "text", "primary": true },
+    { "kind": "file", "source": "general/commands/convert-doc.md", "target": "commands/convert-doc.md", "policy": "text", "primary": true },
+    { "kind": "file", "source": "general/commands/web-audit.md", "target": "commands/web-audit.md", "policy": "text" },
+    { "kind": "directory", "source": "general/skills/docx", "target": "skills/docx", "policy": "text" },
+    { "kind": "directory", "source": "general/tools/docx", "target": "tools/docx", "policy": "mixed", "extensions": [".py", ".md", ".js"] },
+    { "kind": "file", "source": "general/requirements.txt", "target": "requirements.txt", "policy": "text" }
+  ],
+  "generated": [{ "kind": "config", "id": "opencode-local-codebase-memory-v1", "target": "opencode.json" }]
+}

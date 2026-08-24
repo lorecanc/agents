@@ -36,7 +36,7 @@ Agent filenames follow `[{family}-]{category}-{role_with_underscores}.md`. Front
 
 ## Wiki category distribution
 
-Run `node manage-agents/manage-agents.mjs --no-auto-commit category build wiki` (or use Bun) to produce the self-contained Wiki package. `category check wiki` is read-only and reports missing, changed, or extra files. The manifest at `agents/.agent-manager/categories/wiki.json` is the exact allowlist; `PROVENANCE.json` records stable SHA-256 hashes.
+Run `node manage-agents/manage-agents.mjs --no-auto-commit category build --all` (or use Bun) to produce all self-contained packages. `category check --all` is read-only; `category package --all --output artifacts/categories --dry-run` previews a safe artifact copy. The manifests at `agents/.agent-manager/categories/*.json` are exact v2 allowlists; `PROVENANCE.json` records stable SHA-256 hashes.
 
 ### Command compatibility
 

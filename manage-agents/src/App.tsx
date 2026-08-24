@@ -995,7 +995,7 @@ export function App({ workspaceRoot }: AppProps) {
             `  ${backupsPath}`,
             ``,
             `Copied ${copied.length} files to category directories:`
-           ].concat(copied.map((line) => `  * ${line}`), skipped.length > 0 ? [``, `Skipped ${skipped.length} files:`, ...skipped.map((line) => `  * ${line}`)] : []))
+           ].concat(copied.map((line) => `  * ${line}`), skipped.length > 0 ? [``, `Skipped ${skipped.length} files (manifest-backed categories require category build):`, ...skipped.map((line) => `  * ${line}`)] : []))
         } catch (error: any) {
           setActionResultTitle("Error During Reorganization")
           setActionResultLines([`An error occurred:`, `  ${error.message || error}`])

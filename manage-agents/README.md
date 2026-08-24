@@ -24,7 +24,8 @@ Without a subcommand, the TUI starts. Available commands:
 * `import [--dry-run]` — import from the OpenCode agent directory.
 * `tune [--steps n] [--temp n] [--category name]` — update model parameters.
 * `category list` — list category manifests.
-* `category build wiki`, `category check wiki`, `category explain wiki` — build, verify, or inspect the manifest-backed Wiki distribution.
+* `category build <id|--all>`, `category check <id|--all>`, `category status <id|--all>`, `category explain <id|--all>` — build, verify, or inspect v2 distributions.
+* `category package <id|--all> --output artifacts/categories [--dry-run]` — validate and copy current distributions into a repository-local artifact directory.
 * `topic-export wiki [--check]` — deprecated alias forwarding to the category commands.
 
 All commands support focused `--help` where implemented. Wiki output is `agents/categories/wiki/`; it includes README, exact MIT `LICENSE`, AGENTS, CATEGORY lock, five Wiki agents, one command, three skills, minimal local `codebase-memory-mcp` configuration, and provenance hashes. `general/` is the source of truth; resources are selected through manifests and dependencies, not merely by filename.
@@ -48,7 +49,7 @@ npm run build
 npm run validate
 ```
 
-`validate` runs typecheck, tests, build, and the read-only `category check wiki` freshness check. Bun equivalents are `bun install`, `bun test`, and `bun run build`. CI runs Node and Bun on macOS, Linux, and Windows.
+`validate` runs typecheck, tests, build, and the read-only `category check --all` freshness check. Build-all stages every category before publishing and leaves a recovery journal if interrupted. Bun equivalents are `bun install`, `bun test`, and `bun run build`. CI runs Node and Bun on macOS, Linux, and Windows.
 
 Troubleshooting: configure `git config user.name` and `user.email` for auto-commit; clean unrelated work before mutations; remove a stale `agent-manager.lock` only after confirming no manager is running; never use symlinks in managed scopes; ensure `git` is on PATH; on Windows invoke quoted paths with PowerShell’s `&` operator and use Node/Bun rather than the Unix launcher.
 

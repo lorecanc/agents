@@ -1,0 +1,149 @@
+{
+  "schemaVersion": 2,
+  "distributionVersion": "2.0.0",
+  "category": "docs",
+  "manifestHash": "6efc130cf8676497b5a7c9061da2ef3582e14d1d4dbe1b07a2ac1424c3a9c037",
+  "generatorVersion": "2.0.0",
+  "entries": [
+    {
+      "target": "AGENTS.md",
+      "hash": "7403a7b1c9af4f92940627ba8be99ba2782892019dc22b4e62c2b5bba222ea0e"
+    },
+    {
+      "target": "LICENSE",
+      "hash": "4648484047eae043e7aa936decb4b0886b084ae32a9eb35d4187f614ebf4f393"
+    },
+    {
+      "target": "README.md",
+      "hash": "76366e5fba09b21f4dee3e0926770bc2bee91b7eefb305fc691fd0a367a975ee"
+    },
+    {
+      "target": "agents/docs-html_writer.md",
+      "hash": "0306204895456450c602caee713ed946e02f422c60414764da3b703f5c2d8227"
+    },
+    {
+      "target": "agents/docs-orchestrator.md",
+      "hash": "e42ba34d4443e1b235505cfe6713e4acc4c08b6661067659d6f510861ee65925"
+    },
+    {
+      "target": "agents/docs-planner.md",
+      "hash": "c428a94e009b00e7f3015a8804f49ba8ee204856031f516fa148cc7bc09a6ba5"
+    },
+    {
+      "target": "commands/convert-doc.md",
+      "hash": "eb290a2bca48a8f1f585a88b98012f9b5e03a0c4092ec2e68df8d8cfdb69e974"
+    },
+    {
+      "target": "commands/edit-doc.md",
+      "hash": "bec91fb018e2ec76e894cba566d2c1b7223e0abe16856cc20c774700a614fc33"
+    },
+    {
+      "target": "commands/new-doc.md",
+      "hash": "01ba6cecbefe396d1db9f348873d23be95a94bcae81956e093a38cc47d6af47f"
+    },
+    {
+      "target": "commands/web-audit.md",
+      "hash": "87067d7b3a66d129be24f985d02f59eb60d2f63e692b03cd8fee3115b119a23a"
+    },
+    {
+      "target": "opencode.json",
+      "hash": "15111fab6d5571a3a9adc63527bbee2200d22123bced27d4be7724c7fee3ed0d"
+    },
+    {
+      "target": "requirements.txt",
+      "hash": "414acb018fd989c751ba19db84d6eff335bfe6b948531bc630433a376b6319d9"
+    },
+    {
+      "target": "skills/docx/SKILL.md",
+      "hash": "69fac555a1866f0bd678c80e6392a2636be698ecc146ff53787676c2b8632383"
+    },
+    {
+      "target": "tools/docx/scripts/__init__.py",
+      "hash": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+    },
+    {
+      "target": "tools/docx/scripts/convert_document.py",
+      "hash": "def0baf0933f60aa6c070a6dd823bbfeb87402230008fbb872e8c349f5d79372"
+    },
+    {
+      "target": "tools/docx/scripts/create_document.py",
+      "hash": "4d785e0a6abca2d147092e8ed69a3e91a30600d4de30b136721e92b8e516aa2e"
+    },
+    {
+      "target": "tools/docx/scripts/doc_file_utils.py",
+      "hash": "2e9f4d536737a440886e10cd758fdb5039c98bcd6fc05942b68821556ced128e"
+    },
+    {
+      "target": "tools/docx/scripts/html_docx_blocks.py",
+      "hash": "184904ee71f530b2c9e6bb4d45de6e2f720eb4467b3e25de9287bb667819a745"
+    },
+    {
+      "target": "tools/docx/scripts/html_docx_constants.py",
+      "hash": "101dccbb09ab53ea9a870e385e65b56b6f2f53b5867de2ec47c0e2e702bac24c"
+    },
+    {
+      "target": "tools/docx/scripts/html_docx_core.py",
+      "hash": "4d5ee9adfedfebf50edc65c71b6772a4441df5560ccbf435b27c1300cd275912"
+    },
+    {
+      "target": "tools/docx/scripts/html_docx_css.py",
+      "hash": "ee0e00a2270dcbff380b72e8e3b579801e743fb5730f8fa4dda782fff20b507b"
+    },
+    {
+      "target": "tools/docx/scripts/html_docx_fonts.py",
+      "hash": "001db5a8fc016fb4009fa5a36314f3219ff362ed1285dfdf2cbb9d5668682078"
+    },
+    {
+      "target": "tools/docx/scripts/html_docx_images.py",
+      "hash": "b03b54c16ac788315dc5bcbb46ae91a92703ecacc2a1f1935116c8e71d40d84f"
+    },
+    {
+      "target": "tools/docx/scripts/html_docx_page.py",
+      "hash": "8ff8f5af25f91f74ed641cd73e17458b94e335be4a4a3ab78f58d13bcbada30d"
+    },
+    {
+      "target": "tools/docx/scripts/html_docx_paragraphs.py",
+      "hash": "c7789cac8a410574ec5a82188ddbb964597e0ee02b028d1df7b8185743be8600"
+    },
+    {
+      "target": "tools/docx/scripts/html_docx_playwright.py",
+      "hash": "387652f3e7e8c5b54b07347c5c9ce3f2d668419b153d44a5dcb4e92863afa0d1"
+    },
+    {
+      "target": "tools/docx/scripts/html_docx_selectors.py",
+      "hash": "65dfa818c417410c50ff7b5e6e02aec3536b4b3fe07e171bd982792aa78aeb3e"
+    },
+    {
+      "target": "tools/docx/scripts/html_docx_shared.py",
+      "hash": "a286fe55905b23c196ab7eee062d10aa20390b1add6a31c0c6a3b6c0a5127fa6"
+    },
+    {
+      "target": "tools/docx/scripts/html_docx_tables.py",
+      "hash": "406cf6b454365258119b641c59529802640179ca37b3adf37dc736b13f6362b8"
+    },
+    {
+      "target": "tools/docx/scripts/html_validation.py",
+      "hash": "ff4ba24cf2634d753826701140e32157e7cc53cdda013aa9663408cbe4a54fdf"
+    },
+    {
+      "target": "tools/docx/scripts/list_documents.py",
+      "hash": "05fe63a980ef3dc6f07d1cd7496ca8561f552042c7cbd3356473a1375ff78cce"
+    },
+    {
+      "target": "tools/docx/scripts/modify_document.py",
+      "hash": "1961eb7d846e989019f2d0a658e014a42cefd16e2d719699f0f12fa952d484f1"
+    },
+    {
+      "target": "tools/docx/scripts/restore_document.py",
+      "hash": "5226acb43274037f96234887eb74a92e9591207812d10c12240a70a7994b2bce"
+    },
+    {
+      "target": "tools/docx/scripts/validate_html.py",
+      "hash": "d3bb19ba7520735a887cce4690ffe7b77c4a27cdf5d22979f6b47121ee57d038"
+    },
+    {
+      "target": "tools/docx/scripts/view_document.py",
+      "hash": "51aad83ff75b90968b8e33afa4742a8e971d20c1035b179b6be06bde6858b61c"
+    }
+  ]
+}

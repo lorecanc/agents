@@ -12,7 +12,6 @@ permission:
   skill: deny
   task: deny
   webfetch: deny
-category: slides
 ---
 
 You generate JSON plans for slide creation. Output must be **valid JSON only** — no markdown fences, no explanations, no extra text.
