@@ -238,3 +238,17 @@ test("refuses symlink scopes and symlinks appearing during verification", () => 
   assert.equal(fs.readFileSync(target, "utf8"), "changed\n")
   assert.equal(fs.existsSync(path.join(root, "nested-link")), true)
 })
+
+test("preserves a replacement lock and removes the owned lock normally", () => {
+  const root = makeRepo()
+  const target = path.join(root, "tracked.txt")
+  const lock = path.join(root, ".git", "agent-manager.lock")
+  repositoryTransaction(root, [target], AUTO_COMMIT_MESSAGES.tune, () => {
+    fs.unlinkSync(lock)
+    fs.writeFileSync(lock, "replacement\n")
+  })
+  assert.equal(fs.readFileSync(lock, "utf8"), "replacement\n")
+  fs.unlinkSync(lock)
+  repositoryTransaction(root, [target], AUTO_COMMIT_MESSAGES.tune, () => fs.writeFileSync(target, "normal cleanup\n"))
+  assert.equal(fs.existsSync(lock), false)
+})

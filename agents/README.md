@@ -12,14 +12,14 @@ agents/
 │   ├── skills/       # Installed skills
 │   ├── tools/        # Document and slide tools
 │   └── opencode.json # MCP and LSP blueprint
-├── categories/       # Category-organized agent mirrors
+├── categories/       # Generated category distributions; Wiki is publishable
 ├── bridges/          # Claude Code and Codex translation layers
 ├── docs/             # OpenCode and MCP documentation
 ├── wiki-generator/  # Wiki generation and update agents
 └── .agent-manager/   # Translation tiers, roles, and overrides
 ```
 
-`general/agents/` is the source catalog. The manager uses `agents/` as its workspace root and keeps the default `sourceDir` set to `general`. Do not move `general/` into the manager project: discovery, import, fork, category organization, and bridge generation depend on this layout.
+`general/` is the only canonical content tree. Category output is generated from explicit manifests and is never a source. The Wiki pilot is complete and publishable; other category directories remain legacy browsing mirrors until they receive manifests.
 
 ## OpenCode Setup
 

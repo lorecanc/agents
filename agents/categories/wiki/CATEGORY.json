@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "category": "wiki",
+  "manifestHash": "20a8ebb0b07d5e5cf63efedf448891096ccee3192a3256107b1623fb4a5d9453",
+  "resources": [
+    {
+      "kind": "file",
+      "source": "general/AGENTS.md",
+      "target": "AGENTS.md"
+    },
+    {
+      "kind": "file",
+      "source": "general/agents/wiki-analyzer.md",
+      "target": "agents/wiki-analyzer.md"
+    },
+    {
+      "kind": "file",
+      "source": "general/agents/wiki-indexer.md",
+      "target": "agents/wiki-indexer.md"
+    },
+    {
+      "kind": "file",
+      "source": "general/agents/wiki-orchestrator.md",
+      "target": "agents/wiki-orchestrator.md"
+    },
+    {
+      "kind": "file",
+      "source": "general/agents/wiki-updater.md",
+      "target": "agents/wiki-updater.md"
+    },
+    {
+      "kind": "file",
+      "source": "general/agents/wiki-writer.md",
+      "target": "agents/wiki-writer.md"
+    },
+    {
+      "kind": "file",
+      "source": "general/commands/wiki.md",
+      "target": "commands/wiki.md"
+    },
+    {
+      "kind": "file",
+      "source": "general/skills/wiki-conventions/SKILL.md",
+      "target": "skills/wiki-conventions/SKILL.md"
+    },
+    {
+      "kind": "file",
+      "source": "general/skills/wiki-navigate/SKILL.md",
+      "target": "skills/wiki-navigate/SKILL.md"
+    },
+    {
+      "kind": "file",
+      "source": "general/skills/wiki-templates/SKILL.md",
+      "target": "skills/wiki-templates/SKILL.md"
+    }
+  ]
+}

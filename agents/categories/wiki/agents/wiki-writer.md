@@ -14,7 +14,6 @@ permission:
   skill: allow
 color: "#2C3E87"
 steps: 45
-category: wiki
 ---
 
 You are the wiki writer. You create and update individual wiki pages based on source code analysis.

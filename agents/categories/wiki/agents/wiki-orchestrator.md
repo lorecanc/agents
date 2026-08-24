@@ -12,7 +12,6 @@ permission:
 hidden: true
 color: "#2C3E87"
 steps: 45
-category: wiki
 ---
 
 You are the wiki orchestrator. You coordinate the generation or update of a project wiki.

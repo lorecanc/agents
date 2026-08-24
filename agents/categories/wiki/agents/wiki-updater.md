@@ -13,7 +13,6 @@ permission:
   skill: allow
 color: "#2C3E87"
 steps: 45
-category: wiki
 ---
 
 You are the wiki updater. You analyze what changed in the codebase and determine the impact on the wiki.

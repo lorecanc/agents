@@ -17,6 +17,7 @@ import {
   type TranslationTarget
 } from "./utils/translationConfig.js"
 import { AUTO_COMMIT_MESSAGES, isRepositoryLocalPath, repositoryTransaction } from "./utils/repositoryTransaction.js"
+import { buildCategoryDistribution, checkCategoryDistribution, loadCategoryManifest, parseCategoryArgs } from "./utils/categoryDistribution.js"
 
 function askQuestion(query: string): Promise<string> {
   const rl = readline.createInterface({
@@ -566,6 +567,28 @@ async function runTuneCLI(workspaceRoot: string) {
   console.log(`✅ Successfully updated parameters for ${targetAgents.length} agents!\n`)
 }
 
+function runCategory(workspaceRoot: string) {
+  const repoRoot = path.basename(workspaceRoot) === "agents" ? path.dirname(workspaceRoot) : workspaceRoot
+  const args = process.argv.slice(3)
+  if (args.includes("--help") || args.includes("-h")) {
+    console.log("Usage: manage-agents category list|build|check|explain <id> [--no-auto-commit]")
+    return
+  }
+  const parsed = parseCategoryArgs(args)
+  if (parsed.action === "list") { const dir = path.join(workspaceRoot, ".agent-manager", "categories"); console.log(fs.existsSync(dir) ? fs.readdirSync(dir).filter(file => file.endsWith(".json")).map(file => file.slice(0, -5)).sort().join("\n") : ""); return }
+  const manifest = loadCategoryManifest(repoRoot, parsed.id!)
+  if (parsed.action === "explain") { console.log(JSON.stringify(manifest, null, 2)); return }
+  const result = parsed.action === "check" ? checkCategoryDistribution(repoRoot, parsed.id!) : repositoryTransaction(repoRoot, [path.join("agents", "categories", parsed.id!)], `chore(agent-manager): build ${parsed.id} category`, () => buildCategoryDistribution(repoRoot, parsed.id!))
+  console.log(result.status === "current" ? `Category ${parsed.id} is current.` : `Category ${parsed.id} is stale.\nMissing: ${result.missing.join(", ") || "none"}\nChanged: ${result.changed.join(", ") || "none"}\nExtra: ${result.extra.join(", ") || "none"}`)
+  if (parsed.action === "check" && result.status !== "current") process.exitCode = 1
+}
+function runTopicExport(workspaceRoot: string) {
+  console.error("Warning: topic-export is deprecated; use category build/check wiki.")
+  const legacy = process.argv.slice(3); const check = legacy.includes("--check")
+  process.argv = [...process.argv.slice(0, 3), check ? "check" : "build", "wiki", ...legacy.filter(arg => arg !== "wiki" && arg !== "--check")]
+  runCategory(workspaceRoot)
+}
+
 async function run() {
   if (process.argv.includes("--no-auto-commit")) {
     process.env.AGENT_MANAGER_AUTO_COMMIT = "0"
@@ -620,6 +643,16 @@ async function run() {
 
   if (process.argv[2] === "tune") {
     await runTuneCLI(workspaceRoot)
+    return
+  }
+
+  if (process.argv[2] === "topic-export") {
+    runTopicExport(workspaceRoot)
+    return
+  }
+
+  if (process.argv[2] === "category") {
+    runCategory(workspaceRoot)
     return
   }
 

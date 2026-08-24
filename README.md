@@ -1,147 +1,47 @@
-# Agents
+# OpenCode Agents Monorepo
 
-Public monorepo for OpenCode agent catalogs and the companion `manage-agents` terminal UI.
+A practical, free collection of OpenCode agents, commands, skills, tools, bridges, and the terminal **Agent Manager**. Use it personally or commercially under the MIT License.
 
-## Projects
+## What is here
+
+The canonical catalog is `agents/general/`: shared instructions, 116 canonical agents, commands, skills, tools, and the OpenCode configuration blueprint. Nine categories organize the catalog: `general`, `docs`, `slides`, `wiki`, `storybook`, `go-pipeline`, `copilot-pipeline`, `web`, and `data`.
+
+Five pipeline families—Go, Copilot, docs, slides, and wiki—cover planning, research/exploration, implementation, testing, review, security, documentation, orchestration, and post-session verification. Shared stock roles include orchestrator, planner, reasoner, researcher, explorer, executor, tester, critic, code reviewer, refactorer, security auditor, frontend specialist, Swift specialist, Kotlin specialist, multimodal, docs grounding, Chrome DevTools, HITL, fast lane, and post-session.
+
+The general catalog includes the manager-facing orchestrator, shell executor, loop verifier, and reusable document/slide workflows. Docs and slides provide HTML/A4 and PowerPoint planning, authoring, composition, and validation. Wiki provides analyzer, indexer, orchestrator, updater, and writer agents plus its command and three supporting skills.
+
+## Layout and source of truth
 
 ```text
-.
-├── agents/                  # Agent definitions, configuration, bridges, and docs
-│   ├── general/             # Canonical OpenCode workspace
-│   │   ├── agents/          # Source agent definitions
-│   │   ├── commands/        # Slash commands
-│   │   ├── skills/          # Skills
-│   │   ├── tools/           # Document and slide tools
-│   │   └── opencode.json    # MCP and LSP blueprint
-│   ├── categories/          # Category-organized agent mirrors
-│   ├── bridges/             # Claude Code and Codex translation layers
-│   ├── docs/                # OpenCode and MCP documentation
-│   └── .agent-manager/      # Translation and tier configuration
-├── manage-agents/           # Standalone Bun/Node terminal manager
-├── manage-agents.sh         # macOS/Linux launcher
-└── .github/                 # Monorepo CI
+agents/
+├── general/                 # canonical OpenCode catalog
+│   ├── agents/ commands/ skills/ tools/
+│   └── opencode.json
+├── categories/              # generated category distributions; never edit directly
+├── bridges/                 # generated Claude/Codex translation outputs
+├── docs/                    # OpenCode and MCP reference material
+└── .agent-manager/          # manager configuration and category manifests
+manage-agents/               # TypeScript terminal manager and TUI
 ```
 
-`agents/general/` is intentionally preserved. `manage-agents` treats `agents/` as its workspace and discovers source files under `agents/general/agents/`. Imports, forks, category organization, and bridge generation use the same workspace layout.
+Edit canonical files under `general/`, then regenerate distributions or bridges with the manager. `agents/wiki-generator/` is deprecated compatibility output, not a source tree. Category distributions contain no nested Git repository and are intentionally deterministic.
 
-## Quick Start
+## Install into OpenCode
 
-### Prerequisites
+Copy `general/opencode.json` to your OpenCode configuration location, then copy or export the desired canonical agents to `~/.config/opencode/agents/`. The manager’s `export` command creates a recovery backup. The Wiki distribution is published at `agents/categories/wiki/` and is generated from `agents/.agent-manager/categories/wiki.json`.
 
-You need one runtime: Node.js `>= 26.4.0` or Bun `>= 1.3.0`. Bun is recommended because OpenTUI uses FFI.
+## Naming and categories
 
-Download either runtime per https://docs.npmjs.com/downloading-and-installing-node-js-and-npm, which also covers version managers (`nvm` or `n` on macOS and Linux, `nvm-windows` or `nodist` on Windows). The `engines` field in `manage-agents/package.json` declares these minimums; npm treats them as an advisory warning unless you enable `engine-strict`.
+Agent filenames follow `[{family}-]{category}-{role_with_underscores}.md`. Frontmatter category is authoritative for inference; the manager can lint and repair names. Keep source references pointed at canonical `general/` files.
 
-Install dependencies once from the monorepo root:
+## Wiki category distribution
 
-```bash
-cd manage-agents
-npm ci
-```
+Run `node manage-agents/manage-agents.mjs --no-auto-commit category build wiki` (or use Bun) to produce the self-contained Wiki package. `category check wiki` is read-only and reports missing, changed, or extra files. The manifest at `agents/.agent-manager/categories/wiki.json` is the exact allowlist; `PROVENANCE.json` records stable SHA-256 hashes.
 
-Bun users can substitute `bun install`.
+### Command compatibility
 
-On Node.js `>= 26.4.0`, `manage-agents.mjs` re-executes Node with `--experimental-ffi` automatically.
+The deprecated `topic-export wiki` command remains only as a compatibility alias for the category commands; it does not define a path or architecture.
 
-### macOS
+## License
 
-Launch with the bundled script from the monorepo root (it prefers Bun and falls back to Node):
-
-```bash
-./manage-agents.sh
-```
-
-Or invoke the entry point directly:
-
-```bash
-bun manage-agents/manage-agents.mjs
-node manage-agents/manage-agents.mjs
-```
-
-Or use the cross-platform npm script:
-
-```bash
-npm start --prefix manage-agents
-```
-
-### Linux
-
-Linux follows the same launcher flow as macOS:
-
-```bash
-./manage-agents.sh
-```
-
-Direct invocation and the npm script behave identically:
-
-```bash
-bun manage-agents/manage-agents.mjs
-node manage-agents/manage-agents.mjs
-npm start --prefix manage-agents
-```
-
-For distro packages or a version manager such as `nvm` or `n`, follow the npm install guide linked under Prerequisites.
-
-### Windows
-
-Run the entry point directly from any shell — no Unix launcher required:
-
-```powershell
-bun .\manage-agents\manage-agents.mjs
-node .\manage-agents\manage-agents.mjs
-```
-
-Bun supports Windows natively since v1.1 (Windows 10 1809+): see bun.sh/docs/installation and bun.sh/blog/bun-v1.1.
-
-In PowerShell, the call operator (`&`) is needed whenever you invoke a quoted command string — most commonly a path containing spaces, e.g. `& "C:\my tools\agents\manage-agents\manage-agents.mjs"` — see learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_operators.
-
-To run the Bash launcher instead, use WSL (recommended): see learn.microsoft.com/windows/wsl/about — or Git Bash from gitforwindows.org:
-
-```bash
-./manage-agents.sh
-```
-
-The npm script works from any shell:
-
-```powershell
-npm start --prefix manage-agents
-```
-
-The manager resolves the sibling `agents/` workspace automatically when launched from the monorepo root, `agents/`, or `manage-agents/`.
-
-## Using The Agent Catalog
-
-The effective source catalog is `agents/general/agents/`. The OpenCode blueprint is `agents/general/opencode.json`.
-
-From the monorepo root, copy the blueprint to the OpenCode configuration directory:
-
-```bash
-cp agents/general/opencode.json ~/.config/opencode/opencode.json
-```
-
-On Windows PowerShell:
-
-```powershell
-Copy-Item agents\general\opencode.json "$env:USERPROFILE\.config\opencode\opencode.json"
-```
-
-The manager configuration is stored in `agents/.agent-manager/translation-config.json`. Generated bridges are written under `agents/bridges/`.
-
-### Repository auto-commit
-
-Repository-local mutations made by the manager are auto-committed by default with an operation-specific `chore(agent-manager):` message. The manager requires a globally clean Git worktree, refuses symlink-containing scopes, and commits only declared manager paths/scopes after verification. Commits are unsigned and hooks are bypassed. On any post-mutation failure it never rolls back, resets, or deletes user paths: the changed workspace/index is left for manual recovery and the error reports current status. Mutation callbacks are trusted synchronous operations; external writes during callback execution cannot be attributed and are unsupported. Writes detected after the operation observation abort without rollback and remain for recovery. Use `--no-auto-commit` (anywhere in the CLI arguments) or `AGENT_MANAGER_AUTO_COMMIT=0` to opt out. External exports and ignored backups are never committed. A bridge output explicitly supplied outside the Git root is external and is not committed; if the same operation changes local translation config, only that local config is included in the single bridge transaction commit. The implementation uses portable Node.js filesystem/process APIs and Git path handling on macOS, Linux, and Windows; the manager lock only coordinates manager processes (it is not a general Git/user-worktree lock).
-
-## Development
-
-The manager is an independent TypeScript project:
-
-```bash
-cd manage-agents
-npm ci
-npm test
-npm run build
-```
-
-Equivalent Bun commands are `bun install`, `bun test`, and `bun run build`.
-
-See [`agents/README.md`](agents/README.md) for the catalog and [`manage-agents/README.md`](manage-agents/README.md) for the manager reference.
+Project-owned agents, prompts, skills, commands, tools, and documentation are MIT licensed. Third-party software and services retain their own licenses and terms; see the root `LICENSE`.

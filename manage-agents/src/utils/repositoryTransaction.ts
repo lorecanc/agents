@@ -20,6 +20,11 @@ export interface RepositoryTransactionPlan {
   externalPaths?: string[]
 }
 export interface RepositoryTransactionOptions { afterObservation?: () => void }
+type LockIdentity = { dev: number; ino: number }
+function sameLockIdentity(left: LockIdentity, right: LockIdentity): boolean {
+  if (process.platform === "win32" && (!left.dev || !left.ino || !right.dev || !right.ino)) return false
+  return left.dev === right.dev && left.ino === right.ino
+}
 
 const dangerousGitVariables = /^(?:GIT_DIR|GIT_WORK_TREE|GIT_INDEX_FILE|GIT_OBJECT_DIRECTORY|GIT_ALTERNATE_OBJECT_DIRECTORIES|GIT_COMMON_DIR|GIT_NAMESPACE|GIT_CEILING_DIRECTORIES|GIT_DISCOVERY_ACROSS_FILESYSTEM|GIT_OPTIONAL_LOCKS)$/i
 
@@ -179,9 +184,10 @@ export function repositoryTransaction<T>(workspacePath: string, plan: string[] |
   const commonDir = path.resolve(root, commonDirRaw || ".git")
   const lockPath = path.join(commonDir, "agent-manager.lock")
   let lockFd: number | undefined
+  let lockIdentity: LockIdentity | undefined
   let hooks: string | undefined
   try {
-    try { lockFd = fs.openSync(lockPath, "wx") } catch { throw new RepositoryTransactionError("Another Agent Manager mutation is already running.") }
+    try { lockFd = fs.openSync(lockPath, "wx"); const stat = fs.fstatSync(lockFd); lockIdentity = { dev: stat.dev, ino: stat.ino } } catch { throw new RepositoryTransactionError("Another Agent Manager mutation is already running.") }
 
     const scopes = Array.from(new Set(localPaths.map(file => {
       if (!path.isAbsolute(file) && file.replace(/[\\/]/g, path.sep).split(path.sep).includes("..")) throw new RepositoryTransactionError(`Repository-local path may not contain traversal: ${file}`)
@@ -240,7 +246,13 @@ export function repositoryTransaction<T>(workspacePath: string, plan: string[] |
     throw error
   } finally {
     if (hooks) fs.rmSync(hooks, { recursive: true, force: true })
-    if (lockFd !== undefined) { fs.closeSync(lockFd); fs.rmSync(lockPath, { force: true }) }
+    if (lockFd !== undefined && lockIdentity) {
+      fs.closeSync(lockFd)
+      let owned = false
+      try { const stat = fs.lstatSync(lockPath); owned = !stat.isSymbolicLink() && sameLockIdentity(lockIdentity, { dev: stat.dev, ino: stat.ino }) } catch { owned = false }
+      if (owned) fs.rmSync(lockPath)
+      else if (fs.existsSync(lockPath)) console.error(`Agent Manager lock ownership could not be proven; leaving ${lockPath} for stale-lock cleanup.`)
+    }
   }
 }
 

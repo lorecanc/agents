@@ -15,7 +15,6 @@ permission:
   skill: allow
 color: "#2C3E87"
 steps: 45
-category: wiki
 ---
 
 You are the wiki analyzer. Your job is to deeply analyze a codebase and produce a structured report for wiki generation.

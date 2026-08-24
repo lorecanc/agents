@@ -823,16 +823,20 @@ export function isInGeneralAgents(p: string): boolean {
  * and adding/updating the "category" key in the copy's frontmatter.
  */
 export function organizeAgents(workspaceRoot: string, agents: AgentInfo[]): { copied: string[]; skipped: string[]; backupsPath: string | null } {
-  // Create backup first
-  const backupsPath = createBackup(workspaceRoot)
-
   const copied: string[] = []
   const skipped: string[] = []
+  const protectedCategories = discoverManifestCategories(workspaceRoot)
+  const eligible = agents.filter(agent => isInGeneralAgents(agent.currentPath) && agent.currentPath !== agent.targetPath && !protectedCategories.has(agent.category))
+  for (const agent of agents) {
+    if (isInGeneralAgents(agent.currentPath) && agent.currentPath !== agent.targetPath && protectedCategories.has(agent.category)) skipped.push(`${agent.filename} (category '${agent.category}' is manifest-backed; run category build ${agent.category})`)
+  }
+  // Do not create a backup when every requested destination is protected.
+  const backupsPath = eligible.length > 0 ? createBackup(workspaceRoot) : null
   for (const agent of agents) {
     const isOriginal = isInGeneralAgents(agent.currentPath)
     const isAtTarget = agent.currentPath === agent.targetPath
 
-    if (isOriginal && !isAtTarget) {
+    if (isOriginal && !isAtTarget && !protectedCategories.has(agent.category)) {
       const sourceContent = fs.readFileSync(agent.currentPath, "utf-8")
       const { yamlText } = extractFrontmatter(sourceContent)
       if (yamlText === null) {
@@ -869,6 +873,32 @@ export function organizeAgents(workspaceRoot: string, agents: AgentInfo[]): { co
   }
 
   return { copied, skipped, backupsPath }
+}
+
+/** Return manifest-backed category IDs without following symlinks. */
+export function discoverManifestCategories(workspaceRoot: string): Set<string> {
+  const result = new Set<string>()
+  const dir = path.join(workspaceRoot, ".agent-manager", "categories")
+  try {
+    const managerDir = path.join(workspaceRoot, ".agent-manager")
+    let current = path.resolve(workspaceRoot)
+    for (const part of path.relative(current, dir).split(path.sep).filter(Boolean)) {
+      current = path.join(current, part)
+      if (fs.existsSync(current) && fs.lstatSync(current).isSymbolicLink()) throw new Error(`Refusing organize: path component is a symlink: ${current}`)
+    }
+    if (fs.existsSync(managerDir) && fs.lstatSync(managerDir).isSymbolicLink()) throw new Error("Refusing organize: .agent-manager is a symlink")
+    if (fs.existsSync(dir) && fs.lstatSync(dir).isSymbolicLink()) throw new Error("Refusing organize: .agent-manager/categories is a symlink")
+    for (const name of fs.readdirSync(dir)) {
+      if (!name.endsWith(".json")) continue
+      const file = path.join(dir, name)
+      const stat = fs.lstatSync(file)
+      if (stat.isSymbolicLink()) throw new Error(`Refusing organize: category manifest is a symlink: ${name}`)
+      if (!stat.isFile()) continue
+      const id = name.slice(0, -5)
+      if (/^[a-z0-9][a-z0-9-]*$/.test(id)) result.add(id)
+    }
+  } catch (error: any) { if (error.code !== "ENOENT") throw error }
+  return result
 }
 
 /**
