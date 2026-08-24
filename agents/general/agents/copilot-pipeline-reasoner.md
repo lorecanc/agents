@@ -2,7 +2,7 @@
 description: Deep reasoning agent for complex bugs, algorithms, architecture,
   performance, security, concurrency, and root-cause analysis.
 mode: subagent
-model: github-copilot/claude-opus-5
+model: github-copilot/gpt-5.6-sol
 temperature: 0.1
 permission:
   read: allow

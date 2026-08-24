@@ -2,7 +2,7 @@
 description: Creates minimal implementation plans after repository context is
   available. Does not edit files.
 mode: subagent
-model: github-copilot/claude-opus-5
+model: github-copilot/gpt-5.6-sol
 temperature: 0.2
 permission:
   read: allow

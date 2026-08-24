@@ -4,7 +4,7 @@ description: Primary coordinator for the copilot-pipeline multi-agent workflow.
   specialized agents, and evaluates results. Never writes code or solves
   problems directly.
 mode: primary
-model: github-copilot/claude-opus-5
+model: github-copilot/gpt-5.6-sol
 temperature: 0.2
 permission:
   read: allow
