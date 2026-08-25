@@ -16,10 +16,35 @@ test("middle ellipsis is cell bounded and grapheme safe", () => {
   assert.equal(displayWidth(middleEllipsis("你好世界", 5)) <= 5, true)
 })
 
+test("middle ellipsis preserves ordered contiguous prefix and suffix", () => {
+  const cases = [
+    ["abcdef", 3, "a…f"],
+    ["abcdef", 4, "a…ef"],
+    ["C:\\Users\\Ada\\file.txt", 10, "C:\\U…e.txt"],
+    ["prefix-0123456789-suffix", 10, "pref…uffix"],
+    ["界界界界", 5, "界…界"],
+    ["界界界界", 4, "界…"],
+    ["a\u0301bcdef", 4, "a\u0301…ef"],
+    ["👩‍💻abc", 4, "👩‍💻…c"],
+    ["👩‍💻abc", 3, "👩‍💻…"]
+  ] as const
+
+  for (const [text, budget, expected] of cases) {
+    const result = middleEllipsis(text, budget)
+    assert.equal(result, expected)
+    assert.ok(displayWidth(result) <= budget)
+    if (result.includes("…")) {
+      const [prefix, suffix] = result.split("…")
+      assert.ok(text.startsWith(prefix))
+      assert.ok(text.endsWith(suffix))
+    }
+  }
+})
+
 test("terminal text removes terminal controls", () => {
   assert.equal(terminalSafeText("normal\x1b[31m red\x1b[0m\x1b]0;title\x07\nline\ttab\x01"), "normal redlinetab")
   assert.equal(middleEllipsis("normal\x1b[31m text", 20), "normal text")
-  assert.ok(middleEllipsis("x".repeat(1_000_000), 10).length <= 10)
+  assert.ok(displayWidth(middleEllipsis("x".repeat(1_000_000), 10)) <= 10)
 })
 
 test("terminal text safely normalizes dynamic values and labels", () => {

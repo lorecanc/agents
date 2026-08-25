@@ -49,19 +49,43 @@ export function middleEllipsis(text: string, maxCells: number): string {
   const total = widths.reduce((sum, width) => sum + width, 0)
   if (total <= budget) return safeText
   if (budget === 1) return "…"
-  const result = ["…"]
-  let used = 1
+  const available = budget - 1
   let left = 0
   let right = parts.length - 1
-  // Prefer the recognizable prefix. Widths are precomputed so this is O(n).
+  let prefixCells = 0
+  let suffixCells = 0
+
+  // Keep the first grapheme whenever the ellipsis leaves room for it.
+  if (widths[left] > available) return "…"
+  prefixCells = widths[left++]
+
+  // Grow each contiguous side in cell-width order. On a tie, grow the
+  // suffix first so paths and filenames retain a useful ending. Widths were
+  // computed once above, so this remains O(n) and never reverses text.
   while (left <= right) {
-    if (used + widths[left] <= budget) {
-      result.unshift(parts[left])
-      used += widths[left++]
-    } else if (used + widths[right] <= budget) {
-      result.push(parts[right])
-      used += widths[right--]
-    } else break
+    const prefixWidth = widths[left]
+    const suffixWidth = widths[right]
+    const preferSuffix = suffixCells <= prefixCells
+    const first = preferSuffix ? "suffix" : "prefix"
+    const second = preferSuffix ? "prefix" : "suffix"
+    let added = false
+
+    for (const side of [first, second]) {
+      if (side === "prefix" && prefixCells + suffixCells + prefixWidth <= available) {
+        prefixCells += prefixWidth
+        left++
+        added = true
+        break
+      }
+      if (side === "suffix" && prefixCells + suffixCells + suffixWidth <= available) {
+        suffixCells += suffixWidth
+        right--
+        added = true
+        break
+      }
+    }
+    if (!added) break
   }
-  return result.join("")
+
+  return parts.slice(0, left).join("") + "…" + parts.slice(right + 1).join("")
 }

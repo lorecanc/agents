@@ -606,7 +606,7 @@ export function App({ workspaceRoot }: AppProps) {
       : e.shift
         ? e.name.toUpperCase()
         : e.name
-    const isUppercaseF = e.sequence === "F" || (key === "f" && !!e.shift)
+    const isUppercaseF = key === "f" && (e.sequence === "F" || !!e.shift)
 
     // 1. Intercept search input mode
     if (isSearching) {
@@ -795,7 +795,7 @@ export function App({ workspaceRoot }: AppProps) {
           setForkFocusedField("find")
           setViewMode("fork-prompt")
         }
-      } else if (key === "b" && rawChar !== "B") {
+      } else if (key === "b" && !e.shift) {
         if (activeItems.length > 0) {
           const item = activeItems[focusedIndex]
           const cat = item.category || ""
@@ -806,7 +806,7 @@ export function App({ workspaceRoot }: AppProps) {
           setBridgeFocusedField("name")
           setViewMode("bridge-prompt")
         }
-      } else if (key === "b" && rawChar === "B") {
+      } else if (key === "b" && e.shift) {
         if (activeItems.length > 0) {
           const item = activeItems[focusedIndex]
           const cat = item.category || ""
@@ -1681,7 +1681,7 @@ export function App({ workspaceRoot }: AppProps) {
            {/* Table Header */}
            {viewStyle === "list" ? (
              <box width={listColumns.total} flexDirection="row" borderStyle="single" border={["bottom"]} borderColor="#333333">
-                <text wrapMode="none" overflow="hidden" style={{ textColor: "gray" }} width={columnWidth(0)}>Sel · Lint</text>{gutter("h1")}
+                 <text wrapMode="none" overflow="hidden" style={{ textColor: "gray" }} width={columnWidth(0)}>Sel/Lint</text>{gutter("h1")}
                 <text wrapMode="none" overflow="hidden" style={{ textColor: "gray" }} width={columnWidth(1)}>Agent Name</text>{gutter("h2")}
                 <text wrapMode="none" overflow="hidden" style={{ textColor: "gray" }} width={columnWidth(2)}>Category</text>{gutter("h3")}
                 <text wrapMode="none" overflow="hidden" style={{ textColor: "gray" }} width={columnWidth(3)}>Tier</text>{gutter("h4")}
@@ -1689,7 +1689,7 @@ export function App({ workspaceRoot }: AppProps) {
              </box>
            ) : (
              <box width={listColumns.total} flexDirection="row" borderStyle="single" border={["bottom"]} borderColor="#333333">
-                <text wrapMode="none" overflow="hidden" style={{ textColor: "gray" }} width={columnWidth(0)}>Sel · Lint</text>{gutter("th1")}
+                 <text wrapMode="none" overflow="hidden" style={{ textColor: "gray" }} width={columnWidth(0)}>Sel/Lint</text>{gutter("th1")}
                 <text wrapMode="none" overflow="hidden" style={{ textColor: "gray" }} width={columnWidth(1)}>Agent Name</text>{gutter("th2")}
                 <text wrapMode="none" overflow="hidden" style={{ textColor: "gray" }} width={columnWidth(2)}>Tier / Model</text>
              </box>
@@ -1952,7 +1952,7 @@ export function App({ workspaceRoot }: AppProps) {
                               <box flexDirection="column" marginTop={1} backgroundColor="#5A1818" padding={1}>
                                 <text style={{ textColor: "red" }} b>⚠ PERMISSION ORDER ERROR!</text>
                                 <text style={{ textColor: "white" }}>Wildcard "*": "deny" MUST be first.</text>
-                                 <text style={{ textColor: "yellow" }} b>[Press Shift+F to Auto-Fix Order]</text>
+                              <text style={{ textColor: "yellow" }} b>[Press SHIFT+F to Fix order]</text>
                               </box>
                             )}
 
@@ -2046,11 +2046,34 @@ export function App({ workspaceRoot }: AppProps) {
          </box></>}
       </box>
 
-      <box height={5} flexShrink={0} overflow="hidden" flexDirection="column" borderStyle="single" borderColor="#2B5581" paddingLeft={1} paddingRight={1}>
-        <text height={1} flexShrink={0} wrapMode="none" overflow="hidden" style={{ textColor: "#E1E4E8" }}>SPACE Select · A Select all · M Model · C Color · P Permissions</text>
-        <text height={1} flexShrink={0} wrapMode="none" overflow="hidden" style={{ textColor: "#E1E4E8" }}>G Delegations · T Tune · I Import · R Rename · E Export</text>
-        <text height={1} flexShrink={0} wrapMode="none" overflow="hidden" style={{ textColor: "#E1E4E8" }}>F Fork · V Repair · / Search · TAB View · 1–4 Inspector tabs</text>
-      </box>
+        {(() => {
+          const footerInnerWidth = Math.max(0, termWidth - 6)
+          const compact = footerInnerWidth < 118
+          const footerRows = compact ? [
+            [["SPACE", "Select"], ["A", "All"], ["S", "Match"], ["/", "Search"], ["TAB", "View"], ["1-4", "Tabs"], ["F", "Fork"]],
+            [["M", "Mod"], ["C", "Col"], ["P", "Perm"], ["G", "Del"], ["T", "Tun"], ["S+T", "Tier"], ["I", "Imp"], ["O", "Org"]],
+            [["B", "Claude"], ["S+B", "Codex"], ["R", "Rename"], ["E", "Export"], ["V", "Repair"], ["S+F", "Fix order"]]
+          ] : [
+            [["SPACE", "Select"], ["A", "All"], ["S", "Same model"], ["/", "Search"], ["TAB", "View"], ["1-4", "Inspector"], ["O", "Organization"]],
+            [["M", "Model"], ["C", "Color"], ["P", "Permissions"], ["G", "Delegations"], ["T", "Tune"], ["SHIFT+T", "Tier"], ["I", "Import"], ["V", "Repair models"]],
+            [["B", "Claude bridge"], ["SHIFT+B", "Codex bridge"], ["R", "Rename"], ["E", "Export"], ["F", "Fork"], ["SHIFT+F", "Fix order"]]
+          ]
+         return (
+           <box height={5} flexShrink={0} overflow="hidden" flexDirection="column" borderStyle="single" borderColor="#2B5581" paddingLeft={1} paddingRight={1}>
+             {footerRows.map((row, rowIndex) => (
+               <box key={rowIndex} height={1} flexShrink={0} flexDirection="row" overflow="hidden">
+                 {row.map(([shortcut, action], index) => (
+                   <React.Fragment key={shortcut}>
+                      {index > 0 && <text wrapMode="none" flexShrink={0} style={{ textColor: "#E1E4E8" }}>{compact ? " " : " | "}</text>}
+                     <text wrapMode="none" flexShrink={0} style={{ textColor: "#E1E4E8" }}>{`[${shortcut}]`}</text>
+                     <text wrapMode="none" flexShrink={0} style={{ textColor: "#E1E4E8" }}>{` ${action}`}</text>
+                   </React.Fragment>
+                 ))}
+               </box>
+             ))}
+           </box>
+         )
+       })()}
 
       {/* Modal - Permission Presets */}
       {viewMode === "permission-preset" && (
