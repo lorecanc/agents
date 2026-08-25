@@ -177,7 +177,7 @@ test("generated Wiki output has no nested Git metadata, host paths, or secret-sh
 
 test("deprecated topic-export alias does not create an old output", () => {
   const root = fixture()
-  execFileSync(process.execPath, [path.join(repo, "manage-agents/dist/index.js"), "topic-export", "--no-auto-commit"], { cwd: root, encoding: "utf8" })
+  execFileSync(process.execPath, [path.join(repo, "manage-agents/manage-agents.mjs"), "topic-export", "--no-auto-commit"], { cwd: root, encoding: "utf8" })
   assert.equal(fs.existsSync(path.join(root, "agents/topic-export")), false)
   assert.equal(fs.existsSync(path.join(root, "agents/categories/wiki")), true)
 })
