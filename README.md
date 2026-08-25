@@ -28,7 +28,7 @@ Edit canonical files under `general/`, then regenerate distributions or bridges 
 
 ## Install into OpenCode
 
-Copy `general/opencode.json` to your OpenCode configuration location, then copy or export the desired canonical agents to `~/.config/opencode/agents/`. The manager’s `export` command creates a recovery backup. The Wiki distribution is published at `agents/categories/wiki/` and is generated from `agents/.agent-manager/categories/wiki.json`.
+Copy `general/opencode.json` to your OpenCode configuration location, then copy or export the desired canonical agents to `~/.config/opencode/agents/`. The manager’s `export` command creates a recovery backup. Category distributions are generated locally under `agents/categories/` from manifests in `agents/.agent-manager/categories/`; deterministic packages can be shared manually as artifacts.
 
 ## Naming and categories
 

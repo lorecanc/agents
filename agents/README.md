@@ -12,14 +12,14 @@ agents/
 │   ├── skills/       # Installed skills
 │   ├── tools/        # Document and slide tools
 │   └── opencode.json # MCP and LSP blueprint
-├── categories/       # Generated category distributions; Wiki is publishable
+├── categories/       # Generated category distributions; categories are local generated distributions
 ├── bridges/          # Claude Code and Codex translation layers
 ├── docs/             # OpenCode and MCP documentation
 ├── wiki-generator/  # Wiki generation and update agents
 └── .agent-manager/   # Translation tiers, roles, and overrides
 ```
 
-`general/` is the only canonical content tree. Category output is generated from explicit manifests and is never a source. The Wiki pilot is complete and publishable; other category directories remain legacy browsing mirrors until they receive manifests.
+`general/` is the only canonical content tree. Category output is generated from explicit manifests and is never a source. Categories are local generated distributions for browsing and category-specific workflows; they are not remote repositories.
 
 ## OpenCode Setup
 

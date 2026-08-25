@@ -104,12 +104,8 @@ test("failed publish restores the previous output and cleans staging", () => {
   assert.equal(fs.readdirSync(path.join(root, "agents/categories")).some(name => name.includes(".category-wiki-")), false)
 })
 
-test("CLI parser accepts one package SHA and rejects duplicates or non-package use", () => {
-  const sourceSha = "0123456789abcdef0123456789abcdef01234567"
-  assert.equal(parseCategoryArgs(["package", "wiki", "--source-sha", sourceSha]).sourceSha, sourceSha)
-  assert.throws(() => parseCategoryArgs(["package", "wiki", "--source-sha", sourceSha, "--source-sha", sourceSha]), /exactly once/)
-  assert.throws(() => parseCategoryArgs(["check", "wiki", "--source-sha", sourceSha]), /exactly once/)
-  assert.throws(() => parseCategoryArgs(["package", "wiki", "--source-sha", "not-a-sha"]), /exactly once/)
+test("CLI parser rejects removed source SHA flag", () => {
+  assert.throws(() => parseCategoryArgs(["package", "wiki", "--source-sha", "0123456789abcdef0123456789abcdef01234567"]), /unexpected argument/)
 })
 
 test("CLI parser supports list/build/check/explain, alias flags, and rejects traversal", () => {
@@ -188,17 +184,14 @@ test("deprecated topic-export alias does not create an old output", () => {
 
 test("package records byte hashes and removes stale files", () => {
   const root = fixture(); buildCategoryDistribution(root, "wiki"); fs.mkdirSync(path.join(root, "artifacts"), { recursive: true }); const artifact = path.join(root, "artifacts/categories")
-  process.env.AGENT_MANAGER_SOURCE_SHA = "0123456789abcdef0123456789abcdef01234567"
   packageCategoryDistributions(root, ["wiki"], "artifacts/categories")
   const marker = validateCategoryPackage(artifact), entry = marker.entries.find(e => e.path === "wiki/AGENTS.md")!
-  assert.equal(marker.sourceSha, process.env.AGENT_MANAGER_SOURCE_SHA)
+  assert.deepEqual(Object.keys(marker).sort(), ["categories", "contentDigest", "entries", "kind", "packageVersion", "schema"])
   const hash = execFileSync("sh", ["-c", `shasum -a 256 ${JSON.stringify(path.join(artifact, entry.path))}`], { encoding: "utf8" }).split(" ")[0]
   assert.equal(entry.sha256, hash); fs.writeFileSync(path.join(artifact, "stale.txt"), "stale")
   assert.throws(() => validateCategoryPackage(artifact), /entries do not match/); packageCategoryDistributions(root, ["wiki"], "artifacts/categories")
   assert.equal(fs.existsSync(path.join(artifact, "stale.txt")), false)
-  delete process.env.AGENT_MANAGER_SOURCE_SHA
 })
-
 test("recovery rejects v3 journals with migration guidance", () => {
   const root = fixture(), journal = path.join(root, "agents/.agent-manager/category-control/build-all.journal")
   fs.mkdirSync(path.dirname(journal), { recursive: true }); fs.writeFileSync(journal, JSON.stringify({ schemaVersion: 3 }))
@@ -267,10 +260,4 @@ test("build refuses an unresolved journal until explicit recovery", () => {
   fs.writeFileSync(journal, "{}")
   assert.throws(() => buildAllCategoryDistributions(root), /recover explicitly/)
   assert.equal(fs.existsSync(journal), true)
-})
-
-test("publication workflow is dispatch-only and fully pinned", () => {
-  const workflow = fs.readFileSync(path.join(repo, ".github/workflows/publish-category.yml"), "utf8")
-  assert.match(workflow, /workflow_dispatch:/); assert.doesNotMatch(workflow, /^\s+(push|pull_request):/m); assert.match(workflow, /options: \[wiki, docs, slides\]/); assert.match(workflow, /category-publication/)
-  assert.match(workflow, /upload-artifact@[0-9a-f]{40}/); assert.match(workflow, /download-artifact@[0-9a-f]{40}/); assert.match(workflow, /actions\/checkout@[0-9a-f]{40}[\s\S]*?ref: \$\{\{ github\.sha \}\}[\s\S]*?persist-credentials: false/); assert.match(workflow, /actions\/setup-node@[0-9a-f]{40}/); assert.match(workflow, /npm ci[\s\S]*?working-directory: manage-agents/); assert.match(workflow, /npm run build[\s\S]*?working-directory: manage-agents/); assert.match(workflow, /--source-sha/); assert.match(workflow, /--confirm-remote/); assert.match(workflow, /CATEGORY_PUBLISH_TOKEN: \$\{\{ secrets\.CATEGORY_PUBLISH_TOKEN \}\}/)
 })
