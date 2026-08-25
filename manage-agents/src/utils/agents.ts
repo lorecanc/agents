@@ -915,7 +915,14 @@ export function discoverManifestCategories(workspaceRoot: string): Set<string> {
 /**
  * Batch update the model of multiple agents.
  */
-export function updateAgentsModel(agents: AgentInfo[], model: string) {
+export function updateAgentsModel(agents: AgentInfo[], model: string, verifiedModels: string[] = []) {
+  if (!verifiedModels.includes(model)) throw new Error(`Model is not present in refreshed catalog: ${model}`)
+  for (const agent of agents) {
+    const disk = parseAgentFile(agent.currentPath, path.dirname(path.dirname(path.dirname(agent.currentPath))))
+    if (!disk || disk.frontmatter.model !== agent.frontmatter.model) {
+      throw new Error(`Agent changed on disk before model update: ${agent.filename}`)
+    }
+  }
   for (const agent of agents) {
     const updatedFrontmatter = { ...agent.frontmatter, model }
     saveAgentFile(agent.currentPath, updatedFrontmatter, agent.body)
@@ -923,6 +930,94 @@ export function updateAgentsModel(agents: AgentInfo[], model: string) {
     agent.model = model
     agent.frontmatter = updatedFrontmatter
   }
+}
+
+export type ModelRepairMapping = { oldModel: unknown; newModel: string; agentPaths: string[] }
+
+/** Validate all groups and on-disk sources before changing any model. */
+export function repairAgentModels(agents: AgentInfo[], mappings: ModelRepairMapping[], verifiedModels: string[], writer = saveAgentFile) {
+  const catalog = new Set(verifiedModels)
+  const paths = new Set<string>()
+  const originals = new Map<string, Buffer>()
+  const snapshots = new Map<AgentInfo, { model: string; frontmatter: Record<string, any>; frontmatterContent: Record<string, any>; rawContent: string }>()
+  for (const mapping of mappings) {
+    if (!catalog.has(mapping.newModel)) throw new Error(`Replacement is not present in refreshed catalog: ${mapping.newModel}`)
+    for (const agentPath of mapping.agentPaths) {
+      if (paths.has(agentPath)) throw new Error(`Agent appears in more than one repair group: ${agentPath}`)
+      paths.add(agentPath)
+      const agent = agents.find(item => item.currentPath === agentPath)
+      if (!agent) throw new Error(`Unknown agent path: ${agentPath}`)
+      const current = agent.frontmatter.model
+      if (current !== mapping.oldModel || (typeof current === "string" && current !== agent.model)) {
+        throw new Error(`Agent changed on disk before repair: ${agent.filename}`)
+      }
+      const currentBytes = fs.readFileSync(agentPath)
+      if (!currentBytes.equals(Buffer.from(agent.rawContent, "utf8"))) {
+        throw new Error(`Agent changed on disk before repair: ${agent.filename}`)
+      }
+      const { yamlText } = extractFrontmatter(currentBytes.toString("utf8"))
+      let diskFrontmatter: Record<string, any> = {}
+      try {
+        const parsed = yamlText === null ? null : YAML.parse(yamlText)
+        if (isValidFrontmatter(parsed)) diskFrontmatter = parsed
+      } catch {
+        // Keep the empty frontmatter so the model validation below rejects it.
+      }
+      if (diskFrontmatter.model !== mapping.oldModel) throw new Error(`Agent changed on disk before repair: ${agent.filename}`)
+      originals.set(agentPath, currentBytes)
+      snapshots.set(agent, {
+        model: agent.model,
+        frontmatter: agent.frontmatter,
+        frontmatterContent: structuredClone(agent.frontmatter),
+        rawContent: agent.rawContent
+      })
+    }
+  }
+  const attempted: string[] = []
+  try {
+    for (const mapping of mappings) {
+      for (const agentPath of mapping.agentPaths) {
+        const agent = agents.find(item => item.currentPath === agentPath)!
+        attempted.push(agentPath)
+        const updatedFrontmatter = { ...agent.frontmatter, model: mapping.newModel }
+        writer(agent.currentPath, updatedFrontmatter, agent.body)
+      }
+    }
+    for (const mapping of mappings) {
+      for (const agentPath of mapping.agentPaths) {
+        const agent = agents.find(item => item.currentPath === agentPath)!
+        agent.model = mapping.newModel
+        agent.frontmatter = { ...agent.frontmatter, model: mapping.newModel }
+        agent.rawContent = fs.readFileSync(agent.currentPath, "utf8")
+      }
+    }
+  } catch (error: any) {
+    const restorationFailures: string[] = []
+    for (const agentPath of [...attempted].reverse()) {
+      try {
+        fs.writeFileSync(agentPath, originals.get(agentPath)!)
+      } catch (restoreError: any) {
+        restorationFailures.push(`${agentPath}: ${restoreError?.message || restoreError}`)
+      }
+    }
+    for (const [agent, snapshot] of snapshots) {
+      try {
+        agent.model = snapshot.model
+        agent.frontmatter = snapshot.frontmatter
+        for (const key of Object.keys(agent.frontmatter)) delete agent.frontmatter[key]
+        Object.assign(agent.frontmatter, structuredClone(snapshot.frontmatterContent))
+        agent.rawContent = snapshot.rawContent
+      } catch (restoreError: any) {
+        restorationFailures.push(`${agent.filename} memory: ${restoreError?.message || restoreError}`)
+      }
+    }
+    const status = restorationFailures.length === 0 ? "completed" : "incomplete"
+    const details = restorationFailures.length > 0 ? `: ${restorationFailures.join("; ")}` : ""
+    const rollbackError = new Error(`${error?.message || error}; rollback ${status}${details}`)
+    ;(rollbackError as any).cause = error
+    throw rollbackError
+  }
+  return { groups: mappings.length, agentsChanged: attempted.length }
 }
 
 /**
@@ -953,9 +1048,6 @@ export function forkCategory(
   replaceStr: string,
   selectedPaths?: string[]
 ): ForkResult {
-  // Create backup first
-  const backupsPath = createBackup(workspaceRoot)
-
   // Find all agents under general/agents/ belonging to sourceCategory
   const allAgents = findAgentFiles(workspaceRoot, "general")
   let sourceAgents = allAgents.filter(
@@ -970,6 +1062,8 @@ export function forkCategory(
 
   const copied: string[] = []
   const skipped: string[] = []
+  const plans: Array<{ agent: AgentInfo; targetPath: string; frontmatter: Record<string, any>; body: string }> = []
+  const targetPaths = new Set<string>()
 
   for (const agent of sourceAgents) {
     const filename = agent.filename
@@ -985,17 +1079,23 @@ export function forkCategory(
       continue
     }
 
-    let existingModel = ""
+    if (targetPaths.has(path.resolve(targetPath))) throw new Error(`Duplicate fork target: ${targetPath}`)
+    targetPaths.add(path.resolve(targetPath))
+    let existingModel: unknown
+    let hasExistingModel = false
     if (fs.existsSync(targetPath)) {
       // If target file already exists, read its frontmatter to preserve the model
       const existingInfo = parseAgentFile(targetPath, workspaceRoot)
-      if (existingInfo && existingInfo.frontmatter && existingInfo.frontmatter.model) {
+      if (existingInfo && Object.prototype.hasOwnProperty.call(existingInfo.frontmatter, "model")) {
         existingModel = existingInfo.frontmatter.model
+        hasExistingModel = true
       }
     }
 
     // Read source agent's raw content
     const sourceContent = fs.readFileSync(agent.currentPath, "utf-8")
+    const sourceModel = Object.prototype.hasOwnProperty.call(agent.frontmatter, "model") ? agent.frontmatter.model : undefined
+    const sourceHasModel = Object.prototype.hasOwnProperty.call(agent.frontmatter, "model")
 
     // Replace all instances of findStr with replaceStr in the raw content
     const updatedContent = sourceContent.split(findStr).join(replaceStr)
@@ -1019,14 +1119,20 @@ export function forkCategory(
       continue
     }
 
-    // Preserve the existing target model if overwritten, otherwise keep what was generated/copied
-    if (existingModel) {
+    // Never replace a model as part of the global content substitution.
+    if (!hasExistingModel && sourceHasModel) frontmatter.model = sourceModel
+    // Preserve the existing target model if overwritten, including empty/non-string values.
+    if (hasExistingModel) {
       frontmatter.model = existingModel
     }
+    plans.push({ agent, targetPath, frontmatter, body })
+  }
 
-    // Save the new file
-    saveAgentFile(targetPath, frontmatter, body)
-    copied.push(`${filename} -> ${newFilename}`)
+  // All parseability and targets are checked before the first write.
+  const backupsPath = plans.length > 0 ? createBackup(workspaceRoot) : null
+  for (const plan of plans) {
+    saveAgentFile(plan.targetPath, plan.frontmatter, plan.body)
+    copied.push(`${plan.agent.filename} -> ${path.basename(plan.targetPath)}`)
   }
 
   return { copied, skipped, backupsPath }

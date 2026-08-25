@@ -6,7 +6,7 @@ import os from "node:os"
 import path from "node:path"
 import readline from "node:readline"
 import { App } from "./App.js"
-import { fetchModels, FALLBACK_MODELS } from "./utils/models.js"
+import { fetchModels } from "./utils/models.js"
 import { exportAgents, getExportDestination, analyzeAgentName, renameAgent, auditSecurityPermissions, importAgents, updateAgentParams, sanitizeFilename } from "./utils/agents.js"
 import {
   DEFAULT_TRANSLATION_CONFIG,
@@ -78,11 +78,8 @@ async function runCreate(agentNameArg: string | undefined, workspaceRoot: string
 
   // Fetch models for selection list
   let models: string[] = []
-  try {
-    models = fetchModels()
-  } catch (e) {
-    models = FALLBACK_MODELS
-  }
+  models = fetchModels()
+  if (models.length === 0) throw new Error("Model catalog unavailable; cannot create an agent without a verified model")
 
   console.log("\n🤖 Select an LLM model:")
   models.forEach((model, idx) => {

@@ -3,7 +3,142 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import test from "node:test"
-import { extractFrontmatter, getExportDestination, isInGeneralAgents, parseAgentFile, saveAgentFile } from "./agents.js"
+import { extractFrontmatter, getExportDestination, isInGeneralAgents, parseAgentFile, saveAgentFile, repairAgentModels, forkCategory } from "./agents.js"
+
+function fixtureAgent(filePath: string, workspace: string, model: unknown) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true })
+  const frontmatter: any = { description: "x" }
+  if (model !== undefined) frontmatter.model = model
+  saveAgentFile(filePath, frontmatter, "body")
+  return parseAgentFile(filePath, workspace)!
+}
+
+test("grouped model repair validates all groups and applies one old value to N agents", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "agent-repair-"))
+  const a = fixtureAgent(path.join(workspace, "general/agents/a.md"), workspace, "bad/model")
+  const b = fixtureAgent(path.join(workspace, "general/agents/b.md"), workspace, "bad/model")
+  const c = fixtureAgent(path.join(workspace, "general/agents/c.md"), workspace, "other/model")
+  const result = repairAgentModels([a, b, c], [
+    { oldModel: "bad/model", newModel: "real/one", agentPaths: [a.currentPath, b.currentPath] },
+    { oldModel: "other/model", newModel: "real/two", agentPaths: [c.currentPath] }
+  ], ["real/one", "real/two"])
+  assert.deepEqual(result, { groups: 2, agentsChanged: 3 })
+  assert.equal(parseAgentFile(a.currentPath, workspace)!.model, "real/one")
+})
+
+test("grouped repair synchronizes raw content for an immediate second repair", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "agent-repair-"))
+  const agent = fixtureAgent(path.join(workspace, "general/agents/a.md"), workspace, "bad/model")
+  const mappings = [{ oldModel: "bad/model", newModel: "real/one", agentPaths: [agent.currentPath] }]
+
+  repairAgentModels([agent], mappings, ["real/one", "real/two"])
+  assert.equal(agent.rawContent, fs.readFileSync(agent.currentPath, "utf8"))
+
+  repairAgentModels([agent], [{ oldModel: "real/one", newModel: "real/two", agentPaths: [agent.currentPath] }], ["real/one", "real/two"])
+  assert.equal(agent.rawContent, fs.readFileSync(agent.currentPath, "utf8"))
+})
+
+test("grouped repair rejects invented or stale values before writing", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "agent-repair-"))
+  const a = fixtureAgent(path.join(workspace, "general/agents/a.md"), workspace, "bad/model")
+  const b = fixtureAgent(path.join(workspace, "general/agents/b.md"), workspace, "bad/model")
+  const original = fs.readFileSync(a.currentPath, "utf8")
+  assert.throws(() => repairAgentModels([a, b], [{ oldModel: "bad/model", newModel: "made/up", agentPaths: [a.currentPath, b.currentPath] }], ["real/one"]))
+  fs.writeFileSync(b.currentPath, fs.readFileSync(b.currentPath, "utf8").replace("bad/model", "changed/model"))
+  assert.throws(() => repairAgentModels([a, b], [{ oldModel: "bad/model", newModel: "real/one", agentPaths: [a.currentPath, b.currentPath] }], ["real/one"]))
+  assert.equal(fs.readFileSync(a.currentPath, "utf8"), original)
+})
+
+test("grouped repair rejects body changes with an unchanged model before writing", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "agent-repair-"))
+  const a = fixtureAgent(path.join(workspace, "general/agents/a.md"), workspace, "bad/model")
+  const b = fixtureAgent(path.join(workspace, "general/agents/b.md"), workspace, "bad/model")
+  const originalB = fs.readFileSync(b.currentPath)
+  const originalAModel = a.model
+  const originalAFrontmatter = a.frontmatter
+  const originalARawContent = a.rawContent
+  fs.writeFileSync(a.currentPath, fs.readFileSync(a.currentPath, "utf8").replace("body", "new body"))
+  const changedA = fs.readFileSync(a.currentPath)
+
+  assert.throws(() => repairAgentModels([a, b], [
+    { oldModel: "bad/model", newModel: "real/one", agentPaths: [a.currentPath, b.currentPath] }
+  ], ["real/one"]))
+
+  assert.deepEqual(fs.readFileSync(a.currentPath), changedA)
+  assert.deepEqual(fs.readFileSync(b.currentPath), originalB)
+  assert.equal(a.model, originalAModel)
+  assert.strictEqual(a.frontmatter, originalAFrontmatter)
+  assert.equal(a.rawContent, originalARawContent)
+})
+
+test("grouped repair rolls back a writer that changes a file before throwing", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "agent-repair-"))
+  const agent = fixtureAgent(path.join(workspace, "general/agents/a.md"), workspace, "bad/model")
+  const originalBytes = fs.readFileSync(agent.currentPath)
+  const originalFrontmatter = agent.frontmatter
+  const originalRawContent = agent.rawContent
+  assert.throws(() => repairAgentModels([agent], [
+    { oldModel: "bad/model", newModel: "real/one", agentPaths: [agent.currentPath] }
+  ], ["real/one"], (filePath, frontmatter, body) => {
+    saveAgentFile(filePath, frontmatter, body)
+    agent.model = "wrong/model"
+    agent.frontmatter = { model: "wrong/model" }
+    agent.rawContent = "wrong"
+    throw new Error("writer failed")
+  }), /writer failed; rollback completed/)
+  assert.deepEqual(fs.readFileSync(agent.currentPath), originalBytes)
+  assert.equal(agent.model, "bad/model")
+  assert.strictEqual(agent.frontmatter, originalFrontmatter)
+  assert.deepEqual(agent.frontmatter, { description: "x", model: "bad/model" })
+  assert.equal(agent.rawContent, originalRawContent)
+})
+
+test("grouped repair rolls back all attempted files and memory after a later writer fails", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "agent-repair-"))
+  const a = fixtureAgent(path.join(workspace, "general/agents/a.md"), workspace, "bad/model")
+  const b = fixtureAgent(path.join(workspace, "general/agents/b.md"), workspace, "other/model")
+  const originalA = fs.readFileSync(a.currentPath)
+  const originalB = fs.readFileSync(b.currentPath)
+  const originalAFrontmatter = a.frontmatter
+  const originalBFrontmatter = b.frontmatter
+  assert.throws(() => repairAgentModels([a, b], [
+    { oldModel: "bad/model", newModel: "real/one", agentPaths: [a.currentPath] },
+    { oldModel: "other/model", newModel: "real/two", agentPaths: [b.currentPath] }
+  ], ["real/one", "real/two"], (filePath, frontmatter, body) => {
+    saveAgentFile(filePath, frontmatter, body)
+    if (filePath === b.currentPath) throw new Error("second writer failed")
+  }), /second writer failed; rollback completed/)
+  assert.deepEqual(fs.readFileSync(a.currentPath), originalA)
+  assert.deepEqual(fs.readFileSync(b.currentPath), originalB)
+  assert.equal(a.model, "bad/model")
+  assert.equal(b.model, "other/model")
+  assert.strictEqual(a.frontmatter, originalAFrontmatter)
+  assert.strictEqual(b.frontmatter, originalBFrontmatter)
+})
+
+test("grouped repair continues disk rollback after one restore fails", (t) => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "agent-repair-"))
+  const a = fixtureAgent(path.join(workspace, "general/agents/a.md"), workspace, "bad/model")
+  const b = fixtureAgent(path.join(workspace, "general/agents/b.md"), workspace, "other/model")
+  const originalA = fs.readFileSync(a.currentPath)
+  const originalB = fs.readFileSync(b.currentPath)
+  const writeFileSync = fs.writeFileSync
+  t.mock.method(fs, "writeFileSync", function (filePath: fs.PathOrFileDescriptor, data: string | NodeJS.ArrayBufferView, ...args: any[]) {
+    if (filePath === a.currentPath && Buffer.isBuffer(data)) throw new Error("restore a failed")
+    return writeFileSync.call(fs, filePath, data, ...args)
+  })
+  assert.throws(() => repairAgentModels([a, b], [
+    { oldModel: "bad/model", newModel: "real/one", agentPaths: [a.currentPath] },
+    { oldModel: "other/model", newModel: "real/two", agentPaths: [b.currentPath] }
+  ], ["real/one", "real/two"], (filePath, frontmatter, body) => {
+    saveAgentFile(filePath, frontmatter, body)
+    if (filePath === b.currentPath) throw new Error("writer failed")
+  }), /rollback incomplete: .*restore a failed/)
+  assert.notDeepEqual(fs.readFileSync(a.currentPath), originalA)
+  assert.deepEqual(fs.readFileSync(b.currentPath), originalB)
+  assert.equal(a.model, "bad/model")
+  assert.equal(b.model, "other/model")
+})
 
 test("agent save is idempotent and keeps one blank line after frontmatter", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "agent-save-workspace-"))

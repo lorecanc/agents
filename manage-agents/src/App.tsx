@@ -6,6 +6,7 @@ import {
   AgentInfo,
   organizeAgents,
   updateAgentsModel,
+  repairAgentModels,
   updateAgentsColor,
   forkCategory,
   exportAgents,
@@ -25,7 +26,7 @@ import {
   , sanitizeFilename,
   getCategoryPrefixes
 } from "./utils/agents.js"
-import { fetchModels } from "./utils/models.js"
+import { loadModelCatalog, isVerifiedModel, suggestModels, type ModelCatalog } from "./utils/models.js"
 import { bridgeToClaudeCode } from "./utils/bridge.js"
 import { bridgeToCodex } from "./utils/codexBridge.js"
 import { buildInferenceIndex, loadTranslationConfig, resolveModelTarget, resolveRole, saveTranslationConfig, type TranslationConfig } from "./utils/translationConfig.js"
@@ -38,6 +39,8 @@ interface AppProps {
 type ViewMode =
   | "main"
   | "model-selector"
+  | "repair-selector"
+  | "repair-confirm"
   | "tier-selector"
   | "organization-confirm"
    | "action-result"
@@ -145,6 +148,9 @@ export function App({ workspaceRoot }: AppProps) {
   // Data State
   const [agents, setAgents] = useState<AgentInfo[]>([])
   const [models, setModels] = useState<string[]>([])
+  const [modelCatalog, setModelCatalog] = useState<ModelCatalog>({ status: "unavailable", models: [] })
+  const [repairGroupKey, setRepairGroupKey] = useState<string | null>(null)
+  const [repairMappings, setRepairMappings] = useState<Record<string, string>>({})
   const [selectedAgentPaths, setSelectedAgentPaths] = useState<Set<string>>(new Set())
 
   // View Settings
@@ -272,12 +278,33 @@ export function App({ workspaceRoot }: AppProps) {
   useEffect(() => {
     refreshData()
     try {
-      const modelList = fetchModels()
-      setModels(modelList)
+       const catalog = loadModelCatalog(true)
+       setModelCatalog(catalog)
+       setModels(catalog.status === "verified" ? catalog.models : [])
     } catch (e) {
       // Ignore
     }
   }, [])
+
+  const invalidModelGroups = useMemo(() => {
+    if (modelCatalog.status !== "verified") return []
+    const groups = new Map<string, { value: unknown; agents: AgentInfo[] }>()
+    for (const agent of agents) {
+      if (isVerifiedModel(agent.frontmatter.model, modelCatalog)) continue
+      const value = agent.frontmatter.model
+      const key = typeof value === "string" ? `string:${value}` : value === undefined ? "missing" : `${typeof value}:${String(value)}`
+      const group = groups.get(key) || { value, agents: [] }
+      group.agents.push(agent)
+      groups.set(key, group)
+    }
+    return Array.from(groups.values())
+  }, [agents, modelCatalog])
+
+  const refreshModelCatalog = () => {
+    const catalog = loadModelCatalog(undefined, true)
+    setModelCatalog(catalog)
+    setModels(catalog.status === "verified" ? catalog.models : [])
+  }
 
   useEffect(() => {
     if (viewMode === "action-result") setActionResultScrollOffset(0)
@@ -506,6 +533,11 @@ export function App({ workspaceRoot }: AppProps) {
     })
 
     const items: ModelTreeItem[] = []
+    if (viewMode === "repair-selector" && repairGroupKey !== null) {
+      const group = invalidModelGroups[Number(repairGroupKey)]
+      const suggestions = group ? suggestModels(group.value, modelCatalog) : []
+      suggestions.forEach(model => items.push({ type: "model", id: model, label: `★ ${model}`, provider: "suggestions" }))
+    }
     Object.keys(providers).forEach(prov => {
       const isExpanded = expandedProviders.has(prov)
       items.push({
@@ -527,7 +559,7 @@ export function App({ workspaceRoot }: AppProps) {
       }
     })
     return items
-  }, [models, expandedProviders])
+  }, [models, expandedProviders, viewMode, repairGroupKey, invalidModelGroups, modelCatalog])
 
   // Clamp model index on layout tree size updates
   useEffect(() => {
@@ -688,7 +720,13 @@ export function App({ workspaceRoot }: AppProps) {
       } else if (key === "/") {
         setIsSearching(true)
       } else if (key === "m") {
-        if (activeItems.length === 0 || !activeItems[focusedIndex]?.agent) {
+        if (modelCatalog.status !== "verified") {
+          setActionResultTitle("Model Catalog Unavailable")
+          setActionResultLines(["Models are not present in the loaded catalog.", "No model writes or suggestions are available.", "Press Y to retry with: opencode models --refresh"])
+          setViewMode("action-result")
+          return
+        }
+        if (activeItems.length === 0 || (!activeItems[focusedIndex]?.agent && selectedAgentPaths.size === 0)) {
           setActionResultTitle("No Agent Focused")
           setActionResultLines([
             "Please select at least one agent (using SPACE)",
@@ -699,6 +737,14 @@ export function App({ workspaceRoot }: AppProps) {
           setFocusedModelIndex(0)
           setModelScrollOffset(0)
           setViewMode("model-selector")
+        }
+      } else if (key === "v") {
+        if (modelCatalog.status === "verified" && invalidModelGroups.length > 0) {
+          setRepairMappings({})
+          setRepairGroupKey("0")
+          setFocusedModelIndex(0)
+          setModelScrollOffset(0)
+          setViewMode("repair-selector")
         }
       } else if (key === "t" && e.shift) {
         if (activeItems.length === 0 || !activeItems[focusedIndex]?.agent) {
@@ -860,7 +906,7 @@ export function App({ workspaceRoot }: AppProps) {
         }
         setViewMode("action-result")
       }
-    } else if (viewMode === "model-selector") {
+    } else if (viewMode === "model-selector" || viewMode === "repair-selector") {
       // 3. Model selector mode
       if (key === "up" || key === "k") {
         if (modelTreeItems.length === 0) return
@@ -923,10 +969,30 @@ export function App({ workspaceRoot }: AppProps) {
           } else {
             const selectedModel = item.id
             try {
+              if (viewMode === "repair-selector") {
+                const index = Number(repairGroupKey)
+                setRepairMappings(previous => ({ ...previous, [String(index)]: selectedModel }))
+                if (index + 1 < invalidModelGroups.length) {
+                  setRepairGroupKey(String(index + 1))
+                  setFocusedModelIndex(0)
+                  setModelScrollOffset(0)
+                  return
+                }
+                const mappings = invalidModelGroups.map((group, groupIndex) => ({
+                  oldModel: group.value,
+                  newModel: groupIndex === index ? selectedModel : repairMappings[String(groupIndex)],
+                  agentPaths: group.agents.map(agent => agent.currentPath)
+                }))
+                if (mappings.some(mapping => !mapping.newModel)) throw new Error("Choose a replacement for every invalid model group")
+                setRepairMappings(Object.fromEntries(mappings.map((mapping, i) => [String(i), mapping.newModel])))
+                setViewMode("repair-confirm")
+                return
+              }
               const selectedAgents = selectedAgentPaths.size > 0
                 ? agents.filter((a) => selectedAgentPaths.has(a.currentPath))
                 : (activeItems[focusedIndex]?.agent ? [activeItems[focusedIndex].agent!] : [])
-              mutate(selectedAgents.map(a => a.currentPath), "tune", () => updateAgentsModel(selectedAgents, selectedModel))
+               if (!modelCatalog.models.includes(selectedModel)) throw new Error("Model is not present in refreshed catalog")
+               mutate(selectedAgents.map(a => a.currentPath), "tune", () => updateAgentsModel(selectedAgents, selectedModel, modelCatalog.models))
               refreshData()
               setSelectedAgentPaths(new Set())
               setActionResultTitle("Model Updated Successfully")
@@ -939,7 +1005,28 @@ export function App({ workspaceRoot }: AppProps) {
           }
         }
       } else if (key === "escape") {
+        setRepairGroupKey(null)
         setViewMode("main")
+      } else if (key === "y") {
+        refreshModelCatalog()
+        setViewMode("main")
+      }
+    } else if (viewMode === "repair-confirm") {
+      if (key === "escape" || key === "n") setViewMode("main")
+      else if (key === "enter" || key === "return" || key === "y") {
+        try {
+          const mappings = invalidModelGroups.map((group, index) => ({ oldModel: group.value, newModel: repairMappings[String(index)], agentPaths: group.agents.map(agent => agent.currentPath) }))
+          const result = mutate(mappings.flatMap(mapping => mapping.agentPaths), "tune", () => repairAgentModels(agents, mappings, modelCatalog.status === "verified" ? modelCatalog.models : []))
+          refreshData()
+          setSelectedAgentPaths(new Set())
+          setActionResultTitle("Grouped Model Repair Complete")
+          setActionResultLines([`Repaired ${result.groups} group(s); changed ${result.agentsChanged} agent(s).`, "Writes were validated against the loaded catalog."])
+          setViewMode("action-result")
+        } catch (error: any) {
+          setActionResultTitle("Error During Grouped Repair")
+          setActionResultLines(["No repository-wide atomicity is claimed.", error.message || String(error)])
+          setViewMode("action-result")
+        }
       }
     } else if (viewMode === "tier-selector") {
       const tiers = translationConfig ? Object.keys(translationConfig.tiers) : []
@@ -1430,6 +1517,9 @@ export function App({ workspaceRoot }: AppProps) {
         setActionResultScrollOffset((offset) => Math.max(0, offset - maxVisibleActionResultLines))
       } else if (key === "pagedown") {
         setActionResultScrollOffset((offset) => Math.min(maxOffset, offset + maxVisibleActionResultLines))
+      } else if (key === "y" && actionResultTitle === "Model Catalog Unavailable") {
+        refreshModelCatalog()
+        setViewMode("main")
       } else if (key === "escape" || key === "enter" || key === "return") {
         setViewMode("main")
       }
@@ -1513,6 +1603,30 @@ export function App({ workspaceRoot }: AppProps) {
         </text>
       </box>
 
+      {modelCatalog.status === "unavailable" && (
+        <box borderStyle="single" borderColor="yellow" padding={1}>
+          <text style={{ textColor: "yellow" }}>⚠ Model catalog unavailable; agents are not marked invalid. Press M, then Y to retry opencode models --refresh.</text>
+        </box>
+      )}
+      {modelCatalog.status === "verified" && invalidModelGroups.length > 0 && (
+        <box borderStyle="single" borderColor="yellow" padding={1}>
+          <box flexDirection="column">
+            <text style={{ textColor: "yellow" }}>⚠ {invalidModelGroups.length} model value(s) are not present in the loaded catalog. [V] Repair groups; [M] Choose a model.</text>
+            {invalidModelGroups.map((group, index) => (
+              <text key={index} style={{ textColor: "gray" }}>
+                {`  ${index + 1}. ${group.value === undefined ? "(missing)" : JSON.stringify(group.value)} — ${group.agents.length} agent(s): ${group.agents.map(agent => agent.filename).join(", ")}`}
+              </text>
+            ))}
+          </box>
+        </box>
+      )}
+      {viewMode === "repair-confirm" && (
+        <box style={{ position: "absolute", left: "12%", top: "15%", width: "76%", height: "65%" }} borderStyle="double" borderColor="yellow" backgroundColor="#1e1e1e" title=" Confirm Grouped Model Repair " padding={1} flexDirection="column">
+          <text style={{ textColor: "yellow" }} b>Review mappings before writing:</text>
+          {invalidModelGroups.map((group, index) => <text key={index} style={{ textColor: "white" }}>{`${JSON.stringify(group.value)} → ${repairMappings[String(index)]} (${group.agents.length} agents)`}</text>)}
+          <text style={{ textColor: "gray" }} marginTop={1}>[Y/ENTER] Apply | [N/ESC] Cancel</text>
+        </box>
+      )}
       {/* Main Panel */}
       <box width="100%" flexGrow={1} flexDirection="row" marginTop={1}>
         {/* Left Side: Agents List (Wider to prevent filename cut-offs) */}
@@ -1933,6 +2047,7 @@ export function App({ workspaceRoot }: AppProps) {
             <text style={{ textColor: "#E1E4E8" }}>[R]     Rename Agent</text>
             <text style={{ textColor: "#E1E4E8" }}>[E]     Export OpenCode</text>
             <text style={{ textColor: "#E1E4E8" }}>[F]     Fork Category</text>
+            <text style={{ textColor: "#E1E4E8" }}>[V]     Repair Invalid Models</text>
             <text style={{ textColor: "#E1E4E8" }}>[TAB]   Flat/Tree View</text>
           </box>
         </box>
@@ -2334,7 +2449,7 @@ export function App({ workspaceRoot }: AppProps) {
       )}
 
       {/* Modal - Model Selection */}
-      {viewMode === "model-selector" && (
+      {viewMode === "model-selector" || viewMode === "repair-selector" ? (
         <box
           style={{
             position: "absolute",
@@ -2346,15 +2461,22 @@ export function App({ workspaceRoot }: AppProps) {
           borderStyle="double"
           borderColor="#00AAFF"
           backgroundColor="#1e1e1e"
-          title=" Select LLM Model "
+           title={viewMode === "repair-selector" ? ` Repair Model Group ${Number(repairGroupKey) + 1}/${invalidModelGroups.length} ` : " Select LLM Model "}
           titleColor="#00AAFF"
           padding={1}
           flexDirection="column"
           overflow="hidden"
         >
           <text style={{ textColor: "white" }} paddingBottom={1} flexShrink={0}>
-            Choose model to apply to {selectedAgentPaths.size} selected agents:
+             {viewMode === "repair-selector"
+               ? `Choose an exact replacement for ${invalidModelGroups[Number(repairGroupKey)]?.value === undefined ? "(missing)" : JSON.stringify(invalidModelGroups[Number(repairGroupKey)]?.value)} (${invalidModelGroups[Number(repairGroupKey)]?.agents.length || 0} agents):`
+               : `Choose model to apply to ${selectedAgentPaths.size > 0 ? selectedAgentPaths.size : 1} selected agents:`}
           </text>
+          {viewMode === "repair-selector" && invalidModelGroups[Number(repairGroupKey)] && (
+            <text style={{ textColor: "gray" }}>
+              Suggestions: {suggestModels(invalidModelGroups[Number(repairGroupKey)].value, modelCatalog).join(", ") || "none (choose from catalog below)"}
+            </text>
+          )}
 
           <box flexGrow={1} flexDirection="column" marginTop={1} overflow="hidden">
             {visibleModels.map((item, index) => {
@@ -2389,11 +2511,11 @@ export function App({ workspaceRoot }: AppProps) {
               Total: {modelTreeItems.length} | Scroll: {focusedModelIndex + 1}/{modelTreeItems.length}
             </text>
             <text style={{ textColor: "gray" }}>
-              [ENTER/RETURN] Confirm | [ESC] Cancel
+              {viewMode === "repair-selector" ? "[ENTER] Choose | Suggestions first, then full catalog | [ESC] Cancel" : "[ENTER/RETURN] Confirm | [ESC] Cancel"}
             </text>
           </box>
         </box>
-      )}
+      ) : null}
 
       {/* Modal - Color Selection */}
       {viewMode === "tier-selector" && translationConfig && (() => {
