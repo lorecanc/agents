@@ -2,7 +2,7 @@
 description: Final validation agent for complex work. Checks whether the result
   satisfies the original request without overengineering.
 mode: subagent
-model: opencode-go/deepseek-v4-flash
+model: opencode-go/hy3
 temperature: 0.1
 permission:
   read: allow
