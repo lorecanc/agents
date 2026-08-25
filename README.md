@@ -1,6 +1,10 @@
 # OpenCode Agents Monorepo
 
-A practical, free collection of OpenCode agents, commands, skills, tools, bridges, and the terminal **Agent Manager**. Use it personally or commercially under the MIT License.
+A reusable OpenCode workspace containing agent prompts, commands, skills, tools, category distributions, Claude/Codex bridges, and the terminal **Agent Manager**. Project-owned content is available under the MIT License.
+
+## Purpose and audience
+
+Use this repository when you want a ready-made multi-agent workflow, a portable OpenCode configuration, or a manager for organizing, exporting, validating, and translating agents. The canonical catalog is aimed at developers and teams who prefer explicit prompts and reproducible generated outputs.
 
 ## What is here
 
@@ -10,7 +14,7 @@ Five pipeline families—Go, Copilot, docs, slides, and wiki—cover planning, r
 
 The general catalog includes the manager-facing orchestrator, shell executor, loop verifier, and reusable document/slide workflows. Docs and slides provide HTML/A4 and PowerPoint planning, authoring, composition, and validation. Wiki provides analyzer, indexer, orchestrator, updater, and writer agents plus its command and three supporting skills.
 
-## Layout and source of truth
+## Architecture and source of truth
 
 ```text
 agents/
@@ -24,17 +28,32 @@ agents/
 manage-agents/               # TypeScript terminal manager and TUI
 ```
 
-Edit canonical files under `general/`, then regenerate distributions or bridges with the manager. `agents/wiki-generator/` is deprecated compatibility output, not a source tree. Category distributions contain no nested Git repository and are intentionally deterministic.
+Edit canonical files under `general/`, manifests under `agents/.agent-manager/`, or translation settings when appropriate. Regenerate distributions and bridges with the manager; do not edit generated output. `agents/wiki-generator/` is deprecated compatibility output, not a source tree. Category distributions are deterministic and contain no nested Git repository.
+
+## Quick start
+
+```bash
+cd manage-agents
+npm ci # or: bun install
+cd ..
+./manage-agents.sh
+```
+
+The launcher starts the TUI. For a portable OpenCode setup, copy `agents/general/opencode.json` to your OpenCode configuration directory as described in [`agents/README.md`](agents/README.md).
 
 ## Install into OpenCode
 
 Copy `general/opencode.json` to your OpenCode configuration location, then copy or export the desired canonical agents to `~/.config/opencode/agents/`. The manager’s `export` command creates a recovery backup. Category distributions are generated locally under `agents/categories/` from manifests in `agents/.agent-manager/categories/`; deterministic packages can be shared manually as artifacts.
 
+## Workflow and validation
+
+Canonical agent content is organized into category manifests and can be projected with `category build`. Use `category check` to verify generated files without writing. The manager also supports linting, importing, exporting, model tuning, packaging, and Claude/Codex bridge generation. See [`manage-agents/README.md`](manage-agents/README.md) for the complete command reference and validation commands.
+
 ## Naming and categories
 
 Agent filenames follow `[{family}-]{category}-{role_with_underscores}.md`. Frontmatter category is authoritative for inference; the manager can lint and repair names. Keep source references pointed at canonical `general/` files.
 
-## Wiki category distribution
+## Generated distributions
 
 Run `node manage-agents/manage-agents.mjs --no-auto-commit category build --all` (or use Bun) to produce all self-contained packages. `category check --all` is read-only; `category package --all --output artifacts/categories --dry-run` previews a safe artifact copy. The manifests at `agents/.agent-manager/categories/*.json` are exact v2 allowlists; `PROVENANCE.json` records stable SHA-256 hashes.
 

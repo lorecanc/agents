@@ -4,7 +4,7 @@
   "category": "slides",
   "manifestHash": "ff1c6dee357687b07a43846d607d14cc18607353d5b2b12e0eca170dcc3ecb10",
   "generatorVersion": "2.0.0",
-  "bundleDigest": "232b33a5dfb494623beba261c3e82159b6f8f9a215dd72d211b2785149b1169b",
+  "bundleDigest": "68ced4e765baceb9b591537561608211874062d2e85036dd913f0c2d0b6d1ca6",
   "entries": [
     {
       "target": "AGENTS.md",
@@ -16,7 +16,7 @@
     },
     {
       "target": "README.md",
-      "hash": "d3805ac534385de4bef5d7fe6ff1bc0bb723f8be696bff7702cc87a0a9dbf1ad"
+      "hash": "d651db4509871c90a63f2b8da24f2e480346d16fdde1d57814366962234b0e10"
     },
     {
       "target": "THIRD_PARTY_NOTICES.md",

@@ -8,6 +8,13 @@ import { assertInsideRealWorkspace, realpathThroughExistingAncestor } from "./pa
 type ResolvedModelTarget = ReturnType<typeof resolveModelTarget>
 type ResolvedTargets = Map<string, ResolvedModelTarget>
 
+const markdownCode = (value: string) => {
+  const normalized = value.replace(/\r\n?|\n/g, " ")
+  const runs = [...normalized.matchAll(/`+/g)].map(match => match[0].length)
+  const fence = "`".repeat(Math.max(1, ...(runs.length ? runs : [0]).map(length => length + 1)))
+  return `${fence}${normalized}${fence}`
+}
+
 function resolveTargets(agents: AgentInfo[], config: TranslationConfig): ResolvedTargets {
   const inferenceIndex = buildInferenceIndex(agents, config)
   return new Map(agents.map(agent => [agent.filename, resolveModelTarget(agent, inferenceIndex, config, "codex")]))
@@ -352,11 +359,17 @@ function renderCodexMcpSetup(config: Record<string, any> | null): string[] {
   return lines
 }
 
-function renderReadme(plugin: CodexPlugin, warnings: string[], mcpConfig: Record<string, any> | null): string {
+function renderReadme(plugin: CodexPlugin, warnings: string[], mcpConfig: Record<string, any> | null, sourceDir: string): string {
   const lines = [
     `# ${plugin.pluginName}`,
     "",
-    "This directory is a generated translation layer. Source agents are unchanged.",
+    "This directory is a generated translation layer from the canonical source agents. Source agents are unchanged.",
+    "",
+    "> **Generated output.** Do not edit this directory directly. Change canonical agents or `agents/.agent-manager/translation-config.json`, then regenerate with the manager.",
+    "",
+    "## Source and configuration",
+    "",
+    `Agent prompts are discovered under ${markdownCode(`agents/${sourceDir}/`)}. Translation roles, tiers, model overrides, prefix, and output options come from ${markdownCode("agents/.agent-manager/translation-config.json")}; MCP declarations come from ${markdownCode("agents/general/opencode.json")}.`,
     "",
     "## Contents",
     "",
@@ -364,6 +377,7 @@ function renderReadme(plugin: CodexPlugin, warnings: string[], mcpConfig: Record
     "- `.mcp.json` — enabled MCP servers plus servers explicitly required by translated agents.",
     "- `.codex/agents/` — project-scoped Codex subagent definitions.",
     plugin.skills.length > 0 ? "- `skills/` — plugin skills containing translated instructions." : "",
+    "- `README.md` — this generated inventory and setup guide.",
     "",
     "Note: custom prompts in `~/.codex/prompts` are deprecated; prefer skills such as the ones generated here.",
     "",
@@ -454,7 +468,7 @@ export function writeCodexPlugin(
 
   if (config.codex.emitReadme !== false) {
     const readmePath = path.join(pluginDir, "README.md")
-    fs.writeFileSync(readmePath, renderReadme(plugin, warnings, mcpResult.config))
+    fs.writeFileSync(readmePath, renderReadme(plugin, warnings, mcpResult.config, config.sourceDir))
     files.push(readmePath)
   }
 

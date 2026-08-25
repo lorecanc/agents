@@ -4,7 +4,7 @@
   "category": "docs",
   "manifestHash": "6efc130cf8676497b5a7c9061da2ef3582e14d1d4dbe1b07a2ac1424c3a9c037",
   "generatorVersion": "2.0.0",
-  "bundleDigest": "625aefea71c21c964cf625c5aef1a82310643ae2a50765bdd12a2a831070293b",
+  "bundleDigest": "0184a465c23789d3f1bea92f8d20f210a33ce1a120e233cc4f7372884da91aa3",
   "entries": [
     {
       "target": "AGENTS.md",
@@ -16,7 +16,7 @@
     },
     {
       "target": "README.md",
-      "hash": "76366e5fba09b21f4dee3e0926770bc2bee91b7eefb305fc691fd0a367a975ee"
+      "hash": "354f1f254ce38061688abdd51f6c900c3d82cc8642905bb1c98074e83e25eb19"
     },
     {
       "target": "agents/docs-html_writer.md",

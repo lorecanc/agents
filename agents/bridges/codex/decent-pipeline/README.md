@@ -1,6 +1,12 @@
 # decent-pipeline
 
-This directory is a generated translation layer. Source agents are unchanged.
+This directory is a generated translation layer from the canonical source agents. Source agents are unchanged.
+
+> **Generated output.** Do not edit this directory directly. Change canonical agents or `agents/.agent-manager/translation-config.json`, then regenerate with the manager.
+
+## Source and configuration
+
+Agent prompts are discovered under `agents/general/`. Translation roles, tiers, model overrides, prefix, and output options come from `agents/.agent-manager/translation-config.json`; MCP declarations come from `agents/general/opencode.json`.
 
 ## Contents
 
@@ -8,6 +14,7 @@ This directory is a generated translation layer. Source agents are unchanged.
 - `.mcp.json` — enabled MCP servers plus servers explicitly required by translated agents.
 - `.codex/agents/` — project-scoped Codex subagent definitions.
 - `skills/` — plugin skills containing translated instructions.
+- `README.md` — this generated inventory and setup guide.
 
 Note: custom prompts in `~/.codex/prompts` are deprecated; prefer skills such as the ones generated here.
 

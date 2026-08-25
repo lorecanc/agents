@@ -1,6 +1,10 @@
 # Agent Catalog
 
-This project contains the effective OpenCode agent workspace used by the public monorepo. It is intentionally separate from the sibling [`manage-agents`](../manage-agents/README.md) TypeScript/Bun project.
+This directory contains the effective OpenCode workspace used by the monorepo. It is intentionally separate from the sibling [`manage-agents`](../manage-agents/README.md) TypeScript/Bun project.
+
+## Purpose and audience
+
+This is the place to browse and maintain reusable agent instructions, commands, skills, tools, and the OpenCode configuration blueprint. Developers normally consume the generated or canonical content; contributors edit only the canonical inputs described below.
 
 ## Workspace Layout
 
@@ -19,9 +23,9 @@ agents/
 └── .agent-manager/   # Translation tiers, roles, and overrides
 ```
 
-`general/` is the only canonical content tree. Category output is generated from explicit manifests and is never a source. Categories are local generated distributions for browsing and category-specific workflows; they are not remote repositories.
+`general/` is the only canonical content tree. Category output is generated from explicit manifests and is never a source. Categories are local generated distributions for browsing and category-specific workflows; they are not remote repositories. Bridges are also generated and should be regenerated rather than patched.
 
-## OpenCode Setup
+## Quick start and OpenCode setup
 
 From the monorepo root, copy the blueprint into the OpenCode configuration directory:
 
@@ -37,12 +41,16 @@ Copy-Item agents\general\opencode.json "$env:USERPROFILE\.config\opencode\openco
 
 The blueprint is portable across macOS, Linux, Windows/WSL, and selectively disables platform-specific services such as Xcode by default. See [`docs/mcp-configuration.md`](docs/mcp-configuration.md) for MCP and LSP setup details.
 
-## Catalogs And Bridges
+## Catalogs and bridges
 
 - `general/agents/` contains canonical definitions for the available agent families and roles.
 - `categories/` contains organized copies used for browsing and category-specific workflows.
 - `bridges/claude-code/` and `bridges/codex/` contain generated translation layers.
 - `.agent-manager/translation-config.json` defines target models, tiers, roles, overrides, and bridge output settings.
+
+## Contribution and validation
+
+Keep source references pointed at `general/`, update manifests only when the intended inventory changes, and run the relevant manager checks before submitting a change. Generated README files, category metadata, and bridge files are outputs of their renderers.
 
 ## Manager
 

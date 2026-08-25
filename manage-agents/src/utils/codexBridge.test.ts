@@ -77,6 +77,28 @@ test("bridge emits manifest, Codex agents, skills and translated links", () => {
   assert.match(orchestratorToml, /model_reasoning_effort = "high"/)
   assert.match(orchestratorToml, /@fast-lane/)
   assert.ok(fs.existsSync(path.join(output, "skills", "orchestrator", "SKILL.md")))
+  assert.match(fs.readFileSync(path.join(output, "README.md"), "utf8"), /Source and configuration/)
+  assert.match(fs.readFileSync(path.join(output, "README.md"), "utf8"), /agents\/general\//)
+  assert.match(fs.readFileSync(path.join(output, "README.md"), "utf8"), /agents\/general\/opencode\.json/)
+  assert.match(fs.readFileSync(path.join(output, "README.md"), "utf8"), /Do not edit this directory directly/)
+})
+
+test("Codex README stays generic for non-Copilot categories", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "codex-bridge-category-"))
+  const output = path.join(workspace, "bridges", "codex")
+  bridgeToCodex([agent("docs-orchestrator.md", "any", { mode: "primary" }, "")], "docs", "docs-", output, workspace)
+  const readme = fs.readFileSync(path.join(output, "README.md"), "utf8")
+  assert.match(readme, /canonical source agents/)
+  assert.doesNotMatch(readme, /Copilot pipeline/)
+})
+
+test("Codex README uses the configured source directory", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "codex-bridge-source-"))
+  const output = path.join(workspace, "bridges", "codex")
+  bridgeToCodex([agent("docs-orchestrator.md", "any", { mode: "primary" }, "")], "docs", "docs-", output, workspace, { ...DEFAULT_TRANSLATION_CONFIG, sourceDir: "custom-agents" })
+  const readme = fs.readFileSync(path.join(output, "README.md"), "utf8")
+  assert.match(readme, /`agents\/custom-agents\/`/)
+  assert.doesNotMatch(readme, /agents\/general\/agents\//)
 })
 
 test("role targets can be overridden without changing source agents", () => {

@@ -32,9 +32,37 @@ test("manifest is the source of truth and the Wiki distribution is complete", ()
   assert.equal(manifest.resources.length, 10)
   const result = buildCategoryDistribution(root, "wiki")
   assert.equal(result.status, "current")
+  const readme = fs.readFileSync(path.join(output(root), "README.md"), "utf8")
+  assert.match(readme, /agents\/\.agent-manager\/categories\/wiki\.json/)
+  assert.match(readme, /Do not edit this directory directly/)
   const expected = ["AGENTS.md", "CATEGORY.json", "LICENSE", "PROVENANCE.json", "README.md", ...manifest.resources.map(r => r.target), ...manifest.generated.map(g => g.target)]
   assert.deepEqual(fs.readdirSync(output(root), { recursive: true }).map(String).filter(name => !["agents", "commands", "skills", "skills/wiki-conventions", "skills/wiki-navigate", "skills/wiki-templates"].includes(name)).sort(), [...new Set(expected)].sort())
 })
+
+test("category README escapes adversarial text and inline paths deterministically", () => {
+  const root = fixture(), manifestPath = path.join(root, "agents/.agent-manager/categories/wiki.json")
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"))
+  manifest.title = "Title <script>\n# link [x](javascript:bad) `code`"
+  manifest.description = "Description **bold** & <tag>\nsecond line"
+  manifest.resources[0].source = "general/AGENTS.md"
+  manifest.resources[0].target = "safe`-target\n[x]"
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest))
+  buildCategoryDistribution(root, "wiki")
+  const readme = fs.readFileSync(path.join(output(root), "README.md"), "utf8")
+  assert.doesNotMatch(readme, /<script>|<tag>|\n# link/)
+  assert.match(readme, /Title.*script.*link/)
+  assert.match(readme, /`general\/AGENTS\.md` → ``safe`-target \[x\]``/)
+  assert.match(readme, /Title.*\\`code\\`/)
+  assert.equal(readme.includes("\nsecond line"), false)
+})
+
+for (const id of ["wiki", "docs", "slides"]) {
+  test(`generated README inventory is sourced from the ${id} manifest`, () => {
+    const manifest = JSON.parse(fs.readFileSync(path.join(repo, `agents/.agent-manager/categories/${id}.json`), "utf8"))
+    const readme = fs.readFileSync(path.join(repo, "agents", manifest.output, "README.md"), "utf8")
+    for (const resource of manifest.resources) assert.ok(readme.includes(`- \`${resource.source}\` → \`${resource.target}\``))
+  })
+}
 
 test("build normalizes source CRLF and preserves deterministic output", () => {
   const root = fixture(), source = path.join(root, "agents/general/AGENTS.md")

@@ -181,8 +181,30 @@ test("writes Claude MCP and LSP layers from OpenCode config", () => {
   )
   const readme = fs.readFileSync(path.join(output, "README.md"), "utf8")
   assert.match(readme, /--agent pipeline:orchestrator/)
+  assert.match(readme, /Source and configuration/)
+  assert.match(readme, /agents\/general\//)
+  assert.match(readme, /agents\/general\/opencode\.json/)
+  assert.match(readme, /Do not edit this directory directly/)
   assert.equal(JSON.parse(fs.readFileSync(path.join(output, ".lsp.json"), "utf8")).markdown.extensionToLanguage[".md"], "markdown")
   assert.equal(result.preview?.[0].role, "orchestrator")
+})
+
+test("Claude README stays generic for non-Copilot categories", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "claude-bridge-category-"))
+  const output = path.join(workspace, "bridges", "claude")
+  bridgeToClaudeCode([fixture("docs-orchestrator.md")], "docs", "docs-", output, workspace)
+  const readme = fs.readFileSync(path.join(output, "README.md"), "utf8")
+  assert.match(readme, /canonical source agents/)
+  assert.doesNotMatch(readme, /Copilot pipeline/)
+})
+
+test("Claude README uses the configured source directory", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "claude-bridge-source-"))
+  const output = path.join(workspace, "bridges", "claude")
+  bridgeToClaudeCode([fixture("docs-orchestrator.md")], "docs", "docs-", output, workspace, config({ sourceDir: "custom-agents" }))
+  const readme = fs.readFileSync(path.join(output, "README.md"), "utf8")
+  assert.match(readme, /`agents\/custom-agents\/`/)
+  assert.doesNotMatch(readme, /agents\/general\/agents\//)
 })
 
 test("normalizes a dirty plugin name for scoped references", () => {

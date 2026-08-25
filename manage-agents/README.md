@@ -1,6 +1,10 @@
 # Agent Manager
 
-Standalone Node/Bun terminal manager and OpenTUI application for the canonical `agents/general/` catalog.
+Standalone Node/Bun terminal manager and OpenTUI application for the canonical `agents/general/` catalog. It is the supported interface for category generation, bridge translation, catalog maintenance, and safe repository mutations.
+
+## Purpose and architecture
+
+The CLI/TUI reads the workspace, canonical agent files, category manifests, and translation configuration. Category renderers create deterministic distributions from manifest allowlists. Bridge renderers translate selected agents to Claude Code or Codex without modifying source prompts. Generated outputs include metadata or warnings where the target format cannot represent an OpenCode feature.
 
 ## Requirements and installation
 
@@ -11,6 +15,16 @@ cd manage-agents && npm ci
 ```
 
 macOS/Linux: `./manage-agents.sh`, `bun manage-agents/manage-agents.mjs`, `node manage-agents/manage-agents.mjs`, or `npm start --prefix manage-agents`. Windows PowerShell: `bun .\manage-agents\manage-agents.mjs`, `node .\manage-agents\manage-agents.mjs`, or `npm start --prefix manage-agents`. Windows cmd uses the same `node`/`bun` commands with backslashes; the shell launcher requires WSL or Git Bash. The manager discovers the workspace from the repository root, `agents/`, or `manage-agents/`.
+
+## Quick start
+
+```bash
+cd manage-agents
+npm ci # or: bun install
+npm start
+```
+
+The launcher also accepts direct Node/Bun invocation from the repository root; see the command examples below.
 
 ## CLI
 
@@ -33,6 +47,10 @@ All commands support focused `--help` where implemented. Category output is unde
 ## TUI keymap
 
 Use arrows or `j/k`, `Tab` for list/tree, `/` search, `Space` select, `a` all/category, `s` same model, `m` model, `Shift-T` tier, `t` parameters, `c` color, `p` permission preset, `g` delegations, `r` rename, `o` organize, `f` fork, `b` Claude bridge, `Shift-B` Codex bridge, `e` export, `i` import diff, `1–4` inspector tabs, `F` fix permission order, `PageUp/PageDown` scroll, and `Esc` close modals. Modals support prompts, model/provider trees, tier assignment, color palettes, delegation toggles, import diffs, bridge configuration, confirmation dialogs, and action-result scrolling.
+
+## Workflows and generated output
+
+Edit canonical files under `agents/general/` and configuration under `agents/.agent-manager/`, then use `category build` or `bridge` to regenerate outputs. `category check` is read-only. Generated directories must not be edited directly; their README, category metadata, provenance hashes, and bridge warnings are produced by the manager.
 
 ## Backups, bridges, and safety
 

@@ -4,7 +4,7 @@
   "category": "wiki",
   "manifestHash": "23acdc8b5a611cae2715e56deddb5fccb8826e4dd72760a22183b616da75f5ad",
   "generatorVersion": "2.0.0",
-  "bundleDigest": "a17ebadbb245810f008d0a5c5db43e07c420a2c5db0501846bec00c4c39b47fe",
+  "bundleDigest": "b9604eb2fe5437ee57a7a563b81c56bd138956dfb21b2824e93d5611bb291b85",
   "entries": [
     {
       "target": "AGENTS.md",
@@ -16,7 +16,7 @@
     },
     {
       "target": "README.md",
-      "hash": "ce6c5e78c30dcb60128326978939843f8b0afc9e3fbd4c23dd3821f519723d29"
+      "hash": "eb57cbc2f68023292956c2ab6205ccf2f26980222fd84ca33d6d1c4fea4d2dd2"
     },
     {
       "target": "agents/wiki-analyzer.md",
