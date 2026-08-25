@@ -31,6 +31,7 @@ import { bridgeToClaudeCode } from "./utils/bridge.js"
 import { bridgeToCodex } from "./utils/codexBridge.js"
 import { buildInferenceIndex, loadTranslationConfig, resolveModelTarget, resolveRole, saveTranslationConfig, type TranslationConfig } from "./utils/translationConfig.js"
 import { AUTO_COMMIT_MESSAGES, repositoryTransaction } from "./utils/repositoryTransaction.js"
+import { calculateLayout } from "./utils/layout.js"
 
 interface AppProps {
   workspaceRoot: string
@@ -238,17 +239,6 @@ export function App({ workspaceRoot }: AppProps) {
   const [inspectorTab, setInspectorTab] = useState<"overview" | "naming" | "security" | "delegations">("overview")
   const [graphScrollOffset, setGraphScrollOffset] = useState(0)
 
-  // Terminal Dimensions & Viewport Heights
-  const { height: termHeight = 24 } = useTerminalDimensions() || {}
-  const maxVisibleItems = Math.max(3, termHeight - 22)
-  const maxVisibleModels = Math.max(3, Math.floor(termHeight * 0.7) - 9)
-  // The tier modal uses the same 90% height / 5% top inset as the bridge modal.
-  // Reserve one content row for the focused tier description.
-  const maxVisibleTiers = Math.max(1, Math.floor(termHeight * 0.9) - 9)
-  const maxVisibleColors = Math.max(3, Math.floor(termHeight * 0.7) - 9)
-  const maxVisibleActionResultLines = Math.max(3, Math.floor(termHeight * 0.7) - 8)
-  const maxVisibleImportDiffs = Math.max(3, Math.floor(termHeight * 0.8) - 14)
-
   const allAgentFilenames = useMemo(() => agents.map(a => a.filename), [agents])
   const bridgePrefixSuggestions = useMemo(() => [
     { prefix: "", count: agents.length },
@@ -299,6 +289,16 @@ export function App({ workspaceRoot }: AppProps) {
     }
     return Array.from(groups.values())
   }, [agents, modelCatalog])
+
+  // Terminal dimensions are also the source of truth for the main screen budget.
+  const { width: termWidth = 80, height: termHeight = 24 } = useTerminalDimensions() || {}
+  const layout = calculateLayout(termWidth, termHeight, modelCatalog.status !== "verified" || invalidModelGroups.length > 0)
+  const maxVisibleItems = layout.listRows
+  const maxVisibleModels = Math.max(0, Math.floor(termHeight * 0.7) - 9)
+  const maxVisibleTiers = Math.max(0, Math.floor(termHeight * 0.9) - 9)
+  const maxVisibleColors = Math.max(0, Math.floor(termHeight * 0.7) - 9)
+  const maxVisibleActionResultLines = Math.max(0, Math.floor(termHeight * 0.7) - 8)
+  const maxVisibleImportDiffs = Math.max(0, Math.floor(termHeight * 0.8) - 14)
 
   const refreshModelCatalog = () => {
     const catalog = loadModelCatalog(undefined, true)
@@ -512,6 +512,25 @@ export function App({ workspaceRoot }: AppProps) {
       updateScroll(nextIndex)
     }
   }, [activeItems.length])
+
+  useEffect(() => {
+    const maxOffset = Math.max(0, activeItems.length - maxVisibleItems)
+    setScrollOffset(offset => Math.min(offset, maxOffset))
+  }, [activeItems.length, maxVisibleItems])
+
+  // A resize can make the focused row fall below the new viewport. Keep both
+  // focus and offset valid whenever the available list height changes.
+  useEffect(() => {
+    setScrollOffset(offset => {
+      const maxOffset = Math.max(0, activeItems.length - maxVisibleItems)
+      if (maxVisibleItems <= 0) return 0
+      if (focusedIndex < offset) return Math.max(0, focusedIndex)
+      if (focusedIndex >= offset + maxVisibleItems) {
+        return Math.min(maxOffset, focusedIndex - maxVisibleItems + 1)
+      }
+      return Math.min(offset, maxOffset)
+    })
+  }, [maxVisibleItems])
 
   interface ModelTreeItem {
     type: "provider" | "model"
@@ -1576,10 +1595,16 @@ export function App({ workspaceRoot }: AppProps) {
     actionResultScrollOffset + maxVisibleActionResultLines
   )
 
+  if (layout.mode === "too-small") {
+    return <box width="100%" height="100%" padding={1} overflow="hidden" backgroundColor="#1e1e1e"><text style={{ textColor: "yellow" }}>Terminal too small. Please increase terminal size.</text></box>
+  }
+
   return (
     <box
       width="100%"
       height="100%"
+      minHeight={0}
+      overflow="hidden"
       flexDirection="column"
       backgroundColor="#1e1e1e"
       padding={1}
@@ -1604,20 +1629,13 @@ export function App({ workspaceRoot }: AppProps) {
       </box>
 
       {modelCatalog.status === "unavailable" && (
-        <box borderStyle="single" borderColor="yellow" padding={1}>
-          <text style={{ textColor: "yellow" }}>⚠ Model catalog unavailable; agents are not marked invalid. Press M, then Y to retry opencode models --refresh.</text>
+        <box height={1} flexShrink={0} overflow="hidden">
+          <text style={{ textColor: "yellow" }}>⚠ Model catalog unavailable — press M, then Y to retry.</text>
         </box>
       )}
       {modelCatalog.status === "verified" && invalidModelGroups.length > 0 && (
-        <box borderStyle="single" borderColor="yellow" padding={1}>
-          <box flexDirection="column">
-            <text style={{ textColor: "yellow" }}>⚠ {invalidModelGroups.length} model value(s) are not present in the loaded catalog. [V] Repair groups; [M] Choose a model.</text>
-            {invalidModelGroups.map((group, index) => (
-              <text key={index} style={{ textColor: "gray" }}>
-                {`  ${index + 1}. ${group.value === undefined ? "(missing)" : JSON.stringify(group.value)} — ${group.agents.length} agent(s): ${group.agents.map(agent => agent.filename).join(", ")}`}
-              </text>
-            ))}
-          </box>
+        <box height={1} flexShrink={0} overflow="hidden">
+          <text style={{ textColor: "yellow" }}>⚠ {invalidModelGroups.length} invalid model group(s) — [V] Repair; [M] Choose a model.</text>
         </box>
       )}
       {viewMode === "repair-confirm" && (
@@ -1628,17 +1646,19 @@ export function App({ workspaceRoot }: AppProps) {
         </box>
       )}
       {/* Main Panel */}
-      <box width="100%" flexGrow={1} flexDirection="row" marginTop={1}>
+      <box width="100%" minHeight={0} flexGrow={1} flexDirection="row" marginTop={1} overflow="hidden">
         {/* Left Side: Agents List (Wider to prevent filename cut-offs) */}
         <box
-          width="68%"
-          height="100%"
+           flexBasis={0}
+           flexGrow={1}
+           minHeight={0}
           borderStyle="round"
           borderColor="#444444"
           title={` Agents List (${viewStyle === "list" ? "Flat" : "Tree"}) `}
-          titleColor="#9ECBFF"
-          flexDirection="column"
-          padding={1}
+           titleColor="#9ECBFF"
+           flexDirection="column"
+           padding={1}
+           overflow="hidden"
         >
            {/* Table Header */}
           {viewStyle === "list" ? (
@@ -1659,7 +1679,7 @@ export function App({ workspaceRoot }: AppProps) {
           )}
 
           {/* List items */}
-          <box width="100%" flexDirection="column" marginTop={1} flexGrow={1}>
+           <box width="100%" height={layout.listRows} minHeight={0} overflow="hidden" flexGrow={0} flexShrink={0} flexDirection="column" marginTop={1}>
             {activeItems.length === 0 ? (
               <text style={{ textColor: "yellow" }}>
                 {searchQuery ? `No agents match search: "${searchQuery}"` : "No agent markdown files found."}
@@ -1775,17 +1795,19 @@ export function App({ workspaceRoot }: AppProps) {
           </box>
         </box>
 
+        {layout.showInspector && <>
         {/* Right Side: Details & Actions (Tabbed Inspector) */}
         <box
-          width="32%"
-          height="100%"
+           flexBasis={0}
+           flexGrow={1}
+           minHeight={0}
           borderStyle="round"
           borderColor="#444444"
           title=" Inspector "
           titleColor="#9ECBFF"
           flexDirection="column"
           padding={1}
-          marginLeft={1}
+           overflow="hidden"
         >
           {/* Tab Navigation Bar */}
           <box flexDirection="row" width="100%" borderStyle="single" border={["bottom"]} borderColor="#333333" paddingBottom={1} marginBottom={1}>
@@ -1807,7 +1829,7 @@ export function App({ workspaceRoot }: AppProps) {
           </box>
 
           {currentItem ? (
-            <box flexDirection="column" flexGrow={1} height={14}>
+             <box flexDirection="column" flexGrow={1} minHeight={0} overflow="hidden">
               {currentItem.type === "file" && currentItem.agent ? (
                 <box flexDirection="column" flexGrow={1}>
                   <text style={{ textColor: "#9ECBFF" }} b>
@@ -2027,7 +2049,7 @@ export function App({ workspaceRoot }: AppProps) {
           )}
 
           {/* Action Guide */}
-          <box
+           <box height={4} flexShrink={0} overflow="hidden"
             flexDirection="column"
             borderStyle="single"
             borderColor="#2B5581"
@@ -2035,22 +2057,10 @@ export function App({ workspaceRoot }: AppProps) {
             paddingRight={1}
             marginTop={1}
           >
-            <text style={{ textColor: "white" }} b>KEYBOARD COMMANDS:</text>
-            <text style={{ textColor: "#E1E4E8" }}>[SPACE] Select/Unselect</text>
-            <text style={{ textColor: "#E1E4E8" }}>[A]     Select All Scope</text>
-            <text style={{ textColor: "#E1E4E8" }}>[M]     Change Model</text>
-            <text style={{ textColor: "#E1E4E8" }}>[C]     Change Color</text>
-            <text style={{ textColor: "#E1E4E8" }}>[P]     Safety Presets</text>
-            <text style={{ textColor: "#E1E4E8" }}>[G]     Delegation Graph</text>
-            <text style={{ textColor: "#E1E4E8" }}>[T]     Tune Parameters</text>
-            <text style={{ textColor: "#E1E4E8" }}>[I]     Import OpenCode</text>
-            <text style={{ textColor: "#E1E4E8" }}>[R]     Rename Agent</text>
-            <text style={{ textColor: "#E1E4E8" }}>[E]     Export OpenCode</text>
-            <text style={{ textColor: "#E1E4E8" }}>[F]     Fork Category</text>
-            <text style={{ textColor: "#E1E4E8" }}>[V]     Repair Invalid Models</text>
-            <text style={{ textColor: "#E1E4E8" }}>[TAB]   Flat/Tree View</text>
+             <text style={{ textColor: "#E1E4E8" }}>[SP]Sel [A]All [M]Model [C]Color [P]Pre</text>
+             <text style={{ textColor: "#E1E4E8" }}>[G]Graph [T]Tune [I/R/E/F/V]More [/]Find</text>
           </box>
-        </box>
+        </box></>}
       </box>
 
       {/* Modal - Permission Presets */}
