@@ -2,7 +2,7 @@
 description: Reviews code changes for correctness, simplicity, maintainability,
   regressions, and security. Does not implement by default.
 mode: subagent
-model: opencode-go/deepseek-v4-flash
+model: opencode-go/hy3
 temperature: 0.1
 permission:
   read: allow
