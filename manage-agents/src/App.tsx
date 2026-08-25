@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react"
 import path from "node:path"
+import os from "node:os"
 import { useKeyboard, useTerminalDimensions } from "@opentui/react"
 import {
   findAgentFiles,
@@ -26,12 +27,13 @@ import {
   , sanitizeFilename,
   getCategoryPrefixes
 } from "./utils/agents.js"
-import { loadModelCatalog, isVerifiedModel, suggestModels, type ModelCatalog } from "./utils/models.js"
+import { loadModelCatalog, suggestModels, collectInvalidModelGroups, modelDisplayValue, type ModelCatalog } from "./utils/models.js"
 import { bridgeToClaudeCode } from "./utils/bridge.js"
 import { bridgeToCodex } from "./utils/codexBridge.js"
 import { buildInferenceIndex, loadTranslationConfig, resolveModelTarget, resolveRole, saveTranslationConfig, type TranslationConfig } from "./utils/translationConfig.js"
 import { AUTO_COMMIT_MESSAGES, repositoryTransaction } from "./utils/repositoryTransaction.js"
-import { calculateLayout } from "./utils/layout.js"
+import { calculateLayout, calculateListColumnBudget } from "./utils/layout.js"
+import { displayWidth, middleEllipsis, terminalSafeText } from "./utils/terminalText.js"
 
 interface AppProps {
   workspaceRoot: string
@@ -175,8 +177,12 @@ export function App({ workspaceRoot }: AppProps) {
 
   const [expandedProviders, setExpandedProviders] = useState<Set<string>>(new Set())
 
-  const [actionResultTitle, setActionResultTitle] = useState("")
-  const [actionResultLines, setActionResultLines] = useState<string[]>([])
+  const [actionResultTitle, setRawActionResultTitle] = useState("")
+  const [actionResultLines, setRawActionResultLines] = useState<string[]>([])
+  // Action output may contain paths, command output, parser values, or errors.
+  // Sanitize at the state boundary so every result view remains terminal-safe.
+  const setActionResultTitle = (value: unknown) => setRawActionResultTitle(terminalSafeText(value))
+  const setActionResultLines = (values: unknown[]) => setRawActionResultLines(values.map(terminalSafeText))
   const [actionResultScrollOffset, setActionResultScrollOffset] = useState(0)
 
   // Fork Category State
@@ -276,29 +282,32 @@ export function App({ workspaceRoot }: AppProps) {
     }
   }, [])
 
-  const invalidModelGroups = useMemo(() => {
-    if (modelCatalog.status !== "verified") return []
-    const groups = new Map<string, { value: unknown; agents: AgentInfo[] }>()
-    for (const agent of agents) {
-      if (isVerifiedModel(agent.frontmatter.model, modelCatalog)) continue
-      const value = agent.frontmatter.model
-      const key = typeof value === "string" ? `string:${value}` : value === undefined ? "missing" : `${typeof value}:${String(value)}`
-      const group = groups.get(key) || { value, agents: [] }
-      group.agents.push(agent)
-      groups.set(key, group)
-    }
-    return Array.from(groups.values())
-  }, [agents, modelCatalog])
+  const invalidModelGroups = useMemo(() => collectInvalidModelGroups(agents, modelCatalog), [agents, modelCatalog])
 
   // Terminal dimensions are also the source of truth for the main screen budget.
   const { width: termWidth = 80, height: termHeight = 24 } = useTerminalDimensions() || {}
   const layout = calculateLayout(termWidth, termHeight, modelCatalog.status !== "verified" || invalidModelGroups.length > 0)
+  // Keep the table's integer cell widths independent from percentage rounding.
+  const listPanelWidth = layout.mode === "normal" ? Math.floor((termWidth - 1) / 2) : termWidth - 2
+  const listContentWidth = Math.max(0, listPanelWidth - 4)
+  const listColumns = calculateListColumnBudget(listContentWidth, viewStyle === "tree" ? "compact" : layout.mode)
+  const columnWidth = (index: number) => listColumns.widths[index] || 0
+  const gutter = (key: string) => <text key={key} width={listColumns.gutters[0] || 0}> </text>
+  const headerTitle = "★ OPENCODE AGENT MANAGER"
+  const displayWorkspace = workspaceRoot === os.homedir() || workspaceRoot.startsWith(`${os.homedir()}${path.sep}`)
+    ? `~${workspaceRoot.slice(os.homedir().length)}`
+    : workspaceRoot
+  const headerMeta = `Style: ${viewStyle.toUpperCase()} | Workspace: ${displayWorkspace}`
+  const headerContentWidth = Math.max(0, termWidth - 2 - 2 - 4)
+  const headerMetaWidth = Math.max(0, headerContentWidth - displayWidth(headerTitle) - 1)
   const maxVisibleItems = layout.listRows
-  const maxVisibleModels = Math.max(0, Math.floor(termHeight * 0.7) - 9)
+  const maxVisibleModels = Math.max(0, Math.floor(termHeight * 0.7) - 10)
   const maxVisibleTiers = Math.max(0, Math.floor(termHeight * 0.9) - 9)
   const maxVisibleColors = Math.max(0, Math.floor(termHeight * 0.7) - 9)
   const maxVisibleActionResultLines = Math.max(0, Math.floor(termHeight * 0.7) - 8)
   const maxVisibleImportDiffs = Math.max(0, Math.floor(termHeight * 0.8) - 14)
+  const modelModalInnerWidth = Math.max(1, Math.floor(termWidth * 0.7) - 6)
+  const repairConfirmContentWidth = Math.max(1, Math.floor(termWidth * 0.76) - 6)
 
   const refreshModelCatalog = () => {
     const catalog = loadModelCatalog(undefined, true)
@@ -1448,7 +1457,7 @@ export function App({ workspaceRoot }: AppProps) {
           setActionResultTitle("Rename Complete")
            setActionResultLines([
              `Successfully renamed agent:`,
-            `  ${renameTargetAgent.filename} → ${newFilename}`,
+             `  ${middleEllipsis(renameTargetAgent.filename, Math.max(1, Math.floor(termWidth * 0.7) - 8))} → ${middleEllipsis(newFilename, Math.max(1, Math.floor(termWidth * 0.7) - 8))}`,
             ...result.updatedReferences.map((reference) => `  ${reference}`)
              , ...(result.skipped.length > 0 ? [`Skipped files:`, ...result.skipped.map((file) => `  ${file}`)] : []),
              ...(result.error ? [``, `⚠ ${result.error}`] : [])
@@ -1600,8 +1609,8 @@ export function App({ workspaceRoot }: AppProps) {
   }
 
   return (
-    <box
-      width="100%"
+     <box
+       width="100%"
       height="100%"
       minHeight={0}
       overflow="hidden"
@@ -1609,23 +1618,24 @@ export function App({ workspaceRoot }: AppProps) {
       backgroundColor="#1e1e1e"
       padding={1}
     >
-      {/* Header Banner */}
-      <box
-        width="100%"
-        height={3}
+       {/* Header Banner */}
+       <box
+         width="100%"
+         height={3}
         borderStyle="single"
         borderColor="#2B5581"
         justifyContent="space-between"
         alignItems="center"
-        paddingLeft={2}
-        paddingRight={2}
-      >
-        <text style={{ textColor: "#9ECBFF" }} b>
-          {"★ OPENCODE AGENT MANAGER"}
-        </text>
-        <text style={{ textColor: "gray" }}>
-          {`Style: ${viewStyle.toUpperCase()} | Terminal: ${termHeight} lines | Workspace: ${workspaceRoot.replace(/\/Users\/[^\/]+/, "~")}`}
-        </text>
+         paddingLeft={2}
+         paddingRight={2}
+         flexDirection="row"
+       >
+         <text width={displayWidth(headerTitle)} height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "#9ECBFF" }} b>
+           {headerTitle}
+         </text>
+         <text width={headerMetaWidth} height={1} wrapMode="none" overflow="hidden" flexShrink={1} style={{ textColor: "gray" }}>
+            {middleEllipsis(headerMeta, headerMetaWidth)}
+         </text>
       </box>
 
       {modelCatalog.status === "unavailable" && (
@@ -1641,14 +1651,22 @@ export function App({ workspaceRoot }: AppProps) {
       {viewMode === "repair-confirm" && (
         <box style={{ position: "absolute", left: "12%", top: "15%", width: "76%", height: "65%" }} borderStyle="double" borderColor="yellow" backgroundColor="#1e1e1e" title=" Confirm Grouped Model Repair " padding={1} flexDirection="column">
           <text style={{ textColor: "yellow" }} b>Review mappings before writing:</text>
-          {invalidModelGroups.map((group, index) => <text key={index} style={{ textColor: "white" }}>{`${JSON.stringify(group.value)} → ${repairMappings[String(index)]} (${group.agents.length} agents)`}</text>)}
+          {invalidModelGroups.map((group, index) => {
+            const agentCount = `${group.agents.length} agents`
+            const separatorWidth = displayWidth(` →  (${agentCount})`)
+            const modelBudget = Math.max(1, Math.floor((repairConfirmContentWidth - separatorWidth) / 2))
+            return <text key={index} width="100%" height={1} flexShrink={0} wrapMode="none" overflow="hidden" style={{ textColor: "white" }}>
+              {`${middleEllipsis(JSON.stringify(group.value), modelBudget)} → ${middleEllipsis(repairMappings[String(index)] || "", modelBudget)} (${agentCount})`}
+            </text>
+          })}
           <text style={{ textColor: "gray" }} marginTop={1}>[Y/ENTER] Apply | [N/ESC] Cancel</text>
         </box>
       )}
       {/* Main Panel */}
       <box width="100%" minHeight={0} flexGrow={1} flexDirection="row" marginTop={1} overflow="hidden">
         {/* Left Side: Agents List (Wider to prevent filename cut-offs) */}
-        <box
+         <box
+           width={layout.mode === "normal" ? "50%" : "100%"}
            flexBasis={0}
            flexGrow={1}
            minHeight={0}
@@ -1661,21 +1679,20 @@ export function App({ workspaceRoot }: AppProps) {
            overflow="hidden"
         >
            {/* Table Header */}
-          {viewStyle === "list" ? (
-            <box width="100%" flexDirection="row" borderStyle="single" border={["bottom"]} borderColor="#333333">
-              <text style={{ textColor: "gray" }} width="8%">Sel</text>
-               <text style={{ textColor: "gray" }} width="34%">Agent Name</text>
-               <text style={{ textColor: "gray" }} width="16%">Category</text>
-               <text style={{ textColor: "gray" }} width="14%">Tier</text>
-              <text style={{ textColor: "gray" }} width="24%">Model</text>
-            </box>
-          ) : (
-            <box width="100%" flexDirection="row" borderStyle="single" border={["bottom"]} borderColor="#333333">
-              <text style={{ textColor: "gray" }} width="8%">Sel</text>
-               <text style={{ textColor: "gray" }} width="50%">Agent Name</text>
-               <text style={{ textColor: "gray" }} width="14%">Tier</text>
-              <text style={{ textColor: "gray" }} width="24%">Model</text>
-            </box>
+           {viewStyle === "list" ? (
+             <box width={listColumns.total} flexDirection="row" borderStyle="single" border={["bottom"]} borderColor="#333333">
+                <text wrapMode="none" overflow="hidden" style={{ textColor: "gray" }} width={columnWidth(0)}>Sel · Lint</text>{gutter("h1")}
+                <text wrapMode="none" overflow="hidden" style={{ textColor: "gray" }} width={columnWidth(1)}>Agent Name</text>{gutter("h2")}
+                <text wrapMode="none" overflow="hidden" style={{ textColor: "gray" }} width={columnWidth(2)}>Category</text>{gutter("h3")}
+                <text wrapMode="none" overflow="hidden" style={{ textColor: "gray" }} width={columnWidth(3)}>Tier</text>{gutter("h4")}
+                <text wrapMode="none" overflow="hidden" style={{ textColor: "gray" }} width={columnWidth(4)}>Model</text>
+             </box>
+           ) : (
+             <box width={listColumns.total} flexDirection="row" borderStyle="single" border={["bottom"]} borderColor="#333333">
+                <text wrapMode="none" overflow="hidden" style={{ textColor: "gray" }} width={columnWidth(0)}>Sel · Lint</text>{gutter("th1")}
+                <text wrapMode="none" overflow="hidden" style={{ textColor: "gray" }} width={columnWidth(1)}>Agent Name</text>{gutter("th2")}
+                <text wrapMode="none" overflow="hidden" style={{ textColor: "gray" }} width={columnWidth(2)}>Tier / Model</text>
+             </box>
           )}
 
           {/* List items */}
@@ -1695,9 +1712,9 @@ export function App({ workspaceRoot }: AppProps) {
                 if (viewStyle === "list") {
                   const agent = item.agent!
                   const isSelected = selectedAgentPaths.has(agent.currentPath)
-                  const analysis = analyzeAgentName(agent.filename, allAgentFilenames)
-                  const lintBadge = analysis.isValid ? "✓" : "⚠"
-                  const lintColor = analysis.isValid ? "green" : "yellow"
+                   const analysis = analyzeAgentName(agent.filename, allAgentFilenames)
+                   const lintBadge = analysis.isValid ? "✓" : "⚠"
+                   const lintColor = analysis.isValid ? "green" : "yellow"
 
                   return (
                     <box
@@ -1705,67 +1722,42 @@ export function App({ workspaceRoot }: AppProps) {
                       width="100%"
                       flexDirection="row"
                       backgroundColor={rowBg}
-                      paddingLeft={1}
-                      paddingRight={1}
-                      height={1}
+                       height={1}
                     >
-                      <text style={{ textColor: isSelected ? "green" : "gray" }} width="8%">
-                        {isSelected ? " [x]" : " [ ]"}
-                      </text>
-                      <text style={{ textColor: lintColor }} width="4%">
-                        {lintBadge}
-                      </text>
-                       <text style={{ textColor: itemColor }} width="34%" u={isFocused}>
-                         {agent.filename}
-                       </text>
-                       <text style={{ textColor: "gray" }} width="16%">
-                         {agent.category}
-                       </text>
-                       <text style={{ textColor: "magenta" }} width="14%">{resolvedAgents.get(agent.currentPath)?.tier || "-"}</text>
-                      <text style={{ textColor: isFocused ? "#E1E4E8" : "#9ECBFF" }} width="24%">
-                        {agent.model ? agent.model.split("/").pop() : "None"}
-                      </text>
+                       <text style={{ textColor: isSelected ? "green" : lintColor }} width={columnWidth(0)}>{`${isSelected ? "[x]" : "[ ]"} ${lintBadge}`}</text>{gutter(`g${item.id}1`)}
+                       <text style={{ textColor: itemColor }} width={columnWidth(1)} wrapMode="none" overflow="hidden" u={isFocused}>{middleEllipsis(agent.filename, columnWidth(1))}</text>{gutter(`g${item.id}2`)}
+                       <text style={{ textColor: "gray" }} width={columnWidth(2)} wrapMode="none" overflow="hidden">{middleEllipsis(agent.category, columnWidth(2))}</text>{gutter(`g${item.id}3`)}
+                       <text style={{ textColor: "magenta" }} width={columnWidth(3)} wrapMode="none" overflow="hidden">{middleEllipsis(resolvedAgents.get(agent.currentPath)?.tier || "-", columnWidth(3))}</text>{gutter(`g${item.id}4`)}
+                        <text style={{ textColor: isFocused ? "#E1E4E8" : "#9ECBFF" }} width={columnWidth(4)} wrapMode="none" overflow="hidden">{middleEllipsis(modelDisplayValue(agent, true, modelCatalog), columnWidth(4))}</text>
                     </box>
                   )
-                } else {
-                  // Tree layout row
-                  const isSelected = item.agent ? selectedAgentPaths.has(item.id) : false
-                  const prefix = item.type === "file" ? (isSelected ? "  [x]" : "  [ ]") : ""
-                  const modelText = item.agent && item.agent.model ? item.agent.model.split("/").pop() : ""
-                  const analysis = item.agent ? analyzeAgentName(item.agent.filename, allAgentFilenames) : null
+                 } else {
+                   // Tree layout row
+                   const isSelected = item.agent ? selectedAgentPaths.has(item.id) : false
+                     const modelText = item.agent ? modelDisplayValue(item.agent, true, modelCatalog) : ""
+                   const analysis = item.agent ? analyzeAgentName(item.agent.filename, allAgentFilenames) : null
+                   const lintBadge = analysis ? (analysis.isValid ? "✓" : "⚠") : ""
+                   const lintColor = analysis ? (analysis.isValid ? "green" : "yellow") : "yellow"
 
-                  return (
+                   return (
                     <box
                       key={`${item.type}-${item.id}`}
                       width="100%"
                       flexDirection="row"
                       backgroundColor={rowBg}
-                      paddingLeft={1}
-                      paddingRight={1}
-                      height={1}
+                       height={1}
                     >
-                      {item.type === "file" ? (
-                        <text style={{ textColor: isSelected ? "green" : "gray" }} width="8%">
-                          {prefix}
-                        </text>
-                      ) : (
-                        <text width="8%">{" "}</text>
-                      )}
-                      {item.type === "file" && analysis ? (
-                        <text style={{ textColor: analysis.isValid ? "green" : "yellow" }} width="4%">
-                          {analysis.isValid ? "✓" : "⚠"}
-                        </text>
-                      ) : item.type === "file" ? (
-                        <text width="4%">{" "}</text>
-                      ) : null}
-                       <text style={{ textColor: itemColor }} width={item.type === "file" ? "50%" : "54%"} u={isFocused && item.type === "file"}>
-                         {item.type === "file" ? item.label : ` ${item.label}`}
+                       <text style={{ textColor: item.type === "file" ? (isSelected ? "green" : lintColor) : "yellow" }} width={columnWidth(0)} wrapMode="none" overflow="hidden">
+                         {item.type === "file" ? `${isSelected ? "[x]" : "[ ]"} ${lintBadge}` : " "}
                        </text>
-                       {item.type === "file" && <text style={{ textColor: "magenta" }} width="14%">{resolvedAgents.get(item.agent!.currentPath)?.tier || "-"}</text>}
-                      <text style={{ textColor: isFocused ? "#E1E4E8" : "#9ECBFF" }} width="24%">
-                        {item.type === "file" ? modelText : ""}
-                      </text>
-                    </box>
+                       {gutter(`tree-${item.id}-1`)}
+                       <text style={{ textColor: itemColor }} width={columnWidth(1)} wrapMode="none" overflow="hidden" u={isFocused && item.type === "file"}>
+                          {middleEllipsis(item.type === "file" ? item.label : ` ${item.label}`, columnWidth(1))}
+                       </text>
+                       {gutter(`tree-${item.id}-2`)}
+                        {item.type === "file" && <text style={{ textColor: "magenta" }} width={columnWidth(2)} wrapMode="none" overflow="hidden">{middleEllipsis(`${resolvedAgents.get(item.agent!.currentPath)?.tier || "-"} / ${modelText}`, columnWidth(2))}</text>}
+                       {item.type !== "file" && <text width={columnWidth(2)}> </text>}
+                     </box>
                   )
                 }
               })
@@ -1773,24 +1765,24 @@ export function App({ workspaceRoot }: AppProps) {
           </box>
 
           {/* Real-time search filter display */}
-          <box width="100%" padding={1} borderStyle="single" border={["top"]} borderColor="#333333" flexDirection="row" alignItems="center">
-            <text style={{ textColor: isSearching ? "yellow" : "gray" }}>
+           <box width="100%" height={3} flexShrink={0} padding={1} borderStyle="single" border={["top"]} borderColor="#333333" flexDirection="row" alignItems="center" overflow="hidden">
+             <text wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: isSearching ? "yellow" : "gray" }}>
               {isSearching ? "🔍 Filter typing: " : "🔍 Filter (Press /): "}
             </text>
-            <text style={{ textColor: searchQuery ? "cyan" : "gray" }} b>
-              {searchQuery ? `${searchQuery}_` : isSearching ? "type here..._" : "none"}
+             <text width="60%" wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: searchQuery ? "cyan" : "gray" }} b>
+               {middleEllipsis(searchQuery ? `${searchQuery}_` : isSearching ? "type here..._" : "none", 40)}
             </text>
           </box>
 
           {/* List Footer / Counter */}
-          <box width="100%" justifyContent="space-between" paddingTop={1} borderStyle="single" border={["top"]} borderColor="#333333">
-            <text style={{ textColor: "gray" }}>
-              {`Total: ${agents.length} | Shown: ${activeItems.length} | Selected: ${selectedAgentPaths.size}`}
-            </text>
-            <text style={{ textColor: "gray" }}>
-              {viewStyle === "tree"
-                ? "[TAB] Toggle View | [/] Search | ◀/▶ Collapse/Expand"
-                : "[TAB] Toggle View | [/] Search"}
+           <box width="100%" height={2} flexShrink={0} justifyContent="space-between" paddingTop={1} borderStyle="single" border={["top"]} borderColor="#333333" overflow="hidden" flexDirection="row">
+             <text width="50%" wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "gray" }}>
+               {middleEllipsis(`Total: ${agents.length} | Shown: ${activeItems.length} | Selected: ${selectedAgentPaths.size}`, 36)}
+             </text>
+             <text width="50%" wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "gray" }}>
+               {middleEllipsis(viewStyle === "tree"
+                 ? "[TAB] Toggle View | [/] Search | ◀/▶ Collapse/Expand"
+                 : "[TAB] Toggle View | [/] Search", 36)}
             </text>
           </box>
         </box>
@@ -1833,7 +1825,7 @@ export function App({ workspaceRoot }: AppProps) {
               {currentItem.type === "file" && currentItem.agent ? (
                 <box flexDirection="column" flexGrow={1}>
                   <text style={{ textColor: "#9ECBFF" }} b>
-                    {currentItem.agent.filename}
+                     {middleEllipsis(currentItem.agent.filename, 30)}
                   </text>
 
                   {/* TAB 1: OVERVIEW */}
@@ -1842,14 +1834,14 @@ export function App({ workspaceRoot }: AppProps) {
                       <box flexDirection="row">
                         <text style={{ textColor: "gray" }} width="35%">Category:</text>
                         <text style={{ textColor: "yellow" }} width="65%">
-                          {currentItem.agent.category}
+                           {middleEllipsis(currentItem.agent.category, 30)}
                         </text>
                       </box>
 
                       <box flexDirection="row" marginTop={1}>
                         <text style={{ textColor: "gray" }} width="35%">Model:</text>
                         <text style={{ textColor: "cyan" }} width="65%">
-                          {currentItem.agent.model || "Not specified"}
+                          {middleEllipsis(modelDisplayValue(currentItem.agent, false, modelCatalog), 30)}
                         </text>
                       </box>
 
@@ -1858,7 +1850,8 @@ export function App({ workspaceRoot }: AppProps) {
                         <box flexDirection="row" width="65%">
                           {(() => {
                             const rawCol = currentItem.agent.frontmatter.color
-                            if (!rawCol) return <text style={{ textColor: "gray" }}>Not set</text>
+                             if (!rawCol) return <text style={{ textColor: "gray" }}>Not set</text>
+                             if (typeof rawCol !== "string") return <text style={{ textColor: "red" }}>{`Invalid: ${middleEllipsis(terminalSafeText(rawCol), 20)}`}</text>
                             
                             // Find matching color hex from palette or raw hex
                             let hexColor = rawCol.startsWith("#") ? rawCol : "#9ECBFF"
@@ -1873,7 +1866,7 @@ export function App({ workspaceRoot }: AppProps) {
                                 <box width={2} height={1} backgroundColor={hexColor} marginRight={1}>
                                   <text>{" "}</text>
                                 </box>
-                                <text style={{ textColor: "white" }}>{rawCol}</text>
+                                 <text style={{ textColor: "white" }}>{middleEllipsis(rawCol, 20)}</text>
                               </box>
                             )
                           })()}
@@ -1883,7 +1876,7 @@ export function App({ workspaceRoot }: AppProps) {
                       <box flexDirection="row" marginTop={1}>
                         <text style={{ textColor: "gray" }} width="35%">Steps/Temp:</text>
                         <text style={{ textColor: "white" }}>
-                          {`${currentItem.agent.frontmatter.steps || 50} steps / ${currentItem.agent.frontmatter.temperature ?? 0.2}°`}
+                           {middleEllipsis(`${currentItem.agent.frontmatter.steps || 50} steps / ${currentItem.agent.frontmatter.temperature ?? 0.2}°`, 30)}
                         </text>
                       </box>
 
@@ -1891,7 +1884,7 @@ export function App({ workspaceRoot }: AppProps) {
                         <text style={{ textColor: "gray" }}>Description:</text>
                         <box borderStyle="single" borderColor="#333333" padding={1} marginTop={1} flexGrow={1}>
                           <text style={{ textColor: "white" }}>
-                            {currentItem.agent.description || "No description provided."}
+                             {terminalSafeText(currentItem.agent.description || "No description provided.")}
                           </text>
                         </box>
                       </box>
@@ -1913,20 +1906,20 @@ export function App({ workspaceRoot }: AppProps) {
                             </box>
                             <box flexDirection="row" marginTop={1}>
                               <text style={{ textColor: "gray" }} width="35%">Family:</text>
-                              <text style={{ textColor: "cyan" }}>{analysis.family || "(none)"}</text>
+                              <text style={{ textColor: "cyan" }}>{middleEllipsis(analysis.family || "(none)", 30)}</text>
                             </box>
                             <box flexDirection="row">
                               <text style={{ textColor: "gray" }} width="35%">Category:</text>
-                              <text style={{ textColor: "yellow" }}>{analysis.category || "(none)"}</text>
+                              <text style={{ textColor: "yellow" }}>{middleEllipsis(analysis.category || "(none)", 30)}</text>
                             </box>
                             <box flexDirection="row">
                               <text style={{ textColor: "gray" }} width="35%">Role:</text>
-                              <text style={{ textColor: "white" }}>{analysis.role || "(none)"}</text>
+                              <text style={{ textColor: "white" }}>{middleEllipsis(analysis.role || "(none)", 30)}</text>
                             </box>
                             {!analysis.isValid && analysis.suggestedName && (
                               <box flexDirection="column" marginTop={1}>
                                 <text style={{ textColor: "gray" }}>Suggested Name:</text>
-                                <text style={{ textColor: "green" }}>{analysis.suggestedName}</text>
+                                 <text style={{ textColor: "green" }}>{middleEllipsis(analysis.suggestedName, 40)}</text>
                               </box>
                             )}
                           </box>
@@ -1968,11 +1961,13 @@ export function App({ workspaceRoot }: AppProps) {
                               <text style={{ textColor: "yellow" }} b>Frontmatter Permissions:</text>
                               {permissionEntries.slice(graphScrollOffset, graphScrollOffset + permissionPageSize).map(([key, val]) => {
                                 let valStr = typeof val === "object" ? JSON.stringify(val) : String(val)
-                                const isDanger = key === "bash" && (val === "allow" || val === true || valStr.includes("allow"))
+                                 const safeKey = middleEllipsis(key, 30)
+                                 const safeVal = middleEllipsis(valStr, 40)
+                                 const isDanger = key === "bash" && (val === "allow" || val === true || valStr.includes("allow"))
                                 return (
                                   <box key={key} flexDirection="row" justifyContent="space-between">
-                                    <text style={{ textColor: "gray" }}>{`${key}:`}</text>
-                                    <text style={{ textColor: isDanger ? "red" : "cyan" }}>{valStr}</text>
+                                     <text style={{ textColor: "gray" }}>{`${safeKey}:`}</text>
+                                     <text style={{ textColor: isDanger ? "red" : "cyan" }}>{safeVal}</text>
                                   </box>
                                 )
                               })}
@@ -2005,7 +2000,7 @@ export function App({ workspaceRoot }: AppProps) {
                                   return (
                                     <box key={subName} flexDirection="row" justifyContent="space-between">
                                       <text style={{ textColor: exists ? "cyan" : "red" }}>
-                                        {exists ? `├─ @${subName}` : `├─ ❌ @${subName} (Dead Ref)`}
+                                         {middleEllipsis(exists ? `├─ @${subName}` : `├─ ❌ @${subName} (Dead Ref)`, 40)}
                                       </text>
                                     </box>
                                   )
@@ -2026,17 +2021,17 @@ export function App({ workspaceRoot }: AppProps) {
               ) : (
                            <box flexDirection="column" flexGrow={1} overflow="hidden">
                   <text style={{ textColor: "yellow" }} b>
-                    {`📁 Category: ${currentItem.category.toUpperCase()}`}
+                     {middleEllipsis(`📁 Category: ${currentItem.category.toUpperCase()}`, 40)}
                   </text>
                   <text style={{ textColor: "white" }} marginTop={1}>
-                    {`Directory: /categories/${currentItem.category}/agents/`}
+                     {middleEllipsis(`Directory: /categories/${currentItem.category}/agents/`, 50)}
                   </text>
                   <text style={{ textColor: "gray" }} marginTop={2}>
                     Purpose Summary:
                   </text>
                   <box borderStyle="single" borderColor="#333333" padding={1} marginTop={1} flexGrow={1}>
                     <text style={{ textColor: "white" }}>
-                      {CATEGORY_DESCRIPTIONS[currentItem.category] || "Specific compilation pipeline folder."}
+                       {terminalSafeText(CATEGORY_DESCRIPTIONS[currentItem.category] || "Specific compilation pipeline folder.")}
                     </text>
                   </box>
                 </box>
@@ -2048,19 +2043,13 @@ export function App({ workspaceRoot }: AppProps) {
             </box>
           )}
 
-          {/* Action Guide */}
-           <box height={4} flexShrink={0} overflow="hidden"
-            flexDirection="column"
-            borderStyle="single"
-            borderColor="#2B5581"
-            paddingLeft={1}
-            paddingRight={1}
-            marginTop={1}
-          >
-             <text style={{ textColor: "#E1E4E8" }}>[SP]Sel [A]All [M]Model [C]Color [P]Pre</text>
-             <text style={{ textColor: "#E1E4E8" }}>[G]Graph [T]Tune [I/R/E/F/V]More [/]Find</text>
-          </box>
-        </box></>}
+         </box></>}
+      </box>
+
+      <box height={5} flexShrink={0} overflow="hidden" flexDirection="column" borderStyle="single" borderColor="#2B5581" paddingLeft={1} paddingRight={1}>
+        <text height={1} flexShrink={0} wrapMode="none" overflow="hidden" style={{ textColor: "#E1E4E8" }}>SPACE Select · A Select all · M Model · C Color · P Permissions</text>
+        <text height={1} flexShrink={0} wrapMode="none" overflow="hidden" style={{ textColor: "#E1E4E8" }}>G Delegations · T Tune · I Import · R Rename · E Export</text>
+        <text height={1} flexShrink={0} wrapMode="none" overflow="hidden" style={{ textColor: "#E1E4E8" }}>F Fork · V Repair · / Search · TAB View · 1–4 Inspector tabs</text>
       </box>
 
       {/* Modal - Permission Presets */}
@@ -2068,10 +2057,10 @@ export function App({ workspaceRoot }: AppProps) {
         <box
           style={{
             position: "absolute",
-            left: "15%",
-            top: "15%",
-            width: "70%",
-            height: "70%"
+           left: "8%",
+           top: "8%",
+           width: "84%",
+           height: "84%"
           }}
           borderStyle="double"
           borderColor="#E74C3C"
@@ -2129,7 +2118,7 @@ export function App({ workspaceRoot }: AppProps) {
           borderStyle="double"
           borderColor="#3498DB"
           backgroundColor="#1e1e1e"
-          title={` Delegation Manager: ${delegationTargetAgent.filename} `}
+           title={` Delegation Manager: ${middleEllipsis(delegationTargetAgent.filename, 45)} `}
           titleColor="#3498DB"
           padding={1}
           flexDirection="column"
@@ -2159,13 +2148,13 @@ export function App({ workspaceRoot }: AppProps) {
                       {isSelected ? "[x]" : "[ ]"}
                     </text>
                     <text style={{ textColor: isFocused ? "#FFFFFF" : "#9ECBFF" }} width="50%">
-                      {ag.filename}
+                       {middleEllipsis(ag.filename, 35)}
                     </text>
                     <text style={{ textColor: "yellow" }} width="20%">
-                      {ag.category}
+                       {middleEllipsis(ag.category, 15)}
                     </text>
                     <text style={{ textColor: "gray" }} width="22%">
-                      {ag.model.split("/").pop()}
+                       {middleEllipsis(ag.model.split("/").pop() || "", 15)}
                     </text>
                   </box>
                 )
@@ -2189,9 +2178,9 @@ export function App({ workspaceRoot }: AppProps) {
           style={{
             position: "absolute",
             left: "15%",
-            top: "15%",
+             top: layout.mode === "compact" ? "0%" : "15%",
             width: "70%",
-            height: "70%"
+             height: layout.mode === "compact" ? "100%" : "70%"
           }}
           borderStyle="double"
           borderColor="#F1C40F"
@@ -2202,72 +2191,80 @@ export function App({ workspaceRoot }: AppProps) {
           flexDirection="column"
           justifyContent="space-between"
         >
-          <box flexDirection="column" gap={1}>
-            <text style={{ textColor: "white" }}>
+          <box flexDirection="column" gap={layout.mode === "compact" ? 0 : 1} overflow="hidden" flexShrink={0}>
+            <text height={1} flexShrink={0} wrapMode="none" overflow="hidden" style={{ textColor: "white" }}>
               Regulate execution limits, temperature, mode, and visibility:
             </text>
 
             {/* Steps field */}
             <box
               flexDirection="row"
+              height={3}
+              flexShrink={0}
               borderStyle="single"
               borderColor={tuningFocusedField === "steps" ? "#F1C40F" : "#333333"}
               paddingLeft={1}
               paddingRight={1}
-              marginTop={1}
+               marginTop={layout.mode === "compact" ? 0 : 1}
             >
-              <text style={{ textColor: tuningFocusedField === "steps" ? "#F1C40F" : "gray" }} b>
+              <text width="60%" wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: tuningFocusedField === "steps" ? "#F1C40F" : "gray" }} b>
                 {tuningFocusedField === "steps" ? "► 1. Max Agentic Steps (e.g. 50):" : "  1. Max Agentic Steps:"}
               </text>
-              <text style={{ textColor: "white" }}>{tuningSteps || "50"}</text>
+              <text width="40%" height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "white" }}>{tuningSteps || "50"}</text>
             </box>
 
             {/* Temp field */}
             <box
-              flexDirection={bridgeFocusedField === "name" ? "column" : "row"}
+              flexDirection="row"
               borderStyle="single"
               borderColor={tuningFocusedField === "temp" ? "#F1C40F" : "#333333"}
+              height={3}
+              flexShrink={0}
               paddingLeft={1}
               paddingRight={1}
             >
-              <text style={{ textColor: tuningFocusedField === "temp" ? "#F1C40F" : "gray" }} b>
+              <text width="60%" wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: tuningFocusedField === "temp" ? "#F1C40F" : "gray" }} b>
                 {tuningFocusedField === "temp" ? "► 2. Temperature (e.g. 0.1 - 0.7):" : "  2. Temperature:"}
               </text>
-              <text style={{ textColor: "white" }}>{tuningTemp || "0.2"}</text>
+              <text width="40%" height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "white" }}>{tuningTemp || "0.2"}</text>
             </box>
 
             {/* Mode field */}
             <box
-              flexDirection={bridgeFocusedField === "name" ? "column" : "row"}
+              flexDirection="row"
               borderStyle="single"
               borderColor={tuningFocusedField === "mode" ? "#F1C40F" : "#333333"}
+              height={3}
+              flexShrink={0}
               paddingLeft={1}
               paddingRight={1}
             >
-              <text style={{ textColor: tuningFocusedField === "mode" ? "#F1C40F" : "gray" }} b>
+              <text width="60%" wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: tuningFocusedField === "mode" ? "#F1C40F" : "gray" }} b>
                 {tuningFocusedField === "mode" ? "► 3. Mode (Press SPACE to toggle):" : "  3. Mode:"}
               </text>
-              <text style={{ textColor: "yellow" }}>{tuningMode.toUpperCase()} (primary: Tab switch | subagent: @ mention)</text>
+              <text width="40%" height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "yellow" }}>{tuningMode.toUpperCase()}</text>
             </box>
 
             {/* Hidden field */}
             <box
-              flexDirection="column"
+              flexDirection="row"
               borderStyle="single"
               borderColor={tuningFocusedField === "hidden" ? "#F1C40F" : "#333333"}
+              height={3}
+              flexShrink={0}
               paddingLeft={1}
               paddingRight={1}
             >
-              <text style={{ textColor: tuningFocusedField === "hidden" ? "#F1C40F" : "gray" }} b>
+              <text width="60%" wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: tuningFocusedField === "hidden" ? "#F1C40F" : "gray" }} b>
                 {tuningFocusedField === "hidden" ? "► 4. Hidden Status (Press SPACE to toggle):" : "  4. Hidden Status:"}
               </text>
-              <text style={{ textColor: tuningHidden ? "red" : "green" }}>{tuningHidden ? "TRUE (Hidden in UI)" : "FALSE (Visible in UI)"}</text>
+              <text width="40%" height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: tuningHidden ? "red" : "green" }}>{tuningHidden ? "TRUE" : "FALSE"}</text>
             </box>
           </box>
 
-          <box justifyContent="space-between" borderStyle="single" border={["top"]} borderColor="#333333" paddingTop={1}>
-            <text style={{ textColor: "gray" }}>[TAB/↑/↓] Switch Fields | [SPACE] Toggle Mode/Hidden | [ENTER] Save Params</text>
-            <text style={{ textColor: "red" }} b>[ESC] Cancel</text>
+          <box height={2} flexShrink={0} justifyContent="space-between" borderStyle="single" border={["top"]} borderColor="#333333" paddingTop={1} overflow="hidden" flexDirection="row">
+            <text width="78%" wrapMode="none" overflow="hidden" style={{ textColor: "gray" }}>{middleEllipsis("[TAB/↑/↓] Switch Fields | [SPACE] Toggle Mode/Hidden | [ENTER] Save Params", 58)}</text>
+            <text width="22%" wrapMode="none" overflow="hidden" style={{ textColor: "red" }} b>[ESC] Cancel</text>
           </box>
         </box>
       )}
@@ -2324,7 +2321,7 @@ export function App({ workspaceRoot }: AppProps) {
                       {statusText}
                     </text>
                     <text style={{ textColor: isFocused ? "#FFFFFF" : "#9ECBFF" }} width="72%">
-                      {diff.filename}
+                       {middleEllipsis(diff.filename, 45)}
                     </text>
                   </box>
                 )
@@ -2338,7 +2335,7 @@ export function App({ workspaceRoot }: AppProps) {
               <box flexDirection="column" marginTop={1} borderStyle="single" borderColor="#333333" padding={1} height={6} flexShrink={0} overflow="hidden">
                 <text style={{ textColor: "yellow" }} b>Selected File Status:</text>
                 <text style={{ textColor: "white" }}>
-                  File: {importDiffs[focusedDiffIndex].filename}
+                   File: {middleEllipsis(importDiffs[focusedDiffIndex].filename, 50)}
                 </text>
                 <text style={{ textColor: importDiffs[focusedDiffIndex].hasDifferences ? "yellow" : "green" }}>
                   {importDiffs[focusedDiffIndex].hasDifferences ? "Changes detected between repo and OpenCode." : "File matches OpenCode export exactly."}
@@ -2376,7 +2373,7 @@ export function App({ workspaceRoot }: AppProps) {
           <box flexDirection="column" gap={1}>
             <box flexDirection="row">
               <text style={{ textColor: "white" }} b>CURRENT FILE: </text>
-              <text style={{ textColor: "yellow" }} b>{renameTargetAgent.filename}</text>
+               <text style={{ textColor: "yellow" }} b>{middleEllipsis(renameTargetAgent.filename, Math.max(1, Math.floor(termWidth * 0.7) - 8))}</text>
             </box>
             <text style={{ textColor: "gray" }}>
               Convention: [family-]category-role_with_underscores.md
@@ -2479,12 +2476,12 @@ export function App({ workspaceRoot }: AppProps) {
         >
           <text style={{ textColor: "white" }} paddingBottom={1} flexShrink={0}>
              {viewMode === "repair-selector"
-               ? `Choose an exact replacement for ${invalidModelGroups[Number(repairGroupKey)]?.value === undefined ? "(missing)" : JSON.stringify(invalidModelGroups[Number(repairGroupKey)]?.value)} (${invalidModelGroups[Number(repairGroupKey)]?.agents.length || 0} agents):`
+                ? middleEllipsis(`Choose an exact replacement for explicit model ${JSON.stringify(invalidModelGroups[Number(repairGroupKey)]?.value)} (${invalidModelGroups[Number(repairGroupKey)]?.agents.length || 0} agents):`, modelModalInnerWidth)
                : `Choose model to apply to ${selectedAgentPaths.size > 0 ? selectedAgentPaths.size : 1} selected agents:`}
           </text>
           {viewMode === "repair-selector" && invalidModelGroups[Number(repairGroupKey)] && (
             <text style={{ textColor: "gray" }}>
-              Suggestions: {suggestModels(invalidModelGroups[Number(repairGroupKey)].value, modelCatalog).join(", ") || "none (choose from catalog below)"}
+               Suggestions: {middleEllipsis(suggestModels(invalidModelGroups[Number(repairGroupKey)].value, modelCatalog).join(", ") || "none (choose from catalog below)", modelModalInnerWidth)}
             </text>
           )}
 
@@ -2509,20 +2506,17 @@ export function App({ workspaceRoot }: AppProps) {
                   width="100%"
                 >
                   <text style={{ textColor }}>
-                    {isFocused && item.type === "model" ? `> ${item.label.trim()}` : item.label}
+                    {middleEllipsis(isFocused && item.type === "model" ? `> ${item.label.trim()}` : item.label, modelModalInnerWidth)}
                   </text>
                 </box>
               )
             })}
           </box>
 
-          <box flexDirection="column" borderStyle="single" border={["top"]} borderColor="#333333" paddingTop={1}>
-            <text style={{ textColor: "gray" }}>
-              Total: {modelTreeItems.length} | Scroll: {focusedModelIndex + 1}/{modelTreeItems.length}
-            </text>
-            <text style={{ textColor: "gray" }}>
-              {viewMode === "repair-selector" ? "[ENTER] Choose | Suggestions first, then full catalog | [ESC] Cancel" : "[ENTER/RETURN] Confirm | [ESC] Cancel"}
-            </text>
+          <box flexDirection="column" borderStyle="single" border={["top"]} borderColor="#333333" paddingTop={1} flexShrink={0}>
+              <text width="100%" height={1} flexShrink={0} wrapMode="none" overflow="hidden" style={{ textColor: "gray" }}>{middleEllipsis(`Total: ${modelTreeItems.length} · Position: ${focusedModelIndex + 1}/${modelTreeItems.length}`, modelModalInnerWidth)}</text>
+              <text width="100%" height={1} flexShrink={0} wrapMode="none" overflow="hidden" style={{ textColor: "gray" }}>{middleEllipsis("ENTER select · ↑/↓ browse", modelModalInnerWidth)}</text>
+              <text width="100%" height={1} flexShrink={0} wrapMode="none" overflow="hidden" style={{ textColor: "gray" }}>{middleEllipsis("suggestions then catalog · ESC cancel", modelModalInnerWidth)}</text>
           </box>
         </box>
       ) : null}
@@ -2535,7 +2529,7 @@ export function App({ workspaceRoot }: AppProps) {
         const current = new Set(states.map(s => `${s!.tier} (${s!.source})`))
         return <box style={{ position: "absolute", left: "15%", top: "5%", width: "70%", height: "90%" }} borderStyle="double" borderColor="magenta" backgroundColor="#1e1e1e" title=" Assign Tier " titleColor="magenta" padding={1} flexDirection="column" overflow="hidden">
           <text style={{ textColor: "yellow" }} flexShrink={0}>Role-based assignment: basename, not an individual file.</text>
-          <text style={{ textColor: "white" }} flexShrink={0}>Current: {current.size > 1 ? `multiple tiers - ${Array.from(current).join(", ")}` : Array.from(current)[0] || "unknown"}</text>
+          <text style={{ textColor: "white" }} flexShrink={0}>{middleEllipsis(`Current: ${current.size > 1 ? `multiple tiers - ${Array.from(current).join(", ")}` : Array.from(current)[0] || "unknown"}`, 70)}</text>
           <box flexGrow={1} flexDirection="column" overflow="hidden">
             {tiers.slice(tierScrollOffset, tierScrollOffset + maxVisibleTiers).map((tier, index) => {
               const tierIndex = tierScrollOffset + index
@@ -2545,10 +2539,10 @@ export function App({ workspaceRoot }: AppProps) {
                 <box key={tier} flexDirection="column" flexShrink={0}>
                   <box height={1} backgroundColor={isFocused ? "magenta" : "transparent"}>
                     <text style={{ textColor: isFocused ? "white" : "cyan" }}>
-                      {tier} - Claude: {tierConfig.claude.model} | Codex: {tierConfig.codex.model}
+                       {middleEllipsis(`${tier} - Claude: ${tierConfig.claude.model} | Codex: ${tierConfig.codex.model}`, 70)}
                     </text>
                   </box>
-                  {isFocused && tierConfig.description && <text style={{ textColor: "gray" }}>{tierConfig.description}</text>}
+                   {isFocused && tierConfig.description && <text style={{ textColor: "gray" }}>{terminalSafeText(tierConfig.description)}</text>}
                 </box>
               )
             })}
@@ -2825,7 +2819,7 @@ export function App({ workspaceRoot }: AppProps) {
               flexShrink={0}
             >
               <text width="30%" flexShrink={0} style={{ textColor: bridgeFocusedField === "prefix" ? (bridgeTarget === "codex" ? "#00AAFF" : "#FF6B35") : "gray" }} b>
-                {bridgeFocusedField === "prefix" ? "► Prefix to Strip:" : "  Prefix to Strip:"}
+                       {bridgeFocusedField === "prefix" ? "► Prefix to Strip:" : "  Prefix to Strip:"}
               </text>
               <input width="70%" value={bridgePipelinePrefix} placeholder="empty = include all" focused={bridgeFocusedField === "prefix"} onInput={(value) => { setBridgePipelinePrefix(value); setBridgeSuggestionIndex(0); setBridgeSuggestionScrollOffset(0) }} onSubmit={generateBridge} />
               {bridgeFocusedField === "prefix" && <text flexShrink={0} style={{ textColor: "gray" }}>Includes matching agents and removes this prefix from generated names.</text>}
@@ -2835,7 +2829,7 @@ export function App({ workspaceRoot }: AppProps) {
                   const globalIndex = bridgeSuggestionScrollOffset + index
                   return (
                   <text key={prefix || "all"} flexShrink={0} style={{ textColor: globalIndex === bridgeSuggestionIndex ? "yellow" : "gray" }}>
-                    {globalIndex === bridgeSuggestionIndex ? "► " : "  "}{prefix || "(empty)"}  ({count} agents)
+                     {globalIndex === bridgeSuggestionIndex ? "► " : "  "}{middleEllipsis(prefix || "(empty)", 30)}  ({count} agents)
                   </text>
                   )
                 })}
@@ -2953,7 +2947,7 @@ export function App({ workspaceRoot }: AppProps) {
           borderStyle="double"
           borderColor="green"
           backgroundColor="#1e1e1e"
-          title={` ${actionResultTitle} `}
+           title={` ${middleEllipsis(actionResultTitle, 50)} `}
           titleColor="green"
           padding={1}
           flexDirection="column"
@@ -2961,7 +2955,7 @@ export function App({ workspaceRoot }: AppProps) {
         >
           <box flexGrow={1} flexDirection="column" overflow="hidden" flexShrink={1}>
             {visibleActionResultLines.map((line, idx) => (
-              <text key={actionResultScrollOffset + idx} style={{ textColor: "white" }} flexShrink={0}>{line}</text>
+               <text key={actionResultScrollOffset + idx} style={{ textColor: "white" }} flexShrink={0}>{terminalSafeText(line)}</text>
             ))}
           </box>
 
