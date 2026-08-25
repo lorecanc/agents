@@ -126,11 +126,11 @@ test("bypasses hooks, signing, and supports opt-out, ignored, external, nested, 
   fs.writeFileSync(path.join(root, "file.txt"), "one\n")
   git(parent, "add", ".")
   git(parent, "commit", "-qm", "initial")
-  fs.writeFileSync(path.join(parent, ".git", "hooks", "pre-commit"), "#!/bin/sh\nexit 1\n")
-  fs.chmodSync(path.join(parent, ".git", "hooks", "pre-commit"), 0o755)
   fs.writeFileSync(path.join(parent, ".gitignore"), "workspace/ignored.txt\n")
   git(parent, "add", ".gitignore")
   git(parent, "commit", "-qm", "ignore")
+  fs.writeFileSync(path.join(parent, ".git", "hooks", "pre-commit"), "#!/bin/sh\nexit 1\n")
+  fs.chmodSync(path.join(parent, ".git", "hooks", "pre-commit"), 0o755)
 
   const file = path.join(root, "file.txt")
   repositoryTransaction(root, [file], AUTO_COMMIT_MESSAGES.tune, () => fs.writeFileSync(file, "two\n"))
