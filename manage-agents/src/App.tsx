@@ -31,7 +31,7 @@ import { loadModelCatalog, suggestModels, collectInvalidModelGroups, modelDispla
 import { bridgeToClaudeCode } from "./utils/bridge.js"
 import { bridgeToCodex } from "./utils/codexBridge.js"
 import { buildInferenceIndex, loadTranslationConfig, resolveModelTarget, resolveRole, saveTranslationConfig, type TranslationConfig } from "./utils/translationConfig.js"
-import { AUTO_COMMIT_MESSAGES, repositoryTransaction } from "./utils/repositoryTransaction.js"
+import { AUTO_COMMIT_MESSAGES, autoCommitEnabled, repositoryTransaction } from "./utils/repositoryTransaction.js"
 import { calculateLayout, calculateListColumnBudget } from "./utils/layout.js"
 import { displayWidth, middleEllipsis, terminalSafeText } from "./utils/terminalText.js"
 
@@ -297,9 +297,20 @@ export function App({ workspaceRoot }: AppProps) {
   const displayWorkspace = workspaceRoot === os.homedir() || workspaceRoot.startsWith(`${os.homedir()}${path.sep}`)
     ? `~${workspaceRoot.slice(os.homedir().length)}`
     : workspaceRoot
-  const headerMeta = `Style: ${viewStyle.toUpperCase()} | Workspace: ${displayWorkspace}`
+  const styleLabel = `Style: ${viewStyle.toUpperCase()}`
+  const commitLabel = `Commit: ${autoCommitEnabled() ? "ON" : "OFF"}`
+  const workspaceLabel = `Workspace: ${displayWorkspace}`
+  const headerSeparator = " | "
   const headerContentWidth = Math.max(0, termWidth - 2 - 2 - 4)
   const headerMetaWidth = Math.max(0, headerContentWidth - displayWidth(headerTitle) - 1)
+  const commitWidth = displayWidth(commitLabel)
+  const styleWidth = displayWidth(styleLabel)
+  const separatorWidth = displayWidth(headerSeparator)
+  const fixedMetaWidth = styleWidth + commitWidth + separatorWidth * 2
+  const showStyleAndCommit = headerMetaWidth >= fixedMetaWidth
+  const showCommit = showStyleAndCommit || headerMetaWidth >= commitWidth
+  const showStyle = showStyleAndCommit || (!showCommit && headerMetaWidth >= styleWidth)
+  const workspaceWidth = showStyleAndCommit ? headerMetaWidth - fixedMetaWidth : 0
   const maxVisibleItems = layout.listRows
   const maxVisibleModels = Math.max(0, Math.floor(termHeight * 0.7) - 10)
   const maxVisibleTiers = Math.max(0, Math.floor(termHeight * 0.9) - 9)
@@ -1633,9 +1644,14 @@ export function App({ workspaceRoot }: AppProps) {
          <text width={displayWidth(headerTitle)} height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "#9ECBFF" }} b>
            {headerTitle}
          </text>
-         <text width={headerMetaWidth} height={1} wrapMode="none" overflow="hidden" flexShrink={1} style={{ textColor: "gray" }}>
-            {middleEllipsis(headerMeta, headerMetaWidth)}
-         </text>
+          <box width={headerMetaWidth} height={1} flexShrink={1} flexDirection="row" overflow="hidden">
+            {showStyleAndCommit && <text width={styleWidth} height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "gray" }}>{styleLabel}</text>}
+            {showStyleAndCommit && <text width={separatorWidth} height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "gray" }}>{headerSeparator}</text>}
+            {showCommit && <text width={commitWidth} height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: autoCommitEnabled() ? "green" : "gray" }}>{commitLabel}</text>}
+            {showStyleAndCommit && <text width={separatorWidth} height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "gray" }}>{headerSeparator}</text>}
+            {showStyleAndCommit && workspaceWidth > 0 && <text width={workspaceWidth} height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "gray" }}>{middleEllipsis(workspaceLabel, workspaceWidth)}</text>}
+            {!showStyleAndCommit && !showCommit && showStyle && <text width={styleWidth} height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "gray" }}>{styleLabel}</text>}
+          </box>
       </box>
 
       {modelCatalog.status === "unavailable" && (

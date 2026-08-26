@@ -786,23 +786,50 @@ export function saveAgentFile(filePath: string, frontmatter: Record<string, any>
   if (!isValidFrontmatter(frontmatter)) {
     throw new Error(`Invalid frontmatter for agent file: ${filePath}`)
   }
+  const content = renderAgentFile(frontmatter, body)
+  atomicWriteAgentFile(filePath, Buffer.from(content, "utf8"))
+}
+
+function renderAgentFile(frontmatter: Record<string, any>, body: string): string {
   const yamlText = YAML.stringify(frontmatter).trim()
   const normalizedBody = normalizeAgentBody(body)
-  const content = normalizedBody
-    ? `---\n${yamlText}\n---\n\n${normalizedBody}`
-    : `---\n${yamlText}\n---\n`
+  return normalizedBody ? `---\n${yamlText}\n---\n\n${normalizedBody}` : `---\n${yamlText}\n---\n`
+}
+
+function atomicWriteAgentFile(filePath: string, bytes: Buffer): void {
   const dir = path.dirname(filePath)
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true })
   }
-  const tempPath = `${filePath}.${process.pid}.${Date.now()}.${randomBytes(6).toString("hex")}.tmp`
-  try {
-    fs.writeFileSync(tempPath, content, "utf-8")
-    fs.renameSync(tempPath, filePath)
-  } catch (e) {
-    try { fs.unlinkSync(tempPath) } catch {}
-    throw e
+  let mode = 0o666
+  const target = fs.lstatSync(filePath, { throwIfNoEntry: false })
+  if (target) {
+    if (target.isSymbolicLink() || !target.isFile()) throw new Error(`Refusing to replace non-regular agent file: ${filePath}`)
+    mode = target.mode & 0o7777
   }
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const tempPath = path.join(dir, `.${path.basename(filePath)}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`)
+    let fd: number | undefined
+    let owned = false
+    try {
+      fd = fs.openSync(tempPath, "wx", mode)
+      owned = true
+      let offset = 0
+      while (offset < bytes.length) offset += fs.writeSync(fd, bytes, offset, bytes.length - offset)
+      fs.fchmodSync(fd, mode)
+      fs.closeSync(fd)
+      fd = undefined
+      fs.renameSync(tempPath, filePath)
+      return
+    } catch (error: any) {
+      if (fd !== undefined) fs.closeSync(fd)
+      if (owned) { try { fs.unlinkSync(tempPath) } catch {} }
+      if (error?.code === "EEXIST") continue
+      throw error
+    }
+  }
+  throw new Error(`Unable to allocate a temporary agent file for ${filePath}`)
 }
 
 /**
@@ -915,20 +942,65 @@ export function discoverManifestCategories(workspaceRoot: string): Set<string> {
 /**
  * Batch update the model of multiple agents.
  */
-export function updateAgentsModel(agents: AgentInfo[], model: string, verifiedModels: string[] = []) {
+export function updateAgentsModel(agents: AgentInfo[], model: string, verifiedModels: string[] = [], writer = saveAgentFile) {
   if (!verifiedModels.includes(model)) throw new Error(`Model is not present in refreshed catalog: ${model}`)
+  const originals = new Map<string, { bytes: Buffer; stat: fs.Stats }>()
+  const expected = new Map<string, { bytes: Buffer; mode: number }>()
+  const snapshots = new Map<AgentInfo, { model: string; frontmatter: Record<string, any>; frontmatterContent: Record<string, any>; rawContent: string }>()
   for (const agent of agents) {
     const disk = parseAgentFile(agent.currentPath, path.dirname(path.dirname(path.dirname(agent.currentPath))))
-    if (!disk || disk.frontmatter.model !== agent.frontmatter.model) {
+    const bytes = fs.readFileSync(agent.currentPath)
+    if (!disk || disk.frontmatter.model !== agent.frontmatter.model || !bytes.equals(Buffer.from(agent.rawContent, "utf8"))) {
       throw new Error(`Agent changed on disk before model update: ${agent.filename}`)
     }
+    originals.set(agent.currentPath, { bytes, stat: fs.statSync(agent.currentPath) })
+    snapshots.set(agent, { model: agent.model, frontmatter: agent.frontmatter, frontmatterContent: structuredClone(agent.frontmatter), rawContent: agent.rawContent })
   }
-  for (const agent of agents) {
-    const updatedFrontmatter = { ...agent.frontmatter, model }
-    saveAgentFile(agent.currentPath, updatedFrontmatter, agent.body)
-    
-    agent.model = model
-    agent.frontmatter = updatedFrontmatter
+  const attempted: string[] = []
+  try {
+    for (const agent of agents) {
+      attempted.push(agent.currentPath)
+      const updatedFrontmatter = { ...agent.frontmatter, model }
+      expected.set(agent.currentPath, { bytes: Buffer.from(renderAgentFile(updatedFrontmatter, agent.body)), mode: originals.get(agent.currentPath)!.stat.mode & 0o7777 })
+      writer(agent.currentPath, updatedFrontmatter, agent.body)
+    }
+    for (const agent of agents) {
+      agent.model = model
+      agent.frontmatter = { ...agent.frontmatter, model }
+      agent.rawContent = fs.readFileSync(agent.currentPath, "utf8")
+    }
+  } catch (error: any) {
+    const failures: string[] = []
+    for (const filePath of [...attempted].reverse()) {
+      try {
+        const current = fs.lstatSync(filePath)
+        const original = originals.get(filePath)!
+        const manager = expected.get(filePath)
+        if (current.isSymbolicLink() || !current.isFile()) throw new Error("path is no longer a regular file")
+        if (!manager || !fs.readFileSync(filePath).equals(manager.bytes) || (current.mode & 0o7777) !== manager.mode) throw new Error("rollback conflict: file changed after manager write")
+        atomicWriteAgentFile(filePath, original.bytes)
+        fs.chmodSync(filePath, original.stat.mode & 0o7777)
+      } catch (restoreError: any) { failures.push(`${filePath}: ${restoreError?.message || restoreError}`) }
+    }
+    for (const [agent, snapshot] of snapshots) {
+      const restored = (() => { try { return fs.readFileSync(agent.currentPath).equals(snapshot.rawContent ? Buffer.from(snapshot.rawContent) : Buffer.alloc(0)) } catch { return false } })()
+      if (!restored && !failures.some(failure => failure.startsWith(`${agent.currentPath}:`))) {
+        try {
+          const disk = parseAgentFile(agent.currentPath, path.dirname(path.dirname(path.dirname(agent.currentPath))))
+          if (disk) { agent.model = disk.model; agent.frontmatter = disk.frontmatter; agent.rawContent = disk.rawContent }
+        } catch {}
+        continue
+      }
+      agent.model = snapshot.model
+      agent.frontmatter = snapshot.frontmatter
+      for (const key of Object.keys(agent.frontmatter)) delete agent.frontmatter[key]
+      Object.assign(agent.frontmatter, structuredClone(snapshot.frontmatterContent))
+      agent.rawContent = snapshot.rawContent
+    }
+    const suffix = failures.length ? `; rollback incomplete: ${failures.join("; ")}` : "; rollback completed"
+    const rollbackError = new Error(`${error?.message || error}${suffix}`)
+    ;(rollbackError as any).cause = error
+    throw rollbackError
   }
 }
 
@@ -939,6 +1011,7 @@ export function repairAgentModels(agents: AgentInfo[], mappings: ModelRepairMapp
   const catalog = new Set(verifiedModels)
   const paths = new Set<string>()
   const originals = new Map<string, Buffer>()
+  const expected = new Map<string, { bytes: Buffer; mode: number }>()
   const snapshots = new Map<AgentInfo, { model: string; frontmatter: Record<string, any>; frontmatterContent: Record<string, any>; rawContent: string }>()
   for (const mapping of mappings) {
     if (!catalog.has(mapping.newModel)) throw new Error(`Replacement is not present in refreshed catalog: ${mapping.newModel}`)
@@ -980,6 +1053,7 @@ export function repairAgentModels(agents: AgentInfo[], mappings: ModelRepairMapp
         const agent = agents.find(item => item.currentPath === agentPath)!
         attempted.push(agentPath)
         const updatedFrontmatter = { ...agent.frontmatter, model: mapping.newModel }
+        expected.set(agentPath, { bytes: Buffer.from(renderAgentFile(updatedFrontmatter, agent.body)), mode: fs.lstatSync(agentPath).mode & 0o7777 })
         writer(agent.currentPath, updatedFrontmatter, agent.body)
       }
     }
@@ -995,7 +1069,10 @@ export function repairAgentModels(agents: AgentInfo[], mappings: ModelRepairMapp
     const restorationFailures: string[] = []
     for (const agentPath of [...attempted].reverse()) {
       try {
-        fs.writeFileSync(agentPath, originals.get(agentPath)!)
+        const current = fs.lstatSync(agentPath)
+        const manager = expected.get(agentPath)
+        if (current.isSymbolicLink() || !current.isFile() || !manager || !fs.readFileSync(agentPath).equals(manager.bytes) || (current.mode & 0o7777) !== manager.mode) throw new Error("rollback conflict: file changed after manager write")
+        atomicWriteAgentFile(agentPath, originals.get(agentPath)!)
       } catch (restoreError: any) {
         restorationFailures.push(`${agentPath}: ${restoreError?.message || restoreError}`)
       }

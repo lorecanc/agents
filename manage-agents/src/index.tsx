@@ -16,7 +16,7 @@ import {
   type TranslationConfig,
   type TranslationTarget
 } from "./utils/translationConfig.js"
-import { AUTO_COMMIT_MESSAGES, isRepositoryLocalPath, repositoryTransaction } from "./utils/repositoryTransaction.js"
+import { AUTO_COMMIT_MESSAGES, isRepositoryLocalPath, repositoryTransaction, parseAutoCommitArgs } from "./utils/repositoryTransaction.js"
 import { buildCategoryDistribution, buildAllCategoryDistributions, recoverBuildAllCategoryDistributions, checkCategoryDistribution, loadCategoryManifest, packageCategoryDistributions, parseCategoryArgs } from "./utils/categoryDistribution.js"
 
 function askQuestion(query: string): Promise<string> {
@@ -591,10 +591,9 @@ function runTopicExport(workspaceRoot: string) {
 }
 
 async function run() {
-  if (process.argv.includes("--no-auto-commit")) {
-    process.env.AGENT_MANAGER_AUTO_COMMIT = "0"
-    process.argv = process.argv.filter(arg => arg !== "--no-auto-commit")
-  }
+  const autoCommit = parseAutoCommitArgs(process.argv.slice(2))
+  process.env.AGENT_MANAGER_AUTO_COMMIT = autoCommit.enabled ? "1" : "0"
+  process.argv = [...process.argv.slice(0, 2), ...autoCommit.argv]
   const workingDirectory = path.resolve(process.cwd())
   const workspaceCandidates = [
     workingDirectory,
