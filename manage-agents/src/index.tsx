@@ -672,7 +672,7 @@ async function run() {
   })
 
   const root = createRoot(renderer)
-  root.render(<App workspaceRoot={workspaceRoot} listShare={uiConfig.config.listShare} uiConfigWarning={uiConfig.warning} />)
+  root.render(<App workspaceRoot={workspaceRoot} listShare={uiConfig.config.listShare} uiConfigWarning={uiConfig.warning} configReadOnly={uiConfig.readOnly} uiConfigRevision={uiConfig.revision} />)
 }
 
 run().catch((e) => {

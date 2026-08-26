@@ -20,6 +20,14 @@ export interface PanelWidths {
   gutter: number
 }
 
+export function adjustListShare(value: number, delta: number): number {
+  return Math.max(0.60, Math.min(0.75, Math.round((value + delta) * 100) / 100))
+}
+
+export function resetListShare(): number {
+  return 2 / 3
+}
+
 /** Calculate deterministic outer panel widths for the normal two-panel view. */
 export function calculatePanelWidths(terminalWidth: number, mode: LayoutMode, listShare: number): PanelWidths {
   if (mode !== "normal") return { list: Math.max(0, Math.floor(terminalWidth) - 2), inspector: 0, gutter: 0 }

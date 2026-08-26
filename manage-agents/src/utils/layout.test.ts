@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { calculateLayout, calculateListColumnBudget, calculatePanelWidths } from "./layout.js"
+import { adjustListShare, calculateLayout, calculateListColumnBudget, calculatePanelWidths, resetListShare } from "./layout.js"
 
 test("calculates bounded layouts across terminal sizes and status states", () => {
   const cases = [
@@ -67,6 +67,14 @@ test("panel widths honor the configured share and terminal budget", () => {
   assert.deepEqual(calculatePanelWidths(160, "normal", 0.60), { list: 94, inspector: 63, gutter: 1 })
   assert.deepEqual(calculatePanelWidths(160, "normal", 0.75), { list: 117, inspector: 40, gutter: 1 })
   assert.deepEqual(calculatePanelWidths(80, "compact", 2 / 3), { list: 78, inspector: 0, gutter: 0 })
+})
+
+test("adjusts layout shares in one-percent steps, clamps, and resets", () => {
+  assert.equal(adjustListShare(0.60, -0.01), 0.60)
+  assert.equal(adjustListShare(0.75, 0.01), 0.75)
+  assert.equal(adjustListShare(2 / 3, 0.01), 0.68)
+  assert.equal(adjustListShare(0.67, -0.01), 0.66)
+  assert.equal(resetListShare(), 2 / 3)
 })
 
 test("column budgets consume exactly the content width at PTY sizes", () => {

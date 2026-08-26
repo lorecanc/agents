@@ -32,13 +32,16 @@ import { bridgeToClaudeCode } from "./utils/bridge.js"
 import { bridgeToCodex } from "./utils/codexBridge.js"
 import { buildInferenceIndex, loadTranslationConfig, resolveModelTarget, resolveRole, saveTranslationConfig, type TranslationConfig } from "./utils/translationConfig.js"
 import { AUTO_COMMIT_MESSAGES, autoCommitEnabled, repositoryTransaction, type TransactionWarning } from "./utils/repositoryTransaction.js"
-import { calculateLayout, calculateListColumnBudget, calculatePanelWidths } from "./utils/layout.js"
+import { adjustListShare, calculateLayout, calculateListColumnBudget, calculatePanelWidths, resetListShare } from "./utils/layout.js"
+import { loadUiConfig, saveUiConfig } from "./utils/uiConfig.js"
 import { displayWidth, middleEllipsis, terminalSafeText } from "./utils/terminalText.js"
 
 interface AppProps {
   workspaceRoot: string
   listShare?: number
   uiConfigWarning?: string
+  configReadOnly?: boolean
+  uiConfigRevision?: string
 }
 
 type ViewMode =
@@ -57,7 +60,8 @@ type ViewMode =
   | "permission-preset"
   | "delegation-manager"
   | "parameter-tuning"
-  | "import-diff"
+   | "import-diff"
+   | "layout"
 type ViewStyle = "list" | "tree"
 
 interface ActiveItem {
@@ -147,7 +151,7 @@ interface ColorTreeItem {
   value: string
 }
 
-export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning }: AppProps) {
+export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configReadOnly = false, uiConfigRevision = "missing" }: AppProps) {
   const mutate = <T,>(paths: string[], operation: keyof typeof AUTO_COMMIT_MESSAGES, fn: () => T) =>
     repositoryTransaction(workspaceRoot, paths, AUTO_COMMIT_MESSAGES[operation], fn)
   // Data State
@@ -172,6 +176,12 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning }: AppPr
 
   // Modal / Action State
   const [viewMode, setViewMode] = useState<ViewMode>("main")
+  const [appliedShare, setAppliedShare] = useState(() => listShare)
+  const [layoutDraft, setLayoutDraft] = useState(() => listShare)
+  const [layoutSnapshot, setLayoutSnapshot] = useState(() => listShare)
+  const [layoutError, setLayoutError] = useState("")
+  const [layoutStatus, setLayoutStatus] = useState("")
+  const [uiConfigRevisionState, setUiConfigRevision] = useState(uiConfigRevision)
   const [focusedModelIndex, setFocusedModelIndex] = useState(0)
   const [modelScrollOffset, setModelScrollOffset] = useState(0)
   const [focusedTierIndex, setFocusedTierIndex] = useState(0)
@@ -304,12 +314,13 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning }: AppPr
   const statusMessages = [
     uiConfigWarning ? `⚠ ${terminalSafeText(uiConfigWarning)}` : "",
     modelCatalog.status === "unavailable" ? "⚠ Model catalog unavailable — press M, then Y to retry." : "",
-    modelCatalog.status === "verified" && invalidModelGroups.length > 0 ? `⚠ ${invalidModelGroups.length} invalid model group(s) — [V] Repair; [M] Choose a model.` : ""
+    modelCatalog.status === "verified" && invalidModelGroups.length > 0 ? `⚠ ${invalidModelGroups.length} invalid model group(s) — [V] Repair; [M] Choose a model.` : "",
+    layoutStatus
   ].filter(Boolean)
   const statusMessage = statusMessages.join(" | ")
   const layout = calculateLayout(termWidth, termHeight, statusMessages.length > 0)
   // Keep the table's integer cell widths independent from percentage rounding.
-  const panelWidths = calculatePanelWidths(termWidth, layout.mode, listShare)
+  const panelWidths = calculatePanelWidths(termWidth, layout.mode, appliedShare)
   const listPanelWidth = panelWidths.list
   const listContentWidth = Math.max(0, listPanelWidth - 4)
   const footerFirstWidth = Math.floor(listContentWidth / 2)
@@ -339,6 +350,15 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning }: AppPr
   const showCommit = termWidth >= 40 && headerMetaWidth >= commitWidth
   const showStyle = showStyleAndCommit || (!showCommit && headerMetaWidth >= styleWidth)
   const workspaceWidth = showStyleAndCommit ? headerMetaWidth - fixedMetaWidth : 0
+  const visibleWorkspaceWidth = Math.min(workspaceWidth, displayWidth(workspaceLabel))
+  const visibleMetaWidth = showStyleAndCommit
+    ? fixedMetaWidth + visibleWorkspaceWidth
+    : showCommit
+      ? commitWidth
+      : showStyle
+        ? styleWidth
+        : 0
+  const headerGroupWidth = Math.min(headerContentWidth, headerTitleWidth + 1 + visibleMetaWidth)
   const maxVisibleItems = layout.listRows
   const maxVisibleModels = Math.max(0, Math.floor(termHeight * 0.7) - 10)
   const maxVisibleTiers = Math.max(0, Math.floor(termHeight * 0.9) - 9)
@@ -651,6 +671,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning }: AppPr
         ? e.name.toUpperCase()
         : e.name
     const isUppercaseF = key === "f" && (e.sequence === "F" || !!e.shift)
+    const isUppercaseL = key === "l" && (e.sequence === "L" || !!e.shift)
 
     // 1. Intercept search input mode
     if (isSearching) {
@@ -667,9 +688,50 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning }: AppPr
       return
     }
 
+    // Layout modal owns these keys before they can affect the agent tree.
+    if (viewMode === "layout") {
+      if (key === "left" || key === "h" || key === "down") {
+        const next = adjustListShare(layoutDraft, -0.01); setLayoutDraft(next); setAppliedShare(next)
+      } else if (key === "right" || (key === "l" && !isUppercaseL) || key === "up") {
+        const next = adjustListShare(layoutDraft, 0.01); setLayoutDraft(next); setAppliedShare(next)
+      } else if (key === "home") {
+        setLayoutDraft(0.60); setAppliedShare(0.60)
+      } else if (key === "end") {
+        setLayoutDraft(0.75); setAppliedShare(0.75)
+      } else if (key === "r") {
+        const next = resetListShare(); setLayoutDraft(next); setAppliedShare(next)
+      } else if (key === "escape") {
+        setLayoutDraft(layoutSnapshot); setAppliedShare(layoutSnapshot); setLayoutError(""); setViewMode("main")
+      } else if (key === "enter" || key === "return") {
+        if (configReadOnly) {
+          setLayoutError("Read-only environment override: preview only; Enter does not save.")
+        } else {
+          try {
+             const revision = saveUiConfig(workspaceRoot, layoutDraft, uiConfigRevisionState)
+             setUiConfigRevision(revision)
+            setLayoutSnapshot(layoutDraft); setAppliedShare(layoutDraft); setLayoutError(""); setLayoutStatus("Layout saved")
+            setActionResultTitle("Layout saved")
+            setActionResultLines(["List/inspector proportions saved."])
+            setViewMode("main")
+          } catch (error: any) {
+            if (error?.message === "configuration changed; reload and retry") {
+              const current = loadUiConfig(workspaceRoot)
+              setUiConfigRevision(current.revision)
+              setLayoutStatus("Configuration changed externally. Reloaded revision; press Enter again to overwrite with current preview, or Esc.")
+            } else {
+              setLayoutError(terminalSafeText(error?.message || error).slice(0, 160))
+            }
+          }
+        }
+      }
+      return
+    }
+
     // 2. Main view mode
     if (viewMode === "main") {
-      if ((key === "up" || key === "k") && (inspectorTab === "security" || inspectorTab === "delegations") && currentItem?.agent) {
+      if (key === "l" && isUppercaseL) {
+        if (!isSearching) { setLayoutSnapshot(appliedShare); setLayoutDraft(appliedShare); setLayoutError(""); setLayoutStatus(""); setViewMode("layout") }
+      } else if ((key === "up" || key === "k") && (inspectorTab === "security" || inspectorTab === "delegations") && currentItem?.agent) {
         setGraphScrollOffset((offset) => Math.max(0, offset - 1))
       } else if ((key === "down" || key === "j") && (inspectorTab === "security" || inspectorTab === "delegations") && currentItem?.agent) {
         const itemCount = inspectorTab === "security"
@@ -958,21 +1020,19 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning }: AppPr
         })
       } else if (isUppercaseF && inspectorTab === "security" && activeItems[focusedIndex]?.agent) {
         const ag = activeItems[focusedIndex].agent!
+        if (!analyzePermissionOrder(ag).hasOrderError) return
         try {
-           const tx = mutate([ag.currentPath], "tune", () => fixPermissionOrder(ag))
-           const fixed = tx.value
-           if (fixed) {
-              try { refreshData() } catch (error) { setMutationRefreshFailure(error, tx.warning); return }
-               setMutationSuccess("Permission Order Fixed", [
+          const tx = mutate([ag.currentPath], "tune", () => fixPermissionOrder(ag))
+          const fixed = tx.value
+          if (fixed) {
+            try { refreshData() } catch (error) { setMutationRefreshFailure(error, tx.warning); return }
+            setMutationSuccess("Permission Order Fixed", [
               `Successfully reordered permissions for:`,
               `  ${ag.filename}`,
               `Placed wildcard "*": "deny" FIRST to comply with OpenCode spec.`
             ])
-          } else {
-            setActionResultTitle("Nothing to Fix")
-            setActionResultLines([`Permission order is already correct for ${ag.filename}.`])
-          }
-             } catch (error: any) {
+          } else return
+        } catch (error: any) {
           setActionResultTitle("Error Fixing Permission Order")
           setActionResultLines([`An error occurred:`, `  ${error.message || error}`])
         }
@@ -1662,24 +1722,27 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning }: AppPr
          height={3}
         borderStyle="single"
         borderColor="#2B5581"
-        justifyContent="space-between"
+         justifyContent="center"
         alignItems="center"
          paddingLeft={2}
          paddingRight={2}
          flexDirection="row"
-       >
-          <text width={headerTitleWidth} height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "#9ECBFF" }} b>
-            {middleEllipsis(headerTitle, headerTitleWidth)}
-         </text>
-          <box width={headerMetaWidth} height={1} flexShrink={1} flexDirection="row" overflow="hidden">
-            {showStyleAndCommit && <text width={styleWidth} height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "gray" }}>{styleLabel}</text>}
-            {showStyleAndCommit && <text width={separatorWidth} height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "gray" }}>{headerSeparator}</text>}
-            {showCommit && <text width={commitWidth} height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: autoCommitEnabled() ? "green" : "gray" }}>{commitLabel}</text>}
-            {showStyleAndCommit && <text width={separatorWidth} height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "gray" }}>{headerSeparator}</text>}
-            {showStyleAndCommit && workspaceWidth > 0 && <text width={workspaceWidth} height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "gray" }}>{middleEllipsis(workspaceLabel, workspaceWidth)}</text>}
-            {!showStyleAndCommit && !showCommit && showStyle && <text width={styleWidth} height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "gray" }}>{styleLabel}</text>}
+        >
+          <box width={headerGroupWidth} height={1} flexShrink={0} flexDirection="row" overflow="hidden">
+            <text width={headerTitleWidth} height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "#9ECBFF" }} b>
+              {middleEllipsis(headerTitle, headerTitleWidth)}
+            </text>
+            <text width={1} height={1} wrapMode="none" overflow="hidden" flexShrink={0}> </text>
+           <box width={visibleMetaWidth} height={1} flexShrink={0} flexDirection="row" overflow="hidden">
+             {showStyleAndCommit && <text width={styleWidth} height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "gray" }}>{styleLabel}</text>}
+             {showStyleAndCommit && <text width={separatorWidth} height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "gray" }}>{headerSeparator}</text>}
+             {showCommit && <text width={commitWidth} height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: autoCommitEnabled() ? "green" : "gray" }}>{commitLabel}</text>}
+             {showStyleAndCommit && <text width={separatorWidth} height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "gray" }}>{headerSeparator}</text>}
+             {showStyleAndCommit && visibleWorkspaceWidth > 0 && <text width={visibleWorkspaceWidth} height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "gray" }}>{middleEllipsis(workspaceLabel, visibleWorkspaceWidth)}</text>}
+             {!showStyleAndCommit && !showCommit && showStyle && <text width={styleWidth} height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "gray" }}>{styleLabel}</text>}
+           </box>
           </box>
-      </box>
+       </box>
 
       {statusMessage && (
         <box height={1} flexShrink={0} overflow="hidden">
@@ -2089,14 +2152,14 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning }: AppPr
         {(() => {
           const footerInnerWidth = Math.max(0, termWidth - 6)
           const compact = footerInnerWidth < 118
-          const footerRows = compact ? [
-            [["SPACE", "Select"], ["A", "All"], ["S", "Match"], ["/", "Search"], ["TAB", "View"], ["1-4", "Tabs"], ["F", "Fork"]],
-            [["M", "Mod"], ["C", "Col"], ["P", "Perm"], ["G", "Del"], ["T", "Tun"], ["S+T", "Tier"], ["I", "Imp"], ["O", "Org"]],
-            [["B", "Claude"], ["S+B", "Codex"], ["R", "Rename"], ["E", "Export"], ["V", "Repair"], ["S+F", "Fix order"]]
-          ] : [
-            [["SPACE", "Select"], ["A", "All"], ["S", "Same model"], ["/", "Search"], ["TAB", "View"], ["1-4", "Inspector"], ["O", "Organization"]],
-            [["M", "Model"], ["C", "Color"], ["P", "Permissions"], ["G", "Delegations"], ["T", "Tune"], ["SHIFT+T", "Tier"], ["I", "Import"], ["V", "Repair models"]],
-            [["B", "Claude bridge"], ["SHIFT+B", "Codex bridge"], ["R", "Rename"], ["E", "Export"], ["F", "Fork"], ["SHIFT+F", "Fix order"]]
+           const footerRows = viewMode !== "main" ? [[], [], []] : compact ? [
+             [["SPACE", "Select"], ["A", "All"], ["S", "Match"], ["/", "Search"], ["TAB", "View"], ["1-4", "Tabs"], ["S+L", "Layout"], ["F", "Fork"]],
+             [["M", "Mod"], ["C", "Col"], ["P", "Perm"], ["G", "Del"], ["T", "Tun"], ["S+T", "Tier"], ["I", "Imp"], ["O", "Org"]],
+             [["B", "Claude"], ["S+B", "Codex"], ["R", "Rename"], ["E", "Export"], ["V", "Repair"]]
+           ] : [
+             [["SPACE", "Select"], ["A", "All"], ["S", "Same model"], ["/", "Search"], ["TAB", "View"], ["1-4", "Inspector"], ["SHIFT+L", "Layout"], ["O", "Organization"]],
+             [["M", "Model"], ["C", "Color"], ["P", "Permissions"], ["G", "Delegations"], ["T", "Tune"], ["SHIFT+T", "Tier"], ["I", "Import"], ["V", "Repair models"]],
+             [["B", "Claude bridge"], ["SHIFT+B", "Codex bridge"], ["R", "Rename"], ["E", "Export"], ["F", "Fork"]]
           ]
          return (
            <box height={5} flexShrink={0} overflow="hidden" flexDirection="column" borderStyle="single" borderColor="#2B5581" paddingLeft={1} paddingRight={1}>
@@ -2115,7 +2178,24 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning }: AppPr
          )
        })()}
 
-      {/* Modal - Permission Presets */}
+       {viewMode === "layout" && (
+         <box style={{ position: "absolute", left: "10%", top: "24%", width: "80%", height: "52%" }} borderStyle="double" borderColor="cyan" backgroundColor="#1e1e1e" title=" Layout " titleColor="cyan" padding={1} flexDirection="column" justifyContent="space-between" overflow="hidden">
+           <box flexDirection="column" overflow="hidden">
+             <text style={{ textColor: "white" }} b>Adjust the normal list / inspector split</text>
+             <text style={{ textColor: "cyan" }} marginTop={1}>{`List ${Math.round(layoutDraft * 100)}%  /  Inspector ${Math.round((1 - layoutDraft) * 100)}%`}</text>
+             <text style={{ textColor: "gray" }} marginTop={1} wrapMode="none" overflow="hidden">{`[${"=".repeat(Math.max(1, Math.round(layoutDraft * 30)))}|${"-".repeat(Math.max(1, 30 - Math.round(layoutDraft * 30)))}]`}</text>
+             <text style={{ textColor: "gray" }} marginTop={1}>Preview applies to normal mode; the inspector may be hidden at this width.</text>
+             {configReadOnly && <text style={{ textColor: "yellow" }} marginTop={1}>Environment override is read-only: preview only; Enter will not save.</text>}
+             {layoutError && <text style={{ textColor: "red" }} marginTop={1} wrapMode="none" overflow="hidden">{layoutError}</text>}
+           </box>
+           <box borderStyle="single" border={['top']} borderColor="#333333" paddingTop={1}>
+             <text style={{ textColor: "gray" }}>←/→ or h/l adjust | ↑/↓ also adjust | Home .60 | End .75 | R reset</text>
+             <text style={{ textColor: "green" }}>[ENTER] Save | [ESC] Cancel</text>
+           </box>
+         </box>
+       )}
+
+       {/* Modal - Permission Presets */}
       {viewMode === "permission-preset" && (
         <box
           style={{

@@ -50,9 +50,11 @@ All commands support focused `--help` where implemented. Category output is unde
 
 ## TUI keymap
 
-Use arrows or `j/k`, `Tab` for list/tree, `/` search, `Space` select, `a` all/category, `s` same model, `m` model, `Shift-T` tier, `t` parameters, `c` color, `p` permission preset, `g` delegations, `r` rename, `o` organize, `f` fork, `b` Claude bridge, `Shift-B` Codex bridge, `e` export, `i` import diff, `1–4` inspector tabs, `F` fix permission order, `PageUp/PageDown` scroll, and `Esc` close modals. Modals support prompts, model/provider trees, tier assignment, color palettes, delegation toggles, import diffs, bridge configuration, confirmation dialogs, and action-result scrolling.
+Use arrows or `j/k`, `Tab` for list/tree, `/` search, `Space` select, `a` all/category, `s` same model, `m` model, `Shift-T` tier, `t` parameters, `c` color, `p` permission preset, `g` delegations, `r` rename, `o` organize, `f` fork, `b` Claude bridge, `Shift-B` Codex bridge, `e` export, `i` import diff, `1–4` inspector tabs, `Shift-L` layout, `F` fix permission order, `PageUp/PageDown` scroll, and `Esc` close modals. In the layout modal, arrows/`h/l` adjust the split, `Home`/`End` select bounds, `R` resets, `Enter` saves, and `Esc` cancels. Modals support prompts, model/provider trees, tier assignment, color palettes, delegation toggles, import diffs, bridge configuration, confirmation dialogs, and action-result scrolling.
 
 The TUI list/inspector split can be adjusted without writing to the repository. Create `.agent-manager/ui-config.json` with `{ "version": 1, "listShare": 0.6667 }`; values from `0.60` through `0.75` are accepted. Set `AGENT_MANAGER_UI_CONFIG` to use an external read-only config instead. Missing or invalid configuration uses the default two-thirds list share.
+
+Workspace saves use a SHA-256 revision and an exclusive `.agent-manager/ui-config.lock` to protect cooperating manager instances. Malformed files retain a revision, while missing files use the `missing` sentinel. This is practical cooperating-writer safety: portable Node cannot fully protect against an active same-user attacker swapping paths during the operation. Environment overrides remain read-only.
 
 ## Workflows and generated output
 
