@@ -2,7 +2,7 @@
 description: Fetches and summarizes external library documentation to ground the
   planner and executor in real APIs. Does not edit files.
 mode: subagent
-model: opencode-go/ox-alpha-free
+model: opencode/hy3-free
 temperature: 0.1
 permission:
   read: allow

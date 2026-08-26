@@ -1,7 +1,7 @@
 ---
 description: Fast low-cost agent for tiny, obvious, low-risk coding tasks and quick edits.
 mode: subagent
-model: opencode-go/ox-alpha-free
+model: opencode/hy3-free
 temperature: 0.1
 permission:
   read: allow

@@ -2,7 +2,7 @@
 description: Security vulnerability scanner. Reviews diffs for OWASP Top 10 and
   CWE patterns. Uses CWE-search MCP for classification. Does not edit files.
 mode: subagent
-model: opencode-go/ox-alpha-free
+model: opencode/hy3-free
 temperature: 0.1
 permission:
   read: allow

@@ -2,7 +2,7 @@
 description: Creates minimal implementation plans after repository context is
   available. Does not edit files.
 mode: subagent
-model: opencode-go/ox-alpha-free
+model: opencode/hy3-free
 temperature: 0.2
 permission:
   read: allow

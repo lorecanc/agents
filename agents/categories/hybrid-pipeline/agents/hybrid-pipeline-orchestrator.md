@@ -4,7 +4,7 @@ description: Primary coordinator for the hybrid-pipeline multi-agent workflow.
   specialized agents, and evaluates results. Never writes code or solves
   problems directly.
 mode: primary
-model: hybrid-for-coding/k3
+model: kimi-for-coding/k3
 temperature: 0.2
 permission:
   read: allow

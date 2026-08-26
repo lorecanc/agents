@@ -4,7 +4,7 @@ description: Frontend debugging and visual validation agent. Uses Chrome
   console error detection. Called in the frontend lane before and after code
   changes.
 mode: subagent
-model: opencode-go/ox-alpha-free
+model: opencode/hy3-free
 temperature: 0.1
 permission:
   read: allow

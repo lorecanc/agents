@@ -2,7 +2,7 @@
 description: Final validation agent for complex work. Checks whether the result
   satisfies the original request without overengineering.
 mode: subagent
-model: opencode-go/ox-alpha-free
+model: opencode/hy3-free
 temperature: 0.1
 permission:
   read: allow

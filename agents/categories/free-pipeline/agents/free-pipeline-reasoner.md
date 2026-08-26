@@ -2,7 +2,7 @@
 description: Deep reasoning agent for complex bugs, algorithms, architecture,
   performance, security, concurrency, and root-cause analysis.
 mode: subagent
-model: opencode-go/ox-alpha-free
+model: opencode/hy3-free
 temperature: 0.1
 permission:
   read: allow

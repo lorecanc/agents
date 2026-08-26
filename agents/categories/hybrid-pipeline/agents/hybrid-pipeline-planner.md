@@ -2,7 +2,7 @@
 description: Creates minimal implementation plans after repository context is
   available. Does not edit files.
 mode: subagent
-model: hybrid-for-coding/k3-256k
+model: kimi-for-coding/k3-256k
 temperature: 0.2
 permission:
   read: allow

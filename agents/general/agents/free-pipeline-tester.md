@@ -2,7 +2,7 @@
 description: Designs, writes, and evaluates tests for changed behavior. Focuses
   on minimal meaningful coverage and regression prevention.
 mode: subagent
-model: opencode-go/ox-alpha-free
+model: opencode/hy3-free
 temperature: 0.1
 permission:
   read: allow

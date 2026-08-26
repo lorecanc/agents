@@ -2,7 +2,7 @@
 description: Fast research agent for local docs, dependency usage, APIs,
   examples, and technical context. Prefers concise evidence-based synthesis.
 mode: subagent
-model: opencode-go/ox-alpha-free
+model: opencode/hy3-free
 temperature: 0.1
 permission:
   read: allow

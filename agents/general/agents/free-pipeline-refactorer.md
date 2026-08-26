@@ -2,7 +2,7 @@
 description: Performs behavior-preserving simplification and cleanup. No new
   features, no speculative architecture.
 mode: subagent
-model: opencode-go/ox-alpha-free
+model: opencode/hy3-free
 temperature: 0.1
 permission:
   read: allow

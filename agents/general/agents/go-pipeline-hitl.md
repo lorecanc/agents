@@ -3,7 +3,7 @@ description: Human-in-the-loop checkpoint agent. Generates Literate Diff Reports
   and interactive comprehension quizzes to ensure the developer understands all
   changes before proceeding. Speed regulator for the pipeline.
 mode: subagent
-model: opencode-go/deepseek-v4-flash
+model: opencode-go/hy3
 temperature: 0.3
 permission:
   read: allow

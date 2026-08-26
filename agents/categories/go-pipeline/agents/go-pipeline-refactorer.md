@@ -2,7 +2,7 @@
 description: Performs behavior-preserving simplification and cleanup. No new
   features, no speculative architecture.
 mode: subagent
-model: opencode-go/deepseek-v4-flash
+model: opencode-go/hy3
 temperature: 0.1
 permission:
   read: allow

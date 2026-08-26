@@ -4,7 +4,7 @@ description: Primary coordinator for the free-pipeline multi-agent workflow.
   specialized agents, and evaluates results. Never writes code or solves
   problems directly.
 mode: primary
-model: opencode-go/ox-alpha-free
+model: opencode/hy3-free
 temperature: 0.2
 permission:
   read: allow

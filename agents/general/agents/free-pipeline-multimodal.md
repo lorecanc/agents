@@ -2,7 +2,7 @@
 description: Handles visual inputs such as screenshots, UI mockups, diagrams,
   and image-based debugging before planning or implementation.
 mode: subagent
-model: opencode-go/ox-alpha-free
+model: opencode/hy3-free
 temperature: 0.2
 permission:
   read: allow

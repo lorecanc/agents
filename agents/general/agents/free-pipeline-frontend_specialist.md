@@ -3,7 +3,7 @@ description: Frontend specialist with access to shadcn/ui registry, 21st.dev
   component library, and Chrome DevTools. Recommends and installs components,
   validates design, and guides UI implementation.
 mode: subagent
-model: opencode-go/ox-alpha-free
+model: opencode/hy3-free
 temperature: 0.2
 permission:
   read: allow
