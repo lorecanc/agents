@@ -18,6 +18,13 @@ import {
 } from "./utils/translationConfig.js"
 import { AUTO_COMMIT_MESSAGES, isRepositoryLocalPath, repositoryTransaction, parseAutoCommitArgs } from "./utils/repositoryTransaction.js"
 import { buildCategoryDistribution, buildAllCategoryDistributions, recoverBuildAllCategoryDistributions, checkCategoryDistribution, loadCategoryManifest, packageCategoryDistributions, parseCategoryArgs } from "./utils/categoryDistribution.js"
+import { loadUiConfig } from "./utils/uiConfig.js"
+
+function repositoryMutation<T>(workspaceRoot: string, plan: string[] | { localPaths: string[]; externalPaths?: string[] }, message: string, mutation: () => T): T {
+  const result = repositoryTransaction(workspaceRoot, plan, message, mutation)
+  if (result.warning) console.error(`AUTO-COMMIT WARNING: ${result.warning.message}\n${result.warning.recovery}`)
+  return result.value
+}
 
 function askQuestion(query: string): Promise<string> {
   const rl = readline.createInterface({
@@ -119,7 +126,7 @@ Write agent instructions and prompts here.
     fs.mkdirSync(agentsDir, { recursive: true })
   }
 
-  repositoryTransaction(workspaceRoot, [targetPath], AUTO_COMMIT_MESSAGES.create, () => fs.writeFileSync(targetPath, frontmatter, "utf-8"))
+  repositoryMutation(workspaceRoot, [targetPath], AUTO_COMMIT_MESSAGES.create, () => fs.writeFileSync(targetPath, frontmatter, "utf-8"))
 
   console.log("\n------------------------------------------")
   console.log(`🎉 Agent successfully created!`)
@@ -267,7 +274,7 @@ Options:
     const { bridgeToCodex } = await import("./utils/codexBridge.js")
     const bridgeConfigPath = configFile || path.join(workspaceRoot, ".agent-manager", "translation-config.json")
     const bridgePlan = { localPaths: [bridgeConfigPath].filter(file => isRepositoryLocalPath(workspaceRoot, file)).concat(isRepositoryLocalPath(workspaceRoot, outputDir) ? [outputDir] : []), externalPaths: [bridgeConfigPath, outputDir].filter(file => !isRepositoryLocalPath(workspaceRoot, file)) }
-    const codexResult = repositoryTransaction(workspaceRoot, bridgePlan, AUTO_COMMIT_MESSAGES.bridge, () => {
+    const codexResult = repositoryMutation(workspaceRoot, bridgePlan, AUTO_COMMIT_MESSAGES.bridge, () => {
       if (wizard) saveTranslationConfig(workspaceRoot, config, configFile || undefined)
       return bridgeToCodex(categoryAgents, safePluginName, prefix, outputDir, workspaceRoot, { ...config, sourceDir })
     })
@@ -277,7 +284,7 @@ Options:
     const { bridgeToClaudeCode } = await import("./utils/bridge.js")
     const bridgeConfigPath = configFile || path.join(workspaceRoot, ".agent-manager", "translation-config.json")
     const bridgePlan = { localPaths: [bridgeConfigPath].filter(file => isRepositoryLocalPath(workspaceRoot, file)).concat(isRepositoryLocalPath(workspaceRoot, outputDir) ? [outputDir] : []), externalPaths: [bridgeConfigPath, outputDir].filter(file => !isRepositoryLocalPath(workspaceRoot, file)) }
-    const claudeResult = repositoryTransaction(workspaceRoot, bridgePlan, AUTO_COMMIT_MESSAGES.bridge, () => {
+    const claudeResult = repositoryMutation(workspaceRoot, bridgePlan, AUTO_COMMIT_MESSAGES.bridge, () => {
       if (wizard) saveTranslationConfig(workspaceRoot, config, configFile || undefined)
       return bridgeToClaudeCode(categoryAgents, safePluginName, prefix, outputDir, workspaceRoot, { ...config, sourceDir })
     })
@@ -454,7 +461,7 @@ async function runFixNames(workspaceRoot: string) {
   let successCount = 0
   let totalRefs = 0
   try {
-    const results = repositoryTransaction(workspaceRoot, plannedPaths, AUTO_COMMIT_MESSAGES.rename, () => {
+    const results = repositoryMutation(workspaceRoot, plannedPaths, AUTO_COMMIT_MESSAGES.rename, () => {
       const renamed = []
       for (const plan of plans) {
         const result = renameAgent(workspaceRoot, plan.agent.currentPath, path.basename(plan.destination), agents)
@@ -530,7 +537,7 @@ async function runImportCLI(workspaceRoot: string) {
   }
 
   try {
-    const res = repositoryTransaction(workspaceRoot, [path.join(workspaceRoot, "general", "agents")], AUTO_COMMIT_MESSAGES.import, () => importAgents(workspaceRoot))
+    const res = repositoryMutation(workspaceRoot, [path.join(workspaceRoot, "general", "agents")], AUTO_COMMIT_MESSAGES.import, () => importAgents(workspaceRoot))
     console.log(`\n✅ Successfully imported ${res.imported.length} agents!`)
     console.log(`   ${res.backupPath ? `Backup saved to: ${shortenHome(res.backupPath)}` : "No backup needed"}\n`)
   } catch (e: any) {
@@ -560,7 +567,7 @@ async function runTuneCLI(workspaceRoot: string) {
   console.log(`   Steps:       ${steps !== undefined ? steps : "unchanged"}`)
   console.log(`   Temperature: ${temp !== undefined ? temp : "unchanged"}\n`)
 
-  repositoryTransaction(workspaceRoot, targetAgents.map(a => a.currentPath), AUTO_COMMIT_MESSAGES.tune, () => updateAgentParams(targetAgents, { steps, temperature: temp }))
+  repositoryMutation(workspaceRoot, targetAgents.map(a => a.currentPath), AUTO_COMMIT_MESSAGES.tune, () => updateAgentParams(targetAgents, { steps, temperature: temp }))
   console.log(`✅ Successfully updated parameters for ${targetAgents.length} agents!\n`)
 }
 
@@ -579,7 +586,7 @@ async function runCategory(workspaceRoot: string) {
   if (parsed.action === "package") { const result = packageCategoryDistributions(repoRoot, parsed.ids || ids, parsed.output || "", parsed.dryRun); console.log(parsed.json ? JSON.stringify(result) : `${parsed.dryRun ? "Would package" : "Packaged"} ${result.categories.join(", ")} to ${parsed.output}`); return }
   const results = parsed.action === "build" && !parsed.id
     ? buildAllCategoryDistributions(repoRoot)
-    : ids.map(id => parsed.action === "check" || parsed.action === "status" ? checkCategoryDistribution(repoRoot, id) : repositoryTransaction(repoRoot, [path.join("agents", "categories", id)], `chore(agent-manager): build ${id} category`, () => buildCategoryDistribution(repoRoot, id)))
+    : ids.map(id => parsed.action === "check" || parsed.action === "status" ? checkCategoryDistribution(repoRoot, id) : repositoryMutation(repoRoot, [path.join("agents", "categories", id)], `chore(agent-manager): build ${id} category`, () => buildCategoryDistribution(repoRoot, id)))
   if (parsed.json) console.log(JSON.stringify(results)); else results.forEach((result, index) => console.log(result.status === "current" ? `Category ${ids[index]} is current.` : `Category ${ids[index]} is stale.\nMissing: ${result.missing.join(", ") || "none"}\nChanged: ${result.changed.join(", ") || "none"}\nExtra: ${result.extra.join(", ") || "none"}`))
   if ((parsed.action === "check" || parsed.action === "status") && results.some(result => result.status !== "current")) process.exitCode = 1
 }
@@ -657,13 +664,15 @@ async function run() {
   }
 
   // Otherwise, run TUI
+  const uiConfig = loadUiConfig(workspaceRoot)
+  if (uiConfig.warning) console.error(`UI CONFIG WARNING: ${uiConfig.warning}`)
   const renderer = await createCliRenderer({
     exitOnCtrlC: true,
     screenMode: "alternate-screen"
   })
 
   const root = createRoot(renderer)
-  root.render(<App workspaceRoot={workspaceRoot} />)
+  root.render(<App workspaceRoot={workspaceRoot} listShare={uiConfig.config.listShare} uiConfigWarning={uiConfig.warning} />)
 }
 
 run().catch((e) => {

@@ -1,5 +1,9 @@
 # OpenCode Agents Monorepo
 
+## Auto-commit semantics
+
+When enabled, repository auto-commit is best-effort: Git failures never block a valid mutation. Warnings include recovery guidance; unsafe plan validation and mutation errors still propagate.
+
 A reusable OpenCode workspace containing agent prompts, commands, skills, tools, category distributions, Claude/Codex bridges, and the terminal **Agent Manager**. Project-owned content is available under the MIT License.
 
 ## Purpose and audience
@@ -51,7 +55,7 @@ Canonical agent content is organized into category manifests and can be projecte
 
 ## Naming and categories
 
-Automatic repository commits are opt-in: use `--auto-commit` or `AGENT_MANAGER_AUTO_COMMIT=1`; the default is off and mutations go directly to the worktree without Git operations. `--no-auto-commit` or `AGENT_MANAGER_AUTO_COMMIT=0` explicitly disables it, and CLI flags take precedence. Enabled commits require a clean repository, use Git's real index, bypass hooks and signing, and publish only declared paths. A failure after real-index update may leave changes staged for manual recovery; the manager never resets or restores user work. Concurrent work after publication is preserved and reported. Like `git add`, an external edit to the same declared path during synchronous mutation before capture may become a candidate; stop edits when that matters or leave auto-commit off.
+Automatic repository commits are opt-in: use `--auto-commit` or `AGENT_MANAGER_AUTO_COMMIT=1`; the default is off and mutations go directly to the worktree without Git operations. `--no-auto-commit` or `AGENT_MANAGER_AUTO_COMMIT=0` explicitly disables it, and CLI flags take precedence. Enabled commits require a clean repository, then use Git’s native real index/ref locks and a literal, NUL-safe, path-limited `git commit --only`; only genuinely new paths receive `git add --intent-to-add`. Hooks, signing, and the editor are disabled for this private commit. Auto-commit is best-effort: failures never block a valid mutation, never reset or restore user work, and return a warning while preserving any index residue for manual recovery. Concurrent unrelated staging remains staged and is excluded from the commit. An edit to the same declared path during synchronous mutation may be included as the latest worktree state; stop edits when that matters or leave auto-commit off.
 
 Agent filenames follow `[{family}-]{category}-{role_with_underscores}.md`. Frontmatter category is authoritative for inference; the manager can lint and repair names. Keep source references pointed at canonical `general/` files.
 

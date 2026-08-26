@@ -2,8 +2,10 @@ import assert from "node:assert/strict"
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
+import { execFileSync, spawnSync } from "node:child_process"
 import test from "node:test"
 import { extractFrontmatter, getExportDestination, isInGeneralAgents, parseAgentFile, saveAgentFile, repairAgentModels, updateAgentsModel, forkCategory } from "./agents.js"
+import { AUTO_COMMIT_MESSAGES, repositoryTransaction } from "./repositoryTransaction.js"
 
 function fixtureAgent(filePath: string, workspace: string, model: unknown) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true })
@@ -11,6 +13,22 @@ function fixtureAgent(filePath: string, workspace: string, model: unknown) {
   if (model !== undefined) frontmatter.model = model
   saveAgentFile(filePath, frontmatter, "body")
   return parseAgentFile(filePath, workspace)!
+}
+
+function git(root: string, ...args: string[]) {
+  return execFileSync("git", ["-C", root, ...args], { encoding: "utf8" }).trim()
+}
+
+function gitAgentRepository() {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "agent-model-git-")))
+  git(root, "init", "-q")
+  git(root, "config", "user.name", "Test")
+  git(root, "config", "user.email", "test@example.com")
+  const paths = ["general/agents/one.md", "general/agents/two.md"].map(name => path.join(root, name))
+  for (const [index, filePath] of paths.entries()) fixtureAgent(filePath, root, `old/model-${index}`)
+  git(root, "add", ".")
+  git(root, "commit", "-qm", "initial")
+  return { root, paths }
 }
 
 test("grouped model repair validates all groups and applies one old value to N agents", () => {
@@ -39,6 +57,105 @@ test("model update applies atomically to two agents and synchronizes memory", ()
     assert.equal(agent.rawContent, fs.readFileSync(agent.currentPath, "utf8"))
     assert.equal(parseAgentFile(agent.currentPath, workspace)!.model, "new/model")
   }
+})
+
+test("model update uses one repository transaction for real agent files", () => {
+  const { root, paths } = gitAgentRepository()
+  const agents = paths.map(filePath => parseAgentFile(filePath, root)!)
+  const head = git(root, "rev-parse", "HEAD")
+  process.env.AGENT_MANAGER_AUTO_COMMIT = "1"
+
+  const result = repositoryTransaction(root, paths, AUTO_COMMIT_MESSAGES.tune, () => {
+    updateAgentsModel(agents, "verified/model", ["verified/model"])
+  })
+
+  assert.equal(result.commit, "committed")
+  assert.ok(result.commitHash)
+  assert.equal(git(root, "rev-list", "--count", "HEAD"), "2")
+  assert.notEqual(git(root, "rev-parse", "HEAD"), head)
+  assert.equal(git(root, "show", "--format=", "--name-only", "HEAD"), "general/agents/one.md\ngeneral/agents/two.md")
+  assert.equal(git(root, "status", "--porcelain"), "")
+  for (const filePath of paths) assert.equal(parseAgentFile(filePath, root)!.model, "verified/model")
+})
+
+test("dirty unrelated work is preserved and model transaction does not stage it", () => {
+  const { root, paths } = gitAgentRepository()
+  const agents = paths.map(filePath => parseAgentFile(filePath, root)!)
+  const unrelated = path.join(root, "unrelated.txt")
+  fs.writeFileSync(unrelated, "keep dirty\n")
+  process.env.AGENT_MANAGER_AUTO_COMMIT = "1"
+
+  const result = repositoryTransaction(root, paths, AUTO_COMMIT_MESSAGES.tune, () => updateAgentsModel(agents, "verified/model", ["verified/model"]))
+
+  assert.equal(result.commit, "skipped")
+  assert.equal(result.warning?.code, "dirty-repository")
+  assert.equal(git(root, "rev-list", "--count", "HEAD"), "1")
+  assert.equal(git(root, "diff", "--cached", "--name-only"), "")
+  assert.equal(fs.readFileSync(unrelated, "utf8"), "keep dirty\n")
+  for (const filePath of paths) assert.equal(parseAgentFile(filePath, root)!.model, "verified/model")
+})
+
+test("dirty auto-commit updates both real model files, skips with a warning, and does not stage them", () => {
+  const { root, paths } = gitAgentRepository()
+  const agents = paths.map(filePath => parseAgentFile(filePath, root)!)
+  fs.writeFileSync(path.join(root, "unrelated.txt"), "pre-existing work\n")
+  process.env.AGENT_MANAGER_AUTO_COMMIT = "1"
+
+  const result = repositoryTransaction(root, paths, AUTO_COMMIT_MESSAGES.tune, () => {
+    updateAgentsModel(agents, "verified/model", ["verified/model"])
+  })
+
+  assert.equal(result.commit, "skipped")
+  assert.equal(result.warning?.code, "dirty-repository")
+  assert.equal(git(root, "rev-list", "--count", "HEAD"), "1")
+  assert.equal(git(root, "diff", "--cached", "--name-only"), "")
+  assert.match(git(root, "status", "--porcelain"), /unrelated\.txt/)
+  for (const filePath of paths) assert.equal(parseAgentFile(filePath, root)!.model, "verified/model")
+})
+
+test("CLI auto-commit warnings are written to stderr only", () => {
+  const { root } = gitAgentRepository()
+  fs.writeFileSync(path.join(root, "unrelated.txt"), "dirty\n")
+  const cli = spawnSync(process.execPath, [path.resolve("dist/index.js"), "tune", "--steps", "10"], {
+    cwd: root,
+    encoding: "utf8",
+    env: { ...process.env, AGENT_MANAGER_AUTO_COMMIT: "1" }
+  })
+
+  assert.equal(cli.status, 0, cli.stderr)
+  assert.match(cli.stderr, /AUTO-COMMIT WARNING:/)
+  assert.doesNotMatch(cli.stdout, /AUTO-COMMIT WARNING:/)
+})
+
+test("index.lock failure returns a warning without throwing and keeps both model files", () => {
+  const { root, paths } = gitAgentRepository()
+  const agents = paths.map(filePath => parseAgentFile(filePath, root)!)
+  process.env.AGENT_MANAGER_AUTO_COMMIT = "1"
+  const indexLock = path.join(root, ".git", "index.lock")
+
+  const result = repositoryTransaction(root, paths, AUTO_COMMIT_MESSAGES.tune, () => {
+    updateAgentsModel(agents, "verified/model", ["verified/model"])
+    fs.writeFileSync(indexLock, "held\n")
+  })
+
+  assert.equal(result.commit, "failed")
+  assert.equal(result.warning?.code, "git-failure")
+  for (const filePath of paths) assert.equal(parseAgentFile(filePath, root)!.model, "verified/model")
+  assert.match(git(root, "status", "--porcelain"), /general\/agents\/(one|two)\.md/)
+  fs.rmSync(indexLock)
+})
+
+test("model transaction stays dirty when auto-commit is disabled", () => {
+  const { root, paths } = gitAgentRepository()
+  const agents = paths.map(filePath => parseAgentFile(filePath, root)!)
+  delete process.env.AGENT_MANAGER_AUTO_COMMIT
+
+  const result = repositoryTransaction(root, paths, AUTO_COMMIT_MESSAGES.tune, () => updateAgentsModel(agents, "verified/model", ["verified/model"]))
+
+  assert.equal(result.commit, "off")
+  assert.equal(git(root, "rev-list", "--count", "HEAD"), "1")
+  assert.match(git(root, "status", "--porcelain"), /general\/agents\/(one|two)\.md/)
+  for (const filePath of paths) assert.equal(parseAgentFile(filePath, root)!.model, "verified/model")
 })
 
 test("model update restores both raw files and in-memory agents when the second writer fails", () => {

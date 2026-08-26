@@ -31,12 +31,14 @@ import { loadModelCatalog, suggestModels, collectInvalidModelGroups, modelDispla
 import { bridgeToClaudeCode } from "./utils/bridge.js"
 import { bridgeToCodex } from "./utils/codexBridge.js"
 import { buildInferenceIndex, loadTranslationConfig, resolveModelTarget, resolveRole, saveTranslationConfig, type TranslationConfig } from "./utils/translationConfig.js"
-import { AUTO_COMMIT_MESSAGES, autoCommitEnabled, repositoryTransaction } from "./utils/repositoryTransaction.js"
-import { calculateLayout, calculateListColumnBudget } from "./utils/layout.js"
+import { AUTO_COMMIT_MESSAGES, autoCommitEnabled, repositoryTransaction, type TransactionWarning } from "./utils/repositoryTransaction.js"
+import { calculateLayout, calculateListColumnBudget, calculatePanelWidths } from "./utils/layout.js"
 import { displayWidth, middleEllipsis, terminalSafeText } from "./utils/terminalText.js"
 
 interface AppProps {
   workspaceRoot: string
+  listShare?: number
+  uiConfigWarning?: string
 }
 
 type ViewMode =
@@ -145,8 +147,8 @@ interface ColorTreeItem {
   value: string
 }
 
-export function App({ workspaceRoot }: AppProps) {
-  const mutate = <T,>(paths: string[], operation: keyof typeof AUTO_COMMIT_MESSAGES, fn: () => T): T =>
+export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning }: AppProps) {
+  const mutate = <T,>(paths: string[], operation: keyof typeof AUTO_COMMIT_MESSAGES, fn: () => T) =>
     repositoryTransaction(workspaceRoot, paths, AUTO_COMMIT_MESSAGES[operation], fn)
   // Data State
   const [agents, setAgents] = useState<AgentInfo[]>([])
@@ -182,7 +184,16 @@ export function App({ workspaceRoot }: AppProps) {
   // Action output may contain paths, command output, parser values, or errors.
   // Sanitize at the state boundary so every result view remains terminal-safe.
   const setActionResultTitle = (value: unknown) => setRawActionResultTitle(terminalSafeText(value))
-  const setActionResultLines = (values: unknown[]) => setRawActionResultLines(values.map(terminalSafeText))
+  const setActionResultLines = (values: unknown[]) => {
+    setRawActionResultLines(values.map(terminalSafeText))
+  }
+  const setMutationSuccess = (title: string, values: unknown[], warning?: TransactionWarning) => {
+    const lines = values.map(terminalSafeText)
+    setActionResultTitle(title)
+    setActionResultLines(warning
+      ? [`⚠ AUTO-COMMIT: ${warning.message}`, `  ${warning.recovery}`, "", ...lines]
+      : lines)
+  }
   const [actionResultScrollOffset, setActionResultScrollOffset] = useState(0)
 
   // Fork Category State
@@ -272,7 +283,11 @@ export function App({ workspaceRoot }: AppProps) {
 
   // Load agents and models on startup
   useEffect(() => {
-    refreshData()
+    try { refreshData() } catch (e) {
+      setActionResultTitle("Error Refreshing Agents")
+      setActionResultLines([`An error occurred:`, `  ${(e as any)?.message || e}`])
+      setViewMode("action-result")
+    }
     try {
        const catalog = loadModelCatalog(true)
        setModelCatalog(catalog)
@@ -286,10 +301,19 @@ export function App({ workspaceRoot }: AppProps) {
 
   // Terminal dimensions are also the source of truth for the main screen budget.
   const { width: termWidth = 80, height: termHeight = 24 } = useTerminalDimensions() || {}
-  const layout = calculateLayout(termWidth, termHeight, modelCatalog.status !== "verified" || invalidModelGroups.length > 0)
+  const statusMessages = [
+    uiConfigWarning ? `⚠ ${terminalSafeText(uiConfigWarning)}` : "",
+    modelCatalog.status === "unavailable" ? "⚠ Model catalog unavailable — press M, then Y to retry." : "",
+    modelCatalog.status === "verified" && invalidModelGroups.length > 0 ? `⚠ ${invalidModelGroups.length} invalid model group(s) — [V] Repair; [M] Choose a model.` : ""
+  ].filter(Boolean)
+  const statusMessage = statusMessages.join(" | ")
+  const layout = calculateLayout(termWidth, termHeight, statusMessages.length > 0)
   // Keep the table's integer cell widths independent from percentage rounding.
-  const listPanelWidth = layout.mode === "normal" ? Math.floor((termWidth - 1) / 2) : termWidth - 2
+  const panelWidths = calculatePanelWidths(termWidth, layout.mode, listShare)
+  const listPanelWidth = panelWidths.list
   const listContentWidth = Math.max(0, listPanelWidth - 4)
+  const footerFirstWidth = Math.floor(listContentWidth / 2)
+  const footerSecondWidth = Math.max(0, listContentWidth - footerFirstWidth)
   const listColumns = calculateListColumnBudget(listContentWidth, viewStyle === "tree" ? "compact" : layout.mode)
   const columnWidth = (index: number) => listColumns.widths[index] || 0
   const gutter = (key: string) => <text key={key} width={listColumns.gutters[0] || 0}> </text>
@@ -298,17 +322,21 @@ export function App({ workspaceRoot }: AppProps) {
     ? `~${workspaceRoot.slice(os.homedir().length)}`
     : workspaceRoot
   const styleLabel = `Style: ${viewStyle.toUpperCase()}`
-  const commitLabel = `Commit: ${autoCommitEnabled() ? "ON" : "OFF"}`
+  const fullCommitLabel = `Commit: ${autoCommitEnabled() ? "ON" : "OFF"}`
+  const compactCommitLabel = `C:${autoCommitEnabled() ? "ON" : "OFF"}`
   const workspaceLabel = `Workspace: ${displayWorkspace}`
   const headerSeparator = " | "
+  const statusMessageWidth = Math.max(1, termWidth - 2)
   const headerContentWidth = Math.max(0, termWidth - 2 - 2 - 4)
-  const headerMetaWidth = Math.max(0, headerContentWidth - displayWidth(headerTitle) - 1)
+  const headerTitleWidth = Math.max(1, Math.min(displayWidth(headerTitle), headerContentWidth - (termWidth >= 40 ? displayWidth(compactCommitLabel) + 1 : 0)))
+  const headerMetaWidth = Math.max(0, headerContentWidth - headerTitleWidth - 1)
+  const commitLabel = headerMetaWidth >= displayWidth(fullCommitLabel) ? fullCommitLabel : compactCommitLabel
   const commitWidth = displayWidth(commitLabel)
   const styleWidth = displayWidth(styleLabel)
   const separatorWidth = displayWidth(headerSeparator)
   const fixedMetaWidth = styleWidth + commitWidth + separatorWidth * 2
   const showStyleAndCommit = headerMetaWidth >= fixedMetaWidth
-  const showCommit = showStyleAndCommit || headerMetaWidth >= commitWidth
+  const showCommit = termWidth >= 40 && headerMetaWidth >= commitWidth
   const showStyle = showStyleAndCommit || (!showCommit && headerMetaWidth >= styleWidth)
   const workspaceWidth = showStyleAndCommit ? headerMetaWidth - fixedMetaWidth : 0
   const maxVisibleItems = layout.listRows
@@ -352,14 +380,17 @@ export function App({ workspaceRoot }: AppProps) {
   }, [importDiffs.length, maxVisibleImportDiffs])
 
   const refreshData = () => {
-    try {
-       const list = findAgentFiles(workspaceRoot, translationConfig?.sourceDir || "general")
-      setAgents(list)
-    } catch (e) {
-      setActionResultTitle("Error Refreshing Agents")
-      setActionResultLines([`An error occurred:`, `  ${(e as any)?.message || e}`])
-      setViewMode("action-result")
-    }
+    const list = findAgentFiles(workspaceRoot, translationConfig?.sourceDir || "general")
+    setAgents(list)
+  }
+
+  const setMutationRefreshFailure = (error: unknown, warning?: TransactionWarning) => {
+    setActionResultTitle("Change completed, refresh failed")
+    setActionResultLines([
+      ...(warning ? [`⚠ AUTO-COMMIT: ${warning.message}`, `  ${warning.recovery}`, ""] : []),
+      `An error occurred:`, `  ${(error as any)?.message || error}`
+    ])
+    setViewMode("action-result")
   }
 
   const inferenceIndex = useMemo(
@@ -382,13 +413,14 @@ export function App({ workspaceRoot }: AppProps) {
       const safePluginName = sanitizeFilename(bridgePluginName)
       const bridgeFolder = bridgeTarget === "codex" ? "codex" : "claude-code"
       const outputDir = `${workspaceRoot}/bridges/${bridgeFolder}/${safePluginName}`
-      const result = mutate([path.join(workspaceRoot, ".agent-manager", "translation-config.json"), outputDir], "bridge", () => {
+       const tx = mutate([path.join(workspaceRoot, ".agent-manager", "translation-config.json"), outputDir], "bridge", () => {
         saveTranslationConfig(workspaceRoot, { ...bridgeConfig, pluginName: bridgePluginName, prefix: bridgePipelinePrefix, sourceDir: bridgeSourceDir })
         return bridgeTarget === "codex"
           ? bridgeToCodex(selectedAgents, bridgePluginName, bridgePipelinePrefix, outputDir, workspaceRoot, { ...bridgeConfig, pluginName: bridgePluginName, prefix: bridgePipelinePrefix, sourceDir: bridgeSourceDir })
           : bridgeToClaudeCode(selectedAgents, bridgePluginName, bridgePipelinePrefix, outputDir, workspaceRoot, { ...bridgeConfig, pluginName: bridgePluginName, prefix: bridgePipelinePrefix, sourceDir: bridgeSourceDir })
       })
-      setSelectedAgentPaths(new Set())
+       const result = tx.value
+       setSelectedAgentPaths(new Set())
       setActionResultTitle(`Bridge to ${bridgeTarget === "codex" ? "Codex" : "Claude Code"} Complete`)
       const lines = [`${bridgeTarget === "codex" ? "Translation layer" : "Plugin"} '${safePluginName}' generated successfully!`, `Output directory:`, `  ${result.pluginDir}`, ``, `Generated ${result.files.length} files:`, ...result.files.map((f) => `  * ${f}`)]
       if (result.warnings.length > 0) lines.push(``, `⚠ Warnings:`, ...result.warnings.map((w) => `  * ${w}`))
@@ -397,7 +429,8 @@ export function App({ workspaceRoot }: AppProps) {
         lines.push(``, `Preview summary: ${Object.entries(counts).map(([source, count]) => `${count} by ${source}`).join(", ")}`, ...result.preview.map(item => `  ${item.agent} → ${item.role} → ${item.tier} → ${item.model} → ${item.source}`))
       }
       lines.push(``, ...(bridgeTarget === "codex" ? [`Codex project-scoped agents:`, `  cd ${result.pluginDir} && codex`, ``, `Plugin manifest:`, `  ${result.pluginDir}/.codex-plugin/plugin.json`] : [`Validate and run locally:`, `  claude plugin validate ${result.pluginDir} --strict`, `  claude --plugin-dir ${result.pluginDir} --agent orchestrator`]))
-      setActionResultLines(lines)
+       try { refreshData() } catch (error) { setMutationRefreshFailure(error, tx.warning); setViewMode("action-result"); return }
+       setMutationSuccess(`Bridge to ${bridgeTarget === "codex" ? "Codex" : "Claude Code"} Complete`, lines, tx.warning)
       setViewMode("action-result")
     } catch (error: any) {
       setActionResultTitle("Error During Bridge")
@@ -767,10 +800,10 @@ export function App({ workspaceRoot }: AppProps) {
         }
         if (activeItems.length === 0 || (!activeItems[focusedIndex]?.agent && selectedAgentPaths.size === 0)) {
           setActionResultTitle("No Agent Focused")
-          setActionResultLines([
-            "Please select at least one agent (using SPACE)",
-            "before trying to change the model."
-          ])
+           setActionResultLines([
+             "Please select at least one agent (using SPACE)",
+             "before trying to change the model."
+           ])
           setViewMode("action-result")
         } else {
           setFocusedModelIndex(0)
@@ -926,11 +959,11 @@ export function App({ workspaceRoot }: AppProps) {
       } else if (isUppercaseF && inspectorTab === "security" && activeItems[focusedIndex]?.agent) {
         const ag = activeItems[focusedIndex].agent!
         try {
-          const fixed = mutate([ag.currentPath], "tune", () => fixPermissionOrder(ag))
-          if (fixed) {
-            refreshData()
-            setActionResultTitle("Permission Order Fixed")
-            setActionResultLines([
+           const tx = mutate([ag.currentPath], "tune", () => fixPermissionOrder(ag))
+           const fixed = tx.value
+           if (fixed) {
+              try { refreshData() } catch (error) { setMutationRefreshFailure(error, tx.warning); return }
+               setMutationSuccess("Permission Order Fixed", [
               `Successfully reordered permissions for:`,
               `  ${ag.filename}`,
               `Placed wildcard "*": "deny" FIRST to comply with OpenCode spec.`
@@ -939,7 +972,7 @@ export function App({ workspaceRoot }: AppProps) {
             setActionResultTitle("Nothing to Fix")
             setActionResultLines([`Permission order is already correct for ${ag.filename}.`])
           }
-        } catch (error: any) {
+             } catch (error: any) {
           setActionResultTitle("Error Fixing Permission Order")
           setActionResultLines([`An error occurred:`, `  ${error.message || error}`])
         }
@@ -1031,11 +1064,10 @@ export function App({ workspaceRoot }: AppProps) {
                 ? agents.filter((a) => selectedAgentPaths.has(a.currentPath))
                 : (activeItems[focusedIndex]?.agent ? [activeItems[focusedIndex].agent!] : [])
                if (!modelCatalog.models.includes(selectedModel)) throw new Error("Model is not present in refreshed catalog")
-               mutate(selectedAgents.map(a => a.currentPath), "tune", () => updateAgentsModel(selectedAgents, selectedModel, modelCatalog.models))
-              refreshData()
-              setSelectedAgentPaths(new Set())
-              setActionResultTitle("Model Updated Successfully")
-              setActionResultLines([`Successfully set model:`, `  ${selectedModel}`, `on ${selectedAgents.length} agents.`])
+               const tx = mutate(selectedAgents.map(a => a.currentPath), "tune", () => updateAgentsModel(selectedAgents, selectedModel, modelCatalog.models))
+               try { refreshData() } catch (error) { setMutationRefreshFailure(error, tx.warning); return }
+               setSelectedAgentPaths(new Set())
+                setMutationSuccess("Model Updated Successfully", [`Successfully set model:`, `  ${selectedModel}`, `on ${selectedAgents.length} agents.`], tx.warning)
             } catch (error: any) {
               setActionResultTitle("Error Updating Model")
               setActionResultLines([`An error occurred:`, `  ${error.message || error}`])
@@ -1055,11 +1087,11 @@ export function App({ workspaceRoot }: AppProps) {
       else if (key === "enter" || key === "return" || key === "y") {
         try {
           const mappings = invalidModelGroups.map((group, index) => ({ oldModel: group.value, newModel: repairMappings[String(index)], agentPaths: group.agents.map(agent => agent.currentPath) }))
-          const result = mutate(mappings.flatMap(mapping => mapping.agentPaths), "tune", () => repairAgentModels(agents, mappings, modelCatalog.status === "verified" ? modelCatalog.models : []))
-          refreshData()
+           const tx = mutate(mappings.flatMap(mapping => mapping.agentPaths), "tune", () => repairAgentModels(agents, mappings, modelCatalog.status === "verified" ? modelCatalog.models : []))
+           const result = tx.value
+           try { refreshData() } catch (error) { setMutationRefreshFailure(error, tx.warning); return }
           setSelectedAgentPaths(new Set())
-          setActionResultTitle("Grouped Model Repair Complete")
-          setActionResultLines([`Repaired ${result.groups} group(s); changed ${result.agentsChanged} agent(s).`, "Writes were validated against the loaded catalog."])
+            setMutationSuccess("Grouped Model Repair Complete", [`Repaired ${result.groups} group(s); changed ${result.agentsChanged} agent(s).`, "Writes were validated against the loaded catalog."], tx.warning)
           setViewMode("action-result")
         } catch (error: any) {
           setActionResultTitle("Error During Grouped Repair")
@@ -1091,16 +1123,15 @@ export function App({ workspaceRoot }: AppProps) {
           const impacted = agents.filter(agent => !targetAgents.some(target => target.currentPath === agent.currentPath) && roles.has(resolveRole(agent, translationConfig)))
           const nextConfig = { ...translationConfig, roles: { ...translationConfig.roles } }
           roles.forEach(role => { nextConfig.roles[role] = chosenTier })
-           mutate([path.join(workspaceRoot, ".agent-manager", "translation-config.json")], "config", () => saveTranslationConfig(workspaceRoot, nextConfig))
-           setTranslationConfig(loadTranslationConfig(workspaceRoot, undefined, { persistMigration: false }))
-          refreshData()
+            const tx = mutate([path.join(workspaceRoot, ".agent-manager", "translation-config.json")], "config", () => saveTranslationConfig(workspaceRoot, nextConfig))
+            setTranslationConfig(loadTranslationConfig(workspaceRoot, undefined, { persistMigration: false }))
+            try { refreshData() } catch (error) { setMutationRefreshFailure(error, tx.warning); return }
           setSelectedAgentPaths(new Set())
-          setActionResultTitle("Tier Assigned Successfully")
-          setActionResultLines([
+            setMutationSuccess("Tier Assigned Successfully", [
             `Tier: ${chosenTier}`,
             `Roles modified: ${Array.from(roles).join(", ") || "none"}`,
             ...(impacted.length ? [`⚠ Shared-role impact on non-selected agents:`, ...impacted.map(agent => `  ${agent.filename}`)] : ["No non-selected agents share these roles."])
-          ])
+           ], tx.warning)
         } catch (error: any) {
           setActionResultTitle("Error Assigning Tier")
           setActionResultLines(["An error occurred:", `  ${error.message || error}`])
@@ -1113,15 +1144,15 @@ export function App({ workspaceRoot }: AppProps) {
       // 4. Auto-organize confirm mode
       if (key === "y" || key === "enter" || key === "return") {
         try {
-            const { copied, skipped, backupsPath } = mutate(agents.flatMap(a => [a.currentPath, a.targetPath]), "organize", () => organizeAgents(workspaceRoot, agents))
-          refreshData()
-          setActionResultTitle("Reorganization Complete")
-          setActionResultLines([
+            const tx = mutate(agents.flatMap(a => [a.currentPath, a.targetPath]), "organize", () => organizeAgents(workspaceRoot, agents))
+            const { copied, skipped, backupsPath } = tx.value
+           try { refreshData() } catch (error) { setMutationRefreshFailure(error, tx.warning); return }
+           setMutationSuccess("Reorganization Complete", [
             `Local backup created at:`,
             `  ${backupsPath}`,
             ``,
             `Copied ${copied.length} files to category directories:`
-           ].concat(copied.map((line) => `  * ${line}`), skipped.length > 0 ? [``, `Skipped ${skipped.length} files (manifest-backed categories require category build):`, ...skipped.map((line) => `  * ${line}`)] : []))
+           ].concat(copied.map((line) => `  * ${line}`), skipped.length > 0 ? [``, `Skipped ${skipped.length} files (manifest-backed categories require category build):`, ...skipped.map((line) => `  * ${line}`)] : []), tx.warning)
         } catch (error: any) {
           setActionResultTitle("Error During Reorganization")
           setActionResultLines([`An error occurred:`, `  ${error.message || error}`])
@@ -1146,17 +1177,17 @@ export function App({ workspaceRoot }: AppProps) {
         if (!forkFindQuery) return
         try {
           const selectedPaths: string[] | undefined = selectedAgentPaths.size > 0 ? Array.from(selectedAgentPaths) : undefined
-           const result = mutate([path.join(workspaceRoot, "general", "agents")], "fork", () => forkCategory(workspaceRoot, forkSourceCategory, forkFindQuery, forkReplaceQuery, selectedPaths))
-          refreshData()
+            const tx = mutate([path.join(workspaceRoot, "general", "agents")], "fork", () => forkCategory(workspaceRoot, forkSourceCategory, forkFindQuery, forkReplaceQuery, selectedPaths))
+            const result = tx.value
+                try { refreshData() } catch (error) { setMutationRefreshFailure(error, tx.warning); return }
           setSelectedAgentPaths(new Set())
-          setActionResultTitle("Fork Category Complete")
-          setActionResultLines([
+           setMutationSuccess("Fork Category Complete", [
             `Category '${forkSourceCategory}' successfully forked!`,
             result.backupsPath ? `Local backup created at:` : `No backup needed`,
             ...(result.backupsPath ? [`  ${result.backupsPath}`] : []),
             ``,
             `Forked ${result.copied.length} files under general/agents/:`
-          ].concat(result.copied.map((line) => `  * ${line}`), result.skipped.length > 0 ? [``, `Skipped ${result.skipped.length} files:`, ...result.skipped.map((line) => `  * ${line}`)] : []))
+           ].concat(result.copied.map((line) => `  * ${line}`), result.skipped.length > 0 ? [``, `Skipped ${result.skipped.length} files:`, ...result.skipped.map((line) => `  * ${line}`)] : []), tx.warning)
           setViewMode("action-result")
         } catch (error: any) {
           setActionResultTitle("Error During Fork")
@@ -1272,11 +1303,10 @@ export function App({ workspaceRoot }: AppProps) {
               const selectedAgents = selectedAgentPaths.size > 0
                 ? agents.filter((a) => selectedAgentPaths.has(a.currentPath))
                 : (activeItems[focusedIndex]?.agent ? [activeItems[focusedIndex].agent!] : [])
-              mutate(selectedAgents.map(a => a.currentPath), "tune", () => updateAgentsColor(selectedAgents, selectedColor))
-              refreshData()
+               const tx = mutate(selectedAgents.map(a => a.currentPath), "tune", () => updateAgentsColor(selectedAgents, selectedColor))
+                try { refreshData() } catch (error) { setMutationRefreshFailure(error, tx.warning); return }
               setSelectedAgentPaths(new Set())
-              setActionResultTitle("Color Updated Successfully")
-              setActionResultLines([`Successfully set color:`, `  ${selectedColor} (${item.label.trim()})`, `on ${selectedAgents.length} agents.`])
+                setMutationSuccess("Color Updated Successfully", [`Successfully set color:`, `  ${selectedColor} (${item.label.trim()})`, `on ${selectedAgents.length} agents.`], tx.warning)
             } catch (error: any) {
               setActionResultTitle("Error Updating Color")
               setActionResultLines([`An error occurred:`, `  ${error.message || error}`])
@@ -1299,11 +1329,10 @@ export function App({ workspaceRoot }: AppProps) {
           ? agents.filter((a) => selectedAgentPaths.has(a.currentPath))
           : (activeItems[focusedIndex]?.agent ? [activeItems[focusedIndex].agent!] : [])
         try {
-           mutate(targetAgents.map(a => a.currentPath), "tune", () => applySafetyPreset(targetAgents, preset.key))
-          refreshData()
+           const tx = mutate(targetAgents.map(a => a.currentPath), "tune", () => applySafetyPreset(targetAgents, preset.key))
+           try { refreshData() } catch (error) { setMutationRefreshFailure(error, tx.warning); return }
           setSelectedAgentPaths(new Set())
-          setActionResultTitle("Safety Preset Applied")
-          setActionResultLines([`Successfully applied preset '${preset.name}'`, `to ${targetAgents.length} agents.`])
+            setMutationSuccess("Safety Preset Applied", [`Successfully applied preset '${preset.name}'`, `to ${targetAgents.length} agents.`], tx.warning)
         } catch (error: any) {
           setActionResultTitle("Error Applying Safety Preset")
           setActionResultLines([`An error occurred:`, `  ${error.message || error}`])
@@ -1349,10 +1378,9 @@ export function App({ workspaceRoot }: AppProps) {
         if (delegationTargetAgent) {
           const allowedNames: string[] = Array.from(selectedDelegations)
           try {
-             mutate([delegationTargetAgent.currentPath], "tune", () => updateAgentDelegations(delegationTargetAgent, allowedNames))
-            refreshData()
-            setActionResultTitle("Delegation Graph Updated")
-            setActionResultLines([`Updated subagent delegation permissions for:`, `  ${delegationTargetAgent.filename}`, ``, `Allowed subagents (${allowedNames.length}):`, ...allowedNames.map((name) => `  * ${name}`)])
+             const tx = mutate([delegationTargetAgent.currentPath], "tune", () => updateAgentDelegations(delegationTargetAgent, allowedNames))
+             try { refreshData() } catch (error) { setMutationRefreshFailure(error, tx.warning); return }
+             setMutationSuccess("Delegation Graph Updated", [`Updated subagent delegation permissions for:`, `  ${delegationTargetAgent.filename}`, ``, `Allowed subagents (${allowedNames.length}):`, ...allowedNames.map((name) => `  * ${name}`)], tx.warning)
           } catch (error: any) {
             setActionResultTitle("Error Updating Delegations")
             setActionResultLines([`An error occurred:`, `  ${error.message || error}`])
@@ -1404,22 +1432,21 @@ export function App({ workspaceRoot }: AppProps) {
         }
 
         try {
-          mutate(targetAgents.map(a => a.currentPath), "tune", () => updateAgentParams(targetAgents, {
+          const tx = mutate(targetAgents.map(a => a.currentPath), "tune", () => updateAgentParams(targetAgents, {
           steps: stepsNum,
           temperature: tempNum,
           mode: tuningMode,
           hidden: tuningHidden
           }))
-          refreshData()
+          try { refreshData() } catch (error) { setMutationRefreshFailure(error, tx.warning); return }
           setSelectedAgentPaths(new Set())
-          setActionResultTitle("Parameters Updated Successfully")
-          setActionResultLines([
+           setMutationSuccess("Parameters Updated Successfully", [
           `Successfully tuned parameters for ${targetAgents.length} agents:`,
           `  * Steps:  ${tuningSteps || "unchanged"}`,
           `  * Temp:   ${tuningTemp || "unchanged"}`,
           `  * Mode:   ${tuningMode}`,
           `  * Hidden: ${tuningHidden}`
-          ])
+           ], tx.warning)
         } catch (error: any) {
           setActionResultTitle("Error Updating Parameters")
           setActionResultLines([`An error occurred:`, `  ${error.message || error}`])
@@ -1462,17 +1489,17 @@ export function App({ workspaceRoot }: AppProps) {
         const newFilename = fam ? `${fam}-${cat}-${role}.md` : `${cat}-${role}.md`
         try {
            const destination = path.join(path.dirname(renameTargetAgent.currentPath), sanitizeFilename(newFilename))
-           const result = mutate([renameTargetAgent.currentPath, destination, ...agents.map(a => a.currentPath)], "rename", () => renameAgent(workspaceRoot, renameTargetAgent.currentPath, newFilename, agents))
-          refreshData()
+            const tx = mutate([renameTargetAgent.currentPath, destination, ...agents.map(a => a.currentPath)], "rename", () => renameAgent(workspaceRoot, renameTargetAgent.currentPath, newFilename, agents))
+            const result = tx.value
+           try { refreshData() } catch (error) { setMutationRefreshFailure(error, tx.warning); return }
           setSelectedAgentPaths(new Set())
-          setActionResultTitle("Rename Complete")
-           setActionResultLines([
+           setMutationSuccess("Rename Complete", [
              `Successfully renamed agent:`,
              `  ${middleEllipsis(renameTargetAgent.filename, Math.max(1, Math.floor(termWidth * 0.7) - 8))} → ${middleEllipsis(newFilename, Math.max(1, Math.floor(termWidth * 0.7) - 8))}`,
             ...result.updatedReferences.map((reference) => `  ${reference}`)
              , ...(result.skipped.length > 0 ? [`Skipped files:`, ...result.skipped.map((file) => `  ${file}`)] : []),
              ...(result.error ? [``, `⚠ ${result.error}`] : [])
-          ])
+           ], tx.warning)
           setViewMode("action-result")
         } catch (error: any) {
           setActionResultTitle("Error During Rename")
@@ -1527,16 +1554,16 @@ export function App({ workspaceRoot }: AppProps) {
          }
       } else if (key === "enter" || key === "return") {
         try {
-           const result = mutate([path.join(workspaceRoot, "general", "agents")], "import", () => importAgents(workspaceRoot))
-          refreshData()
-          setActionResultTitle("Import Complete")
-          setActionResultLines([
+            const tx = mutate([path.join(workspaceRoot, "general", "agents")], "import", () => importAgents(workspaceRoot))
+            const result = tx.value
+           try { refreshData() } catch (error) { setMutationRefreshFailure(error, tx.warning); return }
+           setMutationSuccess("Import Complete", [
             `Successfully imported ${result.imported.length} agents:`,
             ...result.imported.map((filename) => `  * ${filename}`),
             ``,
             result.backupPath ? `Backup created at:` : `No backup needed`,
             ...(result.backupPath ? [`  ${result.backupPath}`] : [])
-          ])
+           ], tx.warning)
         } catch (error: any) {
           setActionResultTitle("Error During Import")
           setActionResultLines([`An error occurred:`, `  ${error.message || error}`])
@@ -1641,8 +1668,8 @@ export function App({ workspaceRoot }: AppProps) {
          paddingRight={2}
          flexDirection="row"
        >
-         <text width={displayWidth(headerTitle)} height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "#9ECBFF" }} b>
-           {headerTitle}
+          <text width={headerTitleWidth} height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "#9ECBFF" }} b>
+            {middleEllipsis(headerTitle, headerTitleWidth)}
          </text>
           <box width={headerMetaWidth} height={1} flexShrink={1} flexDirection="row" overflow="hidden">
             {showStyleAndCommit && <text width={styleWidth} height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "gray" }}>{styleLabel}</text>}
@@ -1654,14 +1681,11 @@ export function App({ workspaceRoot }: AppProps) {
           </box>
       </box>
 
-      {modelCatalog.status === "unavailable" && (
+      {statusMessage && (
         <box height={1} flexShrink={0} overflow="hidden">
-          <text style={{ textColor: "yellow" }}>⚠ Model catalog unavailable — press M, then Y to retry.</text>
-        </box>
-      )}
-      {modelCatalog.status === "verified" && invalidModelGroups.length > 0 && (
-        <box height={1} flexShrink={0} overflow="hidden">
-          <text style={{ textColor: "yellow" }}>⚠ {invalidModelGroups.length} invalid model group(s) — [V] Repair; [M] Choose a model.</text>
+          <text width={statusMessageWidth} height={1} wrapMode="none" overflow="hidden" style={{ textColor: "yellow" }}>
+            {middleEllipsis(statusMessage, statusMessageWidth)}
+          </text>
         </box>
       )}
       {viewMode === "repair-confirm" && (
@@ -1682,9 +1706,8 @@ export function App({ workspaceRoot }: AppProps) {
       <box width="100%" minHeight={0} flexGrow={1} flexDirection="row" marginTop={1} overflow="hidden">
         {/* Left Side: Agents List (Wider to prevent filename cut-offs) */}
          <box
-           width={layout.mode === "normal" ? "50%" : "100%"}
-           flexBasis={0}
-           flexGrow={1}
+            width={listPanelWidth}
+            flexGrow={0}
            minHeight={0}
           borderStyle="round"
           borderColor="#444444"
@@ -1792,10 +1815,10 @@ export function App({ workspaceRoot }: AppProps) {
 
           {/* List Footer / Counter */}
            <box width="100%" height={2} flexShrink={0} justifyContent="space-between" paddingTop={1} borderStyle="single" border={["top"]} borderColor="#333333" overflow="hidden" flexDirection="row">
-             <text width="50%" wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "gray" }}>
+              <text width={footerFirstWidth} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "gray" }}>
                {middleEllipsis(`Total: ${agents.length} | Shown: ${activeItems.length} | Selected: ${selectedAgentPaths.size}`, 36)}
              </text>
-             <text width="50%" wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "gray" }}>
+              <text width={footerSecondWidth} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "gray" }}>
                {middleEllipsis(viewStyle === "tree"
                  ? "[TAB] Toggle View | [/] Search | ◀/▶ Collapse/Expand"
                  : "[TAB] Toggle View | [/] Search", 36)}
@@ -1803,11 +1826,12 @@ export function App({ workspaceRoot }: AppProps) {
           </box>
         </box>
 
-        {layout.showInspector && <>
+         {layout.showInspector && <>
+         <text width={panelWidths.gutter}> </text>
         {/* Right Side: Details & Actions (Tabbed Inspector) */}
-        <box
-           flexBasis={0}
-           flexGrow={1}
+         <box
+            width={panelWidths.inspector}
+            flexGrow={0}
            minHeight={0}
           borderStyle="round"
           borderColor="#444444"
@@ -2993,8 +3017,8 @@ export function App({ workspaceRoot }: AppProps) {
           overflow="hidden"
         >
           <box flexGrow={1} flexDirection="column" overflow="hidden" flexShrink={1}>
-            {visibleActionResultLines.map((line, idx) => (
-               <text key={actionResultScrollOffset + idx} style={{ textColor: "white" }} flexShrink={0}>{terminalSafeText(line)}</text>
+             {visibleActionResultLines.map((line, idx) => (
+                <text key={actionResultScrollOffset + idx} style={{ textColor: line.startsWith("⚠ AUTO-COMMIT:") ? "yellow" : "white" }} flexShrink={0}>{terminalSafeText(line)}</text>
             ))}
           </box>
 

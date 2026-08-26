@@ -1,5 +1,9 @@
 # Agent Manager
 
+## Auto-commit semantics
+
+Enabled auto-commit is best-effort. Git preflight, staging, commit, or publish failures return the mutation value with a warning and recovery guidance; invalid plans and mutation failures remain blocking errors.
+
 Standalone Node/Bun terminal manager and OpenTUI application for the canonical `agents/general/` catalog. It is the supported interface for category generation, bridge translation, catalog maintenance, and safe repository mutations.
 
 ## Purpose and architecture
@@ -48,13 +52,15 @@ All commands support focused `--help` where implemented. Category output is unde
 
 Use arrows or `j/k`, `Tab` for list/tree, `/` search, `Space` select, `a` all/category, `s` same model, `m` model, `Shift-T` tier, `t` parameters, `c` color, `p` permission preset, `g` delegations, `r` rename, `o` organize, `f` fork, `b` Claude bridge, `Shift-B` Codex bridge, `e` export, `i` import diff, `1–4` inspector tabs, `F` fix permission order, `PageUp/PageDown` scroll, and `Esc` close modals. Modals support prompts, model/provider trees, tier assignment, color palettes, delegation toggles, import diffs, bridge configuration, confirmation dialogs, and action-result scrolling.
 
+The TUI list/inspector split can be adjusted without writing to the repository. Create `.agent-manager/ui-config.json` with `{ "version": 1, "listShare": 0.6667 }`; values from `0.60` through `0.75` are accepted. Set `AGENT_MANAGER_UI_CONFIG` to use an external read-only config instead. Missing or invalid configuration uses the default two-thirds list share.
+
 ## Workflows and generated output
 
 Edit canonical files under `agents/general/` and configuration under `agents/.agent-manager/`, then use `category build` or `bridge` to regenerate outputs. `category check` is read-only. Generated directories must not be edited directly; their README, category metadata, provenance hashes, and bridge warnings are produced by the manager.
 
 ## Backups, bridges, and safety
 
-OpenCode exports back up to `~/.config/opencode/agents_backup/`; organize/fork operations use `agents/backups/` (ignored). Bridges are written to `agents/bridges/claude-code/` or `agents/bridges/codex/`, unless an external output is explicitly supplied. Repository mutations auto-commit only after a clean-worktree, identity, branch, lock, symlink, and scope check. Commits are local, unsigned, hook-free, and scoped. Use `--no-auto-commit` or `AGENT_MANAGER_AUTO_COMMIT=0`; failures leave changes for manual recovery and do not reset user work. Topic `--check` always bypasses transactions. Temporary staging/backup siblings are never staged.
+OpenCode exports back up to `~/.config/opencode/agents_backup/`; organize/fork operations use `agents/backups/` (ignored). Bridges are written to `agents/bridges/claude-code/` or `agents/bridges/codex/`, unless an external output is explicitly supplied. Repository mutations auto-commit only after a clean-worktree, identity, branch, lock, symlink, and scope check. Commits are local, unsigned, hook-free, and scoped. Normal Git worktree races remain possible, but selected paths are fingerprinted after mutation and verified immediately before commit; committed blobs and modes are verified afterward. Use `--no-auto-commit` or `AGENT_MANAGER_AUTO_COMMIT=0`; failures leave changes for manual recovery and do not reset user work. Topic `--check` always bypasses transactions. Temporary staging/backup siblings are never staged.
 
 ## Development and validation
 

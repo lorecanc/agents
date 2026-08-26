@@ -14,6 +14,35 @@ export interface ListColumnBudget {
   total: number
 }
 
+export interface PanelWidths {
+  list: number
+  inspector: number
+  gutter: number
+}
+
+/** Calculate deterministic outer panel widths for the normal two-panel view. */
+export function calculatePanelWidths(terminalWidth: number, mode: LayoutMode, listShare: number): PanelWidths {
+  if (mode !== "normal") return { list: Math.max(0, Math.floor(terminalWidth) - 2), inspector: 0, gutter: 0 }
+
+  // Root horizontal padding consumes two columns, then one column is reserved
+  // between panels. The panel widths include their borders and padding.
+  const available = Math.max(0, Math.floor(terminalWidth) - 2)
+  const gutter = available > 0 ? 1 : 0
+  const panelSpace = Math.max(0, available - gutter)
+  const minList = 48 + 4
+  const minInspector = 24 + 4
+  let list = Math.floor(panelSpace * listShare)
+  let inspector = panelSpace - list
+  if (panelSpace >= minList + minInspector) {
+    list = Math.max(minList, Math.min(panelSpace - minInspector, list))
+    inspector = panelSpace - list
+  } else {
+    list = Math.max(0, Math.min(panelSpace, list))
+    inspector = panelSpace - list
+  }
+  return { list, inspector, gutter }
+}
+
 /** Allocate concrete cell widths; gutters are explicit and never consume a column. */
 export function calculateListColumnBudget(contentWidth: number, mode: LayoutMode = "normal"): ListColumnBudget {
   const width = Math.max(0, Math.floor(contentWidth))

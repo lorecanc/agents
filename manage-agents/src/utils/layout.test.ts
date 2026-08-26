@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { calculateLayout, calculateListColumnBudget } from "./layout.js"
+import { calculateLayout, calculateListColumnBudget, calculatePanelWidths } from "./layout.js"
 
 test("calculates bounded layouts across terminal sizes and status states", () => {
   const cases = [
@@ -51,4 +51,32 @@ test("list column budgets account for explicit gutters", () => {
     assert.ok(budget.widths[0] >= 5)
   }
   assert.ok(calculateListColumnBudget(10, "compact").total <= 10)
+})
+
+test("panel widths honor the configured share and terminal budget", () => {
+  for (const [share, expectedList] of [[2 / 3, 83], [0.60, 75], [0.75, 93]] as const) {
+    const widths = calculatePanelWidths(128, "normal", share)
+    assert.equal(widths.gutter, 1)
+    assert.equal(widths.list, expectedList)
+    assert.ok(widths.list + widths.inspector + widths.gutter <= 126)
+    assert.ok(widths.list >= 52 && widths.inspector >= 28)
+  }
+  const wide = calculatePanelWidths(160, "normal", 2 / 3)
+  assert.deepEqual(wide, { list: 104, inspector: 53, gutter: 1 })
+  assert.deepEqual(calculatePanelWidths(80, "normal", 2 / 3), { list: 51, inspector: 26, gutter: 1 })
+  assert.deepEqual(calculatePanelWidths(160, "normal", 0.60), { list: 94, inspector: 63, gutter: 1 })
+  assert.deepEqual(calculatePanelWidths(160, "normal", 0.75), { list: 117, inspector: 40, gutter: 1 })
+  assert.deepEqual(calculatePanelWidths(80, "compact", 2 / 3), { list: 78, inspector: 0, gutter: 0 })
+})
+
+test("column budgets consume exactly the content width at PTY sizes", () => {
+  for (const terminalWidth of [80, 128, 160]) {
+    const panel = calculatePanelWidths(terminalWidth, terminalWidth === 80 ? "compact" : "normal", 2 / 3)
+    const contentWidth = Math.max(0, panel.list - 4)
+    const budget = calculateListColumnBudget(contentWidth, panel.inspector ? "normal" : "compact")
+    assert.equal(budget.total, contentWidth)
+    assert.equal(budget.widths.length, panel.inspector ? 5 : 3)
+    assert.equal(budget.widths.reduce((sum, width) => sum + width, 0) + budget.gutters.reduce((sum, width) => sum + width, 0), contentWidth)
+    assert.ok(budget.widths.every(width => width >= 0))
+  }
 })
