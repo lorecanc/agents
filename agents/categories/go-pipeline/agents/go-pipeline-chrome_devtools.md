@@ -4,8 +4,8 @@ description: Frontend debugging and visual validation agent. Uses Chrome
   console error detection. Called in the frontend lane before and after code
   changes.
 mode: subagent
-model: opencode-go/deepseek-v4-flash-vision-exp
-temperature: 0.1
+model: opencode-go/qwen3.8-flash
+temperature: 1
 permission:
   read: allow
   grep: allow
@@ -20,6 +20,8 @@ permission:
     "*": deny
     git *: deny
 color: "#E67E22"
+steps: 50
+hidden: true
 category: go-pipeline
 ---
 

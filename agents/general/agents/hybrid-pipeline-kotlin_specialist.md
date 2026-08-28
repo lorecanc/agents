@@ -4,7 +4,7 @@ description: Kotlin/Android specialist. Uses Google Developer Knowledge MCP
   and code against Android conventions and API correctness. Does not edit files.
 mode: subagent
 model: opencode-go/hy3
-temperature: 0.1
+temperature: 1
 permission:
   read: allow
   grep: allow
@@ -22,6 +22,8 @@ permission:
     gradle --version: allow
     ./gradlew --version: allow
 color: "#E67E22"
+steps: 50
+hidden: true
 ---
 
 # `hybrid-pipeline-kotlin_specialist`

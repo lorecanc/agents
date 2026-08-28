@@ -5,7 +5,7 @@ description: Frontend debugging and visual validation agent. Uses Chrome
   changes.
 mode: subagent
 model: github-copilot/gpt-5.6-luna
-temperature: 0.1
+temperature: 1
 permission:
   read: allow
   grep: allow
@@ -20,6 +20,8 @@ permission:
     "*": deny
     git *: deny
 color: "#E67E22"
+steps: 50
+hidden: true
 ---
 
 # copilot-pipeline-chrome_devtools

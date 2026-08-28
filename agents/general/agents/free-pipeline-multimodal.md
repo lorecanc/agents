@@ -3,7 +3,7 @@ description: Handles visual inputs such as screenshots, UI mockups, diagrams,
   and image-based debugging before planning or implementation.
 mode: subagent
 model: opencode/hy3-free
-temperature: 0.2
+temperature: 1
 permission:
   read: allow
   grep: allow
@@ -24,6 +24,8 @@ permission:
     head *: allow
     tail *: allow
 color: "#E67E22"
+steps: 50
+hidden: true
 ---
 
 # free-pipeline-multimodal

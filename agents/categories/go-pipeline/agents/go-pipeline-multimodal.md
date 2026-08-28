@@ -2,8 +2,8 @@
 description: Handles visual inputs such as screenshots, UI mockups, diagrams,
   and image-based debugging before planning or implementation.
 mode: subagent
-model: opencode-go/deepseek-v4-flash-vision-exp
-temperature: 0.2
+model: opencode-go/qwen3.8-flash
+temperature: 1
 permission:
   read: allow
   grep: allow
@@ -24,6 +24,8 @@ permission:
     head *: allow
     tail *: allow
 color: "#E67E22"
+steps: 50
+hidden: true
 category: go-pipeline
 ---
 

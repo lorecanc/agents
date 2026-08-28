@@ -4,7 +4,7 @@ description: Frontend specialist with access to shadcn/ui registry, 21st.dev
   validates design, and guides UI implementation.
 mode: subagent
 model: opencode/hy3-free
-temperature: 0.2
+temperature: 1
 permission:
   read: allow
   grep: allow
@@ -26,6 +26,8 @@ permission:
     git diff*: allow
     npx shadcn@latest *: allow
 color: "#E67E22"
+steps: 50
+hidden: true
 ---
 
 # `free-pipeline-frontend_specialist`

@@ -2,8 +2,8 @@
 description: Security vulnerability scanner. Reviews diffs for OWASP Top 10 and
   CWE patterns. Uses CWE-search MCP for classification. Does not edit files.
 mode: subagent
-model: opencode-go/hy3
-temperature: 0.1
+model: opencode-go/deepseek-v4-flash
+temperature: 1
 permission:
   read: allow
   grep: allow
@@ -19,6 +19,8 @@ permission:
     rg *: allow
     grep *: allow
 color: "#E67E22"
+steps: 50
+hidden: true
 category: hybrid-pipeline
 ---
 

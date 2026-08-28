@@ -3,7 +3,7 @@ description: Focused implementation agent. Applies small, plan-driven code
   changes without expanding scope.
 mode: subagent
 model: github-copilot/gpt-5.6-luna
-temperature: 0.1
+temperature: 1
 permission:
   read: allow
   grep: allow
@@ -12,6 +12,8 @@ permission:
   edit: allow
   bash: allow
 color: "#E67E22"
+steps: 50
+hidden: true
 ---
 
 # copilot-pipeline-executor

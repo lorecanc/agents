@@ -3,7 +3,7 @@ description: Fetches and summarizes external library documentation to ground the
   planner and executor in real APIs. Does not edit files.
 mode: subagent
 model: github-copilot/gpt-5.6-luna
-temperature: 0.1
+temperature: 1
 permission:
   read: allow
   grep: allow
@@ -18,6 +18,8 @@ permission:
     find *: allow
     cat *: allow
 color: "#E67E22"
+steps: 50
+hidden: true
 ---
 
 # `copilot-pipeline-docs-orchestrator_grounding`

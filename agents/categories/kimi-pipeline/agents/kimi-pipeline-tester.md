@@ -3,7 +3,7 @@ description: Designs, writes, and evaluates tests for changed behavior. Focuses
   on minimal meaningful coverage and regression prevention.
 mode: subagent
 model: kimi-for-coding/kimi-for-coding
-temperature: 0.1
+temperature: 1
 permission:
   read: allow
   grep: allow
@@ -12,6 +12,8 @@ permission:
   edit: allow
   bash: allow
 color: "#E67E22"
+steps: 50
+hidden: true
 category: kimi-pipeline
 ---
 

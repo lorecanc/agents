@@ -4,7 +4,7 @@ description: Human-in-the-loop checkpoint agent. Generates Literate Diff Reports
   changes before proceeding. Speed regulator for the pipeline.
 mode: subagent
 model: kimi-for-coding/kimi-for-coding
-temperature: 0.3
+temperature: 1
 permission:
   read: allow
   grep: allow
@@ -29,6 +29,8 @@ permission:
     head *: allow
     tail *: allow
 color: "#E67E22"
+steps: 50
+hidden: true
 category: kimi-pipeline
 ---
 

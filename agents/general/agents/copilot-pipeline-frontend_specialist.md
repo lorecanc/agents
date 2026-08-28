@@ -4,7 +4,7 @@ description: Frontend specialist with access to shadcn/ui registry, 21st.dev
   validates design, and guides UI implementation.
 mode: subagent
 model: github-copilot/gpt-5.6-luna
-temperature: 0.2
+temperature: 1
 permission:
   read: allow
   grep: allow
@@ -26,6 +26,8 @@ permission:
     git diff*: allow
     npx shadcn@latest *: allow
 color: "#E67E22"
+steps: 50
+hidden: true
 ---
 
 # `copilot-pipeline-frontend_specialist`

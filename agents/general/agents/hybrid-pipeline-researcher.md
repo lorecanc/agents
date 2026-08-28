@@ -3,7 +3,7 @@ description: Fast research agent for local docs, dependency usage, APIs,
   examples, and technical context. Prefers concise evidence-based synthesis.
 mode: subagent
 model: opencode-go/hy3
-temperature: 0.1
+temperature: 1
 permission:
   read: allow
   grep: allow
@@ -24,6 +24,8 @@ permission:
     head *: allow
     tail *: allow
 color: "#E67E22"
+steps: 50
+hidden: true
 ---
 
 # hybrid-pipeline-researcher

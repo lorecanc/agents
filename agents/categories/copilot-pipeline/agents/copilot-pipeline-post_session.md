@@ -3,7 +3,7 @@ description: Creates final or checkpoint commits for completed pipeline work.
   Does not update wiki or codebase memory.
 mode: subagent
 model: github-copilot/gpt-5.6-luna
-temperature: 0.1
+temperature: 1
 permission:
   read: allow
   grep: allow
@@ -22,6 +22,8 @@ permission:
     git restore --staged *: allow
     git commit -m *: allow
 color: "#E67E22"
+steps: 50
+hidden: true
 category: copilot-pipeline
 ---
 

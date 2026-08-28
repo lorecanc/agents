@@ -3,7 +3,7 @@ description: Final validation agent for complex work. Checks whether the result
   satisfies the original request without overengineering.
 mode: subagent
 model: opencode-go/hy3
-temperature: 0.1
+temperature: 1
 permission:
   read: allow
   grep: allow
@@ -24,6 +24,8 @@ permission:
     head *: allow
     tail *: allow
 color: "#E67E22"
+steps: 50
+hidden: true
 category: hybrid-pipeline
 ---
 

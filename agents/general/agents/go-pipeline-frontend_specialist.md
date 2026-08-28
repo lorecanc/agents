@@ -3,8 +3,8 @@ description: Frontend specialist with access to shadcn/ui registry, 21st.dev
   component library, and Chrome DevTools. Recommends and installs components,
   validates design, and guides UI implementation.
 mode: subagent
-model: opencode-go/deepseek-v4-flash-vision-exp
-temperature: 0.2
+model: opencode-go/qwen3.8-flash
+temperature: 1
 permission:
   read: allow
   grep: allow
@@ -26,6 +26,8 @@ permission:
     git diff*: allow
     npx shadcn@latest *: allow
 color: "#E67E22"
+steps: 50
+hidden: true
 ---
 
 # `go-pipeline-frontend_specialist`

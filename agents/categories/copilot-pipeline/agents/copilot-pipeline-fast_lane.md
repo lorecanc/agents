@@ -2,7 +2,7 @@
 description: Fast low-cost agent for tiny, obvious, low-risk coding tasks and quick edits.
 mode: subagent
 model: github-copilot/gpt-5.6-luna
-temperature: 0.1
+temperature: 1
 permission:
   read: allow
   grep: allow
@@ -11,6 +11,8 @@ permission:
   edit: allow
   bash: allow
 color: "#E67E22"
+steps: 50
+hidden: true
 category: copilot-pipeline
 ---
 

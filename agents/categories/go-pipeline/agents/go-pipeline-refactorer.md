@@ -3,7 +3,7 @@ description: Performs behavior-preserving simplification and cleanup. No new
   features, no speculative architecture.
 mode: subagent
 model: opencode-go/hy3
-temperature: 0.1
+temperature: 1
 permission:
   read: allow
   grep: allow
@@ -12,6 +12,8 @@ permission:
   edit: allow
   bash: allow
 color: "#E67E22"
+steps: 50
+hidden: true
 category: go-pipeline
 ---
 

@@ -3,7 +3,7 @@ description: Fast read-only codebase explorer. Locates relevant files, patterns,
   tests, configs, and implementation context before planning or coding.
 mode: subagent
 model: opencode-go/hy3
-temperature: 0.1
+temperature: 1
 permission:
   read: allow
   grep: allow
@@ -24,6 +24,8 @@ permission:
     head *: allow
     tail *: allow
 color: "#E67E22"
+steps: 50
+hidden: true
 ---
 
 # hybrid-pipeline-explorer

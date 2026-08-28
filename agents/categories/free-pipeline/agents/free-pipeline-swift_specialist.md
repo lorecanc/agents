@@ -5,7 +5,7 @@ description: Apple/Swift specialist. Uses Cupertino MCP (363K Apple docs, HIG,
   not edit files.
 mode: subagent
 model: opencode/hy3-free
-temperature: 0.1
+temperature: 1
 permission:
   read: allow
   grep: allow
@@ -24,6 +24,8 @@ permission:
     xcodebuild -version: allow
     xcrun *: allow
 color: "#E67E22"
+steps: 50
+hidden: true
 category: free-pipeline
 ---
 
