@@ -2,7 +2,7 @@
 description: Reviews code changes for correctness, simplicity, maintainability,
   regressions, and security. Does not implement by default.
 mode: subagent
-model: opencode/hy3-free
+model: opencode/muse-spark-1.2-contributor-free
 temperature: 1
 permission:
   read: allow

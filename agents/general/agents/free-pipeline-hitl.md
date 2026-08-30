@@ -3,7 +3,7 @@ description: Human-in-the-loop checkpoint agent. Generates Literate Diff Reports
   and interactive comprehension quizzes to ensure the developer understands all
   changes before proceeding. Speed regulator for the pipeline.
 mode: subagent
-model: opencode/hy3-free
+model: opencode/muse-spark-1.2-contributor-free
 temperature: 1
 permission:
   read: allow

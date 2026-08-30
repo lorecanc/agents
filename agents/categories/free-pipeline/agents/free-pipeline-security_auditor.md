@@ -2,7 +2,7 @@
 description: Security vulnerability scanner. Reviews diffs for OWASP Top 10 and
   CWE patterns. Uses CWE-search MCP for classification. Does not edit files.
 mode: subagent
-model: opencode/hy3-free
+model: opencode/muse-spark-1.2-contributor-free
 temperature: 1
 permission:
   read: allow

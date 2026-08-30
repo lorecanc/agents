@@ -2,7 +2,7 @@
 description: Fast read-only codebase explorer. Locates relevant files, patterns,
   tests, configs, and implementation context before planning or coding.
 mode: subagent
-model: opencode/hy3-free
+model: opencode/muse-spark-1.2-contributor-free
 temperature: 1
 permission:
   read: allow

@@ -2,7 +2,7 @@
 description: Fast research agent for local docs, dependency usage, APIs,
   examples, and technical context. Prefers concise evidence-based synthesis.
 mode: subagent
-model: opencode/hy3-free
+model: opencode/muse-spark-1.2-contributor-free
 temperature: 1
 permission:
   read: allow

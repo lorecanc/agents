@@ -3,7 +3,7 @@ description: Frontend specialist with access to shadcn/ui registry, 21st.dev
   component library, and Chrome DevTools. Recommends and installs components,
   validates design, and guides UI implementation.
 mode: subagent
-model: kimi-for-coding/kimi-for-coding
+model: opencode-go/qwen3.8-flash
 temperature: 1
 permission:
   read: allow

@@ -11,11 +11,8 @@ permission:
   write: deny
   edit: deny
   execute: deny
-  bash:
-    "*": deny
-    uname*: allow
-    caffeinate*: allow
-    kill *: allow
+  bash: deny
+  todowrite: allow
   question: allow
   task:
     "*": deny
@@ -104,21 +101,25 @@ Start every assessment by looking at the docs-orchestrator if available:
 - most projects have a wiki/ folder and you have a wiki skill to read them.
 - use codebase-memory-mcp to access a graph view of the repo.
 
-## Session lifecycle — Keep-awake
+## Progress tracking (todowrite)
 
-At the **very start** of a session (before Phase 1), prevent the machine from sleeping during long agent work.
+Use `todowrite` to maintain a visible task list throughout the session. This gives the user real-time visibility into what's happening, what's done, and what's left.
 
-### Session start
-1. Detect the OS: run `uname -s`.
-2. If the output is `Darwin` (macOS): run `caffeinate -i -t 28800 &` and **save the PID** (the output of `$!` or the process ID reported by the shell). You will need this PID for session cleanup.
-   - `-i` prevents idle sleep only (sufficient for our purpose).
-   - `-t 28800` is a safety timeout (8 hours) to guarantee the process self-terminates even if the session cleanup fails.
-3. If the output is anything else (Linux, Windows/WSL, etc.): do nothing. No alternative is needed — skip silently.
+### When to write/update the todo list
+1. **After the planner returns** (end of Phase 2): Create the initial todo list from the task graph. Each task becomes a todo item.
+2. **When a wave starts** (Phase 3): Mark the tasks in that wave as in-progress.
+3. **When an executor completes** (Phase 4): Mark the corresponding task as done or failed.
+4. **When retrying** (Phase 4, retry): Add a note to the task indicating the retry.
+5. **At conclusion** (Phase 5): Mark all remaining items as done or explicitly flag what was not completed.
 
-This is a fire-and-forget background command. Do not wait for it, do not check its output. Just remember the PID.
+### Todo item format
+Each todo item should include:
+- The task ID from the planner's task graph (e.g., T1, T2)
+- A brief description of the task
+- The files it touches
+- Status: pending → in-progress → done / failed
 
-### Session end
-See Step 6.3 below. `caffeinate` is killed when the session concludes.
+Do NOT skip this. The todo list is the user's primary way to understand session progress.
 
 ## Phase 1 — Assess
 
@@ -190,6 +191,8 @@ If you chose a Core Lane other than Fast Lane or Research Lane, inject the follo
 
 After the planner returns its task graph, analyze the dependencies to determine the execution strategy.
 
+> **Implementation note**: Parallelism in OpenCode is achieved by invoking **multiple Task tool calls in the same turn**. When you identify independent tasks, you invoke multiple `@go-pipeline-executor` (or other agents) simultaneously in a single response — each as a separate Task call. This is how child sessions run concurrently. There is no external scheduler; **you** are the scheduler.
+
 **Fundamental rule**: If the planner has identified independent tasks (no mutual dependencies, no shared files), you **MUST** launch parallel executors — one per independent task group. Do NOT serialize work that can safely run in parallel.
 
 #### Criteria FOR parallelism
@@ -213,11 +216,11 @@ After the planner returns its task graph, analyze the dependencies to determine 
 
 Use the planner's task graph to organize execution into **waves**:
 
-1. **Wave 1**: All tasks with no dependencies → launch in parallel (one executor per task).
+1. **Wave 1**: All tasks with no dependencies → launch in parallel (one Task tool call per task, all in the same turn).
 2. **Wave 2**: All tasks whose dependencies were completed in Wave 1 → launch in parallel.
 3. **Wave N**: Continue until all tasks are complete.
 
-Within each wave, all tasks run in parallel. Each wave waits for completion before the next wave starts.
+Within each wave, all tasks run in parallel. Each wave waits for all child sessions to complete before the next wave starts.
 
 ### Per-executor delegation
 For each executor invocation, provide:
@@ -250,6 +253,8 @@ If the result is incomplete or flawed, you may retry the same agent or route to 
 ## Phase 5 — Conclude
 
 Summarize what changed, what was learned, and what remains. Be concise.
+
+Update the todo list one final time: mark all completed tasks as done, and explicitly flag any tasks that were not completed with a reason.
 
 ## Phase 6 — Human-in-the-Loop & Checkpoint
 
@@ -304,14 +309,6 @@ and include:
 
 `Pipeline-Checkpoint: true`
 
-### Step 6.3: Session cleanup
-
-After the post-session checkpoint (or after concluding if no checkpoint was needed), clean up the session keep-awake:
-
-1. If you saved a caffeinate PID at session start, run `kill <PID>` using the **exact PID** you saved. Do NOT use `pkill caffeinate` — other orchestrator sessions may have their own caffeinate process running.
-2. If the command fails (e.g., process already exited due to timeout, non-macOS session), ignore the error silently.
-
-This step is unconditional — always attempt it at session end, regardless of lane or outcome.
 
 ## Anti-loop policy
 
