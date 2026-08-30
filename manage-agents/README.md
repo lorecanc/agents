@@ -56,6 +56,8 @@ The TUI list/inspector split can be adjusted without writing to the repository. 
 
 Workspace saves use a SHA-256 revision and an exclusive `.agent-manager/ui-config.lock` to protect cooperating manager instances. Malformed files retain a revision, while missing files use the `missing` sentinel. This is practical cooperating-writer safety: portable Node cannot fully protect against an active same-user attacker swapping paths during the operation. Environment overrides remain read-only.
 
+The TUI fork prompt accepts comma-separated replacements, such as `go-, kimi-, hybrid-, free-`; bracketed batch syntax, such as `[go-, kimi-, hybrid-, free-]`, remains compatible. An empty whole replacement removes the find string. List members must be non-empty and unique; empty or duplicate entries are invalid. A batch performs one complete preflight and creates at most one backup.
+
 ## Workflows and generated output
 
 Edit canonical files under `agents/general/` and configuration under `agents/.agent-manager/`, then use `category build` or `bridge` to regenerate outputs. `category check` is read-only. Generated directories must not be edited directly; their README, category metadata, provenance hashes, and bridge warnings are produced by the manager.

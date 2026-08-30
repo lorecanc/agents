@@ -1115,6 +1115,62 @@ export interface ForkResult {
 }
 
 /**
+ * Parse the replacement syntax used by the fork TUI. Plain input is kept as
+ * one literal, while comma-separated input is treated as a list. Brackets
+ * remain accepted for backwards compatibility.
+ */
+export function parseForkReplacements(input: string): string | readonly string[] {
+  const trimmedInput = input.trim()
+  if (trimmedInput === "") return ""
+
+  const startsWithBracket = trimmedInput.startsWith("[")
+  const endsWithBracket = trimmedInput.endsWith("]")
+  const hasOpeningBracket = trimmedInput.includes("[")
+  const hasClosingBracket = trimmedInput.includes("]")
+  if (hasOpeningBracket !== hasClosingBracket ||
+      (hasOpeningBracket && (!startsWithBracket || !endsWithBracket))) {
+    throw new Error("Fork replacement list must have matching outer brackets")
+  }
+
+  const isBracketed = startsWithBracket && endsWithBracket
+  const value = isBracketed ? trimmedInput.slice(1, -1) : trimmedInput
+  if (!isBracketed && !value.includes(",")) return value
+  if (isBracketed && /[\[\]]/.test(value)) {
+    throw new Error("Fork replacement list contains malformed brackets")
+  }
+
+  const items = value.split(",").map(item => item.trim())
+  if (items.length === 1 && items[0] === "") throw new Error("Fork replacement list cannot be empty")
+  if (items.some(item => item === "")) throw new Error("Fork replacement list cannot contain empty items")
+  if (new Set(items).size !== items.length) throw new Error("Fork replacement list cannot contain duplicates")
+  return items
+}
+
+function validateForkTargetFilesystem(targetPath: string, workspaceRoot: string): void {
+  const resolvedRoot = path.resolve(workspaceRoot)
+  const resolvedTarget = path.resolve(targetPath)
+  const relativeTarget = path.relative(resolvedRoot, resolvedTarget)
+  let current = resolvedRoot
+
+  for (const component of relativeTarget.split(path.sep).slice(0, -1).filter(Boolean)) {
+    current = path.join(current, component)
+    const stat = fs.lstatSync(current, { throwIfNoEntry: false })
+    if (!stat) break
+    if (stat.isSymbolicLink()) throw new Error(`Refusing fork target path component that is a symlink: ${current}`)
+    if (!stat.isDirectory()) throw new Error(`Refusing fork target path component that is not a directory: ${current}`)
+  }
+
+  const target = fs.lstatSync(resolvedTarget, { throwIfNoEntry: false })
+  if (!target) return
+  if (target.isSymbolicLink()) throw new Error(`Refusing to replace symlink fork target: ${resolvedTarget}`)
+  if (!target.isFile()) throw new Error(`Refusing to replace non-regular fork target: ${resolvedTarget}`)
+}
+
+function forkPathIdentity(candidate: string): string {
+  return path.resolve(candidate).normalize("NFC").toLowerCase().normalize("NFC")
+}
+
+/**
  * Fork a category by copying all its agents inside general/agents/,
  * substituting patterns in filename and file contents, and preserving target LLM models on overwrite.
  */
@@ -1122,7 +1178,7 @@ export function forkCategory(
   workspaceRoot: string,
   sourceCategory: string,
   findStr: string,
-  replaceStr: string,
+  replaceStr: string | readonly string[],
   selectedPaths?: string[]
 ): ForkResult {
   // Find all agents under general/agents/ belonging to sourceCategory
@@ -1137,72 +1193,110 @@ export function forkCategory(
     sourceAgents = sourceAgents.filter((agent) => selectedSet.has(agent.currentPath))
   }
 
+  const replacements = typeof replaceStr === "string" ? [replaceStr] : [...replaceStr]
+  if (replacements.length === 0) throw new Error("Fork replacement list cannot be empty")
+  if (replacements.some(item => typeof item !== "string")) throw new Error("Fork replacements must be strings")
+  if (new Set(replacements).size !== replacements.length) throw new Error("Fork replacement list cannot contain duplicates")
+
   const copied: string[] = []
   const skipped: string[] = []
   const plans: Array<{ agent: AgentInfo; targetPath: string; frontmatter: Record<string, any>; body: string }> = []
   const targetPaths = new Set<string>()
+  const agentsByPath = new Map<string, AgentInfo[]>()
+  for (const existingAgent of allAgents) {
+    if (!isInGeneralAgents(existingAgent.currentPath)) continue
+    const identity = forkPathIdentity(existingAgent.currentPath)
+    const entries = agentsByPath.get(identity) || []
+    entries.push(existingAgent)
+    agentsByPath.set(identity, entries)
+  }
+  const existingTargetEntries = new Map<string, string[]>()
+  const targetDir = path.join(workspaceRoot, "general", "agents")
+  for (const entry of fs.readdirSync(targetDir)) {
+    const entryPath = path.join(targetDir, entry)
+    const identity = forkPathIdentity(entryPath)
+    const entries = existingTargetEntries.get(identity) || []
+    entries.push(entryPath)
+    existingTargetEntries.set(identity, entries)
+  }
 
   for (const agent of sourceAgents) {
     const filename = agent.filename
-    // Compute target filename by replacing findStr with replaceStr
-    const newFilename = sanitizeFilename(filename.split(findStr).join(replaceStr))
-    const targetPath = path.join(workspaceRoot, "general", "agents", newFilename)
-    const targetDir = path.join(workspaceRoot, "general", "agents")
-    if (!path.resolve(targetPath).startsWith(path.resolve(targetDir) + path.sep)) {
-      throw new Error(`Invalid fork target path: ${newFilename}`)
-    }
-    if (path.resolve(targetPath) === path.resolve(agent.currentPath)) {
-      skipped.push(filename)
-      continue
-    }
-
-    if (targetPaths.has(path.resolve(targetPath))) throw new Error(`Duplicate fork target: ${targetPath}`)
-    targetPaths.add(path.resolve(targetPath))
-    let existingModel: unknown
-    let hasExistingModel = false
-    if (fs.existsSync(targetPath)) {
-      // If target file already exists, read its frontmatter to preserve the model
-      const existingInfo = parseAgentFile(targetPath, workspaceRoot)
-      if (existingInfo && Object.prototype.hasOwnProperty.call(existingInfo.frontmatter, "model")) {
-        existingModel = existingInfo.frontmatter.model
-        hasExistingModel = true
+    for (const replacement of replacements) {
+      const replacementLabel = JSON.stringify(replacement)
+      // Compute target filename by replacing findStr with this replacement.
+      const newFilename = sanitizeFilename(filename.split(findStr).join(replacement))
+      const targetPath = path.join(workspaceRoot, "general", "agents", newFilename)
+      const resolvedTargetPath = path.resolve(targetPath)
+      if (!resolvedTargetPath.startsWith(path.resolve(targetDir) + path.sep)) {
+        throw new Error(`Invalid fork target path: ${newFilename}`)
       }
-    }
-
-    // Read source agent's raw content
-    const sourceContent = fs.readFileSync(agent.currentPath, "utf-8")
-    const sourceModel = Object.prototype.hasOwnProperty.call(agent.frontmatter, "model") ? agent.frontmatter.model : undefined
-    const sourceHasModel = Object.prototype.hasOwnProperty.call(agent.frontmatter, "model")
-
-    // Replace all instances of findStr with replaceStr in the raw content
-    const updatedContent = sourceContent.split(findStr).join(replaceStr)
-
-    // Parse the updated content to frontmatter and body
-    let frontmatter: Record<string, any>
-    const { yamlText, body } = extractFrontmatter(updatedContent)
-
-    if (yamlText === null) {
-      skipped.push(filename)
-      continue
-    }
-    try {
-      frontmatter = YAML.parse(yamlText)
-      if (!isValidFrontmatter(frontmatter)) {
-        skipped.push(filename)
+      validateForkTargetFilesystem(targetPath, workspaceRoot)
+      if (resolvedTargetPath === path.resolve(agent.currentPath)) {
+        skipped.push(`${filename} [${replacementLabel}] (source)`)
         continue
       }
-    } catch (e) {
-      skipped.push(filename)
-      continue
-    }
 
-    // Never replace a model as part of the global content substitution.
-    if (!hasExistingModel && sourceHasModel) frontmatter.model = sourceModel
-    // Preserve the existing target model if overwritten, including empty/non-string values.
-    if (hasExistingModel) {
-      frontmatter.model = existingModel
+      const targetIdentity = forkPathIdentity(targetPath)
+      if (targetPaths.has(targetIdentity)) throw new Error(`Duplicate fork target (case/NFC-equivalent): ${targetPath}`)
+      targetPaths.add(targetIdentity)
+      const filesystemEntries = existingTargetEntries.get(targetIdentity) || []
+      if (filesystemEntries.length > 1) {
+        throw new Error(`Ambiguous case/NFC-equivalent existing fork targets: ${targetPath}`)
+      }
+      if (filesystemEntries.length === 1 && path.resolve(filesystemEntries[0]) !== resolvedTargetPath) {
+        throw new Error(`Fork target collides with differently spelled existing path: ${targetPath}`)
+      }
+      const existingAgents = agentsByPath.get(targetIdentity) || []
+      if (existingAgents.length > 1) {
+        throw new Error(`Ambiguous case/NFC-equivalent fork target: ${targetPath}`)
+      }
+      const existingSourceAgent = existingAgents[0]
+      if (existingSourceAgent && path.resolve(existingSourceAgent.currentPath) !== resolvedTargetPath) {
+        throw new Error(`Fork target collides with differently spelled existing agent: ${targetPath}`)
+      }
+      if (existingSourceAgent && existingSourceAgent.category === sourceCategory) {
+        throw new Error(`Fork target resolves to another source-category agent: ${targetPath}`)
+      }
+
+      let existingModel: unknown
+      let hasExistingModel = false
+      if (fs.existsSync(targetPath)) {
+        // If target file already exists, read its frontmatter to preserve its model.
+        const existingInfo = parseAgentFile(targetPath, workspaceRoot)
+        if (existingInfo && Object.prototype.hasOwnProperty.call(existingInfo.frontmatter, "model")) {
+          existingModel = existingInfo.frontmatter.model
+          hasExistingModel = true
+        }
+      }
+
+      const sourceContent = fs.readFileSync(agent.currentPath, "utf-8")
+      const sourceModel = Object.prototype.hasOwnProperty.call(agent.frontmatter, "model") ? agent.frontmatter.model : undefined
+      const sourceHasModel = Object.prototype.hasOwnProperty.call(agent.frontmatter, "model")
+      const updatedContent = sourceContent.split(findStr).join(replacement)
+      let frontmatter: Record<string, any>
+      const { yamlText, body } = extractFrontmatter(updatedContent)
+
+      if (yamlText === null) {
+        skipped.push(`${filename} [${replacementLabel}]`)
+        continue
+      }
+      try {
+        frontmatter = YAML.parse(yamlText)
+        if (!isValidFrontmatter(frontmatter)) {
+          skipped.push(`${filename} [${replacementLabel}]`)
+          continue
+        }
+      } catch (e) {
+        skipped.push(`${filename} [${replacementLabel}]`)
+        continue
+      }
+
+      // Never replace a model as part of the global content substitution.
+      if (!hasExistingModel && sourceHasModel) frontmatter.model = sourceModel
+      if (hasExistingModel) frontmatter.model = existingModel
+      plans.push({ agent, targetPath, frontmatter, body })
     }
-    plans.push({ agent, targetPath, frontmatter, body })
   }
 
   // All parseability and targets are checked before the first write.

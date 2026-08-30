@@ -58,7 +58,10 @@
     "go-pipeline-tester": "execution",
     "hybrid-pipeline-orchestrator": "planning",
     "hybrid-pipeline-planner": "planning",
-    "hybrid-pipeline-reasoner": "planning"
+    "hybrid-pipeline-reasoner": "planning",
+    "hybrid-pipeline-chrome_devtools": "execution",
+    "hybrid-pipeline-frontend_specialist": "execution",
+    "hybrid-pipeline-multimodal": "execution"
   },
   "claude": {
     "overrides": {}

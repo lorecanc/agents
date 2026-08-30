@@ -4,7 +4,7 @@ import os from "node:os"
 import path from "node:path"
 import { execFileSync, spawnSync } from "node:child_process"
 import test from "node:test"
-import { extractFrontmatter, getExportDestination, isInGeneralAgents, parseAgentFile, saveAgentFile, repairAgentModels, updateAgentsModel, forkCategory } from "./agents.js"
+import { extractFrontmatter, getExportDestination, isInGeneralAgents, parseAgentFile, saveAgentFile, repairAgentModels, updateAgentsModel, forkCategory, parseForkReplacements } from "./agents.js"
 import { AUTO_COMMIT_MESSAGES, repositoryTransaction } from "./repositoryTransaction.js"
 
 function fixtureAgent(filePath: string, workspace: string, model: unknown) {
@@ -469,4 +469,210 @@ test("parseAgentFile parses frontmatter fields from a CRLF agent file", () => {
   assert.equal(parsed.model, "crlf/model")
   assert.deepEqual(parsed.allowedSubagents, ["helper_agent"])
   assert.match(parsed.body, /# CRLF Body/)
+})
+
+function forkWorkspace() {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "agent-fork-"))
+  const source = [
+    fixtureAgent(path.join(workspace, "general/agents/foo-one.md"), workspace, "source/one"),
+    fixtureAgent(path.join(workspace, "general/agents/foo-two.md"), workspace, "source/two")
+  ]
+  return { workspace, source }
+}
+
+function backupDirectories(workspace: string) {
+  const backups = path.join(workspace, "backups")
+  return fs.existsSync(backups) ? fs.readdirSync(backups) : []
+}
+
+test("fork replacement parser keeps scalar compatibility for single and empty input", () => {
+  assert.equal(parseForkReplacements("plain"), "plain")
+  assert.equal(parseForkReplacements(""), "")
+  assert.equal(parseForkReplacements("   "), "")
+})
+
+test("fork replacement parser parses unbracketed comma-separated targets", () => {
+  assert.deepEqual(parseForkReplacements("go-, kimi-, hybrid-, free-"), ["go-", "kimi-", "hybrid-", "free-"])
+  assert.deepEqual(parseForkReplacements("  one ,  two  , three  "), ["one", "two", "three"])
+  assert.deepEqual(parseForkReplacements("  [ one, two ]  "), ["one", "two"])
+})
+
+test("fork replacement parser rejects malformed lists and duplicates", () => {
+  for (const input of ["[one, two", "one, two]", "[]", "[one,[two]]"]) {
+    assert.throws(() => parseForkReplacements(input), /matching outer brackets|malformed brackets|cannot be empty/)
+  }
+  for (const input of [",one", "one,", "one,,two", "[one, ]", "[ ,one]"]) {
+    assert.throws(() => parseForkReplacements(input), /empty items/)
+  }
+  for (const input of ["one, one", "[one, one]", " one,  one "]) {
+    assert.throws(() => parseForkReplacements(input), /duplicates/)
+  }
+})
+
+test("fork rejects malformed parsed replacement input before mutation", () => {
+  for (const input of ["[one, two", "one, two]", "[]", ",one", "one,", "one,,two", "one, one"]) {
+    const { workspace } = forkWorkspace()
+    const original = fs.readFileSync(path.join(workspace, "general/agents/foo-one.md"))
+    assert.throws(() => forkCategory(workspace, "foo", "foo", parseForkReplacements(input)), /matching outer brackets|cannot be empty|empty items|duplicates/)
+    assert.deepEqual(fs.readFileSync(path.join(workspace, "general/agents/foo-one.md")), original)
+    assert.deepEqual(backupDirectories(workspace), [])
+  }
+})
+
+test("fork accepts unbracketed comma-separated targets and produces every output", () => {
+  const { workspace } = forkWorkspace()
+  const replacements = parseForkReplacements("go-, kimi-, hybrid-, free-")
+  assert.deepEqual(replacements, ["go-", "kimi-", "hybrid-", "free-"])
+  const result = forkCategory(workspace, "foo", "foo", replacements)
+  assert.deepEqual(result.copied, [
+    "foo-one.md -> go--one.md", "foo-one.md -> kimi--one.md", "foo-one.md -> hybrid--one.md", "foo-one.md -> free--one.md",
+    "foo-two.md -> go--two.md", "foo-two.md -> kimi--two.md", "foo-two.md -> hybrid--two.md", "foo-two.md -> free--two.md"
+  ])
+  assert.equal(result.copied.length, 8)
+  for (const target of ["go--one.md", "kimi--two.md", "hybrid--one.md", "free--two.md"]) {
+    assert.equal(fs.existsSync(path.join(workspace, "general/agents", target)), true)
+  }
+})
+
+test("fork accepts an empty replacement and removes find text from filename and content", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "agent-fork-empty-"))
+  for (const suffix of ["one", "two"]) {
+    const sourcePath = path.join(workspace, `general/agents/foo-${suffix}.md`)
+    fixtureAgent(sourcePath, workspace, `source/${suffix}`)
+    saveAgentFile(sourcePath, { description: "foo description", model: `source/${suffix}` }, "foo body")
+  }
+
+  const result = forkCategory(workspace, "foo", "foo", parseForkReplacements(""))
+  const targetPath = path.join(workspace, "general/agents/-one.md")
+  assert.deepEqual(result.copied, ["foo-one.md -> -one.md", "foo-two.md -> -two.md"])
+  assert.equal(fs.existsSync(targetPath), true)
+  const target = parseAgentFile(targetPath, workspace)!
+  assert.equal(target.description, "description")
+  assert.equal(target.body, "\n body")
+})
+
+test("fork keeps single-target compatibility and aggregates multiple target mappings", () => {
+  const { workspace } = forkWorkspace()
+  const single = forkCategory(workspace, "foo", "foo", "bar")
+  assert.deepEqual(single.copied, ["foo-one.md -> bar-one.md", "foo-two.md -> bar-two.md"])
+  assert.equal(parseAgentFile(path.join(workspace, "general/agents/bar-one.md"), workspace)!.model, "source/one")
+
+  const multi = forkCategory(workspace, "foo", "foo", ["baz", "qux"])
+  assert.deepEqual(multi.copied, [
+    "foo-one.md -> baz-one.md", "foo-one.md -> qux-one.md",
+    "foo-two.md -> baz-two.md", "foo-two.md -> qux-two.md"
+  ])
+  assert.equal(multi.copied.length, 4)
+  assert.equal(parseAgentFile(path.join(workspace, "general/agents/qux-two.md"), workspace)!.model, "source/two")
+})
+
+test("fork filters selected sources across every replacement", () => {
+  const { workspace, source } = forkWorkspace()
+  const result = forkCategory(workspace, "foo", "foo", ["bar", "baz"], [source[0].currentPath])
+  assert.deepEqual(result.copied, ["foo-one.md -> bar-one.md", "foo-one.md -> baz-one.md"])
+  assert.equal(fs.existsSync(path.join(workspace, "general/agents/bar-two.md")), false)
+  assert.equal(fs.existsSync(path.join(workspace, "general/agents/baz-two.md")), false)
+})
+
+test("fork preserves each existing target model independently", () => {
+  const { workspace } = forkWorkspace()
+  fixtureAgent(path.join(workspace, "general/agents/bar-one.md"), workspace, "target/one")
+  fixtureAgent(path.join(workspace, "general/agents/bar-two.md"), workspace, "target/two")
+  const result = forkCategory(workspace, "foo", "foo", ["bar", "baz"])
+  assert.equal(result.copied.length, 4)
+  assert.equal(parseAgentFile(path.join(workspace, "general/agents/bar-one.md"), workspace)!.model, "target/one")
+  assert.equal(parseAgentFile(path.join(workspace, "general/agents/bar-two.md"), workspace)!.model, "target/two")
+})
+
+test("fork rejects duplicate or unsafely colliding full-matrix targets before backup", () => {
+  const { workspace } = forkWorkspace()
+  const before = fs.readFileSync(path.join(workspace, "general/agents/foo-one.md"))
+  assert.throws(() => forkCategory(workspace, "foo", "foo", ["bar", "bar"]), /duplicates/)
+  assert.throws(() => forkCategory(workspace, "foo", "foo", ["bar/"]), /Invalid filename/)
+  assert.deepEqual(fs.readFileSync(path.join(workspace, "general/agents/foo-one.md")), before)
+  assert.deepEqual(backupDirectories(workspace), [])
+})
+
+test("fork rejects a target occupied by an unselected source-category file", () => {
+  const { workspace, source } = forkWorkspace()
+  assert.throws(() => forkCategory(workspace, "foo", "one", "two", [source[0].currentPath]), /another source-category/)
+  assert.deepEqual(backupDirectories(workspace), [])
+  assert.equal(fs.existsSync(path.join(workspace, "general/agents/foo-one-two.md")), false)
+})
+
+test("fork rejects symlink and non-regular targets before writes or backup", () => {
+  for (const kind of ["symlink", "directory"] as const) {
+    const { workspace } = forkWorkspace()
+    const target = path.join(workspace, "general/agents/bar-one.md")
+    const original = fs.readFileSync(path.join(workspace, "general/agents/foo-one.md"))
+    if (kind === "symlink") fs.symlinkSync(path.join(workspace, "general/agents/foo-one.md"), target)
+    else fs.mkdirSync(target)
+    assert.throws(() => forkCategory(workspace, "foo", "foo", "bar"), /symlink|non-regular/i)
+    assert.deepEqual(fs.readFileSync(path.join(workspace, "general/agents/foo-one.md")), original)
+    assert.deepEqual(backupDirectories(workspace), [])
+  }
+})
+
+test("fork skips self-source no-op and leaves failed preflight outputs untouched", () => {
+  const { workspace } = forkWorkspace()
+  const noOp = forkCategory(workspace, "foo", "foo", "foo")
+  assert.equal(noOp.copied.length, 0)
+  assert.equal(noOp.skipped.length, 2)
+  assert.deepEqual(backupDirectories(workspace), [])
+
+  const before = fs.readFileSync(path.join(workspace, "general/agents/foo-two.md"))
+  assert.throws(() => forkCategory(workspace, "foo", "foo", ["bar", "bar/"]), /Invalid filename/)
+  assert.deepEqual(fs.readFileSync(path.join(workspace, "general/agents/foo-two.md")), before)
+  assert.equal(fs.existsSync(path.join(workspace, "general/agents/bar-one.md")), false)
+  assert.deepEqual(backupDirectories(workspace), [])
+})
+
+test("fork rejects case-equivalent targets across the full replacement matrix before backup", () => {
+  const { workspace } = forkWorkspace()
+  const sourceBytes = fs.readFileSync(path.join(workspace, "general/agents/foo-one.md"))
+
+  assert.throws(() => forkCategory(workspace, "foo", "foo", ["bar", "BAR"]), /Duplicate fork target|collision/i)
+
+  assert.deepEqual(fs.readFileSync(path.join(workspace, "general/agents/foo-one.md")), sourceBytes)
+  assert.equal(fs.existsSync(path.join(workspace, "general/agents/bar-one.md")), false)
+  assert.equal(fs.existsSync(path.join(workspace, "general/agents/BAR-one.md")), false)
+  assert.deepEqual(backupDirectories(workspace), [])
+})
+
+test("fork rejects a case-equivalent selected source target instead of self-skipping", () => {
+  const { workspace, source } = forkWorkspace()
+  const original = fs.readFileSync(source[0].currentPath)
+  const entriesBefore = fs.readdirSync(path.dirname(source[0].currentPath)).sort()
+
+  assert.throws(() => forkCategory(workspace, "foo", "foo", "FOO", [source[0].currentPath]), /source-category|collision|differently spelled/i)
+
+  assert.deepEqual(fs.readFileSync(source[0].currentPath), original)
+  assert.deepEqual(fs.readdirSync(path.dirname(source[0].currentPath)).sort(), entriesBefore)
+  assert.deepEqual(backupDirectories(workspace), [])
+})
+
+test("fork rejects a case-equivalent unselected source-category target", () => {
+  const { workspace, source } = forkWorkspace()
+  const original = fs.readFileSync(source[1].currentPath)
+  const entriesBefore = fs.readdirSync(path.dirname(source[1].currentPath)).sort()
+
+  assert.throws(() => forkCategory(workspace, "foo", "one", "TWO", [source[0].currentPath]), /source-category|collision|differently spelled/i)
+
+  assert.deepEqual(fs.readFileSync(source[1].currentPath), original)
+  assert.deepEqual(fs.readdirSync(path.dirname(source[1].currentPath)).sort(), entriesBefore)
+  assert.deepEqual(backupDirectories(workspace), [])
+})
+
+test("fork rejects a case-equivalent existing target without overwrite or sibling creation", () => {
+  const { workspace } = forkWorkspace()
+  const existing = path.join(workspace, "general/agents/BAR-one.md")
+  fixtureAgent(existing, workspace, "target/existing")
+  const original = fs.readFileSync(existing)
+  const entriesBefore = fs.readdirSync(path.dirname(existing)).sort()
+
+  assert.throws(() => forkCategory(workspace, "foo", "foo", "bar"), /collision|target|differently spelled/i)
+
+  assert.deepEqual(fs.readFileSync(existing), original)
+  assert.deepEqual(fs.readdirSync(path.dirname(existing)).sort(), entriesBefore)
+  assert.deepEqual(backupDirectories(workspace), [])
 })

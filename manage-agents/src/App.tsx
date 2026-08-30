@@ -10,6 +10,7 @@ import {
   repairAgentModels,
   updateAgentsColor,
   forkCategory,
+  parseForkReplacements,
   exportAgents,
   getExportDestination,
   analyzeAgentName,
@@ -1237,7 +1238,9 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
         if (!forkFindQuery) return
         try {
           const selectedPaths: string[] | undefined = selectedAgentPaths.size > 0 ? Array.from(selectedAgentPaths) : undefined
-            const tx = mutate([path.join(workspaceRoot, "general", "agents")], "fork", () => forkCategory(workspaceRoot, forkSourceCategory, forkFindQuery, forkReplaceQuery, selectedPaths))
+          const replacements = parseForkReplacements(forkReplaceQuery)
+          const replacementCount = typeof replacements === "string" ? 1 : replacements.length
+            const tx = mutate([path.join(workspaceRoot, "general", "agents")], "fork", () => forkCategory(workspaceRoot, forkSourceCategory, forkFindQuery, replacements, selectedPaths))
             const result = tx.value
                 try { refreshData() } catch (error) { setMutationRefreshFailure(error, tx.warning); return }
           setSelectedAgentPaths(new Set())
@@ -1246,8 +1249,9 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
             result.backupsPath ? `Local backup created at:` : `No backup needed`,
             ...(result.backupsPath ? [`  ${result.backupsPath}`] : []),
             ``,
-            `Forked ${result.copied.length} files under general/agents/:`
-           ].concat(result.copied.map((line) => `  * ${line}`), result.skipped.length > 0 ? [``, `Skipped ${result.skipped.length} files:`, ...result.skipped.map((line) => `  * ${line}`)] : []), tx.warning)
+             `Summary: ${result.copied.length} copied, ${result.skipped.length} skipped across ${replacementCount} replacement${replacementCount === 1 ? "" : "s"}`,
+             `Forked ${result.copied.length} files under general/agents/:`
+            ].concat(result.copied.map((line) => `  * ${line}`), result.skipped.length > 0 ? [``, `Skipped ${result.skipped.length} files:`, ...result.skipped.map((line) => `  * ${line}`)] : []), tx.warning)
           setViewMode("action-result")
         } catch (error: any) {
           setActionResultTitle("Error During Fork")
@@ -2852,7 +2856,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
               <text style={{ textColor: "yellow" }} b>{forkSourceCategory.toUpperCase()}</text>
             </box>
             <text style={{ textColor: "gray" }} marginTop={1}>
-              Copy agents in this category and perform search-and-replace on filenames and content.
+              Copy agents and replace the find pattern in filenames and content. Plain text is one literal replacement; for multiple replacements, enter go-, kimi-, hybrid-, free-. Brackets are optional for backward compatibility.
             </text>
 
             {/* Find field */}
@@ -2882,10 +2886,10 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
               marginTop={1}
             >
               <text style={{ textColor: forkFocusedField === "replace" ? "cyan" : "gray" }} b>
-                {forkFocusedField === "replace" ? "► Replace With String:" : "  Replace With String:"}
+                {forkFocusedField === "replace" ? "► Replace With String(s):" : "  Replace With String(s):"}
               </text>
               <text style={{ textColor: "white" }}>
-                {forkReplaceQuery || "[ Type replacement string, e.g. go- ]"}
+                {forkReplaceQuery || "[ e.g. go- or go-, kimi-, hybrid-, free- ]"}
               </text>
             </box>
           </box>
