@@ -113,6 +113,45 @@ test("check is read-only and reports missing, changed, and extra files", () => {
   assert.deepEqual(fs.readdirSync(dir, { recursive: true }).map(String).sort(), before)
 })
 
+test("check reports CRLF category output as stale and changed", () => {
+  const root = fixture()
+  try {
+    buildCategoryDistribution(root, "wiki")
+    const file = path.join(output(root), "AGENTS.md")
+    fs.writeFileSync(file, fs.readFileSync(file, "utf8").replace(/\n/g, "\r\n"))
+    const result = checkCategoryDistribution(root, "wiki")
+    assert.equal(result.status, "stale")
+    assert.deepEqual(result.changed, ["AGENTS.md"])
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})
+
+test("binary and mixed manifest resources remain byte-exact", () => {
+  const root = fixture(), workspace = path.join(root, "agents"), manifestPath = path.join(workspace, ".agent-manager/categories/wiki.json")
+  try {
+    const binary = Buffer.from([0, 255, 13, 10, 128, 42]), mixedBinary = Buffer.from([255, 0, 1, 13, 10])
+    fs.mkdirSync(path.join(workspace, "general/tools/mixed"), { recursive: true })
+    fs.writeFileSync(path.join(workspace, "general/tools/payload.bin"), binary)
+    fs.writeFileSync(path.join(workspace, "general/tools/mixed/data.bin"), mixedBinary)
+    fs.writeFileSync(path.join(workspace, "general/tools/mixed/readme.md"), "mixed\r\ntext\r\n")
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"))
+    manifest.resources.push(
+      { kind: "file", source: "general/tools/payload.bin", target: "tools/payload.bin", policy: "binary" },
+      { kind: "directory", source: "general/tools/mixed", target: "tools/mixed", policy: "mixed", extensions: [".md"] },
+    )
+    fs.writeFileSync(manifestPath, JSON.stringify(manifest))
+    buildCategoryDistribution(root, "wiki")
+    assert.deepEqual(fs.readFileSync(path.join(output(root), "tools/payload.bin")), binary)
+    assert.deepEqual(fs.readFileSync(path.join(output(root), "tools/mixed/data.bin")), mixedBinary)
+    assert.deepEqual(fs.readFileSync(path.join(output(root), "tools/mixed/readme.md")), Buffer.from("mixed\ntext\n"))
+    const mutated = Buffer.from(fs.readFileSync(path.join(output(root), "tools/payload.bin")))
+    mutated[0] ^= 1
+    fs.writeFileSync(path.join(output(root), "tools/payload.bin"), mutated)
+    const result = checkCategoryDistribution(root, "wiki")
+    assert.equal(result.status, "stale")
+    assert.ok(result.changed.includes("tools/payload.bin"))
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})
+
 test("manifest rejects unsafe paths, forbidden generated inputs, collisions, and unknown schema fields", () => {
   const base = JSON.parse(fs.readFileSync(path.join(repo, "agents/.agent-manager/categories/wiki.json"), "utf8"))
   for (const mutate of [

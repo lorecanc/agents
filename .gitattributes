@@ -1,0 +1,87 @@
+# Normalize text files to LF across platforms.
+* text=auto eol=lf
+
+# Canonical category sources and common text formats.
+agents/categories/** text=auto eol=lf
+*.py text eol=lf
+*.js text eol=lf
+*.mjs text eol=lf
+*.cjs text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.md text eol=lf
+*.markdown text eol=lf
+*.txt text eol=lf
+*.json text eol=lf
+*.jsonc text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.toml text eol=lf
+*.xml text eol=lf
+*.xsd text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.htm text eol=lf
+*.svg text eol=lf
+*.sh text eol=lf
+*.bash text eol=lf
+*.zsh text eol=lf
+LICENSE text eol=lf
+Makefile text eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Keep binary payloads byte-exact.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.bmp binary
+*.tif binary
+*.tiff binary
+*.avif binary
+*.heic binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.eot binary
+*.zip binary
+*.gz binary
+*.bz2 binary
+*.xz binary
+*.7z binary
+*.tar binary
+*.tgz binary
+*.pdf binary
+*.doc binary
+*.docx binary
+*.docm binary
+*.dot binary
+*.dotx binary
+*.dotm binary
+*.xls binary
+*.xlsx binary
+*.xlsm binary
+*.xlsb binary
+*.xlt binary
+*.xltx binary
+*.xltm binary
+*.ppt binary
+*.pptx binary
+*.pptm binary
+*.pot binary
+*.potx binary
+*.potm binary
+*.pps binary
+*.ppsx binary
+*.ppsm binary
+*.odt binary
+*.ods binary
+*.odp binary
+*.bin binary
+*.wasm binary
+*.exe binary
+*.dll binary
