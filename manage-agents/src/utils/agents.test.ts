@@ -116,7 +116,7 @@ test("dirty auto-commit updates both real model files, skips with a warning, and
 test("CLI auto-commit warnings are written to stderr only", () => {
   const { root } = gitAgentRepository()
   fs.writeFileSync(path.join(root, "unrelated.txt"), "dirty\n")
-  const cli = spawnSync(process.execPath, [path.resolve("dist/index.js"), "tune", "--steps", "10"], {
+  const cli = spawnSync(process.execPath, [path.resolve("manage-agents.mjs"), "tune", "--steps", "10"], {
     cwd: root,
     encoding: "utf8",
     env: { ...process.env, AGENT_MANAGER_AUTO_COMMIT: "1" }
