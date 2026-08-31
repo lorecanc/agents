@@ -47,7 +47,7 @@ The launcher starts the TUI. For a portable OpenCode setup, copy `agents/general
 
 ## Install into OpenCode
 
-Copy `general/opencode.json` to your OpenCode configuration location, then copy or export the desired canonical agents to `~/.config/opencode/agents/`. The manager’s `export` command creates a recovery backup. Category distributions are generated locally under `agents/categories/` from manifests in `agents/.agent-manager/categories/`; deterministic packages can be shared manually as artifacts.
+Copy `agents/general/opencode.json` to your OpenCode configuration location, then copy or export the desired canonical agents to `~/.config/opencode/agents/`. The manager’s `export` command creates a recovery backup. Category distributions are generated locally under `agents/categories/` from manifests in `agents/.agent-manager/categories/`; deterministic packages can be shared manually as artifacts.
 
 ## Workflow and validation
 
