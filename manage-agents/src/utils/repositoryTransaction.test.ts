@@ -9,22 +9,23 @@ import { AUTO_COMMIT_MESSAGES, parseAutoCommitArgs, repositoryTransaction, type 
 const roots: string[] = []
 const git = (root: string, ...args: string[]) => execFileSync("git", ["-C", root, ...args], { encoding: "utf8" }).trim()
 function withGitFailure<T>(root: string, operation: string, action: (runner: GitRunner) => T): T {
-  const realGit = execFileSync("which", ["git"], { encoding: "utf8" }).trim()
   const runner: GitRunner = { run: (runRoot, args, overrides = {}, input) => {
-    if (args.includes(operation)) return { ...spawnSync(realGit, ["-C", runRoot, ...args], { encoding: "utf8", env: { ...process.env, ...overrides }, input }), status: 91 }
-    return spawnSync(realGit, ["-C", runRoot, ...args], { encoding: "utf8", env: { ...process.env, ...overrides }, input })
+    const result = spawnSync("git", ["-C", runRoot, ...args], { encoding: "utf8", env: { ...process.env, ...overrides }, input })
+    return args.includes(operation) ? { ...result, status: 91 } : result
   } }
   return action(runner)
 }
-function withGitRace<T>(target: string, action: (runner: GitRunner) => T): T {
-  const realGit = execFileSync("which", ["git"], { encoding: "utf8" }).trim()
+function withGitRace<T>(target: string, action: (runner: GitRunner, calls: { invocations: string[][]; commitCalls: number }) => T): T {
   let hashCalls = 0
+  const calls = { invocations: [] as string[][], commitCalls: 0 }
   const runner: GitRunner = { run: (runRoot, args, overrides = {}, input) => {
-    const result = spawnSync(realGit, ["-C", runRoot, ...args], { encoding: "utf8", env: { ...process.env, ...overrides }, input })
+    calls.invocations.push([...args])
+    if (args.includes("commit")) calls.commitCalls++
+    const result = spawnSync("git", ["-C", runRoot, ...args], { encoding: "utf8", env: { ...process.env, ...overrides }, input })
     if (args.includes("hash-object") && ++hashCalls === 1) fs.writeFileSync(target, "race\n")
     return result
   } }
-  return action(runner)
+  return action(runner, calls)
 }
 function repo() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-manager-git-")); roots.push(root)
@@ -143,8 +144,9 @@ test("enabled transaction commits exact add, delete, rename, mode, and special p
     fs.renameSync(source, destination); fs.chmodSync(destination, 0o755); fs.writeFileSync(added, "added\n")
   })
   assert.deepEqual(git(root, "-c", "core.quotePath=false", "ls-tree", "-r", "-z", "--name-only", "HEAD").split("\0").filter(Boolean), ["- leading space.txt", "renamed file–ユニコード.txt"])
+  const expectedMode = process.platform === "win32" ? "100644" : "100755"
   assert.match(git(root, "ls-tree", "-r", "HEAD"), /100644 .*leading space\.txt/)
-  assert.match(git(root, "ls-tree", "-r", "HEAD"), /100755 .*renamed file/)
+  assert.match(git(root, "ls-tree", "-r", "HEAD"), new RegExp(`${expectedMode} .*renamed file`))
   assert.equal(git(root, "status", "--porcelain"), "")
   repositoryTransaction(root, [destination], AUTO_COMMIT_MESSAGES.tune, () => fs.unlinkSync(destination))
   assert.equal(git(root, "ls-tree", "-r", "--name-only", "HEAD"), "- leading space.txt")
@@ -252,7 +254,11 @@ test("mutation failure releases the manager lock", () => {
 test("selected path changing after capture fails without attempting a commit", () => {
   const root = repo(); const target = path.join(root, "tracked.txt"); process.env.AGENT_MANAGER_AUTO_COMMIT = "1"
   const beforeHead = git(root, "rev-parse", "HEAD")
-   const result = withGitRace(target, runner => repositoryTransaction(root, [target], AUTO_COMMIT_MESSAGES.tune, () => fs.writeFileSync(target, "captured\n"), { gitRunner: runner }))
+   const result = withGitRace(target, (runner, calls) => {
+     const transaction = repositoryTransaction(root, [target], AUTO_COMMIT_MESSAGES.tune, () => fs.writeFileSync(target, "captured\n"), { gitRunner: runner })
+     assert.equal(calls.commitCalls, 0)
+     return transaction
+   })
   assert.equal(result.commit, "failed")
   assert.equal(result.warning?.code, "concurrent-worktree-change")
   assert.equal(git(root, "rev-parse", "HEAD"), beforeHead)
@@ -265,7 +271,8 @@ test("healthy commit matches the captured blob and mode", () => {
   const result = repositoryTransaction(root, [target], AUTO_COMMIT_MESSAGES.tune, () => { fs.writeFileSync(target, content); fs.chmodSync(target, 0o755) })
   assert.equal(result.commit, "committed")
   assert.equal(git(root, "show", "HEAD:tracked.txt"), content.trimEnd())
-  assert.match(git(root, "ls-tree", "HEAD", "--", "tracked.txt"), /^100755 blob [0-9a-f]+\s+tracked\.txt$/)
+  const expectedMode = process.platform === "win32" ? "100644" : "100755"
+  assert.match(git(root, "ls-tree", "HEAD", "--", "tracked.txt"), new RegExp(`^${expectedMode} blob [0-9a-f]+\\s+tracked\\.txt$`))
   assert.equal(git(root, "status", "--porcelain"), "")
 })
 

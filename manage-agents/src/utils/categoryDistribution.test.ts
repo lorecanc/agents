@@ -26,6 +26,33 @@ function fixture(): string {
 
 function output(root: string) { return path.join(root, "agents/categories/wiki") }
 
+function regularFiles(current: string, logical = ""): string[] {
+  const files: string[] = []
+  for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+    const name = logical ? `${logical}/${entry.name}` : entry.name
+    const fullPath = path.join(current, entry.name)
+    if (entry.isSymbolicLink()) throw new Error(`Refusing symbolic link at ${name}`)
+    if (entry.isDirectory()) files.push(...regularFiles(fullPath, name))
+    else if (entry.isFile()) files.push(name)
+    else throw new Error(`Refusing non-regular entry at ${name}`)
+  }
+  return files.sort()
+}
+
+test("regularFiles fails closed for symlinks without reading their targets", () => {
+  if (process.platform === "win32") return
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "category-regular-files-"))
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "category-regular-files-outside-"))
+  try {
+    fs.writeFileSync(path.join(outside, "secret.txt"), "secret\n")
+    fs.symlinkSync(outside, path.join(root, "linked"), "dir")
+    assert.throws(() => regularFiles(root), /symbolic link/i)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+    fs.rmSync(outside, { recursive: true, force: true })
+  }
+})
+
 test("manifest is the source of truth and the Wiki distribution is complete", () => {
   const root = fixture()
   const manifest = loadCategoryManifest(root, "wiki")
@@ -36,7 +63,7 @@ test("manifest is the source of truth and the Wiki distribution is complete", ()
   assert.match(readme, /agents\/\.agent-manager\/categories\/wiki\.json/)
   assert.match(readme, /Do not edit this directory directly/)
   const expected = ["AGENTS.md", "CATEGORY.json", "LICENSE", "PROVENANCE.json", "README.md", ...manifest.resources.map(r => r.target), ...manifest.generated.map(g => g.target)]
-  assert.deepEqual(fs.readdirSync(output(root), { recursive: true }).map(String).filter(name => !["agents", "commands", "skills", "skills/wiki-conventions", "skills/wiki-navigate", "skills/wiki-templates"].includes(name)).sort(), [...new Set(expected)].sort())
+  assert.deepEqual(regularFiles(output(root)), [...new Set(expected)].sort())
 })
 
 test("category README escapes adversarial text and inline paths deterministically", () => {
@@ -211,7 +238,7 @@ test("organize protects manifest-backed Wiki without backup, but organizes unman
 
 test("generated Wiki output has no nested Git metadata, host paths, or secret-shaped material", () => {
   const root = fixture(); buildCategoryDistribution(root, "wiki")
-  const files = fs.readdirSync(output(root), { recursive: true }).map(String).filter(name => !fs.statSync(path.join(output(root), name)).isDirectory())
+  const files = regularFiles(output(root))
   assert.equal(files.some(name => name.split("/").includes(".git")), false)
   for (const file of files) {
     const text = fs.readFileSync(path.join(output(root), file), "utf8")
