@@ -656,6 +656,8 @@ Flag when:
 - Protocol codes, status values, or identifiers are duplicated across the codebase.
 - The same literal appears in multiple locations.
 - Changing the value would require understanding hidden business knowledge.
+- A set of discrete, related values (status codes, modes, categories) is represented as raw strings or integers instead of an enum or union type.
+- Boolean flags or numeric codes are used where a named enum would make the domain semantics explicit.
 
 Acceptable when:
 
@@ -664,6 +666,7 @@ Acceptable when:
 - Extracting a constant would not improve understandability.
 - The literal represents standard language or framework usage.
 - The value is immediately understandable from context.
+- The language does not support enums or the overhead of introducing one is disproportionate.
 
 Before flagging, answer:
 
@@ -722,6 +725,111 @@ Verdict guidance:
 - pass: the fix addresses the root cause; the specific case is resolved as a consequence.
 - pass-with-comments: minor palliative element exists but the core logic is corrected and the risk of recurrence is low.
 - reject: the fix adds special-case handling without correcting the underlying behavior, and a corrective fix is feasible.
+
+### Arrow anti-pattern / Deep nesting
+
+Occurs when control flow accumulates excessive nesting depth, making the code hard to follow. Deeply nested `if/else`, `for`, `try/catch`, or `switch` blocks force the reader to maintain a mental stack of conditions to understand what each branch does.
+
+The fix is almost always to flatten the code: use early returns, guard clauses, `continue`/`break`, or extract the inner logic into a named function.
+
+Flag when:
+
+- Nesting depth reaches 3 or more levels of indentation from the function body.
+- A method contains nested conditionals where the "happy path" is buried inside multiple guards.
+- `else` blocks contain the primary logic while the `if` block handles the edge case.
+- Loop bodies contain deeply nested conditionals that could use `continue` to skip.
+- The reader must track 3+ simultaneous conditions to understand which branch executes.
+
+Acceptable when:
+
+- The nesting reflects genuinely complex domain logic that cannot be simplified without losing clarity.
+- The language or framework requires the nesting pattern (e.g., certain callback structures).
+- Extracting the inner logic into a separate function would obscure the flow more than the nesting does.
+
+Before flagging, answer:
+
+1. Can an early return eliminate one or more nesting levels?
+2. Can a guard clause at the top of the function handle the edge case?
+3. Can `continue` or `break` flatten a loop body?
+4. Would extracting the nested block into a named function improve readability?
+5. Is the nesting caused by essential domain complexity or by code structure?
+
+Verdict guidance:
+
+- pass: nesting depth stays at 2 or fewer levels, or deeper nesting is justified by domain complexity.
+- pass-with-comments: 3 levels of nesting exist but the code remains readable.
+- reject: 4+ levels of nesting, or 3 levels where flattening is clearly possible and would materially improve readability.
+
+### Boolean parameter trap
+
+Occurs when a function accepts a `bool` (or equivalent binary flag) parameter that controls behavior, making call sites unreadable. The reader sees `doThing(true)` or `doThing(false)` and cannot understand the meaning without navigating to the function signature.
+
+The fix is to replace the boolean with an enum, named constant, or separate functions — anything that makes the call site self-documenting.
+
+Flag when:
+
+- A function parameter is a boolean that switches between two behaviors.
+- The call site reads as `doThing(true)` or `process(false)` with no indication of what the flag means.
+- Multiple boolean parameters exist on the same function, creating combinatorial confusion (e.g., `render(true, false, true)`).
+- The boolean parameter was added to avoid creating a second function or an enum.
+- A comment is needed at the call site to explain the boolean value.
+
+Acceptable when:
+
+- The boolean has a descriptive parameter name that is visible at the call site (e.g., named parameters in Python/Kotlin/Swift: `doThing(recursive=true)`).
+- The function is private/internal with few call sites and the meaning is obvious from context.
+- The parameter represents a genuine binary state in the domain (e.g., `enabled`, `visible`, `ascending`).
+- The language convention strongly favors booleans for this pattern.
+
+Before flagging, answer:
+
+1. Can a reader understand the call site without looking at the function signature?
+2. Would an enum or named constant improve readability?
+3. Are there multiple boolean parameters on the same function?
+4. Is the boolean controlling behavior or representing state?
+5. Does the language support named parameters that make the boolean self-documenting?
+
+Verdict guidance:
+
+- pass: boolean parameters are self-documenting at call sites.
+- pass-with-comments: a single boolean is slightly ambiguous but the function is internal and rarely called.
+- reject: call sites are unreadable due to boolean parameters, and an enum or separate functions would materially improve clarity.
+
+### Layer boundary violation (strict)
+
+A stricter specialization of the modularity violations anti-pattern. Applies specifically to layered architectures where each layer should communicate only with the layer directly adjacent to it.
+
+The principle: **never punch holes through layers**. A UI controller must not call a database driver directly. A presentation layer must not reach into the hardware abstraction. Each layer talks to the next layer, which talks to the next, and so on.
+
+Flag when:
+
+- A UI/controller/view layer directly calls a database, filesystem, network driver, or hardware API.
+- A presentation layer bypasses a service/business layer to reach a data access layer.
+- An application layer calls an infrastructure primitive (raw SQL, direct HTTP, file I/O) instead of using a repository, client, or service abstraction.
+- A high-level orchestration component reaches into low-level implementation details.
+- A layer skips an intermediate layer to "save time" or "avoid boilerplate".
+- The dependency direction violates the expected stack (e.g., a domain model importing a UI framework).
+
+Acceptable when:
+
+- The architecture is intentionally flat (no layered design).
+- The layer being "skipped" is documented as transparent or pass-through by design.
+- Performance requirements justify bypassing a layer (must be explicitly documented).
+- The project is small enough that strict layering would be over-engineering.
+
+Before flagging, answer:
+
+1. What layer does the calling code belong to?
+2. What layer does the called code belong to?
+3. Are these adjacent layers or is a layer being skipped?
+4. Does an intermediate abstraction already exist that should be used?
+5. Is the architecture documented as layered?
+
+Verdict guidance:
+
+- pass: all cross-layer calls go through adjacent layers.
+- pass-with-comments: a minor shortcut exists but the architecture is otherwise clean.
+- reject: a layer directly calls a non-adjacent layer, bypassing an existing intermediate abstraction.
 
 ## Repository review context
 

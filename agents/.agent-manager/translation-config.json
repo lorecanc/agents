@@ -61,7 +61,10 @@
     "hybrid-pipeline-reasoner": "planning",
     "hybrid-pipeline-chrome_devtools": "execution",
     "hybrid-pipeline-frontend_specialist": "execution",
-    "hybrid-pipeline-multimodal": "execution"
+    "hybrid-pipeline-multimodal": "execution",
+    "cp_nightly-pipeline-orchestrator": "planning",
+    "cp_nightly-pipeline-planner": "planning",
+    "cp_nightly-pipeline-reasoner": "planning"
   },
   "claude": {
     "overrides": {}

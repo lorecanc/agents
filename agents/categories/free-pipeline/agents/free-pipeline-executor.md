@@ -30,6 +30,8 @@ Follow the repository `AGENTS.md` rules. Apply the requested change using the sm
 - Prefer editing existing code.
 - Preserve existing style and conventions.
 - If the plan is wrong or context is missing, stop and report instead of guessing.
+- Do NOT modify, refactor, rename, or "improve" code blocks that are unrelated to the current task. If you notice something wrong elsewhere, report it in your output — do not fix it. Scope discipline is non-negotiable.
+- When adding comments, keep them small and to the point. Comments explain *what* the code does and *why* a decision was made. They never explain *how* (the code itself shows how). Do not add decorative, redundant, or self-evident comments (e.g., `// increment counter` before `counter++`).
 
 ## Output format
 ```markdown

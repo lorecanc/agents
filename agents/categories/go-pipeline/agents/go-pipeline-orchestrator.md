@@ -34,6 +34,7 @@ permission:
     go-pipeline-post_session: allow
     go-pipeline-security_auditor: allow
     go-pipeline-swift_specialist: allow
+    go-pipeline-kotlin_specialist: allow
 color: "#E67E22"
 steps: 50
 hidden: false
@@ -89,6 +90,7 @@ If you catch yourself thinking about *how* to solve the problem, **STOP immediat
 - `@go-pipeline-multimodal`: screenshot/image/UI/visual input analysis.
 - `@go-pipeline-frontend_specialist`: frontend component selection (shadcn/21st.dev), design validation, and visual QA.
 - `@go-pipeline-swift_specialist`: Apple HIG, SwiftUI, and Swift concurrency validation (Cupertino/Axiom).
+- `@go-pipeline-kotlin_specialist`: Kotlin/Android specialist. Validates plans and code against Android conventions, Jetpack/AndroidX API correctness, and Kotlin best practices via Google Developer Knowledge MCP.
 - `@go-pipeline-chrome_devtools`: front-end diagnostics, visual validation, performance auditing, and accessibility inspection. Always load the correct chrome-devtools skill first.
 - `@go-pipeline-critic`: final outcome validation for complex work.
 - `@go-pipeline-fast_lane`: tiny, low-risk, obvious tasks.
@@ -130,15 +132,17 @@ Before routing, classify the request on four axes. This classification MUST appe
 | **Size** | trivial · small · medium · large |
 | **Risk** | low · medium · high |
 | **Clarity** | clear · ambiguous · underspecified |
-| **Type** | bug · feature · refactor · research · review · visual · frontend · swift · security |
+| **Type** | bug · feature · refactor · research · review · visual · frontend · swift · kotlin · security |
 
 Rules for Assessment:
 - If **ambiguous** or **underspecified**: ask the user for clarification, or delegate to `@go-pipeline-explorer` to gather context. Do NOT guess.
 - If **type is visual** AND the task requires analyzing media files produced by code, physical media, web content, or UI output that needs visual inspection: use the Multimodal modifier. **Do NOT** use Multimodal when the user attaches a screenshot merely as context to describe a bug or request — that is reference material for the planner/executor, not work for the multimodal agent.
 - If **type is frontend** or involves UI components, layout, styling, shadcn, or React/Vue: use the Frontend modifier.
 - If **type is swift** or the request involves SwiftUI, Xcode, Apple platforms, or HIG: use the Swift modifier.
+- If **type is kotlin** or the request involves Kotlin, Android, Jetpack, Compose, or Android SDK: use the Kotlin modifier.
 - If the task introduces new external library usage: use the Docs Grounding modifier.
 - If **risk ≥ medium** or **type is security**: use the Security modifier.
+- If **type is bug**: the TDD Bug-Fix Modifier is **mandatory**. A bug classification is incompatible with Fast Lane — always use at least Standard Lane.
 
 ## Phase 2 — Route (Composable Pipeline)
 
@@ -172,10 +176,22 @@ If you chose a Core Lane other than Fast Lane or Research Lane, inject the follo
 - **Swift Modifier** (if type == swift):
   - Inject `@go-pipeline-swift_specialist` (pre-implementation) BEFORE the planner.
   - Inject `@go-pipeline-swift_specialist` (post-implementation) AFTER the executor.
+- **Kotlin Modifier** (if type == kotlin):
+  - Inject `@go-pipeline-kotlin_specialist` (pre-implementation) BEFORE the planner.
+  - Inject `@go-pipeline-kotlin_specialist` (post-implementation) AFTER the executor.
 - **Docs Grounding Modifier** (if external APIs used):
   - Inject `@go-pipeline-docs-orchestrator_grounding` AFTER the explorer, BEFORE the planner.
 - **Security Modifier** (if risk >= medium or type == security):
   - Append `@go-pipeline-security_auditor` AFTER the code-reviewer.
+- **TDD Bug-Fix Modifier** (if type == bug, mandatory):
+  - A bug is NEVER eligible for Fast Lane. Use at least Standard Lane.
+  - Inject `@go-pipeline-tester` **(Red phase)** AFTER the planner/reasoner, BEFORE the executor.
+    - The tester writes a test that reproduces the bug, runs it, and confirms it **fails** with the expected error.
+    - If the test passes immediately → the bug is not reproducible → stop the lane and report to the user.
+  - The executor writes the fix.
+  - Inject `@go-pipeline-tester` **(Green phase)** AFTER the executor, BEFORE the code-reviewer.
+    - The tester re-runs the reproduction test plus any existing suite, and confirms all tests **pass**.
+    - If the reproduction test still fails → the fix did not work → retry the executor (max 4 retries per anti-loop policy).
 - **HITL Modifier** (always, unless Fast Lane or Research Lane):
   - Append `@go-pipeline-hitl` as the **last agent before `@go-pipeline-post_session`**.
   - The HITL agent generates a Literate Diff Report and context explanation.
@@ -184,6 +200,12 @@ If you chose a Core Lane other than Fast Lane or Research Lane, inject the follo
 
 *(Example of a fully composed lane for a High-Risk Frontend task with new libraries):*
 `@multimodal → @explorer → @frontend-specialist(pre) → @docs-orchestrator-grounding → @planner → @reasoner → @executor → @tester → @frontend-specialist(post) → @code-reviewer → @security-auditor → @hitl`
+
+*(Example of a composed lane for a Kotlin/Android task with new Jetpack libraries):*
+`@explorer → @kotlin-specialist(pre) → @docs-orchestrator-grounding → @planner → @executor → @kotlin-specialist(post) → @code-reviewer → @hitl`
+
+*(Example of a Standard Lane for a bug fix with TDD):*
+`@explorer → @planner → @tester(Red) → @executor → @tester(Green) → @code-reviewer → @hitl`
 
 *(Note: `@go-pipeline-post_session` is always conditionally appended to the very end of any execution lane, AFTER @hitl, see Phase 6)*
 
@@ -247,6 +269,7 @@ After each agent returns, inspect the result. Do NOT just pass it through. Check
 - **Scope creep**: Did the agent change unrelated code?
 - **Gaps**: What is still missing?
 - **Proportionality of the solution**: Did the agent fix the root cause or apply a band-aid? If the code reviewer or reasoner flags a palliative pattern, you MUST request a plan revision before continuing. A fix that only handles the specific reported case without correcting the underlying behavior is not acceptable unless explicitly justified by constraints (backward compatibility, external dependency, time-critical hotfix).
+- **TDD compliance (bug fixes only)**: If the task type is `bug`, verify: (1) the tester confirmed Red (test fails before fix), (2) the executor wrote the fix, (3) the tester confirmed Green (test passes after fix). If any step is missing, do NOT proceed — retry the missing step.
 
 If the result is incomplete or flawed, you may retry the same agent or route to a different one. **Max 4 retries per phase** (see anti-loop policy).
 
@@ -328,6 +351,7 @@ Before producing your final output, verify:
 5. Did I evaluate each agent's output? → If no, **add the evaluation**.
 6. Did I invoke `@go-pipeline-hitl` before post-session (for non-Fast/Research lanes)? → If no, **invoke it**.
 7. Did I trigger `@go-pipeline-post_session` if the checkpoint conditions were met? → If no, **invoke it**.
+8. If the task type is `bug`, did the TDD Red-Green protocol complete successfully? → If no, **retry the missing step**.
 
 ## Output format
 

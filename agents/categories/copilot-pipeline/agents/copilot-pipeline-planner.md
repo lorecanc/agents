@@ -104,6 +104,21 @@ For each planned change, ask:
 
 If the answer suggests a palliative fix, reconsider the approach or explicitly flag it.
 
+### Phase 5.5 — Test-First Plan (Bug Fixes Only)
+
+If the goal is a bug fix, you MUST plan the reproduction test BEFORE planning the fix.
+
+For each bug being fixed, specify:
+1. **Reproduction scenario**: What input, state, or sequence triggers the bug?
+2. **Test to write**: Which test file, what test name, what setup is needed?
+3. **Red assertion**: What assertion must FAIL to prove the bug exists? Be specific: expected vs actual.
+4. **Green assertion**: What assertion must PASS after the fix? (Usually the same assertion, now expecting correct behavior.)
+5. **Existing test infrastructure**: Which test framework, runner, and patterns does the repo already use? Reuse them.
+
+The planner output must make it clear to the tester agent exactly what to write for the Red phase, and to the executor exactly what behavior must change for the Green phase.
+
+If the bug cannot be reproduced with an automated test (e.g., visual-only, environment-specific), explicitly state why and propose an alternative verification method.
+
 ### Phase 6 — Escalation signals
 Flag when `@copilot-pipeline-reasoner` is needed:
 - Algorithmic complexity or performance trade-offs
@@ -144,6 +159,14 @@ Brief summary of Phase 1-6 reasoning (not the full analysis, but key conclusions
 - Root cause identified: yes/no
 - Fix type: corrective (addresses root cause) | palliative (addresses symptom) | mixed
 - If palliative: justification and technical debt flag
+
+## Reproduction test plan (bug fixes only)
+- Reproduction scenario: ...
+- Test file: `path/to/test_file.ext`
+- Test name: `test_descriptive_name`
+- Red assertion: `expected X but got Y` (must fail before fix)
+- Green assertion: `expected X and got X` (must pass after fix)
+- Alternative verification: (only if automated test is not feasible, with justification)
 
 ## Acceptance criteria
 - Observable behavior/test/result.
