@@ -42,7 +42,10 @@ function durableJournal(file: string, value: unknown): void {
 const text = (value: Buffer) => Buffer.from(new TextDecoder("utf-8", { fatal: true }).decode(value).replace(/\r\n?/g, "\n").replace(/\n*$/, "\n"))
 const markdownText = (value: string) => value.replace(/\r\n?|\n/g, " ").replace(/[&<>]/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[character]!)).replace(/[\\`*_{}[\]()#+.!|~-]/g, "\\$&")
 const markdownCode = (value: string) => { const normalized = value.replace(/\r\n?|\n/g, " "), runs = [...normalized.matchAll(/`+/g)].map(match => match[0].length); const fence = "`".repeat(Math.max(1, ...(runs.length ? runs : [0]).map(length => length + 1))); return `${fence}${normalized}${fence}` }
-const safeRelative = (value: string, label: string) => { if (!value || path.isAbsolute(value) || value.split(/[\\/]/).some(p => !p || p === "." || p === "..")) fail(`${label} is unsafe: ${value}`) }
+const WINDOWS_DEVICE = /^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\..*)?$/i
+const safeRelative = (value: string, label: string) => {
+  if (!value || value.startsWith("/") || value.startsWith("//") || value.includes("\\") || /[\u0000-\u001f\u007f:<>"]|[|?*]/.test(value) || /^[A-Za-z]:/.test(value) || value.split("/").some(segment => !segment || segment === "." || segment === ".." || /[ .]$/.test(segment) || WINDOWS_DEVICE.test(segment))) fail(`${label} is unsafe: ${value}`)
+}
 const strictKeys = (value: Record<string, unknown>, allowed: string[], label: string) => { for (const key of Object.keys(value)) if (!allowed.includes(key)) fail(`${label} has unknown field ${key}`) }
 const folded = (value: string) => value.toLocaleLowerCase("und")
 

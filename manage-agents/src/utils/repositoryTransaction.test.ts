@@ -2,47 +2,29 @@ import assert from "node:assert/strict"
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
-import { execFileSync } from "node:child_process"
+import { execFileSync, spawnSync } from "node:child_process"
 import { afterEach, test } from "node:test"
-import { AUTO_COMMIT_MESSAGES, parseAutoCommitArgs, repositoryTransaction } from "./repositoryTransaction.js"
+import { AUTO_COMMIT_MESSAGES, parseAutoCommitArgs, repositoryTransaction, type GitRunner } from "./repositoryTransaction.js"
 
 const roots: string[] = []
 const git = (root: string, ...args: string[]) => execFileSync("git", ["-C", root, ...args], { encoding: "utf8" }).trim()
-function withGitFailure<T>(root: string, operation: string, action: () => T): T {
-  const bin = fs.mkdtempSync(path.join(os.tmpdir(), "agent-manager-git-wrapper-")); roots.push(bin)
+function withGitFailure<T>(root: string, operation: string, action: (runner: GitRunner) => T): T {
   const realGit = execFileSync("which", ["git"], { encoding: "utf8" }).trim()
-  fs.writeFileSync(path.join(bin, "git"), `#!/bin/sh\ncase "$*" in\n  *"${operation}"*) exit 91;;\nesac\nexec "$REAL_GIT" "$@"\n`)
-  fs.chmodSync(path.join(bin, "git"), 0o755)
-  const oldPath = process.env.PATH, oldRealGit = process.env.REAL_GIT
-  process.env.PATH = `${bin}${path.delimiter}${oldPath || ""}`; process.env.REAL_GIT = realGit
-  try { return action() } finally {
-    if (oldPath === undefined) delete process.env.PATH; else process.env.PATH = oldPath
-    if (oldRealGit === undefined) delete process.env.REAL_GIT; else process.env.REAL_GIT = oldRealGit
-  }
+  const runner: GitRunner = { run: (runRoot, args, overrides = {}, input) => {
+    if (args.includes(operation)) return { ...spawnSync(realGit, ["-C", runRoot, ...args], { encoding: "utf8", env: { ...process.env, ...overrides }, input }), status: 91 }
+    return spawnSync(realGit, ["-C", runRoot, ...args], { encoding: "utf8", env: { ...process.env, ...overrides }, input })
+  } }
+  return action(runner)
 }
-function withGitRace<T>(target: string, action: () => T): T {
-  const bin = fs.mkdtempSync(path.join(os.tmpdir(), "agent-manager-git-race-")); roots.push(bin)
+function withGitRace<T>(target: string, action: (runner: GitRunner) => T): T {
   const realGit = execFileSync("which", ["git"], { encoding: "utf8" }).trim()
-  const count = path.join(bin, "hash-object-count")
-  fs.writeFileSync(path.join(bin, "git"), `#!/bin/sh
-if [ "$3" = "hash-object" ]; then
-  "$REAL_GIT" "$@"; status=$?
-  printf 'race\\n' > "$RACE_TARGET"
-  exit $status
-fi
-exec "$REAL_GIT" "$@"
-`)
-  fs.chmodSync(path.join(bin, "git"), 0o755)
-  const oldPath = process.env.PATH, oldRealGit = process.env.REAL_GIT
-  const oldTarget = process.env.RACE_TARGET, oldCount = process.env.RACE_COUNT
-  process.env.PATH = `${bin}${path.delimiter}${oldPath || ""}`; process.env.REAL_GIT = realGit
-  process.env.RACE_TARGET = target; process.env.RACE_COUNT = count
-  try { return action() } finally {
-    if (oldPath === undefined) delete process.env.PATH; else process.env.PATH = oldPath
-    if (oldRealGit === undefined) delete process.env.REAL_GIT; else process.env.REAL_GIT = oldRealGit
-    if (oldTarget === undefined) delete process.env.RACE_TARGET; else process.env.RACE_TARGET = oldTarget
-    if (oldCount === undefined) delete process.env.RACE_COUNT; else process.env.RACE_COUNT = oldCount
-  }
+  let hashCalls = 0
+  const runner: GitRunner = { run: (runRoot, args, overrides = {}, input) => {
+    const result = spawnSync(realGit, ["-C", runRoot, ...args], { encoding: "utf8", env: { ...process.env, ...overrides }, input })
+    if (args.includes("hash-object") && ++hashCalls === 1) fs.writeFileSync(target, "race\n")
+    return result
+  } }
+  return action(runner)
 }
 function repo() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-manager-git-")); roots.push(root)
@@ -237,7 +219,10 @@ test("marker and Git-inspection fallbacks allow concurrent mutations without the
       fs.writeFileSync(target, "fallback\n")
       nested = repositoryTransaction(root, [target], AUTO_COMMIT_MESSAGES.tune, () => fs.writeFileSync(target, "nested\n"))
     })
-    const result = item.failGit ? withGitFailure(root, "status", run) : run()
+    const result = item.failGit ? withGitFailure(root, "status", runner => repositoryTransaction(root, [target], AUTO_COMMIT_MESSAGES.tune, () => {
+      fs.writeFileSync(target, "fallback\n")
+      nested = repositoryTransaction(root, [target], AUTO_COMMIT_MESSAGES.tune, () => fs.writeFileSync(target, "nested\n"), { gitRunner: runner })
+    }, { gitRunner: runner })) : run()
     assert.equal(result.commit, "skipped")
     assert.equal(nested?.warning?.code, "checkpoint-locked")
     assert.equal(fs.readFileSync(target, "utf8"), "nested\n")
@@ -267,7 +252,7 @@ test("mutation failure releases the manager lock", () => {
 test("selected path changing after capture fails without attempting a commit", () => {
   const root = repo(); const target = path.join(root, "tracked.txt"); process.env.AGENT_MANAGER_AUTO_COMMIT = "1"
   const beforeHead = git(root, "rev-parse", "HEAD")
-  const result = withGitRace(target, () => repositoryTransaction(root, [target], AUTO_COMMIT_MESSAGES.tune, () => fs.writeFileSync(target, "captured\n")))
+   const result = withGitRace(target, runner => repositoryTransaction(root, [target], AUTO_COMMIT_MESSAGES.tune, () => fs.writeFileSync(target, "captured\n"), { gitRunner: runner }))
   assert.equal(result.commit, "failed")
   assert.equal(result.warning?.code, "concurrent-worktree-change")
   assert.equal(git(root, "rev-parse", "HEAD"), beforeHead)

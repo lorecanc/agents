@@ -21,6 +21,10 @@ function tempRoot() {
   return root
 }
 
+function assertPosixMode(actual: number, expected: number) {
+  if (process.platform !== "win32") assert.equal(actual, expected)
+}
+
 test("uses the default when UI config is missing and accepts valid custom shares", () => {
   const root = tempRoot()
    assert.deepEqual(loadUiConfig(root).config, DEFAULT_UI_CONFIG)
@@ -96,12 +100,12 @@ test("creates and replaces a workspace config while preserving the target mode",
   saveUiConfig(root, 0.60)
   const configPath = path.join(root, ".agent-manager", "ui-config.json")
   assert.deepEqual(JSON.parse(fs.readFileSync(configPath, "utf8")), { version: 1, listShare: 0.6 })
-  assert.equal(fs.statSync(configPath).mode & 0o777, 0o600)
+  assertPosixMode(fs.statSync(configPath).mode & 0o777, 0o600)
 
   fs.chmodSync(configPath, 0o640)
   saveUiConfig(root, 0.75)
   assert.equal(loadUiConfig(root).config.listShare, 0.75)
-  assert.equal(fs.statSync(configPath).mode & 0o777, 0o640)
+  assertPosixMode(fs.statSync(configPath).mode & 0o777, 0o640)
   assert.equal(fs.readdirSync(path.dirname(configPath)).filter(name => name.startsWith(".ui-config.json.tmp-")).length, 0)
 })
 

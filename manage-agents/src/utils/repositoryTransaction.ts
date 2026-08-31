@@ -11,7 +11,10 @@ export const AUTO_COMMIT_MESSAGES = {
 
 export class RepositoryTransactionError extends Error {}
 export interface RepositoryTransactionPlan { localPaths: string[]; externalPaths?: string[] }
-export interface RepositoryTransactionOptions { onWarning?: (warning: TransactionWarning) => void }
+export interface GitRunner {
+  run(root: string, args: string[], overrides?: NodeJS.ProcessEnv, input?: Buffer): any
+}
+export interface RepositoryTransactionOptions { onWarning?: (warning: TransactionWarning) => void; gitRunner?: GitRunner }
 export type CommitStatus = "off" | "committed" | "skipped" | "failed"
 export interface TransactionWarning { code: string; phase: string; message: string; recovery: string }
 export interface TransactionResult<T> { value: T; commit: CommitStatus; warning?: TransactionWarning; commitHash?: string }
@@ -25,18 +28,23 @@ function cleanGitEnvironment(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessE
   for (const [key, value] of Object.entries(process.env)) if (!dangerousGitVariables.test(key) && !/^GIT_CONFIG(?:_|$)/i.test(key)) safe[key] = value
   Object.assign(safe, overrides); return safe
 }
-function git(root: string, args: string[], overrides: NodeJS.ProcessEnv = {}, input?: Buffer) {
-  const result = spawnSync("git", ["-C", root, ...args], { encoding: "utf8", env: cleanGitEnvironment(overrides), input })
+const defaultGitRunner: GitRunner = {
+  run(root: string, args: string[], overrides: NodeJS.ProcessEnv = {}, input?: Buffer) {
+    return spawnSync("git", ["-C", root, ...args], { encoding: "utf8", env: cleanGitEnvironment(overrides), input })
+  },
+}
+function git(runner: GitRunner, root: string, args: string[], overrides: NodeJS.ProcessEnv = {}, input?: Buffer) {
+  const result = runner.run(root, args, overrides, input)
   if (result.error) throw result.error
   return result
 }
-function gitRoot(start: string): string {
-  const result = git(start, ["rev-parse", "--show-toplevel"])
+function gitRoot(runner: GitRunner, start: string): string {
+  const result = git(runner, start, ["rev-parse", "--show-toplevel"])
   if (result.status !== 0) throw new RepositoryTransactionError("Auto-commit requires a Git repository.")
   return fs.realpathSync(result.stdout.trim())
 }
-function status(root: string): StatusEntry[] {
-  const result = git(root, ["status", "--porcelain=v1", "-z", "--untracked-files=all"], { GIT_OPTIONAL_LOCKS: "0" })
+function status(runner: GitRunner, root: string): StatusEntry[] {
+  const result = git(runner, root, ["status", "--porcelain=v1", "-z", "--untracked-files=all"], { GIT_OPTIONAL_LOCKS: "0" })
   if (result.status !== 0) throw new RepositoryTransactionError("Unable to inspect Git status.")
   const fields = result.stdout.split("\0"), entries: StatusEntry[] = []
   for (let i = 0; i < fields.length; i++) {
@@ -80,8 +88,8 @@ function planPaths(workspacePath: string, plan: string[] | RepositoryTransaction
   if (normalized.some(file => externalPaths.includes(file))) throw new RepositoryTransactionError("A path cannot be both local and external.")
   return { local: normalized, external: externalPaths }
 }
-function repositoryStateMarkers(root: string): void {
-  const gitDirResult = git(root, ["rev-parse", "--git-dir"]), commonDirResult = git(root, ["rev-parse", "--git-common-dir"])
+function repositoryStateMarkers(runner: GitRunner, root: string): void {
+  const gitDirResult = git(runner, root, ["rev-parse", "--git-dir"]), commonDirResult = git(runner, root, ["rev-parse", "--git-common-dir"])
   if (gitDirResult.status !== 0 || commonDirResult.status !== 0) throw new RepositoryTransactionError("Unable to inspect Git repository state.")
   const resolve = (value: string) => path.isAbsolute(value) ? value : path.resolve(root, value)
   const dirs = new Set([resolve(gitDirResult.stdout.trim()), resolve(commonDirResult.stdout.trim())])
@@ -89,14 +97,14 @@ function repositoryStateMarkers(root: string): void {
 }
 function sameFile(file: string, identity: LockIdentity): boolean { try { const s = fs.lstatSync(file); return !s.isSymbolicLink() && s.dev === identity.dev && s.ino === identity.ino } catch { return false } }
 function pathspec(paths: Iterable<string>): Buffer { return Buffer.from([...paths].join("\0") + "\0") }
-function fingerprint(root: string, file: string): Fingerprint {
+function fingerprint(runner: GitRunner, root: string, file: string): Fingerprint {
   const absolute = path.join(root, file)
   const stat = fs.lstatSync(absolute, { throwIfNoEntry: false })
   if (!stat) return { oid: "0", mode: "0" }
   if (!stat.isFile() || stat.isSymbolicLink()) throw new RepositoryTransactionError(`Refusing auto-commit for non-regular path: ${file}`)
-  const hash = git(root, ["hash-object", "-w", "--stdin"], {}, fs.readFileSync(absolute))
+  const hash = git(runner, root, ["hash-object", "-w", "--stdin"], {}, fs.readFileSync(absolute))
   if (hash.status !== 0) throw new RepositoryTransactionError(hash.stderr.trim() || "hash-object failed")
-  return { oid: hash.stdout.trim(), mode: stat.mode & 0o111 ? "100755" : "100644" }
+  return { oid: hash.stdout.trim(), mode: process.platform === "win32" ? "100644" : stat.mode & 0o111 ? "100755" : "100644" }
 }
 function fingerprintsEqual(left: Fingerprint, right: Fingerprint): boolean { return left.oid === right.oid && left.mode === right.mode }
 
@@ -110,6 +118,7 @@ export function parseAutoCommitArgs(argv: string[], env: NodeJS.ProcessEnv = pro
 export function autoCommitEnabled(): boolean { const value = process.env.AGENT_MANAGER_AUTO_COMMIT; if (value !== undefined && value !== "0" && value !== "1") throw new RepositoryTransactionError(`Invalid AGENT_MANAGER_AUTO_COMMIT value '${value}'; expected exactly 0 or 1.`); return value === "1" }
 
 export function repositoryTransaction<T>(workspacePath: string, plan: string[] | RepositoryTransactionPlan, message: string, mutation: () => T, options: RepositoryTransactionOptions = {}): TransactionResult<T> {
+  const runner = options.gitRunner || defaultGitRunner
   const { local } = planPaths(workspacePath, plan)
   const notify = (result: TransactionResult<T>): TransactionResult<T> => { if (result.warning && options.onWarning) { try { options.onWarning(result.warning) } catch {} } return result }
   const run = () => mutation()
@@ -119,8 +128,8 @@ export function repositoryTransaction<T>(workspacePath: string, plan: string[] |
   const skip = (value: T, code: string, phase: string, message: unknown) => notify({ value, commit: "skipped", warning: warning(code, phase, message) })
   const runSkippedWithoutLock = (message: unknown): TransactionResult<T> => skip(run(), "checkpoint-locked", "lock", message)
   try {
-    root = gitRoot(workspacePath)
-    const common = git(root, ["rev-parse", "--git-common-dir"]); if (common.status !== 0) throw new Error("Unable to resolve Git common directory.")
+    root = gitRoot(runner, workspacePath)
+    const common = git(runner, root, ["rev-parse", "--git-common-dir"]); if (common.status !== 0) throw new Error("Unable to resolve Git common directory.")
     const commonDir = path.isAbsolute(common.stdout.trim()) ? common.stdout.trim() : path.resolve(root, common.stdout.trim() || ".git")
     managerLock = path.join(commonDir, "agent-manager.lock")
     try {
@@ -134,11 +143,11 @@ export function repositoryTransaction<T>(workspacePath: string, plan: string[] |
       throw error
     }
     const lockStat = fs.fstatSync(managerFd); managerIdentity = { dev: lockStat.dev, ino: lockStat.ino }
-    repositoryStateMarkers(root)
-    if (status(root).length) throw new RepositoryTransactionError("The repository already contains changes.")
-    const head = git(root, ["rev-parse", "--verify", "HEAD"]), ref = git(root, ["symbolic-ref", "--quiet", "HEAD"])
+    repositoryStateMarkers(runner, root)
+    if (status(runner, root).length) throw new RepositoryTransactionError("The repository already contains changes.")
+    const head = git(runner, root, ["rev-parse", "--verify", "HEAD"]), ref = git(runner, root, ["symbolic-ref", "--quiet", "HEAD"])
     if (head.status !== 0 || ref.status !== 0) throw new RepositoryTransactionError("The repository is detached or unborn.")
-    if (git(root, ["var", "GIT_AUTHOR_IDENT"]).status !== 0) throw new RepositoryTransactionError("Git identity is not configured.")
+    if (git(runner, root, ["var", "GIT_AUTHOR_IDENT"]).status !== 0) throw new RepositoryTransactionError("Git identity is not configured.")
   } catch (error) {
     const text = String(error instanceof Error ? error.message : error)
     const code = text.includes("already running") ? "preflight-lock" : text.includes("operation in progress") ? "unsupported-repository-state" : text.includes("already contains changes") ? "dirty-repository" : "git-unavailable"
@@ -152,22 +161,22 @@ export function repositoryTransaction<T>(workspacePath: string, plan: string[] |
   try {
     const scopes = new Set(local.map(file => relative(root, file)))
     const inScope = (file: string | undefined) => Boolean(file && (scopes.has(file) || [...scopes].some(scope => file.startsWith(`${scope}/`) || scope.startsWith(`${file}/`))))
-    const changed = status(root), unexpected = changed.filter(entry => !inScope(entry.path) && !inScope(entry.renamePeer))
+    const changed = status(runner, root), unexpected = changed.filter(entry => !inScope(entry.path) && !inScope(entry.renamePeer))
     if (unexpected.length) return notify({ value, commit: "failed", warning: warning("unexpected-path", "capture", `${unexpected.length} unexpected change(s): ${JSON.stringify([...scopes])} ${JSON.stringify(changed)}`) })
      const selected = new Set(changed.flatMap(entry => entry.renamePeer ? [entry.path, entry.renamePeer] : [entry.path])); if (!selected.size) return { value, commit: "skipped" }
-     const captured = new Map<string, Fingerprint>([...selected].map(file => [file, fingerprint(root, file)]))
-      const changedBeforeCommit = [...captured].some(([file, expected]) => !fingerprintsEqual(expected, fingerprint(root, file)))
+    const captured = new Map<string, Fingerprint>([...selected].map(file => [file, fingerprint(runner, root, file)]))
+       const changedBeforeCommit = [...captured].some(([file, expected]) => !fingerprintsEqual(expected, fingerprint(runner, root, file)))
     if (changedBeforeCommit) return notify({ value, commit: "failed", warning: warning("concurrent-worktree-change", "capture", "A selected worktree path changed before commit; no commit was attempted.") })
     for (const entry of changed) if (entry.category === "untracked" && selected.has(entry.path)) {
-      const add = git(root, ["--literal-pathspecs", "add", "--intent-to-add", "--pathspec-from-file=-", "--pathspec-file-nul"], {}, pathspec([entry.path]))
+       const add = git(runner, root, ["--literal-pathspecs", "add", "--intent-to-add", "--pathspec-from-file=-", "--pathspec-file-nul"], {}, pathspec([entry.path]))
       if (add.status !== 0) throw new Error("intent-to-add failed; the index may contain intent-to-add entries.")
     }
     hooksDir = fs.mkdtempSync(path.join(path.dirname(root), ".agent-manager-hooks-")); fs.chmodSync(hooksDir, 0o700); const hs = fs.lstatSync(hooksDir); hooksIdentity = { dev: hs.dev, ino: hs.ino }
-    const commit = git(root, ["--literal-pathspecs", "-c", `core.hooksPath=${hooksDir}`, "commit", "--only", "--no-gpg-sign", "--no-edit", "--cleanup=verbatim", "--pathspec-from-file=-", "--pathspec-file-nul", "-m", message], { GIT_CONFIG_NOSYSTEM: "1", GIT_EDITOR: ":" }, pathspec(selected))
+    const commit = git(runner, root, ["--literal-pathspecs", "-c", `core.hooksPath=${hooksDir}`, "commit", "--only", "--no-gpg-sign", "--no-edit", "--cleanup=verbatim", "--pathspec-from-file=-", "--pathspec-file-nul", "-m", message], { GIT_CONFIG_NOSYSTEM: "1", GIT_EDITOR: ":" }, pathspec(selected))
     if (commit.status !== 0) throw new Error(`commit failed${commit.stderr ? `: ${commit.stderr}` : ""}; the index may contain intent-to-add entries.`)
-    const hashResult = git(root, ["rev-parse", "--verify", "HEAD"]), hash = hashResult.stdout.trim()
-    const committedPaths = git(root, ["diff-tree", "--root", "--no-commit-id", "--name-only", "-r", "-z", hash], { GIT_OPTIONAL_LOCKS: "0" }).stdout.split("\0").filter(Boolean)
-    const tree = git(root, ["ls-tree", "-z", "-r", hash, "--"])
+    const hashResult = git(runner, root, ["rev-parse", "--verify", "HEAD"]), hash = hashResult.stdout.trim()
+    const committedPaths = git(runner, root, ["diff-tree", "--root", "--no-commit-id", "--name-only", "-r", "-z", hash], { GIT_OPTIONAL_LOCKS: "0" }).stdout.split("\0").filter(Boolean)
+    const tree = git(runner, root, ["ls-tree", "-z", "-r", hash, "--"])
     const committed = new Map<string, Fingerprint>()
     for (const record of tree.stdout.split("\0").filter(Boolean)) {
       const match = record.match(/^(\d+) \w+ ([0-9a-f]+)\t([\s\S]*)$/)
@@ -177,7 +186,7 @@ export function repositoryTransaction<T>(workspacePath: string, plan: string[] |
       const actual = committed.get(file) || { oid: "0", mode: "0" }
       return !fingerprintsEqual(expected, actual)
     })
-    if (hashResult.status !== 0 || tree.status !== 0 || blobMismatch || committedPaths.some(file => !selected.has(file)) || status(root).some(entry => selected.has(entry.path) || selected.has(entry.renamePeer || ""))) return notify({ value, commit: "committed", commitHash: hash || undefined, warning: warning(blobMismatch ? "post-commit-fingerprint-mismatch" : "post-verification", "verify", "Commit completed, but post-commit verification found a concurrent or unexpected change.") })
+    if (hashResult.status !== 0 || tree.status !== 0 || blobMismatch || committedPaths.some(file => !selected.has(file)) || status(runner, root).some(entry => selected.has(entry.path) || selected.has(entry.renamePeer || ""))) return notify({ value, commit: "committed", commitHash: hash || undefined, warning: warning(blobMismatch ? "post-commit-fingerprint-mismatch" : "post-verification", "verify", "Commit completed, but post-commit verification found a concurrent or unexpected change.") })
     return { value, commit: "committed", commitHash: hash }
   } catch (error) { return notify({ value, commit: "failed", warning: warning("git-failure", "commit", error) })
   } finally {

@@ -19,6 +19,10 @@ function git(root: string, ...args: string[]) {
   return execFileSync("git", ["-C", root, ...args], { encoding: "utf8" }).trim()
 }
 
+function assertPosixMode(actual: number, expected: number) {
+  if (process.platform !== "win32") assert.equal(actual, expected)
+}
+
 function gitAgentRepository() {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "agent-model-git-")))
   git(root, "init", "-q")
@@ -185,7 +189,7 @@ test("atomic agent writes preserve mode and clean temporary siblings", () => {
   fs.writeFileSync(filePath, "old\n")
   fs.chmodSync(filePath, 0o755)
   saveAgentFile(filePath, { description: "x" }, "new")
-  assert.equal(fs.statSync(filePath).mode & 0o7777, 0o755)
+  assertPosixMode(fs.statSync(filePath).mode & 0o7777, 0o755)
   assert.deepEqual(fs.readdirSync(workspace).filter(name => name.endsWith(".tmp")), [])
 })
 

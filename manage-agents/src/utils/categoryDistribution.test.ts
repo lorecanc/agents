@@ -45,7 +45,7 @@ test("category README escapes adversarial text and inline paths deterministicall
   manifest.title = "Title <script>\n# link [x](javascript:bad) `code`"
   manifest.description = "Description **bold** & <tag>\nsecond line"
   manifest.resources[0].source = "general/AGENTS.md"
-  manifest.resources[0].target = "safe`-target\n[x]"
+  manifest.resources[0].target = "safe`-target [x]"
   fs.writeFileSync(manifestPath, JSON.stringify(manifest))
   buildCategoryDistribution(root, "wiki")
   const readme = fs.readFileSync(path.join(output(root), "README.md"), "utf8")
@@ -106,6 +106,22 @@ test("manifest rejects every generator-reserved target, case-insensitively", () 
     const manifest = structuredClone(base); manifest.resources[0].target = reserved
     assert.throws(() => validateCategoryManifest(manifest, path.join(repo, "agents")), /reserved/i)
   }
+})
+
+test("manifest relative paths accept portable names and reject unsafe lexical forms", () => {
+  const base = JSON.parse(fs.readFileSync(path.join(repo, "agents/.agent-manager/categories/wiki.json"), "utf8"))
+  for (const target of ["a..b", " spaced/name", ".well-known/file", "目录/файл.md", "safe name/file.txt"]) {
+    const manifest = structuredClone(base); manifest.resources[0].target = target
+    assert.doesNotThrow(() => validateCategoryManifest(manifest, path.join(repo, "agents")))
+  }
+  for (const target of ["", "a//b", "a/./b", "a/../b", "/absolute", "//server/share", "C:/file", "a:b", "a\\b", "a\n b", "a\u0000b", "a\u007fb", "name.", "name ", "CON.txt", "dir/PRN", "COM1.md", "LPT9.log", "a|b", "a?b", "a*b", "a< b", "a> b", "a\"b"]) {
+    const manifest = structuredClone(base); manifest.resources[0].target = target
+    assert.throws(() => validateCategoryManifest(manifest, path.join(repo, "agents")), /Invalid category distribution/)
+  }
+})
+
+test("all real category manifests validate", () => {
+  for (const id of ["wiki", "docs", "slides"]) assert.doesNotThrow(() => loadCategoryManifest(repo, id))
 })
 
 test("organize fails closed for symlinked manager metadata without creating a backup", () => {
@@ -215,7 +231,7 @@ test("package records byte hashes and removes stale files", () => {
   packageCategoryDistributions(root, ["wiki"], "artifacts/categories")
   const marker = validateCategoryPackage(artifact), entry = marker.entries.find(e => e.path === "wiki/AGENTS.md")!
   assert.deepEqual(Object.keys(marker).sort(), ["categories", "contentDigest", "entries", "kind", "packageVersion", "schema"])
-  const hash = execFileSync("sh", ["-c", `shasum -a 256 ${JSON.stringify(path.join(artifact, entry.path))}`], { encoding: "utf8" }).split(" ")[0]
+  const hash = crypto.createHash("sha256").update(fs.readFileSync(path.join(artifact, entry.path))).digest("hex")
   assert.equal(entry.sha256, hash); fs.writeFileSync(path.join(artifact, "stale.txt"), "stale")
   assert.throws(() => validateCategoryPackage(artifact), /entries do not match/); packageCategoryDistributions(root, ["wiki"], "artifacts/categories")
   assert.equal(fs.existsSync(path.join(artifact, "stale.txt")), false)
