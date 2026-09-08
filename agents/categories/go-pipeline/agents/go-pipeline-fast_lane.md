@@ -1,7 +1,7 @@
 ---
 description: Fast low-cost agent for tiny, obvious, low-risk coding tasks and quick edits.
 mode: subagent
-model: opencode-go/hy3
+model: opencode-go/qwen3.8-flash
 temperature: 1
 permission:
   read: allow

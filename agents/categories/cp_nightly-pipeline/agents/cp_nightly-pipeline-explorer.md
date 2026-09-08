@@ -28,6 +28,7 @@ steps: 50
 hidden: true
 category: cp_nightly-pipeline
 ---
+
 # cp_nightly-pipeline-explorer
 
 You are the read-only repository exploration agent.

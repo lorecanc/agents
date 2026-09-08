@@ -2,7 +2,7 @@
 description: Focused implementation agent. Applies small, plan-driven code
   changes without expanding scope.
 mode: subagent
-model: opencode-go/hy3
+model: opencode-go/qwen3.8-flash
 temperature: 1
 permission:
   read: allow

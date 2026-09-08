@@ -2,7 +2,7 @@
 description: Reviews code changes for correctness, simplicity, maintainability,
   regressions, and security. Does not implement by default.
 mode: subagent
-model: opencode-go/hy3
+model: opencode-go/qwen3.8-flash
 temperature: 1
 permission:
   read: allow

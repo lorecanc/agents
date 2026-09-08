@@ -4,7 +4,7 @@ description: Primary coordinator for the free-pipeline multi-agent workflow.
   specialized agents, and evaluates results. Never writes code or solves
   problems directly.
 mode: primary
-model: opencode/muse-spark-1.2-contributor-free
+model: opencode/muse-spark-1.3-contributor-free
 temperature: 1
 permission:
   read: allow

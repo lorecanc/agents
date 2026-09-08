@@ -3,7 +3,7 @@ description: Frontend specialist with access to shadcn/ui registry, 21st.dev
   component library, and Chrome DevTools. Recommends and installs components,
   validates design, and guides UI implementation.
 mode: subagent
-model: opencode/muse-spark-1.2-contributor-free
+model: opencode/muse-spark-1.3-contributor-free
 temperature: 1
 permission:
   read: allow

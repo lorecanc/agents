@@ -30,6 +30,7 @@ steps: 50
 hidden: true
 category: cp_nightly-pipeline
 ---
+
 # `cp_nightly-pipeline-frontend_specialist`
 
 You are a frontend specialist inside a multi-agent coding pipeline.

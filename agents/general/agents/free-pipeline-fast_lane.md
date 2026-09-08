@@ -1,7 +1,7 @@
 ---
 description: Fast low-cost agent for tiny, obvious, low-risk coding tasks and quick edits.
 mode: subagent
-model: opencode/muse-spark-1.2-contributor-free
+model: opencode/muse-spark-1.3-contributor-free
 temperature: 1
 permission:
   read: allow

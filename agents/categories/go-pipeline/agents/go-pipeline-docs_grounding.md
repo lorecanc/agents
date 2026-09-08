@@ -2,7 +2,7 @@
 description: Fetches and summarizes external library documentation to ground the
   planner and executor in real APIs. Does not edit files.
 mode: subagent
-model: opencode-go/hy3
+model: opencode-go/qwen3.8-flash
 temperature: 1
 permission:
   read: allow

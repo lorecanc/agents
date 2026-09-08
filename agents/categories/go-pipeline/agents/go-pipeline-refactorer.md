@@ -2,7 +2,7 @@
 description: Performs behavior-preserving simplification and cleanup. No new
   features, no speculative architecture.
 mode: subagent
-model: opencode-go/hy3
+model: opencode-go/qwen3.8-flash
 temperature: 1
 permission:
   read: allow
