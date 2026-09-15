@@ -2,7 +2,7 @@
 description: Deep reasoning agent for complex bugs, algorithms, architecture,
   performance, security, concurrency, and root-cause analysis.
 mode: subagent
-model: github-copilot/gpt-5.6-sol
+model: github-copilot/kimi-k3
 temperature: 1
 permission:
   read: allow

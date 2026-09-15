@@ -2,7 +2,7 @@
 description: Deep reasoning agent for complex bugs, algorithms, architecture,
   performance, security, concurrency, and root-cause analysis.
 mode: subagent
-model: kimi-for-coding/k3-256k
+model: kimi-for-coding/kimi-for-coding
 temperature: 1
 permission:
   read: allow

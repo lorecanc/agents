@@ -27,6 +27,7 @@ color: "#E67E22"
 steps: 50
 hidden: true
 ---
+
 # cp_nightly-pipeline-explorer
 
 You are the read-only repository exploration agent.
@@ -112,3 +113,4 @@ Things that were searched for but do NOT exist in the repo. This is critical for
 ## Risks / unknowns
 - Unknown or ambiguous point (factual, not prescriptive)
 ```
+

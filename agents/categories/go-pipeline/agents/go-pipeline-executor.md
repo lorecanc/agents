@@ -2,7 +2,7 @@
 description: Focused implementation agent. Applies small, plan-driven code
   changes without expanding scope.
 mode: subagent
-model: opencode-go/qwen3.8-flash
+model: opencode-go/deepseek-v4.1-flash
 temperature: 1
 permission:
   read: allow

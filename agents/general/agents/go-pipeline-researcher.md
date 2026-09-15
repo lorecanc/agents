@@ -2,7 +2,7 @@
 description: Fast research agent for local docs, dependency usage, APIs,
   examples, and technical context. Prefers concise evidence-based synthesis.
 mode: subagent
-model: opencode-go/qwen3.8-flash
+model: opencode-go/deepseek-v4.1-flash
 temperature: 1
 permission:
   read: allow

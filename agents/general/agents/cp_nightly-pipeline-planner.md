@@ -2,7 +2,7 @@
 description: Creates minimal implementation plans after repository context is
   available. Does not edit files.
 mode: subagent
-model: github-copilot/kimi-k3
+model: github-copilot/gemini-3.8-flash
 temperature: 1
 permission:
   read: allow

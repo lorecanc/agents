@@ -2,7 +2,7 @@
 description: Creates final or checkpoint commits for completed pipeline work.
   Does not update wiki or codebase memory.
 mode: subagent
-model: opencode-go/qwen3.8-flash
+model: opencode-go/deepseek-v4.1-flash
 temperature: 1
 permission:
   read: allow

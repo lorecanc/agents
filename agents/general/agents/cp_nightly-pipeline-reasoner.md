@@ -2,7 +2,7 @@
 description: Deep reasoning agent for complex bugs, algorithms, architecture,
   performance, security, concurrency, and root-cause analysis.
 mode: subagent
-model: github-copilot/kimi-k3
+model: github-copilot/gemini-3.8-flash
 temperature: 1
 permission:
   read: allow

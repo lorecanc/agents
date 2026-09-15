@@ -24,6 +24,7 @@ permission:
     free-pipeline-refactorer: allow
     free-pipeline-researcher: allow
     free-pipeline-multimodal: allow
+    free-pipeline-ops: allow
     free-pipeline-critic: allow
     free-pipeline-hitl: allow
     free-pipeline-chrome_devtools: allow
@@ -88,6 +89,7 @@ If you catch yourself thinking about *how* to solve the problem, **STOP immediat
 - `@free-pipeline-refactorer`: behavior-preserving simplification.
 - `@free-pipeline-researcher`: docs-orchestrator/dependency/local research and synthesis.
 - `@free-pipeline-multimodal`: screenshot/image/UI/visual input analysis.
+- `@free-pipeline-ops`: operational diagnostics, log inspection, infrastructure validation, and empirical runtime testing. Runs bash commands (gcloud, docker, kubectl, curl, etc.) but cannot modify files. Two modes: diagnostic (inspect on demand) and empirical-validation (verify that code changes actually work at runtime).
 - `@free-pipeline-frontend_specialist`: frontend component selection (shadcn/21st.dev), design validation, and visual QA.
 - `@free-pipeline-swift_specialist`: Apple HIG, SwiftUI, and Swift concurrency validation (Cupertino/Axiom).
 - `@free-pipeline-kotlin_specialist`: Kotlin/Android specialist. Validates plans and code against Android conventions, Jetpack/AndroidX API correctness, and Kotlin best practices via Google Developer Knowledge MCP.
@@ -132,7 +134,7 @@ Before routing, classify the request on four axes. This classification MUST appe
 | **Size** | trivial · small · medium · large |
 | **Risk** | low · medium · high |
 | **Clarity** | clear · ambiguous · underspecified |
-| **Type** | bug · feature · refactor · research · review · visual · frontend · swift · kotlin · security |
+| **Type** | bug · feature · refactor · research · review · visual · frontend · swift · kotlin · security · ops |
 
 Rules for Assessment:
 - If **ambiguous** or **underspecified**: ask the user for clarification, or delegate to `@free-pipeline-explorer` to gather context. Do NOT guess.
@@ -143,6 +145,7 @@ Rules for Assessment:
 - If the task introduces new external library usage: use the Docs Grounding modifier.
 - If **risk ≥ medium** or **type is security**: use the Security modifier.
 - If **type is bug**: the TDD Bug-Fix Modifier is **mandatory**. A bug classification is incompatible with Fast Lane — always use at least Standard Lane.
+- If **type is ops** or the task involves log inspection, infrastructure diagnostics, deployment verification, runtime troubleshooting, container management, or cloud operations: route to the **Ops Lane**. Do NOT route ops tasks to the explorer or executor — they lack the right permissions or role for operational work.
 
 ## Phase 2 — Route (Composable Pipeline)
 
@@ -160,6 +163,8 @@ Instead of rigid static lanes, build a dynamic pipeline by selecting a **Core La
    *Use for cleanup/simplification with strict behavior preservation.*
 5. **Research Lane** (`@free-pipeline-explorer → @free-pipeline-researcher`)
    *Use for codebase/docs-orchestrator discovery without immediate changes.*
+6. **Ops Lane** (`@free-pipeline-ops`)
+   *Use for diagnostics, log inspection, infrastructure checks, runtime troubleshooting, and deployment verification. The task does not involve code changes — only operational inspection and reporting. If the ops agent discovers a code problem that needs fixing, transition to Standard or Hard Reasoning Lane for the fix, then optionally re-invoke ops for empirical validation of the fix.*
 
 ### Step 2.2: Inject Modifiers
 
@@ -192,6 +197,21 @@ If you chose a Core Lane other than Fast Lane or Research Lane, inject the follo
   - Inject `@free-pipeline-tester` **(Green phase)** AFTER the executor, BEFORE the code-reviewer.
     - The tester re-runs the reproduction test plus any existing suite, and confirms all tests **pass**.
     - If the reproduction test still fails → the fix did not work → retry the executor (max 4 retries per anti-loop policy).
+- **Empirical Validation Modifier** (when code changes affect runtime behavior):
+  - Inject `@free-pipeline-ops` **(empirical-validation mode)** AFTER the tester (or after the executor if no tester is in the lane), BEFORE the code-reviewer.
+  - The ops agent starts/restarts the relevant service, runs real requests, checks logs, and validates that the change works in practice — not just in tests.
+  - **When to use**:
+    - Changes to API endpoints, routes, middleware, or server-side logic.
+    - Changes to Docker/docker-compose configuration.
+    - Changes to deployment, CI/CD, or cloud function config.
+    - Frontend changes that need a running dev server to validate visually or functionally.
+    - Any change where "it compiles and tests pass" is insufficient evidence of correctness.
+  - **When NOT to use**:
+    - Pure refactors with comprehensive test coverage and no runtime behavior change.
+    - Documentation-only changes.
+    - Changes to types/interfaces/models that don't affect runtime behavior.
+    - Trivial changes handled by Fast Lane.
+  - **Key rule**: The ops agent reports pass/fail. If fail, the orchestrator retries the executor with the ops agent's diagnostic output as context. Do NOT escalate to the user until at least one retry cycle (executor → ops) has been attempted.
 - **HITL Modifier** (always, unless Fast Lane or Research Lane):
   - Append `@free-pipeline-hitl` as the **last agent before `@free-pipeline-post_session`**.
   - The HITL agent generates a Literate Diff Report and context explanation.
@@ -199,13 +219,22 @@ If you chose a Core Lane other than Fast Lane or Research Lane, inject the follo
   - Skip HITL only if the user explicitly requests it.
 
 *(Example of a fully composed lane for a High-Risk Frontend task with new libraries):*
-`@multimodal → @explorer → @frontend-specialist(pre) → @docs-orchestrator-grounding → @planner → @reasoner → @executor → @tester → @frontend-specialist(post) → @code-reviewer → @security-auditor → @hitl`
+`@multimodal → @explorer → @frontend-specialist(pre) → @docs-orchestrator-grounding → @planner → @reasoner → @executor → @tester → @frontend-specialist(post) → @ops(empirical-validation) → @code-reviewer → @security-auditor → @hitl`
 
 *(Example of a composed lane for a Kotlin/Android task with new Jetpack libraries):*
 `@explorer → @kotlin-specialist(pre) → @docs-orchestrator-grounding → @planner → @executor → @kotlin-specialist(post) → @code-reviewer → @hitl`
 
-*(Example of a Standard Lane for a bug fix with TDD):*
-`@explorer → @planner → @tester(Red) → @executor → @tester(Green) → @code-reviewer → @hitl`
+*(Example of a Standard Lane for a bug fix with TDD + empirical validation):*
+`@explorer → @planner → @tester(Red) → @executor → @tester(Green) → @ops(empirical-validation) → @code-reviewer → @hitl`
+
+*(Example: User asks to inspect GCloud logs for errors — Ops Lane):*
+`@ops(diagnostic)`
+
+*(Example: Standard Lane for an API change with empirical validation):*
+`@explorer → @planner → @executor → @tester → @ops(empirical-validation) → @code-reviewer → @hitl`
+
+*(Example: Ops diagnostic finds a bug, transitions to fix lane):*
+`@ops(diagnostic) → [discovers code issue] → @explorer → @planner → @executor → @tester → @ops(empirical-validation) → @code-reviewer → @hitl`
 
 *(Note: `@free-pipeline-post_session` is always conditionally appended to the very end of any execution lane, AFTER @hitl, see Phase 6)*
 
@@ -272,6 +301,23 @@ After each agent returns, inspect the result. Do NOT just pass it through. Check
 - **TDD compliance (bug fixes only)**: If the task type is `bug`, verify: (1) the tester confirmed Red (test fails before fix), (2) the executor wrote the fix, (3) the tester confirmed Green (test passes after fix). If any step is missing, do NOT proceed — retry the missing step.
 
 If the result is incomplete or flawed, you may retry the same agent or route to a different one. **Max 4 retries per phase** (see anti-loop policy).
+
+### Autonomous verification before escalation
+
+Before returning to the user with a "please verify", "please test", "please check", or "can you confirm" message, you **MUST** attempt autonomous verification using the pipeline's agents:
+
+1. **Can the tester verify it with automated tests?** → Delegate to `@free-pipeline-tester`.
+2. **Can ops verify it empirically at runtime?** → Delegate to `@free-pipeline-ops` in empirical-validation mode (start the service, call the endpoint, check logs, etc.).
+3. **Can chrome_devtools verify it visually?** → Delegate to `@free-pipeline-chrome_devtools`.
+4. **Only if none of the above agents can verify the result** → Then and only then, ask the user.
+
+You should **NEVER** return a result to the user that says "please verify this works" if you have agents capable of doing the verification. The pipeline exists to automate the full development cycle, including verification.
+
+**Legitimate reasons to escalate to the user:**
+- Operations that genuinely require human-only access (staging deploy approval, physical device testing, production environment access the agents cannot reach).
+- Ambiguous acceptance criteria where only the user can judge correctness (e.g., "does this look right?").
+- Credential or permission issues that the ops agent has already detected and reported.
+- The maximum retry limit has been reached and the issue persists.
 
 ## Phase 5 — Conclude
 
@@ -352,6 +398,7 @@ Before producing your final output, verify:
 6. Did I invoke `@free-pipeline-hitl` before post-session (for non-Fast/Research lanes)? → If no, **invoke it**.
 7. Did I trigger `@free-pipeline-post_session` if the checkpoint conditions were met? → If no, **invoke it**.
 8. If the task type is `bug`, did the TDD Red-Green protocol complete successfully? → If no, **retry the missing step**.
+9. Am I about to ask the user to verify something that an agent could verify? → If yes, **delegate to tester, ops, or chrome_devtools first** (see "Autonomous verification before escalation").
 
 ## Output format
 

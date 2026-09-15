@@ -2,7 +2,7 @@
 description: Designs, writes, and evaluates tests for changed behavior. Focuses
   on minimal meaningful coverage and regression prevention.
 mode: subagent
-model: opencode-go/qwen3.8-flash
+model: opencode-go/deepseek-v4.1-flash
 temperature: 1
 permission:
   read: allow

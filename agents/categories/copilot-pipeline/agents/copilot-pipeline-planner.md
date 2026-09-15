@@ -2,7 +2,7 @@
 description: Creates minimal implementation plans after repository context is
   available. Does not edit files.
 mode: subagent
-model: github-copilot/gpt-5.6-sol
+model: github-copilot/kimi-k3
 temperature: 1
 permission:
   read: allow

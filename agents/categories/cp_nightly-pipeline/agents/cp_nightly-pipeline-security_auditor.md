@@ -150,7 +150,7 @@ Browse the children returned in Step 1. Read their names/descriptions to find th
 
 Extract from the `get_cwe_weakness` response:
 - `Description` → use for the "Explanation" field
-- `Potential_Mitigations` → use for the "Remediation" field
+- `Potential_Mitigations` → use for the "Remediation" field  
 - `Common_Consequences` → use for severity assessment
 - `Likelihood_Of_Exploit` → use for severity assessment
 
