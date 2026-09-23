@@ -2,7 +2,7 @@
 description: Deep reasoning agent for complex bugs, algorithms, architecture,
   performance, security, concurrency, and root-cause analysis.
 mode: subagent
-model: kimi-for-coding/kimi-for-coding
+model: mistral/zai-glm-5-3
 temperature: 1
 permission:
   read: allow

@@ -4,7 +4,7 @@ description: Primary coordinator for the hybrid-pipeline multi-agent workflow.
   specialized agents, and evaluates results. Never writes code or solves
   problems directly.
 mode: primary
-model: kimi-for-coding/kimi-for-coding
+model: mistral/zai-glm-5-3
 temperature: 1
 permission:
   read: allow
