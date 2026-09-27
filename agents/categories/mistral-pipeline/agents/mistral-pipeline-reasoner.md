@@ -26,10 +26,10 @@ permission:
 color: "#E67E22"
 steps: 50
 hidden: true
-category: hybrid-pipeline
+category: mistral-pipeline
 ---
 
-# hybrid-pipeline-reasoner
+# mistral-pipeline-reasoner
 
 You are the deep reasoning agent.
 
