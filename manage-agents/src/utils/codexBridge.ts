@@ -4,6 +4,7 @@ import type { AgentInfo } from "./agents.js"
 import { buildInferenceIndex, DEFAULT_TRANSLATION_CONFIG, resolveModelTarget, authorName } from "./translationConfig.js"
 import type { TranslationConfig } from "./translationConfig.js"
 import { assertInsideRealWorkspace, realpathThroughExistingAncestor } from "./pathValidation.js"
+import { translatePermissionsV2ToV1 } from "./v2Compat.js"
 
 type ResolvedModelTarget = ReturnType<typeof resolveModelTarget>
 type ResolvedTargets = Map<string, ResolvedModelTarget>
@@ -94,7 +95,10 @@ function permissionAllows(value: unknown): boolean {
 }
 
 function resolveSandboxMode(agent: AgentInfo): "read-only" | "workspace-write" {
-  const permissions = agent.frontmatter.permission || {}
+  // Normalize permissions to V1 format for internal use
+  const permissions = agent.frontmatter.permissions
+    ? translatePermissionsV2ToV1(agent.frontmatter.permissions)
+    : agent.frontmatter.permission || {}
   return permissionAllows(permissions.write) || permissionAllows(permissions.edit) ||
     permissionAllows(permissions.bash) || permissionAllows(permissions.execute)
     ? "workspace-write"
@@ -270,7 +274,10 @@ function renderManifest(plugin: CodexPlugin, emitSkills: boolean, emitMcp: boole
 function requiredMcpServers(agents: AgentInfo[]): Set<string> {
   const servers = new Set<string>()
   for (const agent of agents) {
-    const permissions = agent.frontmatter.permission || {}
+    // Normalize permissions to V1 format for internal use
+    const permissions = agent.frontmatter.permissions
+      ? translatePermissionsV2ToV1(agent.frontmatter.permissions)
+      : agent.frontmatter.permission || {}
     for (const [key, value] of Object.entries(permissions)) {
       if (!key.includes("_") || [
         "read", "write", "edit", "execute", "bash",

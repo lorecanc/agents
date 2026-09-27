@@ -7,26 +7,22 @@ test("model catalog parser is strict, trimmed, deduplicated, and preserves slash
   assert.deepEqual(parseModelCatalog("garbage\nnot-a-model"), [])
 })
 
-test("catalog loading selects refresh command and fails closed", () => {
+test("catalog loading uses plain listing and fails closed", () => {
   let command = ""
   assert.deepEqual(loadModelCatalog(c => { command = c; return "p/model" }, true), { status: "verified", models: ["p/model"] })
-  assert.equal(command, "opencode models --refresh")
+  assert.equal(command, "opencode models")
   assert.equal(loadModelCatalog(() => "").status, "unavailable")
   assert.equal(loadModelCatalog(() => { throw new Error("offline") }).status, "unavailable")
 })
 
-test("refresh falls back to the plain listing when --refresh is unsupported", () => {
+test("refresh flag is silently ignored for V2 compatibility", () => {
   const commands: string[] = []
   const catalog = loadModelCatalog(c => {
     commands.push(c)
-    if (c.includes("--refresh")) throw new Error("Unrecognized flag: --refresh")
     return "p/model"
   }, true)
   assert.deepEqual(catalog, { status: "verified", models: ["p/model"] })
-  assert.deepEqual(commands, ["opencode models --refresh", "opencode models"])
-
-  const emptyRefresh = loadModelCatalog(c => (c.includes("--refresh") ? "" : "p/model"), true)
-  assert.deepEqual(emptyRefresh, { status: "verified", models: ["p/model"] })
+  assert.deepEqual(commands, ["opencode models"])
 
   const failedFallback = loadModelCatalog(() => { throw new Error("offline") }, true)
   assert.equal(failedFallback.status, "unavailable")

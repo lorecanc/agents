@@ -22,8 +22,10 @@ export function parseModelCatalog(output: string): string[] {
 export function loadModelCatalog(runnerOrRefresh: CommandRunner | boolean = defaultRunner, refresh = false): ModelCatalog {
   const runner = typeof runnerOrRefresh === "function" ? runnerOrRefresh : defaultRunner
   if (typeof runnerOrRefresh === "boolean") refresh = runnerOrRefresh
-  // OpenCode v2 dropped --refresh: retry the plain listing before failing closed.
-  const commands = refresh ? ["opencode models --refresh", "opencode models"] : ["opencode models"]
+  // OpenCode v2 dropped --refresh: use plain listing only.
+  // V1 compatibility: if refresh=true was passed, we silently ignore it since
+  // V2 models are always fetched fresh from the catalog.
+  const commands = ["opencode models"]
   let lastError = "No complete model entries returned"
   for (const command of commands) {
     try {
