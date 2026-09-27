@@ -857,7 +857,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
       } else if (key === "m") {
         if (modelCatalog.status !== "verified") {
           setActionResultTitle("Model Catalog Unavailable")
-          setActionResultLines(["Models are not present in the loaded catalog.", "No model writes or suggestions are available.", "Press Y to retry with: opencode models --refresh"])
+          setActionResultLines(["Models are not present in the loaded catalog.", "No model writes or suggestions are available.", "Press Y to retry refreshing the model catalog."])
           setViewMode("action-result")
           return
         }

@@ -15,6 +15,24 @@ test("catalog loading selects refresh command and fails closed", () => {
   assert.equal(loadModelCatalog(() => { throw new Error("offline") }).status, "unavailable")
 })
 
+test("refresh falls back to the plain listing when --refresh is unsupported", () => {
+  const commands: string[] = []
+  const catalog = loadModelCatalog(c => {
+    commands.push(c)
+    if (c.includes("--refresh")) throw new Error("Unrecognized flag: --refresh")
+    return "p/model"
+  }, true)
+  assert.deepEqual(catalog, { status: "verified", models: ["p/model"] })
+  assert.deepEqual(commands, ["opencode models --refresh", "opencode models"])
+
+  const emptyRefresh = loadModelCatalog(c => (c.includes("--refresh") ? "" : "p/model"), true)
+  assert.deepEqual(emptyRefresh, { status: "verified", models: ["p/model"] })
+
+  const failedFallback = loadModelCatalog(() => { throw new Error("offline") }, true)
+  assert.equal(failedFallback.status, "unavailable")
+  assert.equal(failedFallback.status === "unavailable" && failedFallback.error, "offline")
+})
+
 test("membership is exact and suggestions are catalog members with provider priority", () => {
   const catalog = { status: "verified" as const, models: ["p/model-new", "p/model-old", "q/model-new"] }
   assert.equal(isVerifiedModel("p/model-new", catalog), true)
