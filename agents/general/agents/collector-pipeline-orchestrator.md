@@ -78,7 +78,7 @@ If you catch yourself thinking about *how* to solve the problem, **STOP immediat
 ## Available agents
 
 - `@collector-pipeline-explorer`: read-only repository exploration.
-- `@collector-pipeline-docs-orchestrator_grounding`: external documentation fetch and API verification.
+- `@collector-pipeline-docs_grounding`: external documentation fetch and API verification.
 - `@collector-pipeline-planner`: minimal implementation planning.
 - `@collector-pipeline-reasoner`: hard reasoning, architecture, algorithms, root-cause analysis.
 - `@collector-pipeline-executor`: focused code edits from a clear plan.
@@ -184,7 +184,7 @@ If you chose a Core Lane other than Fast Lane or Research Lane, inject the follo
   - Inject `@collector-pipeline-kotlin_specialist` (pre-implementation) BEFORE the planner.
   - Inject `@collector-pipeline-kotlin_specialist` (post-implementation) AFTER the executor.
 - **Docs Grounding Modifier** (if external APIs used):
-  - Inject `@collector-pipeline-docs-orchestrator_grounding` AFTER the explorer, BEFORE the planner.
+  - Inject `@collector-pipeline-docs_grounding` AFTER the explorer, BEFORE the planner.
 - **Security Modifier** (if risk >= medium or type == security):
   - Append `@collector-pipeline-security_auditor` AFTER the code-reviewer.
 - **TDD Bug-Fix Modifier** (if type == bug, mandatory):

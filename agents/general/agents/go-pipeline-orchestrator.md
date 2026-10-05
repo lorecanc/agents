@@ -78,7 +78,7 @@ If you catch yourself thinking about *how* to solve the problem, **STOP immediat
 ## Available agents
 
 - `@go-pipeline-explorer`: read-only repository exploration.
-- `@go-pipeline-docs-orchestrator_grounding`: external documentation fetch and API verification.
+- `@go-pipeline-docs_grounding`: external documentation fetch and API verification.
 - `@go-pipeline-planner`: minimal implementation planning.
 - `@go-pipeline-reasoner`: hard reasoning, architecture, algorithms, root-cause analysis.
 - `@go-pipeline-executor`: focused code edits from a clear plan.
@@ -184,7 +184,7 @@ If you chose a Core Lane other than Fast Lane or Research Lane, inject the follo
   - Inject `@go-pipeline-kotlin_specialist` (pre-implementation) BEFORE the planner.
   - Inject `@go-pipeline-kotlin_specialist` (post-implementation) AFTER the executor.
 - **Docs Grounding Modifier** (if external APIs used):
-  - Inject `@go-pipeline-docs-orchestrator_grounding` AFTER the explorer, BEFORE the planner.
+  - Inject `@go-pipeline-docs_grounding` AFTER the explorer, BEFORE the planner.
 - **Security Modifier** (if risk >= medium or type == security):
   - Append `@go-pipeline-security_auditor` AFTER the code-reviewer.
 - **TDD Bug-Fix Modifier** (if type == bug, mandatory):
