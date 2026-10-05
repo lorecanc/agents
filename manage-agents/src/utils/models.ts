@@ -22,12 +22,21 @@ export function parseModelCatalog(output: string): string[] {
 export function loadModelCatalog(runnerOrRefresh: CommandRunner | boolean = defaultRunner, refresh = false): ModelCatalog {
   const runner = typeof runnerOrRefresh === "function" ? runnerOrRefresh : defaultRunner
   if (typeof runnerOrRefresh === "boolean") refresh = runnerOrRefresh
-  try {
-    const models = parseModelCatalog(runner(refresh ? "opencode models --refresh" : "opencode models"))
-    return models.length > 0 ? { status: "verified", models } : { status: "unavailable", models: [], error: "No complete model entries returned" }
-  } catch (error: any) {
-    return { status: "unavailable", models: [], error: error?.message || String(error) }
+  // OpenCode v2 dropped --refresh: use plain listing only.
+  // V1 compatibility: if refresh=true was passed, we silently ignore it since
+  // V2 models are always fetched fresh from the catalog.
+  const commands = ["opencode models"]
+  let lastError = "No complete model entries returned"
+  for (const command of commands) {
+    try {
+      const models = parseModelCatalog(runner(command))
+      if (models.length > 0) return { status: "verified", models }
+      lastError = "No complete model entries returned"
+    } catch (error: any) {
+      lastError = error?.message || String(error)
+    }
   }
+  return { status: "unavailable", models: [], error: lastError }
 }
 
 /** Compatibility wrapper; callers must inspect the catalog state when writes matter. */

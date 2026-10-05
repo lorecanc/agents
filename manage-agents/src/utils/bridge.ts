@@ -6,6 +6,7 @@ import type { AgentInfo } from "./agents.js"
 import { buildInferenceIndex, DEFAULT_TRANSLATION_CONFIG, resolveModelTarget, authorName } from "./translationConfig.js"
 import type { TranslationConfig } from "./translationConfig.js"
 import { assertInsideRealWorkspace, realpathThroughExistingAncestor } from "./pathValidation.js"
+import { translatePermissionsV2ToV1 } from "./v2Compat.js"
 
 type ResolvedModelTarget = ReturnType<typeof resolveModelTarget>
 type ResolvedTargets = Map<string, ResolvedModelTarget>
@@ -187,7 +188,10 @@ function buildToolsString(
   requiredMcpServers: string[] = []
 ): string {
   const tools: string[] = []
-  const perms = frontmatter.permission || {}
+  // Normalize permissions to V1 format for internal use
+  const perms = frontmatter.permissions
+    ? translatePermissionsV2ToV1(frontmatter.permissions)
+    : frontmatter.permission || {}
 
   // Agent tool (subagent delegation)
   const taskPerm = perms.task
@@ -275,7 +279,10 @@ function buildToolsString(
  */
 function collectWarnings(frontmatter: Record<string, any>, enabledMcpServers?: Set<string>): string[] {
   const warnings: string[] = []
-  const perms = frontmatter.permission || {}
+  // Normalize permissions to V1 format for internal use
+  const perms = frontmatter.permissions
+    ? translatePermissionsV2ToV1(frontmatter.permissions)
+    : frontmatter.permission || {}
 
   if (enabledMcpServers) {
     for (const key of Object.keys(perms)) {

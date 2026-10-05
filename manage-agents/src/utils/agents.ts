@@ -4,6 +4,7 @@ import path from "node:path"
 import { randomBytes } from "node:crypto"
 import YAML from "yaml"
 import { isPathInsideWorkspace, isWorkspaceRelativePath } from "./pathValidation.js"
+import { detectFrontmatterVersion, translateFrontmatterV1ToV2, translateFrontmatterV2ToV1 } from "./v2Compat.js"
 
 function isValidFrontmatter(v: unknown): v is Record<string, any> {
   return typeof v === "object" && v !== null && !Array.isArray(v) && Object.keys(v).length > 0
@@ -32,6 +33,8 @@ export interface AgentInfo {
   frontmatter: Record<string, any>
   body: string
   allowedSubagents: string[]
+  /** Original frontmatter format detected when parsing the file */
+  frontmatterVersion?: "v1" | "v2" | "unknown"
 }
 
 export type AgentList = AgentInfo[] & { warnings?: string[] }
@@ -325,6 +328,20 @@ export function importAgents(workspaceRoot: string, selectedFilenames?: string[]
   }
 
   return { imported, backupPath: backupsPath }
+}
+
+/**
+ * Get all V2-compatible agent source directories.
+ * V2 discovers agents from: agents/, agent/, mode/, modes/
+ */
+export function getAgentSourceDirectories(workspaceRoot: string): string[] {
+  const configHome = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config")
+  const opencodeDir = path.join(configHome, "opencode")
+  const dirs = ["agents", "agent", "mode", "modes"]
+  return dirs.filter(d => {
+    const fullPath = path.join(opencodeDir, d)
+    return fs.existsSync(fullPath) && fs.lstatSync(fullPath).isDirectory()
+  })
 }
 
 export function auditSecurityPermissions(agents: AgentInfo[]) {
@@ -630,6 +647,7 @@ function countCategoryPrefixes(filenames: string[]): Record<string, number> {
 
 /**
  * Recursively find all agent markdown files in the workspace (under any folder named 'agents').
+ * Also discovers agents in V2 'mode' and 'modes' directories (which represent primary agents).
  */
 export function findAgentFiles(workspaceRoot: string, sourceDir: string = "general"): AgentList {
   if (!isWorkspaceRelativePath(sourceDir)) {
@@ -667,7 +685,8 @@ export function findAgentFiles(workspaceRoot: string, sourceDir: string = "gener
 
     if (stats.isDirectory()) {
       const files = fs.readdirSync(dir)
-      const isAgentsDir = basename === "agents"
+      // V2 compatibility: 'agents', 'agent', 'mode', 'modes' are all valid agent directories
+      const isAgentsDir = basename === "agents" || basename === "agent" || basename === "mode" || basename === "modes"
 
       for (const file of files) {
         const fullPath = path.join(dir, file)
@@ -679,6 +698,10 @@ export function findAgentFiles(workspaceRoot: string, sourceDir: string = "gener
           try {
             const agent = parseAgentFile(fullPath, workspaceRoot)
             if (agent) {
+              // V2: agents in 'mode' or 'modes' directories are primary agents
+              if ((basename === "mode" || basename === "modes") && !agent.frontmatter.mode) {
+                agent.frontmatter.mode = "primary"
+              }
               agents.push(agent)
             }
           } catch (e) {
@@ -717,6 +740,7 @@ export function parseAgentFile(filePath: string, workspaceRoot: string): AgentIn
 
   let frontmatter: Record<string, any> = {}
   let body = content
+  let rawFrontmatter: Record<string, any> = {}
 
   const { yamlText, body: contentBody } = extractFrontmatter(content)
   if (yamlText !== null) {
@@ -724,7 +748,14 @@ export function parseAgentFile(filePath: string, workspaceRoot: string): AgentIn
     try {
       const parsed = YAML.parse(yamlText)
       if (isValidFrontmatter(parsed)) {
-        frontmatter = parsed
+        rawFrontmatter = parsed
+        // Normalize V2 frontmatter to V1 for internal use
+        const version = detectFrontmatterVersion(parsed)
+        if (version === "v2") {
+          frontmatter = translateFrontmatterV2ToV1(parsed)
+        } else {
+          frontmatter = parsed
+        }
       }
     } catch (e) {
       console.error(`YAML parsing error in ${filePath}:`, e)
@@ -756,7 +787,8 @@ export function parseAgentFile(filePath: string, workspaceRoot: string): AgentIn
     rawContent: content,
     frontmatter,
     body,
-    allowedSubagents
+    allowedSubagents,
+    frontmatterVersion: detectFrontmatterVersion(rawFrontmatter)
   }
 }
 
@@ -782,11 +814,15 @@ export function normalizeAgentBody(body: string): string {
   return body.replace(/^(?:[ \t]*\r?\n)+/, "")
 }
 
-export function saveAgentFile(filePath: string, frontmatter: Record<string, any>, body: string) {
+export function saveAgentFile(filePath: string, frontmatter: Record<string, any>, body: string, originalVersion?: "v1" | "v2" | "unknown") {
   if (!isValidFrontmatter(frontmatter)) {
     throw new Error(`Invalid frontmatter for agent file: ${filePath}`)
   }
-  const content = renderAgentFile(frontmatter, body)
+  // If the original file was V2, convert back to V2 format for writing
+  const frontmatterToWrite = originalVersion === "v2"
+    ? translateFrontmatterV1ToV2(frontmatter)
+    : frontmatter
+  const content = renderAgentFile(frontmatterToWrite, body)
   atomicWriteAgentFile(filePath, Buffer.from(content, "utf8"))
 }
 

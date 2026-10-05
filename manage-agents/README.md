@@ -1,5 +1,18 @@
 # Agent Manager
 
+## OpenCode V2 Compatibility
+
+This manager is compatible with both OpenCode V1 and V2. The following V2 changes are handled transparently:
+
+- **Frontmatter fields**: V2 renames `max_steps` → `steps`, `disable` → `disabled`, `prompt` → `system`, and moves `temperature`/`top_p` under `request.body`. The manager auto-detects and normalizes both formats.
+- **Permissions**: V2 uses a `permissions` array (`[{action, resource, effect}]`) instead of V1's `permission` object. Both formats are supported.
+- **Model variants**: V2 joins `variant` to the model reference with `#` (e.g., `provider/model#variant`). The manager handles both separate and joined formats.
+- **Agent directories**: V2 discovers agents in `agents/`, `agent/`, `mode/`, and `modes/` directories. Agents in `mode/` or `modes/` are treated as primary agents.
+- **Config format**: V2 uses `agents` (plural) instead of `agent`, `commands` instead of `command`, and `subagent` instead of `subtask`. The manager translates between formats.
+- **CLI commands**: The `opencode models --refresh` flag was removed in V2. The manager now uses `opencode models` without the flag.
+
+All existing V1 agent files continue to work without modification. New V2 fields are also accepted.
+
 ## Auto-commit semantics
 
 Enabled auto-commit is best-effort. Git preflight, staging, commit, or publish failures return the mutation value with a warning and recovery guidance; invalid plans and mutation failures remain blocking errors.
