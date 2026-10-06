@@ -2,7 +2,7 @@
 description: Fast research agent for local docs, dependency usage, APIs,
   examples, and technical context. Prefers concise evidence-based synthesis.
 mode: subagent
-model: mistral/zai-glm-5-3
+model: mistral/mistral-large-4
 temperature: 1
 permission:
   read: allow

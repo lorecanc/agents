@@ -4,7 +4,7 @@ description: Primary coordinator for the mistral-pipeline multi-agent workflow.
   specialized agents, and evaluates results. Never writes code or solves
   problems directly.
 mode: primary
-model: mistral/zai-glm-5-3
+model: mistral/mistral-large-4
 temperature: 1
 permission:
   read: allow

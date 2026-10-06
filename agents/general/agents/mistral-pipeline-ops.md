@@ -3,7 +3,7 @@ description: Operational diagnostics and empirical validation agent. Runs bash
   commands (gcloud, docker, kubectl, curl, etc.) for log inspection,
   infrastructure checks, and runtime verification. Cannot modify files.
 mode: subagent
-model: mistral/zai-glm-5-3
+model: mistral/mistral-large-4
 temperature: 1
 permission:
   read: allow

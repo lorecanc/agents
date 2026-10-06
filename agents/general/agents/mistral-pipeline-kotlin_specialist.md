@@ -3,7 +3,7 @@ description: Kotlin/Android specialist. Uses Google Developer Knowledge MCP
   (developer.android.com docs, Jetpack guides, API reference) to validate plans
   and code against Android conventions and API correctness. Does not edit files.
 mode: subagent
-model: mistral/zai-glm-5-3
+model: mistral/mistral-large-4
 temperature: 1
 permission:
   read: allow

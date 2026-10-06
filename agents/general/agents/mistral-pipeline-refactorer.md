@@ -2,7 +2,7 @@
 description: Performs behavior-preserving simplification and cleanup. No new
   features, no speculative architecture.
 mode: subagent
-model: mistral/zai-glm-5-3
+model: mistral/mistral-large-4
 temperature: 1
 permission:
   read: allow
