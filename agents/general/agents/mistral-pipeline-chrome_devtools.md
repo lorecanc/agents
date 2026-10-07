@@ -4,7 +4,7 @@ description: Frontend debugging and visual validation agent. Uses Chrome
   console error detection. Called in the frontend lane before and after code
   changes.
 mode: subagent
-model: mistral/mistral-large-4
+model: mistral/zai-glm-5-3
 temperature: 1
 permission:
   read: allow

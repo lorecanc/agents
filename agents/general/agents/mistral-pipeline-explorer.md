@@ -2,7 +2,7 @@
 description: Fast read-only codebase explorer. Locates relevant files, patterns,
   tests, configs, and implementation context before planning or coding.
 mode: subagent
-model: mistral/mistral-large-4
+model: mistral/zai-glm-5-3
 temperature: 1
 permission:
   read: allow

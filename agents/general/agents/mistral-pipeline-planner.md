@@ -2,7 +2,7 @@
 description: Creates minimal implementation plans after repository context is
   available. Does not edit files.
 mode: subagent
-model: mistral/mistral-large-4
+model: mistral/zai-glm-5-3
 temperature: 1
 permission:
   read: allow

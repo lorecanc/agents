@@ -3,7 +3,7 @@ description: Human-in-the-loop checkpoint agent. Generates Literate Diff Reports
   and interactive comprehension quizzes to ensure the developer understands all
   changes before proceeding. Speed regulator for the pipeline.
 mode: subagent
-model: mistral/mistral-large-4
+model: mistral/zai-glm-5-3
 temperature: 1
 permission:
   read: allow

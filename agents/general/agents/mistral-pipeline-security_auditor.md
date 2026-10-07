@@ -2,7 +2,7 @@
 description: Security vulnerability scanner. Reviews diffs for OWASP Top 10 and
   CWE patterns. Uses CWE-search MCP for classification. Does not edit files.
 mode: subagent
-model: mistral/mistral-large-4
+model: mistral/zai-glm-5-3
 temperature: 1
 permission:
   read: allow

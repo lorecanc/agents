@@ -3,7 +3,7 @@ description: Frontend specialist with access to shadcn/ui registry, 21st.dev
   component library, and Chrome DevTools. Recommends and installs components,
   validates design, and guides UI implementation.
 mode: subagent
-model: mistral/mistral-large-4
+model: mistral/zai-glm-5-3
 temperature: 1
 permission:
   read: allow

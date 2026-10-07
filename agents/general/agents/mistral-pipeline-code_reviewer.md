@@ -2,7 +2,7 @@
 description: Reviews code changes for correctness, simplicity, maintainability,
   regressions, and security. Does not implement by default.
 mode: subagent
-model: mistral/mistral-large-4
+model: mistral/zai-glm-5-3
 temperature: 1
 permission:
   read: allow

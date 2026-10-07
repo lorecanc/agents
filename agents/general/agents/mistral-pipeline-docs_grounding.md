@@ -2,7 +2,7 @@
 description: Fetches and summarizes external library documentation to ground the
   planner and executor in real APIs. Does not edit files.
 mode: subagent
-model: mistral/mistral-large-4
+model: mistral/zai-glm-5-3
 temperature: 1
 permission:
   read: allow

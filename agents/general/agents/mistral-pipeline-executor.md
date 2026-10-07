@@ -2,7 +2,7 @@
 description: Focused implementation agent. Applies small, plan-driven code
   changes without expanding scope.
 mode: subagent
-model: mistral/mistral-large-4
+model: mistral/zai-glm-5-3
 temperature: 1
 permission:
   read: allow
