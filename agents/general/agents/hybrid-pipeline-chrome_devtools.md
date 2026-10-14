@@ -7,18 +7,21 @@ mode: subagent
 model: opencode-go/deepseek-v4.1-flash
 temperature: 1
 permission:
+  "*": deny
+  external_directory:
+    "*": deny
+    "~/.local/share/opencode/tool-output/*": allow
+    "~/.config/opencode/skills/*": allow
+  doom_loop: deny
   read: allow
   grep: allow
   glob: allow
   lsp: allow
   webfetch: allow
   chrome-devtools_*: allow
-  skill:
-    "*": allow
-  edit: deny
+  skill: allow
   bash:
     "*": deny
-    git *: deny
 color: "#E67E22"
 steps: 50
 hidden: true
@@ -45,6 +48,8 @@ Your job is to inspect, diagnose, and validate frontend behavior using Chrome De
 - Propose code fixes — describe what needs changing and let the executor implement.
 - Skip evidence collection and jump to conclusions.
 - Run without loading the appropriate skill first.
+- Save screenshots, traces, heap snapshots, or Lighthouse reports outside the repository (no `/tmp`, `/var/folders`, `~`). Prefer inline results (omit `filePath`/`outputDirPath`); when a file is needed, write it under `$PIPELINE_SCRATCH` or `.git/opencode-scratch/` and never inside the working tree.
+- Leave pages, emulation overrides, or throttling in place: reset them when you finish.
 
 ## Skills
 

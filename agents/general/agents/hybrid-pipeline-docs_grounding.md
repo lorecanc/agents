@@ -5,24 +5,33 @@ mode: subagent
 model: opencode-go/deepseek-v4.1-flash
 temperature: 1
 permission:
+  "*": deny
+  external_directory:
+    "*": deny
+    "~/.local/share/opencode/tool-output/*": allow
+  doom_loop: deny
   read: allow
   grep: allow
   glob: allow
   webfetch: allow
   websearch: allow
-  edit: deny
   bash:
     "*": deny
     pwd: allow
     ls*: allow
     find *: allow
+    find * -delete*: deny
+    find * -exec*: deny
+    find * -execdir*: deny
+    find * -ok*: deny
+    find * -fprint*: deny
     cat *: allow
 color: "#E67E22"
 steps: 50
 hidden: true
 ---
 
-# `hybrid-pipeline-docs-orchestrator_grounding`
+# `hybrid-pipeline-docs_grounding`
 
 ## Responsibilities
 - Receive from the explorer/planner the list of libraries/frameworks/APIs in use.
@@ -34,7 +43,7 @@ hidden: true
 ## Output Format
 ```markdown
 ## Libraries grounded
-- `library@version`: docs-orchestrator URL
+- `library@version`: docs URL
 
 ## Confirmed APIs
 - `function(params) → return_type`: notes, required imports
@@ -43,5 +52,5 @@ hidden: true
 - API deprecated, recommended alternative
 
 ## Unresolved
-- APIs not found in docs-orchestrator
+- APIs not found in docs
 ```

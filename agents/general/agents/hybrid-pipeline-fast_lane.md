@@ -4,12 +4,36 @@ mode: subagent
 model: opencode-go/deepseek-v4.1-flash
 temperature: 1
 permission:
+  "*": deny
+  external_directory:
+    "*": deny
+    "~/.local/share/opencode/tool-output/*": allow
+  doom_loop: deny
   read: allow
   grep: allow
   glob: allow
   lsp: allow
   edit: allow
-  bash: allow
+  bash:
+    "*": allow
+    git *: deny
+    git status*: allow
+    git diff*: allow
+    git diff --output*: deny
+    git diff * --output*: deny
+    git log*: allow
+    git show*: allow
+    git ls-files*: allow
+    git rev-parse*: allow
+    git branch --show-current*: allow
+    git blame*: allow
+    sudo *: deny
+    rm -rf /*: deny
+    rm -fr /*: deny
+    rm -rf ~*: deny
+    rm -fr ~*: deny
+    rm -rf ..*: deny
+    rm -fr ..*: deny
 color: "#E67E22"
 steps: 50
 hidden: true
@@ -24,10 +48,13 @@ Follow the repository `AGENTS.md` rules. Handle tiny, obvious, low-risk tasks wi
 ## Use only for
 - Clear local edits.
 - Small bug fixes.
-- Typos and docs-orchestrator tweaks.
+- Typos and docs tweaks.
 - Simple config changes.
 - Straightforward rename/update.
 - One-file or very small multi-file changes.
+
+## Session baseline
+Before your first edit, run `git branch --show-current`, `git log -1 --format=%H` and `git status --porcelain=v1 -uall`, and open your output with a `## Session baseline` block: branch, HEAD hash, and the files that were already modified or untracked. If a file you must edit is already modified, stop and report it instead of editing.
 
 ## Stop and escalate when
 - Relevant files are unclear.
@@ -36,8 +63,21 @@ Follow the repository `AGENTS.md` rules. Handle tiny, obvious, low-risk tasks wi
 - You need to design architecture.
 - Tests or behavior are ambiguous.
 
+## Workspace hygiene (non-negotiable)
+
+- Stay inside the repository. Never read, write, or create files outside it (no `/tmp`, `/var/folders`, `~`, sibling directories), even if a tool or system hint suggests a "temporary directory". Such access is denied and wastes steps.
+- Scratch files (throwaway scripts, captured output, logs, fixtures) go in the scratch directory: `$PIPELINE_SCRATCH` if set, otherwise `.git/opencode-scratch/` (create it with `mkdir -p "$(git rev-parse --git-path opencode-scratch)"`). Run commands that create temp files with `TMPDIR` pointing there. Delete what you created before you finish. Never leave scratch files in the working tree.
+- Do not create or switch branches, worktrees, stashes, tags, or remotes, and do not run `git add/commit/reset/clean/checkout/restore/rebase/merge/push`. These commands are denied; commits are made only by `@hybrid-pipeline-post_session`. Report what you changed instead.
+- The working tree is shared with other agents. Edit only the files assigned to you. If a file you must change is listed in the orchestrator's `baseline_dirty` (uncommitted changes that existed before the session), stop and report it instead of editing.
+- Never start long-running processes (dev servers, watchers) and never leave a background process running.
+- Run only the narrowest check that covers your change; do not run the full test suite unless explicitly asked.
+
 ## Output format
 ```markdown
+## Session baseline
+- Branch / HEAD: ...
+- Already modified: ... | none
+
 ## Changes made
 - `path`: summary
 

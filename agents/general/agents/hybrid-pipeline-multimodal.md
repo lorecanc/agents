@@ -5,6 +5,11 @@ mode: subagent
 model: opencode-go/deepseek-v4.1-flash
 temperature: 1
 permission:
+  "*": deny
+  external_directory:
+    "*": deny
+    "~/.local/share/opencode/tool-output/*": allow
+  doom_loop: deny
   read: allow
   grep: allow
   glob: allow
@@ -14,15 +19,27 @@ permission:
     pwd: allow
     ls*: allow
     find *: allow
+    find * -delete*: deny
+    find * -exec*: deny
+    find * -execdir*: deny
+    find * -ok*: deny
+    find * -fprint*: deny
     tree *: allow
     git status*: allow
     git diff*: allow
+    git diff --output*: deny
+    git diff * --output*: deny
     git log*: allow
+    git show*: allow
+    git ls-files*: allow
+    git rev-parse*: allow
+    git branch --show-current*: allow
     rg *: allow
     grep *: allow
     sed -n *: allow
     head *: allow
     tail *: allow
+    wc *: allow
 color: "#E67E22"
 steps: 50
 hidden: true

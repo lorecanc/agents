@@ -6,18 +6,27 @@ mode: subagent
 model: opencode-go/deepseek-v4.1-flash
 temperature: 1
 permission:
+  "*": deny
+  external_directory:
+    "*": deny
+    "~/.local/share/opencode/tool-output/*": allow
+  doom_loop: deny
   read: allow
   grep: allow
   glob: allow
   lsp: allow
   webfetch: allow
   google-developer-knowledge_*: allow
-  edit: deny
   bash:
     "*": deny
     pwd: allow
     ls*: allow
     find *: allow
+    find * -delete*: deny
+    find * -exec*: deny
+    find * -execdir*: deny
+    find * -ok*: deny
+    find * -fprint*: deny
     java -version: allow
     gradle --version: allow
     ./gradlew --version: allow

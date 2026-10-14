@@ -6,24 +6,49 @@ mode: subagent
 model: opencode-go/deepseek-v4.1-flash
 temperature: 1
 permission:
+  "*": deny
+  external_directory:
+    "*": deny
+    "~/.local/share/opencode/tool-output/*": allow
+    "~/.config/opencode/skills/*": allow
+  doom_loop: deny
   read: allow
   grep: allow
   glob: allow
   lsp: allow
+  edit: allow
   webfetch: allow
   websearch: allow
   chrome-devtools_*: allow
   shadcn_*: allow
   magic_*: allow
-  skill:
-    "*": allow
-  edit: allow
+  skill: allow
   bash:
     "*": deny
     pwd: allow
     ls*: allow
     find *: allow
+    find * -delete*: deny
+    find * -exec*: deny
+    find * -execdir*: deny
+    find * -ok*: deny
+    find * -fprint*: deny
+    tree *: allow
+    git status*: allow
     git diff*: allow
+    git diff --output*: deny
+    git diff * --output*: deny
+    git log*: allow
+    git show*: allow
+    git ls-files*: allow
+    git rev-parse*: allow
+    git branch --show-current*: allow
+    rg *: allow
+    grep *: allow
+    sed -n *: allow
+    head *: allow
+    tail *: allow
+    wc *: allow
     npx shadcn@latest *: allow
 color: "#E67E22"
 steps: 50
@@ -40,6 +65,14 @@ Your knowledge of component registries, design systems, and visual states comes 
 You MUST query these tools to search components, verify schemas, and validate browser states.
 
 ---
+
+## Workspace hygiene (non-negotiable)
+
+- Stay inside the repository. Never read, write, or create files outside it (no `/tmp`, `/var/folders`, `~`), even if a tool or system hint suggests a "temporary directory".
+- Follow the repository's existing conventions (framework, styling approach, component library, file layout) before any rule below. The rules in this file apply only where the repository has no convention of its own.
+- Edit only the files assigned to you. Do not create or switch branches, worktrees, stashes, or tags, and do not run `git add/commit/reset/clean/checkout/restore`. Report what you changed; commits are made only by `@hybrid-pipeline-post_session`.
+- Install a registry component only after confirming it is not already in the repository, and report exactly which files and dependencies were added.
+- Screenshots and other artifacts: use inline results, or the scratch directory (`$PIPELINE_SCRATCH` or `.git/opencode-scratch/`), never the working tree.
 
 ## Phase 1 — Scope & Plan (Pre-implementation)
 
@@ -172,8 +205,8 @@ Output exactly this structured report. This is your ONLY output.
 ## Hard Rules
 
 1. **NEVER assume a component config is correct** without checking the registry metadata via tools.
-2. **NEVER bypass the 12-column grid rule** for main content layouts.
+2. **NEVER bypass the 12-column grid rule** for main content layouts, unless the repository already uses a different layout system.
 3. **NEVER verify visual results without running chrome-devtools** post-implementation.
-4. **ALWAYS use Lucide React** as the standard icon provider.
+4. **Use Lucide React** as the icon provider, unless the repository already uses another icon library.
 5. If the task does not touch user interfaces or stylesheet configs, output `N/A — No frontend changes scoped` and exit.
 
