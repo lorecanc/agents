@@ -132,7 +132,7 @@ export function runtimeEnv(info, extra = {}) {
   return env
 }
 
-function groupAlive(pid) {
+export function groupAlive(pid) {
   try {
     process.kill(-pid, 0)
     return true
@@ -255,7 +255,7 @@ export async function findFreePort(from = 43000, to = 43999) {
   throw new Error(`no free port in ${from}-${to}`)
 }
 
-function portListening(port) {
+export function portListening(port) {
   return new Promise((resolve) => {
     const s = net.connect({ port, host: "127.0.0.1" })
     s.once("connect", () => {
@@ -371,7 +371,7 @@ export async function runVerify({ info, checks, files = [], stopOnFail = true, t
 
 // ---------------------------------------------------------------- smoke
 
-function parseEnvFile(file) {
+export function parseEnvFile(file) {
   const out = {}
   let text = ""
   try {
@@ -389,7 +389,7 @@ function parseEnvFile(file) {
   return out
 }
 
-const LOCAL_HOST = /^(localhost|127\.0\.0\.1|\[::1\]|::1)$/
+export const LOCAL_HOST = /^(localhost|127\.0\.0\.1|\[::1\]|::1)$/
 
 async function checkUrl(spec, subst, timeoutMs) {
   const url = subst(spec.url)
@@ -414,7 +414,7 @@ async function checkUrl(spec, subst, timeoutMs) {
   }
 }
 
-async function waitReady(ready, { portNum, subst, readLog, isExited, timeoutMs, signal }) {
+export async function waitReady(ready, { portNum, subst, readLog, isExited, timeoutMs, signal }) {
   const t0 = Date.now()
   const spec = ready || { port: portNum }
   const re = spec.log ? new RegExp(spec.log) : null

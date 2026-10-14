@@ -165,3 +165,35 @@ test("pipeline_smoke: no contract is inconclusive and suggests nothing it cannot
   assert.match(res.reason, /no smoke contract/)
   assert.equal(res.suggested_smoke, null)
 })
+
+test("pipeline_serve: a child session resolves to the root owner; start, status and stop go through the tool", async () => {
+  const node = JSON.stringify(process.execPath)
+  const dir = mkRepo({ smoke: { start: `${node} server.js`, ready: { url: "http://127.0.0.1:${PORT}/", timeout_s: 15 }, checks: [] } })
+  fs.writeFileSync(path.join(dir, "server.js"), 'require("http").createServer((q,r)=>{r.writeHead(200);r.end("tool-ok")}).listen(Number(process.env.PORT),"127.0.0.1")')
+  const info = registerRoot(dir)
+  writeSession(info, { sessionId: "ses_child", rootId: "ses_root", agent: "x-pipeline-chrome_devtools", pid: process.pid, updatedAt: Date.now() })
+  const child = ctx(dir, "ses_child")
+  try {
+    const started = await call("pipeline_serve", { action: "start", ttl_s: 60 }, child)
+    assert.equal(started.status, "running", JSON.stringify(started))
+    assert.equal(started.owner_session, "ses_root", "owner must be the root session, not the child")
+    assert.equal(await (await fetch(started.url)).text(), "tool-ok")
+    assert.equal((await call("pipeline_serve", { action: "status" }, child)).status, "running")
+    // a different root session is refused
+    writeSession(info, { sessionId: "ses_other", rootId: "ses_other", agent: "x-pipeline-orchestrator", pid: process.pid, busy: true, updatedAt: Date.now(), files: {} })
+    assert.equal((await call("pipeline_serve", { action: "stop" }, ctx(dir, "ses_other"))).status, "refused")
+    const stopped = await call("pipeline_serve", { action: "stop" }, child)
+    assert.equal(stopped.status, "stopped")
+    assert.equal(stopped.port_free, true)
+    assert.equal((await call("pipeline_serve", { action: "status" }, child)).status, "stopped")
+  } finally {
+    await call("pipeline_serve", { action: "stop" }, child)
+  }
+})
+
+test("pipeline_serve: no contract is inconclusive; not a repository is an error", async () => {
+  const res = await call("pipeline_serve", { action: "start" }, ctx(mkRepo()))
+  assert.equal(res.status, "inconclusive")
+  const notRepo = mkTmp("pipe-none-")
+  assert.equal((await call("pipeline_serve", { action: "start" }, ctx(notRepo))).error, "not a git repository")
+})

@@ -9,8 +9,9 @@
 //   tool.execute.before    blocks writes outside the repo / into .git, git branch/worktree/stash/
 //                          reset/commit commands, and edits to files another LIVE session is changing
 //   tool.execute.after     records which files the session edited (used by pipeline_state/commit)
-//   event                  tracks busy/idle, compares git state with the session baseline when idle
-//                          and warns if branches, worktrees or stashes appeared
+//   event                  tracks busy/idle; when idle: stops the service the session started with
+//                          pipeline_serve, compares git state with the baseline and warns if
+//                          branches, worktrees or stashes appeared
 //   session.compacting     keeps the session baseline and touched files in the compacted context
 //
 // Fail-open: anything unexpected (unparseable command, no git repo, SDK differences) lets the call
@@ -23,6 +24,7 @@ import {
   FILE_WRITE_TOOLS, checkBash, checkWritePath, conflictingClaims, editTargets, ensureScratch, gitAnomalies,
   isPipelineAgent, readSession, removeStaleSessions, repoInfo, roleOf, scratchDir, snapshot, toRel, writeSession,
 } from "../tools/_pipeline_core.js"
+import { stopServicesOwnedBy } from "../tools/_pipeline_serve.js"
 
 const HEARTBEAT_MS = 30_000
 const INTERNAL_AGENTS = new Set(["title", "summary", "compaction"])
@@ -211,6 +213,13 @@ export async function createPipelineGuard({ client, directory } = {}, options = 
     const rec = roots.get(sessionId)
     if (!rec) return
     rec.busy = false
+    try {
+      const info = infoFor(rec.cwd)
+      // A service started for this session (pipeline_serve) must not outlive its work.
+      if (info) await stopServicesOwnedBy(info, rec.sessionId)
+    } catch (e) {
+      log("warn", `stopping the session's service failed: ${e.message}`)
+    }
     try {
       const info = infoFor(rec.cwd)
       if (info && rec.baseline) {

@@ -210,3 +210,19 @@ test("outside a git repository the guard stays out of the way", async () => {
   await hooks["shell.env"]({ cwd: notRepo, sessionID: "ses_n" }, out)
   assert.deepEqual(out.env, {})
 })
+
+test("idle of the root session stops the service it started with pipeline_serve", async () => {
+  const { dir, hooks, info } = await setup()
+  const node = JSON.stringify(process.execPath)
+  fs.writeFileSync(path.join(dir, "server.js"), 'require("http").createServer((q,r)=>{r.writeHead(200);r.end("up")}).listen(Number(process.env.PORT),"127.0.0.1")')
+  fs.mkdirSync(path.join(dir, ".opencode"))
+  fs.writeFileSync(path.join(dir, ".opencode", "pipeline.json"), JSON.stringify({ serve: { start: `${node} server.js`, ready: { port: "${PORT}", timeout_s: 15 } } }))
+  const { startService, readService } = await import("./_pipeline_serve.js")
+  const started = await startService({ info, ownerRoot: "ses_root", ttlS: 120 })
+  assert.equal(started.status, "running", JSON.stringify(started))
+  await hooks.event({ event: { type: "session.idle", properties: { sessionID: "ses_other_root" } } }) // unrelated session: nothing happens
+  assert.equal((await fetch(started.url).then((r) => r.text())), "up")
+  await hooks.event({ event: { type: "session.idle", properties: { sessionID: "ses_root" } } })
+  assert.equal(readService(info), null)
+  await assert.rejects(fetch(started.url, { signal: AbortSignal.timeout(1500) }), "the service must be stopped when the root goes idle")
+})

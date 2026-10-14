@@ -17,6 +17,8 @@ Only sessions whose agent name matches `*-pipeline-*` are affected. Other sessio
 | `tools/pipeline_commit.ts` | Commit only the session's files; never push, amend, branch or stash |
 | `tools/pipeline_verify.ts` | lint / typecheck / tests / build with timeouts and a failure-class hint |
 | `tools/pipeline_smoke.ts` | Start service, check, always stop it and free the port |
+| `tools/pipeline_serve.ts` | Keep the service running for a browser (`start` / `status` / `stop`), always bounded |
+| `tools/_pipeline_serve.js` | Service lifecycle: sh supervisor, time limit, owner-death detection, group kill |
 | `bin/opencode-wt.mjs` | Opt-in isolated worktree: `start`, `finish`, `abort`, `list`, `gc` |
 | `tools/_pipeline_*.test.mjs` | Tests, run by `manage-agents` (`npm test`) |
 
@@ -49,6 +51,7 @@ Emergency switch for the plugin: `OPENCODE_PIPELINE_GUARD=off`.
   not guess and does not block.
 - On idle, compares git state with the session baseline and warns about new branches, worktrees, stashes or a
   changed branch.
+- On idle of the root session, stops the service that session started with `pipeline_serve`.
 - On compaction, keeps baseline, edited files and verification state in the summary.
 
 Session state lives in `<git-common-dir>/opencode-pipeline/` (inside `.git`, never committable).
@@ -80,6 +83,11 @@ Optional, committed in the target repository. Without it, `pipeline_verify` auto
       { "name": "cli", "cmd": "node scripts/ping.js", "expect_output": "pong" }
     ]
   },
+  "serve": {
+    "start": "npm run dev -- --port ${PORT}",
+    "url": "http://127.0.0.1:${PORT}/",
+    "ready": { "url": "http://127.0.0.1:${PORT}/", "timeout_s": 60 }
+  },
   "timeouts": { "test_fast": 300 },
   "worktree": { "copy": [".env.local"] }
 }
@@ -87,9 +95,24 @@ Optional, committed in the target repository. Without it, `pipeline_verify` auto
 
 - `${PORT}` is a free port chosen per run (or set `smoke.port` for a fixed one; if it is taken the run is
   `blocked`, the foreign process is never killed). `ready` can use `url`, `port` or `log` (regex).
+- `serve` (optional) is used by `pipeline_serve`, with the same fields as `smoke` plus `url` (the address handed
+  to the browser, default `http://127.0.0.1:${PORT}/`). Without it, `pipeline_serve` uses the `smoke` section.
 - Smoke checks only reach `localhost`. `env_file` must be inside the repo and its values are never echoed.
 - Runs are serialized per repository (`verify` and `smoke` locks), so concurrent sessions do not fight over
   ports or half-written files.
+
+## Serving for the browser: `pipeline_serve`
+
+`pipeline_smoke` starts a service, checks it and always stops it, so nothing is left running for a browser.
+`pipeline_serve` is for the visual validation done by `chrome_devtools`: `start` returns a localhost URL on a
+free port, `stop` ends it. A start never leaves anything behind: the first of these ends the service.
+
+1. `stop` by the owner (a service of another live session is refused), or the idle of the owning root session.
+2. The supervisor notices the owning opencode process is gone, even after `kill -9` (about one second).
+3. The time limit (default 900 s, at most 3600 s).
+
+Stopping kills the whole process group, so grandchildren die too. Only one service per repository runs at a
+time; a second `start` reuses it. It needs `/bin/sh` (macOS and Linux).
 
 ## Shared mode (default) and worktree mode (opt-in)
 
@@ -115,6 +138,8 @@ not on the base branch, it leaves the branch in place and prints why. Dependenci
   runner writing outside the repo); the agents' `external_directory: deny` covers the file tools, not child
   processes.
 - Session ownership relies on the SDK exposing `parentID`; verify it after upgrading opencode.
+- If the `pipeline_serve` supervisor itself is killed with SIGKILL, its service keeps running until `stop`, the
+  idle of the owning session, or a manual kill: nothing else is watching it.
 - Verified in a live opencode 1.18.29 (no model reply needed): the plugin loads, `chat.params` fires with the
   agent name, the root session is resolved, and the baseline with the files already modified is written.
   Hook signatures match the `@opencode-ai/plugin` 1.19.0 types. Not verified with a live model: blocking in
