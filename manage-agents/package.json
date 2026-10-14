@@ -16,7 +16,7 @@
     "start": "node manage-agents.mjs",
     "build": "esbuild src/index.tsx --bundle --platform=node --format=esm --outfile=dist/index.js --external:@opentui/core --external:yaml",
     "typecheck": "tsc --noEmit",
-    "test": "npm run typecheck && node --import tsx --test \"src/utils/*.test.ts\" \"../agents/general/tools/_python.test.mjs\" \"../agents/general/tools/_safeName.test.mjs\" \"../agents/general/tools/_guards.test.mjs\"",
+    "test": "npm run typecheck && node --import tsx --test \"src/utils/*.test.ts\" \"../agents/general/tools/_python.test.mjs\" \"../agents/general/tools/_safeName.test.mjs\" \"../agents/general/tools/_guards.test.mjs\" \"../agents/general/tools/_pipeline_core.test.mjs\" \"../agents/general/tools/_pipeline_run.test.mjs\" \"../agents/general/tools/_pipeline_guard.test.mjs\" \"../agents/general/tools/_pipeline_tools.test.mjs\" \"../agents/general/tools/_pipeline_worktree.test.mjs\"",
     "validate": "npm run typecheck && npm test && npm run build && node manage-agents.mjs category check --all"
   },
   "dependencies": {
