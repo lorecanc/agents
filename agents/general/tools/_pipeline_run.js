@@ -115,7 +115,7 @@ export function loadContract(top) {
 
 export function runtimeEnv(info, extra = {}) {
   const scratch = ensureScratch(info)
-  return {
+  const env = {
     ...process.env,
     TMPDIR: scratch,
     TMP: scratch,
@@ -126,6 +126,10 @@ export function runtimeEnv(info, extra = {}) {
     FORCE_COLOR: "0",
     ...extra,
   }
+  // When we run inside `node --test`, this variable makes a nested `node --test` act as a child
+  // reporter and exit 0 even when its tests fail: a silent false pass. Child runs must be independent.
+  delete env.NODE_TEST_CONTEXT
+  return env
 }
 
 function groupAlive(pid) {

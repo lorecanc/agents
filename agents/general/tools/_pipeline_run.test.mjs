@@ -163,6 +163,17 @@ test("runVerify: env hint, timeout hint, targeted files are quoted and confined 
   assert.equal(none.results[0].status, "skipped")
 })
 
+test("runVerify: a failing `node --test` fails even when this process is itself a node test child", async () => {
+  // Regression: NODE_TEST_CONTEXT leaking into the child made a nested `node --test` exit 0 on failures.
+  const dir = mkRepo(
+    { "package.json": JSON.stringify({ type: "module" }), "test/broken.test.js": 'import { test } from "node:test"\nimport assert from "node:assert/strict"\ntest("broken", () => assert.equal(1, 2))\n' },
+    { verify: { test_fast: "node --test" } },
+  )
+  const res = await runVerify({ info: repoInfo(dir), checks: ["test_fast"] })
+  assert.equal(res.results[0].status, "fail", res.results[0].output_tail)
+  assert.equal(runtimeEnv(repoInfo(dir)).NODE_TEST_CONTEXT, undefined)
+})
+
 test("runVerify: nothing defined is inconclusive, not a silent pass", async () => {
   const res = await runVerify({ info: repoInfo(mkRepo()), checks: ["test_fast"] })
   assert.equal(res.status, "inconclusive")

@@ -25,6 +25,7 @@ import {
 } from "../tools/_pipeline_core.js"
 
 const HEARTBEAT_MS = 30_000
+const INTERNAL_AGENTS = new Set(["title", "summary", "compaction"])
 
 class GuardBlock extends Error {}
 
@@ -164,6 +165,9 @@ export async function createPipelineGuard({ client, directory } = {}, options = 
     const known = sessions.get(sessionId)
     if (known && known.agent === agent) return known
     if (!isPipelineAgent(agent)) {
+      // Hidden internal agents (title generation, summaries, compaction) run on the SAME session id,
+      // possibly after the pipeline agent's first step: they must not switch the guard off.
+      if (known && known.pipeline && INTERNAL_AGENTS.has(agent)) return known
       const entry = { pipeline: false, agent }
       sessions.set(sessionId, entry)
       return entry

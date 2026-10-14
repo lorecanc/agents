@@ -43,6 +43,21 @@ async function setup(parents = { ses_child: "ses_root", ses_child2: "ses_root" }
 
 const before = (hooks, sessionID, tool, args) => hooks["tool.execute.before"]({ tool, sessionID, callID: "c" }, { args })
 
+test("internal agents (title, summary, compaction) on the same session do not switch the guard off", async () => {
+  // opencode fires chat.params for hidden internal agents on the SAME session id, possibly after the first step.
+  const { hooks } = await setup()
+  for (const internal of ["title", "summary", "compaction"]) {
+    await hooks["chat.params"]({ sessionID: "ses_child", agent: internal })
+    await assert.rejects(before(hooks, "ses_child", "bash", { command: "git checkout -b t1" }), /Blocked/, `after ${internal}`)
+  }
+  // but a deliberate switch of the session to a normal agent (user pressed Tab) does turn the guard off
+  await hooks["chat.params"]({ sessionID: "ses_child", agent: "build" })
+  await before(hooks, "ses_child", "bash", { command: "git checkout -b t1" })
+  // and switching back to a pipeline agent turns it on again
+  await hooks["chat.params"]({ sessionID: "ses_child", agent: EXEC })
+  await assert.rejects(before(hooks, "ses_child", "bash", { command: "git checkout -b t1" }), /Blocked/)
+})
+
 test("default export exposes id and server like other local plugins", async () => {
   // Plain node gives the ESM default export; under tsx the nearest package.json has no
   // "type": "module", so the file is loaded with CJS interop and the export is nested.

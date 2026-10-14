@@ -115,6 +115,12 @@ not on the base branch, it leaves the branch in place and prints why. Dependenci
   runner writing outside the repo); the agents' `external_directory: deny` covers the file tools, not child
   processes.
 - Session ownership relies on the SDK exposing `parentID`; verify it after upgrading opencode.
-- Hook signatures were checked against `@opencode-ai/plugin` 1.4.10 types and the hook names against the
-  1.18.29 binary. The behavior was tested with a simulated client, not with a live model run.
+- Verified in a live opencode 1.18.29 (no model reply needed): the plugin loads, `chat.params` fires with the
+  agent name, the root session is resolved, and the baseline with the files already modified is written.
+  Hook signatures match the `@opencode-ai/plugin` 1.19.0 types. Not verified with a live model: blocking in
+  `tool.execute.before`, the `shell.env` scratch directory, the claim recording in `tool.execute.after`, and
+  compaction. They are covered by tests with a simulated client.
+- opencode only loads the `default` export of a plugin file; keep helpers out of the plugin's named exports.
+- opencode also fires `chat.params` for hidden internal agents (`title`, `summary`, `compaction`) on the same
+  session id; the guard ignores them so they cannot switch it off.
 - `experimental.session.compacting` is an experimental hook and may change.
