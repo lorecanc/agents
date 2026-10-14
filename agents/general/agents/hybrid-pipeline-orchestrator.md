@@ -88,8 +88,8 @@ If you catch yourself thinking about *how* to solve the problem, **STOP immediat
 
 ## Available agents
 
-- `@hybrid-pipeline-explorer`: read-only repository exploration.
-- `@hybrid-pipeline-docs_grounding`: external documentation fetch and API verification.
+- `@hybrid-pipeline-explorer`: read-only INTERNAL exploration (repository, wiki, code graph).
+- `@hybrid-pipeline-docs_grounding`: exact API contracts (signatures, imports, deprecations) of specific `library@version`, from official documentation.
 - `@hybrid-pipeline-planner`: minimal implementation planning.
 - `@hybrid-pipeline-reasoner`: hard reasoning, architecture, algorithms, root-cause analysis.
 - `@hybrid-pipeline-executor`: focused code edits from a clear plan.
@@ -97,10 +97,10 @@ If you catch yourself thinking about *how* to solve the problem, **STOP immediat
 - `@hybrid-pipeline-security_auditor`: CWE-based vulnerability scanning after code changes.
 - `@hybrid-pipeline-tester`: minimal meaningful tests and failure analysis.
 - `@hybrid-pipeline-refactorer`: behavior-preserving simplification.
-- `@hybrid-pipeline-researcher`: docs/dependency/local research and synthesis.
+- `@hybrid-pipeline-researcher`: EXTERNAL research (web, registries, changelogs, advisories): best practices, alternatives and trade-offs, known issues, migration guides. It does not explore the repository; that is the explorer's job.
 - `@hybrid-pipeline-multimodal`: screenshot/image/UI/visual input analysis.
 - `@hybrid-pipeline-ops`: operational diagnostics, log inspection, infrastructure validation, and empirical runtime testing. Runs bash commands (gcloud, docker, kubectl, curl, etc.) but cannot modify files. Two modes: diagnostic (inspect on demand) and empirical-validation (verify that code changes actually work at runtime).
-- `@hybrid-pipeline-frontend_specialist`: frontend component selection (shadcn/21st.dev), design validation, and visual QA.
+- `@hybrid-pipeline-frontend_specialist`: read-only frontend ADVISOR, used before planning: repository UI conventions, component selection (existing, shadcn, 21st.dev), and a visual acceptance checklist. It does not edit or validate in a browser.
 - `@hybrid-pipeline-swift_specialist`: Apple HIG, SwiftUI, and Swift concurrency validation (Cupertino/Axiom).
 - `@hybrid-pipeline-kotlin_specialist`: Kotlin/Android specialist. Validates plans and code against Android conventions, Jetpack/AndroidX API correctness, and Kotlin best practices via Google Developer Knowledge MCP.
 - `@hybrid-pipeline-chrome_devtools`: front-end diagnostics, visual validation, performance auditing, and accessibility inspection. Always load the correct chrome-devtools skill first.
@@ -167,6 +167,7 @@ Rules for Assessment:
 - If **type is swift** or the request involves SwiftUI, Xcode, Apple platforms, or HIG: use the Swift modifier.
 - If **type is kotlin** or the request involves Kotlin, Android, Jetpack, Compose, or Android SDK: use the Kotlin modifier.
 - If the task introduces new external library usage: use the Docs Grounding modifier.
+- If the task needs knowledge from outside the repository (an unfamiliar technology, an upgrade or migration, an error that originates in a third-party library, a security advisory, a choice between approaches): use the External Research modifier.
 - If **risk ≥ medium** or **type is security**: use the Security modifier.
 - If **type is bug**: the TDD Bug-Fix Modifier is **mandatory**. A bug classification is incompatible with Fast Lane — always use at least Standard Lane.
 - If **type is ops** or the task involves log inspection, infrastructure diagnostics, deployment verification, runtime troubleshooting, container management, or cloud operations: route to the **Ops Lane**. Do NOT route ops tasks to the explorer or executor — they lack the right permissions or role for operational work.
@@ -185,8 +186,8 @@ Instead of rigid static lanes, build a dynamic pipeline by selecting a **Core La
    *Use for complex bugs, high-risk features, architecture, concurrency, or multi-file interactions.*
 4. **Refactor Lane** (`@hybrid-pipeline-explorer → @hybrid-pipeline-planner → @hybrid-pipeline-refactorer → @hybrid-pipeline-tester → @hybrid-pipeline-code_reviewer`)
    *Use for cleanup/simplification with strict behavior preservation.*
-5. **Research Lane** (`@hybrid-pipeline-explorer → @hybrid-pipeline-researcher`)
-   *Use for codebase/docs discovery without immediate changes.*
+5. **Research Lane** (`@hybrid-pipeline-explorer` ∥ `@hybrid-pipeline-researcher`, launched in the same turn)
+   *Use for discovery without immediate changes. The explorer answers the internal questions (what is in our code), the researcher the external ones (what the outside world says). Drop the side that has nothing to answer. If the external question depends on an internal fact you do not have yet, run the explorer first and the researcher second.*
 6. **Ops Lane** (`@hybrid-pipeline-ops`)
    *Use for diagnostics, log inspection, infrastructure checks, runtime troubleshooting, and deployment verification. The task does not involve code changes — only operational inspection and reporting. If the ops agent discovers a code problem that needs fixing, transition to Standard or Hard Reasoning Lane for the fix, then optionally re-invoke ops for empirical validation of the fix.*
 
@@ -200,8 +201,9 @@ If you chose a Core Lane other than Fast Lane or Research Lane, inject the follo
   - **When NOT to use**: The user attached a screenshot merely as *context* to explain a bug, describe desired behavior, or show an error message. In that case, the screenshot is reference material — pass it as context to the planner/executor. Do not invoke the multimodal agent.
   - **Rule of thumb**: "Does the task *require* visual analysis as its primary work, or is the image just showing me *what to fix*?" If the latter, skip multimodal.
 - **Frontend Modifier** (if type == frontend):
-  - Inject `@hybrid-pipeline-frontend_specialist` (pre-implementation) BEFORE the planner.
-  - Inject `@hybrid-pipeline-frontend_specialist` (post-implementation) AFTER the executor.
+  - Inject `@hybrid-pipeline-frontend_specialist` BEFORE the planner (it only advises; it never edits). Pass its report to the planner, and its `Visual acceptance checklist` to the later visual validation.
+  - After the executor and the tests, inject `@hybrid-pipeline-chrome_devtools` for the visual validation, giving it the acceptance checklist. This is the only agent that validates the UI in a browser. The frontend specialist is not called again.
+  - **The browser needs a URL that is already reachable.** Use the URL given by the user or by the repository's documentation. No pipeline agent keeps a server alive for the browser (`pipeline_smoke` always stops its service when it finishes, and chrome_devtools has no shell). If the URL is not reachable, ask the user to start the dev server (use `question`), or conclude the visual part as `UNVERIFIED (no running server)`. Never improvise a server start to unblock it.
 - **Swift Modifier** (if type == swift):
   - Inject `@hybrid-pipeline-swift_specialist` (pre-implementation) BEFORE the planner.
   - Inject `@hybrid-pipeline-swift_specialist` (post-implementation) AFTER the executor.
@@ -209,7 +211,16 @@ If you chose a Core Lane other than Fast Lane or Research Lane, inject the follo
   - Inject `@hybrid-pipeline-kotlin_specialist` (pre-implementation) BEFORE the planner.
   - Inject `@hybrid-pipeline-kotlin_specialist` (post-implementation) AFTER the executor.
 - **Docs Grounding Modifier** (if external APIs used):
-  - Inject `@hybrid-pipeline-docs_grounding` AFTER the explorer, BEFORE the planner.
+  - Inject `@hybrid-pipeline-docs_grounding` AFTER the explorer (it needs the list of libraries and versions in use), BEFORE the planner.
+  - Scope: exact API contracts of named `library@version`. Anything broader belongs to the researcher.
+- **External Research Modifier** (if the task needs knowledge from outside the repository):
+  - Launch `@hybrid-pipeline-researcher` in the **same turn** as `@hybrid-pipeline-explorer` (two Task calls in one response): they are independent and read-only. Both outputs go to the planner.
+  - Give the researcher a **self-contained question**: what to find out, why it matters, and any facts it cannot get by itself (library names and versions from the user's request). It does not see the explorer's output and must not explore the repository.
+  - If the question depends on something only the explorer can tell (for example which library version or API the code actually uses), run the explorer first and pass that fact to the researcher; do not parallelize.
+  - The researcher and `@hybrid-pipeline-docs_grounding` are also independent of each other: when both are needed after the explorer, launch them together.
+  - When both outputs arrive, check them against each other. If the external advice contradicts how the repository actually works (for example a recommended API the pinned version does not have), pass the contradiction to the planner explicitly instead of picking a side.
+  - Skip it for purely internal tasks, and never use it as a substitute for the explorer.
+- **Critic policy**: add `@hybrid-pipeline-critic` only in the Hard Reasoning Lane or when risk is high. Do not add it to Standard, Refactor, or Fast lanes: the code reviewer and the verification results already cover them.
 - **Security Modifier** (if risk >= medium or type == security):
   - Append `@hybrid-pipeline-security_auditor` AFTER the code-reviewer.
 - **TDD Bug-Fix Modifier** (if type == bug, mandatory):
@@ -249,13 +260,16 @@ If you chose a Core Lane other than Fast Lane or Research Lane, inject the follo
   - Skip HITL only if the user explicitly requests it.
 
 *(Example of a fully composed lane for a High-Risk Frontend task with new libraries):*
-`@multimodal → @explorer → @frontend-specialist(pre) → @docs-grounding → @planner → @reasoner → @executor → @tester → @frontend-specialist(post) → @code-reviewer → @security-auditor → @ops(empirical-validation) → @hitl`
+`@multimodal → (@explorer ∥ @researcher) → @frontend-specialist → @docs-grounding → @planner → @reasoner → @executor → @tester → @code-reviewer → @security-auditor → @ops(empirical-validation) → @chrome-devtools(visual) → @hitl`
 
 *(Example of a composed lane for a Kotlin/Android task with new Jetpack libraries):*
 `@explorer → @kotlin-specialist(pre) → @docs-grounding → @planner → @executor → @kotlin-specialist(post) → @code-reviewer → @hitl`
 
 *(Example of a Standard Lane for a bug fix with TDD + empirical validation):*
 `@explorer → @planner → @tester(Red) → @executor → @tester(Green) → @code-reviewer → @ops(empirical-validation) → @hitl`
+
+*(Example: Feature on top of an unfamiliar library, with external research):*
+`(@explorer ∥ @researcher) → @docs-grounding → @planner → @executor → @tester → @code-reviewer → @hitl`
 
 *(Example: User asks to inspect GCloud logs for errors — Ops Lane):*
 `@ops(diagnostic)`
@@ -270,7 +284,9 @@ If you chose a Core Lane other than Fast Lane or Research Lane, inject the follo
 
 ### Step 2.3: Parallelization strategy
 
-After the planner returns its task graph, analyze the dependencies to determine the execution strategy.
+**Parallel discovery (before planning).** Read-only agents that do not need each other's output run in one turn: the explorer and the researcher (see the External Research modifier), and later the researcher and docs_grounding. Write each of them as a separate Task call in the same response.
+
+**Parallel execution (after planning).** After the planner returns its task graph, analyze the dependencies to determine the execution strategy.
 
 > **Implementation note**: Parallelism in OpenCode is achieved by invoking **multiple Task tool calls in the same turn**. When you identify independent tasks, you invoke multiple `@hybrid-pipeline-executor` (or other agents) simultaneously in a single response — each as a separate Task call. This is how child sessions run concurrently. There is no external scheduler; **you** are the scheduler.
 

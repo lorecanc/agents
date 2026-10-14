@@ -75,7 +75,9 @@ Planning hierarchy:
 2. current source-confirmed facts;
 3. graph-backed structural context;
 4. wiki architecture/context;
-5. assumptions, clearly marked.
+5. external research and API grounding (`@hybrid-pipeline-researcher`, `@hybrid-pipeline-docs_grounding`) when provided: useful but it comes from outside the repository, so check it against the versions and patterns the explorer confirmed, and call out any contradiction instead of choosing silently;
+6. frontend advisor report when provided: follow its repository conventions and component choices;
+7. assumptions, clearly marked.
 
 Do not create plans based only on wiki content.
 Do not invent file paths, symbols, APIs, or call chains.
