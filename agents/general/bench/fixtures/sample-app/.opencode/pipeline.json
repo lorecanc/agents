@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "verify": {
+    "test_fast": "node --test",
+    "test_targeted": "node --test {files}"
+  },
+  "smoke": {
+    "start": "node src/main.js",
+    "ready": { "port": "${PORT}", "timeout_s": 10 },
+    "checks": [
+      { "name": "health", "url": "http://127.0.0.1:${PORT}/health", "expect_status": 200 }
+    ]
+  }
+}
