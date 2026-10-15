@@ -6,6 +6,7 @@ import { test } from "node:test"
 import { parseAgentFile, saveAgentFile } from "./agents.js"
 import {
   applyPipelineProfile,
+  deleteStampedPipeline,
   DEFAULT_PIPELINE_PROFILES,
   extractPipelineRole,
   loadPipelineProfiles,
@@ -156,4 +157,140 @@ test("sync to base category applies in place without creating backups", () => {
   assert.deepEqual(result.synced.sort(), [filePath, path.join(root, "src", "agents", "pipeline-executor.md")].sort())
   assert.equal(result.backupsPath, null)
   assert.equal(parseAgentFile(filePath, root)!.model, "mistral/zai-glm-5-3")
+})
+
+test("delete refuses canonical base pipelines and categories present in source agents", () => {
+  const root = workspace()
+  const customConfig = structuredClone(DEFAULT_PIPELINE_PROFILES)
+  customConfig.baseCategory = "custom-pipeline"
+  savePipelineProfiles(root, customConfig)
+  agent(root, "source-pipeline", "executor")
+  agent(root, "source-pipeline", "planner")
+  fs.mkdirSync(path.join(root, "export", "categories"), { recursive: true })
+
+  assert.throws(() => deleteStampedPipeline(root, "pipeline"), /Refusing to delete canonical base pipeline 'pipeline'/)
+  assert.throws(() => deleteStampedPipeline(root, "custom"), /Refusing to delete canonical base pipeline 'custom-pipeline'/)
+  assert.throws(() => deleteStampedPipeline(root, "source"), /Refusing to delete source category 'source-pipeline'/)
+})
+
+test("delete reports a missing stamped pipeline", () => {
+  const root = workspace()
+  fs.mkdirSync(path.join(root, "export", "categories"), { recursive: true })
+  const outputDir = path.join(root, "export", "categories", "missing-pipeline")
+  assert.throws(() => deleteStampedPipeline(root, "missing"), (error: unknown) => error instanceof Error && error.message === `Stamped pipeline 'missing-pipeline' does not exist at ${outputDir}.`)
+})
+
+test("delete removes stamped pipeline resources and its companion links", () => {
+  const root = workspace()
+  const outputDir = path.join(root, "export", "categories", "custom-pipeline")
+  fs.mkdirSync(path.join(outputDir, "agents"), { recursive: true })
+  fs.writeFileSync(path.join(outputDir, "agents", "custom-pipeline-executor.md"), "agent\n")
+  fs.writeFileSync(path.join(outputDir, "agents", "notes.txt"), "note\n")
+  fs.mkdirSync(path.join(outputDir, "skills", "skill"), { recursive: true })
+  fs.writeFileSync(path.join(outputDir, "skills", "skill", "SKILL.md"), "skill\n")
+  const manager = path.join(root, ".agent-manager")
+  fs.mkdirSync(manager, { recursive: true })
+  fs.writeFileSync(path.join(manager, "companion-links.json"), JSON.stringify({
+    version: 1,
+    categories: {
+      "custom-pipeline": { plugins: [], commands: [], skills: [], tools: [] },
+      other: { plugins: [], commands: [], skills: [], tools: [] }
+    }
+  }))
+
+  const result = deleteStampedPipeline(root, "custom-pipeline")
+
+  assert.deepEqual(result, {
+    deletedCategory: "custom-pipeline",
+    outputDir,
+    removedAgentsCount: 1,
+    removedInstalledAgents: [],
+    removedInstalledCommands: []
+  })
+  assert.equal(fs.existsSync(outputDir), false)
+  const links = JSON.parse(fs.readFileSync(path.join(manager, "companion-links.json"), "utf8"))
+  assert.equal(Object.hasOwn(links.categories, "custom-pipeline"), false)
+  assert.equal(Object.hasOwn(links.categories, "other"), true)
+})
+
+test("delete leaves the stamped pipeline intact when companion links are malformed", () => {
+  const root = workspace()
+  const outputDir = path.join(root, "export", "categories", "custom-pipeline")
+  fs.mkdirSync(outputDir, { recursive: true })
+  const manager = path.join(root, ".agent-manager")
+  fs.mkdirSync(manager, { recursive: true })
+  fs.writeFileSync(path.join(manager, "companion-links.json"), "{")
+
+  assert.throws(() => deleteStampedPipeline(root, "custom"))
+  assert.equal(fs.existsSync(outputDir), true)
+})
+
+test("delete rejects symlinked stamped pipeline ancestors without changing targets", () => {
+  const root = workspace()
+  const targetRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pipeline-delete-target-"))
+  const targetCategories = path.join(targetRoot, "categories")
+  const outputDir = path.join(targetCategories, "custom-pipeline")
+  fs.mkdirSync(outputDir, { recursive: true })
+  fs.writeFileSync(path.join(outputDir, "keep.txt"), "keep\n")
+  fs.rmSync(path.join(root, "export"), { recursive: true })
+  fs.symlinkSync(targetRoot, path.join(root, "export"))
+
+  assert.throws(() => deleteStampedPipeline(root, "custom"), /Invalid directory path/)
+  assert.equal(fs.readFileSync(path.join(outputDir, "keep.txt"), "utf8"), "keep\n")
+})
+
+test("delete can also remove matching installed agents and commands", () => {
+  const root = workspace()
+  const outputDir = path.join(root, "export", "categories", "test-pipeline")
+  fs.mkdirSync(path.join(outputDir, "commands"), { recursive: true })
+  fs.writeFileSync(path.join(outputDir, "commands", "test-bug.md"), "command\n")
+  const configHome = fs.mkdtempSync(path.join(os.tmpdir(), "pipeline-delete-config-"))
+  const opencodeRoot = path.join(configHome, "opencode")
+  const exportAgentsDir = path.join(opencodeRoot, "agents")
+  const exportCommandsDir = path.join(opencodeRoot, "commands")
+  fs.mkdirSync(exportAgentsDir, { recursive: true })
+  fs.mkdirSync(exportCommandsDir, { recursive: true })
+  for (const filename of ["test-pipeline-executor.md", "test-pipeline-planner.md", "other-agent.md"]) {
+    fs.writeFileSync(path.join(exportAgentsDir, filename), "agent\n")
+  }
+  for (const filename of ["test-bug.md", "test-feature.md", "test-unrelated-custom.md", "pipeline-ops.md", "other-command.md"]) {
+    fs.writeFileSync(path.join(exportCommandsDir, filename), "command\n")
+  }
+  const manager = path.join(root, ".agent-manager")
+  fs.mkdirSync(manager, { recursive: true })
+  fs.writeFileSync(path.join(manager, "companion-links.json"), JSON.stringify({
+    version: 1,
+    categories: { "test-pipeline": { plugins: [], commands: ["commands/pipeline-feature.md"], skills: [], tools: [] } }
+  }))
+
+  const result = deleteStampedPipeline(root, "test", { alsoInstalled: true, env: { XDG_CONFIG_HOME: configHome } })
+
+  assert.deepEqual(result.removedInstalledAgents, [
+    path.join(exportAgentsDir, "test-pipeline-executor.md"),
+    path.join(exportAgentsDir, "test-pipeline-planner.md")
+  ].sort())
+  assert.deepEqual(result.removedInstalledCommands, [
+    path.join(exportCommandsDir, "test-bug.md"),
+    path.join(exportCommandsDir, "test-feature.md")
+  ].sort())
+  assert.equal(fs.existsSync(path.join(exportAgentsDir, "other-agent.md")), true)
+  assert.equal(fs.existsSync(path.join(exportCommandsDir, "test-unrelated-custom.md")), true)
+  assert.equal(fs.existsSync(path.join(exportCommandsDir, "pipeline-ops.md")), true)
+  assert.equal(fs.existsSync(path.join(exportCommandsDir, "other-command.md")), true)
+})
+
+test("delete refuses installed destinations with symlinked ancestors before deleting the pipeline", () => {
+  const root = workspace()
+  const outputDir = path.join(root, "export", "categories", "test-pipeline")
+  fs.mkdirSync(outputDir, { recursive: true })
+  const configHome = fs.mkdtempSync(path.join(os.tmpdir(), "pipeline-delete-config-"))
+  const targetRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pipeline-delete-opencode-target-"))
+  fs.mkdirSync(path.join(targetRoot, "agents"), { recursive: true })
+  fs.mkdirSync(path.join(targetRoot, "commands"), { recursive: true })
+  fs.writeFileSync(path.join(targetRoot, "agents", "test-pipeline-executor.md"), "keep\n")
+  fs.symlinkSync(targetRoot, path.join(configHome, "opencode"))
+
+  assert.throws(() => deleteStampedPipeline(root, "test", { alsoInstalled: true, env: { XDG_CONFIG_HOME: configHome } }), /Invalid directory path/)
+  assert.equal(fs.existsSync(outputDir), true)
+  assert.equal(fs.readFileSync(path.join(targetRoot, "agents", "test-pipeline-executor.md"), "utf8"), "keep\n")
 })

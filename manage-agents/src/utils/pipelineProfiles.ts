@@ -1,7 +1,7 @@
 import fs from "node:fs"
 import path from "node:path"
-import { discoverCompanionResourcePaths, findAgentFiles, resolveCategoriesSubdir, resolveSourceSubdir, saveAgentFile, type AgentInfo } from "./agents.js"
-import { copyCategoryCompanionLinks } from "./companionLinks.js"
+import { discoverCompanionResourcePaths, findAgentFiles, getExportDestination, resolveCategoriesSubdir, resolveSourceSubdir, saveAgentFile, type AgentInfo } from "./agents.js"
+import { copyCategoryCompanionLinks, getCompanionLinksConfigPath, loadCompanionLinks, saveCompanionLinks } from "./companionLinks.js"
 
 export const PIPELINE_ROLES = [
   "orchestrator", "planner", "reasoner", "executor", "tester", "refactorer", "code_reviewer", "critic", "ops",
@@ -32,6 +32,19 @@ export interface PipelineProfilesConfig {
   version: 1
   baseCategory: string
   profiles: Record<string, PipelineProfile>
+}
+
+export interface DeleteStampedPipelineOptions {
+  alsoInstalled?: boolean
+  env?: NodeJS.ProcessEnv
+}
+
+export interface DeleteStampedPipelineResult {
+  deletedCategory: string
+  outputDir: string
+  removedAgentsCount: number
+  removedInstalledAgents: string[]
+  removedInstalledCommands: string[]
 }
 
 export const DEFAULT_PIPELINE_PROFILES: PipelineProfilesConfig = {
@@ -216,4 +229,144 @@ export function loadStampedPipelineAgents(workspaceRoot: string, category: strin
   if (!fs.existsSync(path.join(resourceRoot, "agents"))) return null
   const agents = findAgentFiles(workspaceRoot, path.join(resolveCategoriesSubdir(workspaceRoot), category))
   return agents.length ? { agents, resourceRoot } : null
+}
+
+export function deleteStampedPipeline(
+  workspaceRoot: string,
+  targetName: string,
+  options: DeleteStampedPipelineOptions = {}
+): DeleteStampedPipelineResult {
+  const trimmed = targetName.trim()
+  if (!trimmed || trimmed.includes("/") || trimmed.includes("\\") || trimmed.includes("..") || !/^[a-z0-9_-]+$/i.test(trimmed)) {
+    throw new Error(`Invalid stamped pipeline name '${targetName}'.`)
+  }
+
+  const deletedCategory = trimmed === "pipeline" || trimmed.endsWith("-pipeline") ? trimmed : `${trimmed}-pipeline`
+  const config = loadPipelineProfiles(workspaceRoot)
+  if (deletedCategory === "pipeline" || deletedCategory === config.baseCategory) {
+    throw new Error(`Refusing to delete canonical base pipeline '${deletedCategory}'.`)
+  }
+
+  const sourceSubdir = resolveSourceSubdir(workspaceRoot)
+  if (findAgentFiles(workspaceRoot, sourceSubdir).some(agent => agent.category === deletedCategory)) {
+    throw new Error(`Refusing to delete source category '${deletedCategory}' in ${sourceSubdir}/agents/.`)
+  }
+
+  const categoriesRoot = path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot))
+  const outputDir = path.join(categoriesRoot, deletedCategory)
+  const validateDirectoryPath = (trustedRoot: string, directory: string): boolean => {
+    const root = path.resolve(trustedRoot)
+    const target = path.resolve(directory)
+    const relative = path.relative(root, target)
+    if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+      throw new Error(`Invalid directory path outside trusted root: ${directory}.`)
+    }
+    let current = root
+    for (const component of ["", ...relative.split(path.sep).filter(Boolean)]) {
+      if (component) current = path.join(current, component)
+      const stat = fs.lstatSync(current, { throwIfNoEntry: false })
+      if (!stat) return false
+      if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error(`Invalid directory path at ${current}.`)
+    }
+    return true
+  }
+  if (!validateDirectoryPath(workspaceRoot, categoriesRoot)) {
+    throw new Error(`Invalid stamped pipeline categories directory at ${categoriesRoot}.`)
+  }
+  if (!validateDirectoryPath(workspaceRoot, outputDir)) {
+    throw new Error(`Stamped pipeline '${deletedCategory}' does not exist at ${outputDir}.`)
+  }
+
+  const rejectSymlinks = (directory: string): void => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const entryPath = path.join(directory, entry.name)
+      const entryStat = fs.lstatSync(entryPath)
+      if (entryStat.isSymbolicLink()) throw new Error(`Stamped pipeline must not contain symlinks: ${entryPath}`)
+      if (entryStat.isDirectory()) rejectSymlinks(entryPath)
+    }
+  }
+  rejectSymlinks(outputDir)
+
+  const agentsDir = path.join(outputDir, "agents")
+  const removedAgentsCount = fs.existsSync(agentsDir)
+    ? fs.readdirSync(agentsDir, { withFileTypes: true }).filter(entry => entry.isFile() && entry.name.endsWith(".md")).length
+    : 0
+
+  const companionLinksPath = getCompanionLinksConfigPath(workspaceRoot)
+  const links = fs.existsSync(companionLinksPath) ? loadCompanionLinks(workspaceRoot) : null
+
+  const installedPaths = options.alsoInstalled
+    ? (() => {
+      const exportAgentsDir = getExportDestination(options.env)
+      const opencodeRoot = path.dirname(exportAgentsDir)
+      const exportCommandsDir = path.join(opencodeRoot, "commands")
+      const configHome = path.dirname(opencodeRoot)
+      const agentsAvailable = validateDirectoryPath(configHome, exportAgentsDir)
+      const commandsAvailable = validateDirectoryPath(configHome, exportCommandsDir)
+      return { exportAgentsDir, exportCommandsDir, agentsAvailable, commandsAvailable }
+    })()
+    : null
+
+  const installedCommandNames = new Set<string>()
+  const prefix = deletedCategory.replace(/-pipeline$/, "")
+  const addLinkedCommand = (relative: string): void => {
+    if (!relative.startsWith("commands/")) return
+    const filename = path.posix.basename(relative)
+    if (!filename.endsWith(".md")) return
+    if (filename.startsWith("pipeline-") && prefix && prefix !== "pipeline") {
+      installedCommandNames.add(`${prefix}-${filename.slice("pipeline-".length)}`)
+    } else if (!filename.startsWith("pipeline-")) {
+      installedCommandNames.add(filename)
+    }
+  }
+  const stampedCommandsDir = path.join(outputDir, "commands")
+  if (fs.existsSync(stampedCommandsDir)) {
+    for (const entry of fs.readdirSync(stampedCommandsDir, { withFileTypes: true })) {
+      if (entry.isFile() && entry.name.endsWith(".md")) installedCommandNames.add(entry.name)
+    }
+  }
+  for (const command of links?.categories[deletedCategory]?.commands ?? []) addLinkedCommand(command)
+
+  fs.rmSync(outputDir, { recursive: true, force: false })
+
+  if (links && Object.prototype.hasOwnProperty.call(links.categories, deletedCategory)) {
+    delete links.categories[deletedCategory]
+    saveCompanionLinks(workspaceRoot, links)
+  }
+
+  const removedInstalledAgents: string[] = []
+  const removedInstalledCommands: string[] = []
+  if (installedPaths) {
+    const removeMatchingFiles = (directory: string, prefix: string, removed: string[]): void => {
+      if (!validateDirectoryPath(path.dirname(path.dirname(directory)), directory)) return
+      for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+        if (!entry.name.startsWith(`${prefix}-`) || !entry.name.endsWith(".md")) continue
+        const entryPath = path.join(directory, entry.name)
+        const entryStat = fs.lstatSync(entryPath)
+        if (!entryStat.isSymbolicLink() && entryStat.isFile()) {
+          fs.rmSync(entryPath, { force: false })
+          removed.push(entryPath)
+        }
+      }
+    }
+    if (installedPaths.agentsAvailable) removeMatchingFiles(installedPaths.exportAgentsDir, deletedCategory, removedInstalledAgents)
+    if (installedPaths.commandsAvailable) {
+      for (const commandName of installedCommandNames) {
+        const commandPath = path.join(installedPaths.exportCommandsDir, commandName)
+        const stat = fs.lstatSync(commandPath, { throwIfNoEntry: false })
+        if (stat && !stat.isSymbolicLink() && stat.isFile()) {
+          fs.rmSync(commandPath, { force: false })
+          removedInstalledCommands.push(commandPath)
+        }
+      }
+    }
+  }
+
+  return {
+    deletedCategory,
+    outputDir,
+    removedAgentsCount,
+    removedInstalledAgents: removedInstalledAgents.sort(),
+    removedInstalledCommands: removedInstalledCommands.sort()
+  }
 }

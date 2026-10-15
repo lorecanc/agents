@@ -40,7 +40,7 @@ import {
 } from "./utils/agents.js"
 import { loadModelCatalog, suggestModels, collectInvalidModelGroups, modelDisplayValue, getModelVariants, type ModelCatalog } from "./utils/models.js"
 import { discoverAvailableCategoryCompanionItems, getCompanionLinksConfigPath, type SelectableCompanionItem, updateCategoryCompanionLinks } from "./utils/companionLinks.js"
-import { applyPipelineProfile, loadPipelineProfiles, syncPipelineProfile, loadStampedPipelineAgents } from "./utils/pipelineProfiles.js"
+import { applyPipelineProfile, loadPipelineProfiles, syncPipelineProfile, loadStampedPipelineAgents, deleteStampedPipeline } from "./utils/pipelineProfiles.js"
 import { bridgeToClaudeCode } from "./utils/bridge.js"
 import { bridgeToCodex } from "./utils/codexBridge.js"
 import { buildInferenceIndex, loadTranslationConfig, resolveModelTarget, resolveRole, saveTranslationConfig, type TranslationConfig } from "./utils/translationConfig.js"
@@ -74,9 +74,9 @@ type ViewMode =
   | "delegation-manager"
   | "resource-manager"
   | "parameter-tuning"
-   | "import-diff"
-   | "layout"
-type ViewStyle = "list" | "tree"
+  | "import-diff"
+  | "layout"
+  | "delete-confirm"
 
 interface ActiveItem {
   type: "file" | "folder"
@@ -184,7 +184,6 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
   const [selectedAgentPaths, setSelectedAgentPaths] = useState<Set<string>>(new Set())
 
   // View Settings
-  const [viewStyle, setViewStyle] = useState<ViewStyle>("list")
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(
     new Set(["wiki", "pipeline", "go-pipeline", "copilot-pipeline", "general"])
   )
@@ -202,6 +201,8 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
   const [layoutSnapshot, setLayoutSnapshot] = useState(() => listShare)
   const [layoutError, setLayoutError] = useState("")
   const [layoutStatus, setLayoutStatus] = useState("")
+  const [deleteTargetCategory, setDeleteTargetCategory] = useState<string | null>(null)
+  const [deleteAlsoInstalled, setDeleteAlsoInstalled] = useState(false)
   const [uiConfigRevisionState, setUiConfigRevision] = useState(uiConfigRevision)
   const [focusedModelIndex, setFocusedModelIndex] = useState(0)
   const [modelScrollOffset, setModelScrollOffset] = useState(0)
@@ -366,14 +367,13 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
   const listContentWidth = Math.max(0, listPanelWidth - 4)
   const footerFirstWidth = Math.floor(listContentWidth / 2)
   const footerSecondWidth = Math.max(0, listContentWidth - footerFirstWidth)
-  const listColumns = calculateListColumnBudget(listContentWidth, viewStyle === "tree" ? "compact" : layout.mode)
+  const listColumns = calculateListColumnBudget(listContentWidth, "compact")
   const columnWidth = (index: number) => listColumns.widths[index] || 0
   const gutter = (key: string) => <text key={key} width={listColumns.gutters[0] || 0}> </text>
   const headerTitle = "★ OPENCODE AGENT MANAGER"
   const displayWorkspace = workspaceRoot === os.homedir() || workspaceRoot.startsWith(`${os.homedir()}${path.sep}`)
     ? `~${workspaceRoot.slice(os.homedir().length)}`
     : workspaceRoot
-  const styleLabel = `Style: ${viewStyle.toUpperCase()}`
   const fullCommitLabel = `Commit: ${autoCommitEnabled() ? "ON" : "OFF"}`
   const compactCommitLabel = `C:${autoCommitEnabled() ? "ON" : "OFF"}`
   const workspaceLabel = `Workspace: ${displayWorkspace}`
@@ -384,21 +384,11 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
   const headerMetaWidth = Math.max(0, headerContentWidth - headerTitleWidth - 1)
   const commitLabel = headerMetaWidth >= displayWidth(fullCommitLabel) ? fullCommitLabel : compactCommitLabel
   const commitWidth = displayWidth(commitLabel)
-  const styleWidth = displayWidth(styleLabel)
   const separatorWidth = displayWidth(headerSeparator)
-  const fixedMetaWidth = styleWidth + commitWidth + separatorWidth * 2
-  const showStyleAndCommit = headerMetaWidth >= fixedMetaWidth
   const showCommit = termWidth >= 40 && headerMetaWidth >= commitWidth
-  const showStyle = showStyleAndCommit || (!showCommit && headerMetaWidth >= styleWidth)
-  const workspaceWidth = showStyleAndCommit ? headerMetaWidth - fixedMetaWidth : 0
+  const workspaceWidth = showCommit ? Math.max(0, headerMetaWidth - commitWidth - separatorWidth) : 0
   const visibleWorkspaceWidth = Math.min(workspaceWidth, displayWidth(workspaceLabel))
-  const visibleMetaWidth = showStyleAndCommit
-    ? fixedMetaWidth + visibleWorkspaceWidth
-    : showCommit
-      ? commitWidth
-      : showStyle
-        ? styleWidth
-        : 0
+  const visibleMetaWidth = showCommit ? commitWidth + (visibleWorkspaceWidth > 0 ? separatorWidth + visibleWorkspaceWidth : 0) : 0
   const headerGroupWidth = Math.min(headerContentWidth, headerTitleWidth + 1 + visibleMetaWidth)
   const maxVisibleItems = layout.listRows
   const maxVisibleModels = Math.max(0, Math.floor(termHeight * 0.7) - 10)
@@ -605,54 +595,41 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
 
     const items: ActiveItem[] = []
 
-    if (viewStyle === "list") {
-      filtered.forEach((a) => {
-        items.push({
-          type: "file",
-          id: a.currentPath,
-          label: a.filename,
-          category: a.category,
-          agent: a
-        })
-      })
-    } else {
-      // Tree View
-      // Get unique categories dynamically from the parsed agents
-      const categoriesSet = new Set<string>()
-      agents.forEach((a) => categoriesSet.add(a.category))
-      const categoriesList = Array.from(categoriesSet).sort((a, b) => {
-        if (a === "general") return 1
-        if (b === "general") return -1
-        return a.localeCompare(b)
-      })
-      categoriesList.forEach((cat) => {
-        const catAgents = filtered.filter((a) => a.category === cat)
-        if (catAgents.length === 0) return
+    // Get unique categories dynamically from the parsed agents
+    const categoriesSet = new Set<string>()
+    agents.forEach((a) => categoriesSet.add(a.category))
+    const categoriesList = Array.from(categoriesSet).sort((a, b) => {
+      if (a === "general") return 1
+      if (b === "general") return -1
+      return a.localeCompare(b)
+    })
+    categoriesList.forEach((cat) => {
+      const catAgents = filtered.filter((a) => a.category === cat)
+      if (catAgents.length === 0) return
 
-        const isExpanded = expandedCategories.has(cat)
-        items.push({
-          type: "folder",
-          id: cat,
-          label: `${isExpanded ? "▼" : "▶"} 📁 ${cat.toUpperCase()} (${catAgents.length})`,
-          category: cat
-        })
+      const isExpanded = expandedCategories.has(cat)
+      items.push({
+        type: "folder",
+        id: cat,
+        label: `${isExpanded ? "▼" : "▶"} 📁 ${cat.toUpperCase()} (${catAgents.length})`,
+        category: cat
+      })
 
-        if (isExpanded) {
-          catAgents.forEach((a) => {
-            items.push({
-              type: "file",
-              id: a.currentPath,
-              label: `  ${a.filename}`,
-              category: cat,
-              agent: a
-            })
+      if (isExpanded) {
+        catAgents.forEach((a) => {
+          items.push({
+            type: "file",
+            id: a.currentPath,
+            label: `  ${a.filename}`,
+            category: cat,
+            agent: a
           })
-        }
-      })
-    }
+        })
+      }
+    })
 
     return items
-  }, [agents, searchQuery, viewStyle, expandedCategories])
+  }, [agents, searchQuery, expandedCategories])
 
   const delegationItems = useMemo(
     () => delegationTargetAgent
@@ -886,32 +863,20 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
       } else if (key === "a") {
         if (activeItems.length > 0) {
           const item = activeItems[focusedIndex]
-          if (viewStyle === "tree") {
-            const folderCategory = item.category
-            const folderAgents = agents.filter((a) => a.category === folderCategory)
-            const folderAgentPaths = folderAgents.map((a) => a.currentPath)
+          const folderCategory = item.category
+          const folderAgents = agents.filter((a) => a.category === folderCategory)
+          const folderAgentPaths = folderAgents.map((a) => a.currentPath)
 
-            setSelectedAgentPaths((prev) => {
-              const next = new Set(prev)
-              const allSelected = folderAgentPaths.every((path) => next.has(path))
-              if (allSelected) {
-                folderAgentPaths.forEach((path) => next.delete(path))
-              } else {
-                folderAgentPaths.forEach((path) => next.add(path))
-              }
-              return next
-            })
-          } else {
-            setSelectedAgentPaths((prev) => {
-              const next = new Set<string>()
-              const files = activeItems.filter((i) => i.type === "file")
-              const allSelected = files.every((i) => prev.has(i.id))
-              if (!allSelected) {
-                files.forEach((i) => next.add(i.id))
-              }
-              return next
-            })
-          }
+          setSelectedAgentPaths((prev) => {
+            const next = new Set(prev)
+            const allSelected = folderAgentPaths.every((path) => next.has(path))
+            if (allSelected) {
+              folderAgentPaths.forEach((path) => next.delete(path))
+            } else {
+              folderAgentPaths.forEach((path) => next.add(path))
+            }
+            return next
+          })
         }
       } else if (key === "s") {
         if (activeItems.length > 0) {
@@ -922,7 +887,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
 
             const matchingAgents = agents.filter((a) => {
               const modelMatch = a.model === targetModel
-              const categoryMatch = viewStyle === "tree" ? a.category === targetCategory : true
+              const categoryMatch = a.category === targetCategory
               return modelMatch && categoryMatch
             })
 
@@ -940,10 +905,6 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
             })
           }
         }
-      } else if (key === "tab") {
-        setViewStyle((style) => (style === "list" ? "tree" : "list"))
-        setFocusedIndex(0)
-        setScrollOffset(0)
       } else if (key === "/") {
         setIsSearching(true)
       } else if (key === "m") {
@@ -1020,7 +981,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
         }
       } else if (key === "e") {
         const focused = activeItems[focusedIndex]
-        setExportCategory(selectedAgentPaths.size === 0 && viewStyle === "tree" && focused?.type === "folder" ? focused.category : null)
+        setExportCategory(selectedAgentPaths.size === 0 && focused?.type === "folder" ? focused.category : null)
         setViewMode("export-confirm")
       } else if (key === "c") {
         if (activeItems.length === 0 || !activeItems[focusedIndex]?.agent) {
@@ -1065,8 +1026,28 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
       } else if (key === "u") {
         const target = activeItems[focusedIndex]
         if (target?.type === "file" && target.agent) openResourceManager(target.agent)
-        else if (viewStyle === "tree" && target?.type === "folder") openResourceManager(null, target.category)
+        else if (target?.type === "folder") openResourceManager(null, target.category)
         else setLayoutStatus("Select an agent or category folder to manage resources.")
+      } else if (key === "d" && !e.shift) {
+        const item = activeItems[focusedIndex]
+        if (!item || item.type !== "folder") {
+          setLayoutStatus("Focus a stamped pipeline folder header (e.g. go-pipeline) and press D to delete it.")
+        } else {
+          const baseCategory = loadPipelineProfiles(workspaceRoot).baseCategory || "pipeline"
+          const sourcePrefix = path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot)) + path.sep
+          if (item.category === "pipeline" || item.category === baseCategory || agents.some(a => a.category === item.category && a.currentPath.startsWith(sourcePrefix))) {
+            setLayoutStatus(item.category === "pipeline" || item.category === baseCategory
+              ? `Cannot delete '${item.category}': it is the canonical base pipeline in ${resolveSourceSubdir(workspaceRoot)}/agents/. Only stamped pipelines in ${resolveCategoriesSubdir(workspaceRoot)}/ can be deleted.`
+              : `Cannot delete '${item.category}': categories in ${resolveSourceSubdir(workspaceRoot)}/agents/ cannot be deleted as a stamped pipeline.`)
+          } else if (item.category.endsWith("-pipeline") && fs.existsSync(path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot), item.category))) {
+            setDeleteTargetCategory(item.category)
+            setDeleteAlsoInstalled(false)
+            setLayoutStatus("")
+            setViewMode("delete-confirm")
+          } else {
+            setLayoutStatus(`Cannot delete '${item.category}': only stamped pipelines in ${resolveCategoriesSubdir(workspaceRoot)}/ can be deleted.`)
+          }
+        }
       } else if (key === "t") {
         if (activeItems.length > 0 && activeItems[focusedIndex]?.agent) {
           const target = activeItems[focusedIndex].agent!
@@ -1161,6 +1142,51 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           setActionResultLines([`An error occurred:`, `  ${error.message || error}`])
         }
         setViewMode("action-result")
+      }
+    } else if (viewMode === "delete-confirm") {
+      if (key === "tab" || key === "x" || key === "space") {
+        setDeleteAlsoInstalled(prev => !prev)
+      } else if (key === "n" || key === "escape") {
+        setDeleteTargetCategory(null)
+        setViewMode("main")
+      } else if (key === "y" || key === "enter" || key === "return") {
+        if (!deleteTargetCategory) return
+        const category = deleteTargetCategory
+        const deletedAgentPaths = agents.filter(agent => agent.category === category).map(agent => agent.currentPath)
+        try {
+          const tx = mutate([
+            path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot), category),
+            getCompanionLinksConfigPath(workspaceRoot)
+          ], "pipeline", () => deleteStampedPipeline(workspaceRoot, category, { alsoInstalled: deleteAlsoInstalled }))
+          const result = tx.value
+          setSelectedAgentPaths(previous => {
+            const next = new Set(previous)
+            deletedAgentPaths.forEach(agentPath => next.delete(agentPath))
+            return next
+          })
+          setExpandedCategories(previous => {
+            const next = new Set(previous)
+            next.delete(category)
+            return next
+          })
+          setDeleteTargetCategory(null)
+          try { refreshData() } catch (error) { setMutationRefreshFailure(error, tx.warning); return }
+          setMutationSuccess("Stamped Pipeline Deleted", [
+            `Deleted category: ${result.deletedCategory}`,
+            `Removed ${result.removedAgentsCount} stamped agent file(s) from:`,
+            `  ${result.outputDir}`,
+            "Removed its .agent-manager/companion-links.json category entry.",
+            ...(deleteAlsoInstalled ? [
+              `Removed ${result.removedInstalledAgents.length} installed agent(s).`,
+              `Removed ${result.removedInstalledCommands.length} installed command(s).`
+            ] : ["Installed agents and commands were left unchanged."])
+          ], tx.warning)
+          setViewMode("action-result")
+        } catch (error: any) {
+          setActionResultTitle("Error Deleting Stamped Pipeline")
+          setActionResultLines([`An error occurred:`, `  ${error.message || error}`])
+          setViewMode("action-result")
+        }
       }
     } else if (viewMode === "model-selector" || viewMode === "repair-selector") {
       // 3. Model selector mode
@@ -2129,12 +2155,9 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
             </text>
             <text width={1} height={1} wrapMode="none" overflow="hidden" flexShrink={0}> </text>
            <box width={visibleMetaWidth} height={1} flexShrink={0} flexDirection="row" overflow="hidden">
-             {showStyleAndCommit && <text width={styleWidth} height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "gray" }}>{styleLabel}</text>}
-             {showStyleAndCommit && <text width={separatorWidth} height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "gray" }}>{headerSeparator}</text>}
-             {showCommit && <text width={commitWidth} height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: autoCommitEnabled() ? "green" : "gray" }}>{commitLabel}</text>}
-             {showStyleAndCommit && <text width={separatorWidth} height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "gray" }}>{headerSeparator}</text>}
-             {showStyleAndCommit && visibleWorkspaceWidth > 0 && <text width={visibleWorkspaceWidth} height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "gray" }}>{middleEllipsis(workspaceLabel, visibleWorkspaceWidth)}</text>}
-             {!showStyleAndCommit && !showCommit && showStyle && <text width={styleWidth} height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "gray" }}>{styleLabel}</text>}
+              {showCommit && <text width={commitWidth} height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: autoCommitEnabled() ? "green" : "gray" }}>{commitLabel}</text>}
+              {showCommit && visibleWorkspaceWidth > 0 && <text width={separatorWidth} height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "gray" }}>{headerSeparator}</text>}
+              {showCommit && visibleWorkspaceWidth > 0 && <text width={visibleWorkspaceWidth} height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "gray" }}>{middleEllipsis(workspaceLabel, visibleWorkspaceWidth)}</text>}
            </box>
           </box>
        </box>
@@ -2160,6 +2183,19 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           <text style={{ textColor: "gray" }} marginTop={1}>[Y/ENTER] Apply | [N/ESC] Cancel</text>
         </box>
       )}
+      {viewMode === "delete-confirm" && deleteTargetCategory && (
+        <box style={{ position: "absolute", left: "12%", top: "20%", width: "76%", height: "60%" }} borderStyle="double" borderColor="red" backgroundColor="#1e1e1e" title=" Delete Stamped Pipeline " padding={1} flexDirection="column" justifyContent="space-between" overflow="hidden">
+          <box flexDirection="column" overflow="hidden">
+            <text style={{ textColor: "yellow" }} b>{`Delete stamped pipeline '${deleteTargetCategory}'?`}</text>
+            <text style={{ textColor: "white" }} marginTop={1}>{`Path: export/categories/${deleteTargetCategory}`}</text>
+            <text style={{ textColor: "white" }} marginTop={1}>{`This will remove ${agents.filter(agent => agent.category === deleteTargetCategory).length} stamped agent file(s).`}</text>
+            <text style={{ textColor: "gray" }}>The .agent-manager/companion-links.json category entry will also be cleaned up.</text>
+            <text style={{ textColor: deleteAlsoInstalled ? "yellow" : "white" }} marginTop={2}>{`${deleteAlsoInstalled ? "[x]" : "[ ]"} Also remove installed agents & commands from ~/.config/opencode`}</text>
+            <text style={{ textColor: "gray" }}>[TAB / X] Toggle</text>
+          </box>
+          <text style={{ textColor: "gray" }}>Press [Y/ENTER] to confirm | [TAB/X] Toggle installed cleanup | [N/ESC] Cancel</text>
+        </box>
+      )}
       {/* Main Panel */}
       <box width="100%" minHeight={0} flexGrow={1} flexDirection="row" marginTop={1} overflow="hidden">
         {/* Left Side: Agents List (Wider to prevent filename cut-offs) */}
@@ -2169,28 +2205,18 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
            minHeight={0}
           borderStyle="round"
           borderColor="#444444"
-          title={` Agents List (${viewStyle === "list" ? "Flat" : "Tree"}) `}
+          title=" Agents (Tree) "
            titleColor="#9ECBFF"
            flexDirection="column"
            padding={1}
            overflow="hidden"
         >
            {/* Table Header */}
-           {viewStyle === "list" ? (
-             <box width={listColumns.total} flexDirection="row" borderStyle="single" border={["bottom"]} borderColor="#333333">
-                 <text wrapMode="none" overflow="hidden" style={{ textColor: "gray" }} width={columnWidth(0)}>Sel/Lint</text>{gutter("h1")}
-                <text wrapMode="none" overflow="hidden" style={{ textColor: "gray" }} width={columnWidth(1)}>Agent Name</text>{gutter("h2")}
-                <text wrapMode="none" overflow="hidden" style={{ textColor: "gray" }} width={columnWidth(2)}>Category</text>{gutter("h3")}
-                <text wrapMode="none" overflow="hidden" style={{ textColor: "gray" }} width={columnWidth(3)}>Tier</text>{gutter("h4")}
-                <text wrapMode="none" overflow="hidden" style={{ textColor: "gray" }} width={columnWidth(4)}>Model</text>
-             </box>
-           ) : (
-             <box width={listColumns.total} flexDirection="row" borderStyle="single" border={["bottom"]} borderColor="#333333">
+              <box width={listColumns.total} flexDirection="row" borderStyle="single" border={["bottom"]} borderColor="#333333">
                  <text wrapMode="none" overflow="hidden" style={{ textColor: "gray" }} width={columnWidth(0)}>Sel/Lint</text>{gutter("th1")}
                 <text wrapMode="none" overflow="hidden" style={{ textColor: "gray" }} width={columnWidth(1)}>Agent Name</text>{gutter("th2")}
                 <text wrapMode="none" overflow="hidden" style={{ textColor: "gray" }} width={columnWidth(2)}>Tier / Model</text>
              </box>
-          )}
 
           {/* List items */}
            <box width="100%" height={layout.listRows} minHeight={0} overflow="hidden" flexGrow={0} flexShrink={0} flexDirection="column" marginTop={1}>
@@ -2206,35 +2232,11 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
                 const rowBg = isFocused ? "#2B5581" : "transparent"
                 const itemColor = isFocused ? "#FFFFFF" : item.type === "folder" ? "yellow" : "#9ECBFF"
 
-                if (viewStyle === "list") {
-                  const agent = item.agent!
-                  const isSelected = selectedAgentPaths.has(agent.currentPath)
-                   const analysis = analyzeAgentName(agent.filename, allAgentFilenames)
-                   const lintBadge = analysis.isValid ? "✓" : "⚠"
-                   const lintColor = analysis.isValid ? "green" : "yellow"
-
-                  return (
-                    <box
-                      key={item.id}
-                      width="100%"
-                      flexDirection="row"
-                      backgroundColor={rowBg}
-                       height={1}
-                    >
-                       <text style={{ textColor: isSelected ? "green" : lintColor }} width={columnWidth(0)}>{`${isSelected ? "[x]" : "[ ]"} ${lintBadge}`}</text>{gutter(`g${item.id}1`)}
-                       <text style={{ textColor: itemColor }} width={columnWidth(1)} wrapMode="none" overflow="hidden" u={isFocused}>{middleEllipsis(agent.filename, columnWidth(1))}</text>{gutter(`g${item.id}2`)}
-                       <text style={{ textColor: "gray" }} width={columnWidth(2)} wrapMode="none" overflow="hidden">{middleEllipsis(agent.category, columnWidth(2))}</text>{gutter(`g${item.id}3`)}
-                       <text style={{ textColor: "magenta" }} width={columnWidth(3)} wrapMode="none" overflow="hidden">{middleEllipsis(resolvedAgents.get(agent.currentPath)?.tier || "-", columnWidth(3))}</text>{gutter(`g${item.id}4`)}
-                        <text style={{ textColor: isFocused ? "#E1E4E8" : "#9ECBFF" }} width={columnWidth(4)} wrapMode="none" overflow="hidden">{middleEllipsis(modelDisplayValue(agent, true, modelCatalog), columnWidth(4))}</text>
-                    </box>
-                  )
-                 } else {
-                   // Tree layout row
-                   const isSelected = item.agent ? selectedAgentPaths.has(item.id) : false
-                     const modelText = item.agent ? modelDisplayValue(item.agent, true, modelCatalog) : ""
-                   const analysis = item.agent ? analyzeAgentName(item.agent.filename, allAgentFilenames) : null
-                   const lintBadge = analysis ? (analysis.isValid ? "✓" : "⚠") : ""
-                   const lintColor = analysis ? (analysis.isValid ? "green" : "yellow") : "yellow"
+                const isSelected = item.agent ? selectedAgentPaths.has(item.id) : false
+                const modelText = item.agent ? modelDisplayValue(item.agent, true, modelCatalog) : ""
+                const analysis = item.agent ? analyzeAgentName(item.agent.filename, allAgentFilenames) : null
+                const lintBadge = analysis ? (analysis.isValid ? "✓" : "⚠") : ""
+                const lintColor = analysis ? (analysis.isValid ? "green" : "yellow") : "yellow"
 
                    return (
                     <box
@@ -2255,8 +2257,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
                         {item.type === "file" && <text style={{ textColor: "magenta" }} width={columnWidth(2)} wrapMode="none" overflow="hidden">{middleEllipsis(`${resolvedAgents.get(item.agent!.currentPath)?.tier || "-"} / ${modelText}`, columnWidth(2))}</text>}
                        {item.type !== "file" && <text width={columnWidth(2)}> </text>}
                      </box>
-                  )
-                }
+                   )
               })
             )}
           </box>
@@ -2277,9 +2278,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
                {middleEllipsis(`Total: ${agents.length} | Shown: ${activeItems.length} | Selected: ${selectedAgentPaths.size}`, 36)}
              </text>
               <text width={footerSecondWidth} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "gray" }}>
-               {middleEllipsis(viewStyle === "tree"
-                 ? "[TAB] Toggle View | [/] Search | ◀/▶ Collapse/Expand"
-                 : "[TAB] Toggle View | [/] Search", 36)}
+                {middleEllipsis("[/] Search | ◀/▶ Collapse/Expand", 36)}
             </text>
           </box>
         </box>
@@ -2581,11 +2580,11 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           const footerInnerWidth = Math.max(0, termWidth - 6)
           const compact = footerInnerWidth < 118
             const footerRows = viewMode !== "main" ? [[], [], []] : compact ? [
-              [["SPACE", "Select"], ["A", "All"], ["S", "Match"], ["/", "Search"], ["TAB", "View"], ["1-5", "Tabs"], ["S+L", "Layout"], ["F", "Fork"]],
+              [["SPACE", "Select"], ["A", "All"], ["S", "Match"], ["/", "Search"], ["1-5", "Tabs"], ["S+L", "Layout"], ["F", "Fork"], ["D", "Del pipe"]],
               [["M", "Mod"], ["C", "Col"], ["P", "Perm"], ["G", "Del"], ["T", "Tun"], ["S+T", "Tier"], ["I", "Imp"], ["O", "Org"]],
               [["B", "Claude"], ["S+B", "Codex"], ["R", "Rename"], ["E", "Export"], ["V", "Repair"], ["U", "Resources"]]
             ] : [
-              [["SPACE", "Select"], ["A", "All"], ["S", "Same model"], ["/", "Search"], ["TAB", "View"], ["1-5", "Inspector"], ["SHIFT+L", "Layout"], ["O", "Organization"]],
+              [["SPACE", "Select"], ["A", "All"], ["S", "Same model"], ["/", "Search"], ["1-5", "Inspector"], ["SHIFT+L", "Layout"], ["O", "Organization"], ["D", "Delete pipeline"]],
               [["M", "Model"], ["C", "Color"], ["P", "Permissions"], ["G", "Delegations"], ["T", "Tune"], ["SHIFT+T", "Tier"], ["I", "Import"], ["V", "Repair models"]],
               [["B", "Claude bridge"], ["SHIFT+B", "Codex bridge"], ["R", "Rename"], ["E", "Export"], ["F", "Fork"], ["U", "Skills/Tools"]]
           ]

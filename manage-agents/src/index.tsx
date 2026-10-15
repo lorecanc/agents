@@ -19,7 +19,7 @@ import {
 import { AUTO_COMMIT_MESSAGES, isRepositoryLocalPath, repositoryTransaction, parseAutoCommitArgs } from "./utils/repositoryTransaction.js"
 import { buildCategoryDistribution, buildAllCategoryDistributions, recoverBuildAllCategoryDistributions, checkCategoryDistribution, loadCategoryManifest, packageCategoryDistributions, parseCategoryArgs } from "./utils/categoryDistribution.js"
 import { loadUiConfig } from "./utils/uiConfig.js"
-import { loadPipelineProfiles, applyPipelineProfile, syncPipelineProfile, resolveProfileRoleSpec, PIPELINE_ROLES, loadStampedPipelineAgents } from "./utils/pipelineProfiles.js"
+import { loadPipelineProfiles, applyPipelineProfile, syncPipelineProfile, deleteStampedPipeline, resolveProfileRoleSpec, PIPELINE_ROLES, loadStampedPipelineAgents } from "./utils/pipelineProfiles.js"
 import { getCompanionLinksConfigPath } from "./utils/companionLinks.js"
 
 function repositoryMutation<T>(workspaceRoot: string, plan: string[] | { localPaths: string[]; externalPaths?: string[] }, message: string, mutation: () => T): T {
@@ -690,7 +690,7 @@ async function runTuneCLI(workspaceRoot: string) {
 async function runPipelineCLI(workspaceRoot: string) {
   const [action, profileName, ...options] = process.argv.slice(3)
   if (!action || action === "--help" || action === "-h") {
-    console.log("Usage: manage-agents pipeline list|show <profile>|apply <profile> [--category <cat>]|sync <profile> [--target <target-pipeline>]")
+    console.log("Usage: manage-agents pipeline list|show <profile>|apply <profile> [--category <cat>]|sync <profile> [--target <target-pipeline>]|delete <name> [--also-installed]")
     return
   }
 
@@ -701,8 +701,21 @@ async function runPipelineCLI(workspaceRoot: string) {
     return
   }
 
-  if (action !== "show" && action !== "apply" && action !== "sync") throw new Error(`Unknown pipeline action '${action}'`)
+  if (action !== "show" && action !== "apply" && action !== "sync" && action !== "delete") throw new Error(`Unknown pipeline action '${action}'`)
   if (!profileName || profileName.startsWith("-")) throw new Error(`pipeline ${action} requires a profile name`)
+
+  if (action === "delete") {
+    const alsoInstalled = options.includes("--also-installed")
+    const resolvedTarget = profileName === "pipeline" || profileName.endsWith("-pipeline") ? profileName : `${profileName}-pipeline`
+    const result = repositoryMutation(workspaceRoot, [path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot), resolvedTarget), getCompanionLinksConfigPath(workspaceRoot)], AUTO_COMMIT_MESSAGES.pipeline, () =>
+      deleteStampedPipeline(workspaceRoot, profileName, { alsoInstalled })
+    )
+    console.log(`Deleted category '${result.deletedCategory}': removed ${result.removedAgentsCount} agents from ${result.outputDir}.`)
+    if (alsoInstalled) {
+      console.log(`Removed ${result.removedInstalledAgents.length} installed agents and ${result.removedInstalledCommands.length} installed commands.`)
+    }
+    return
+  }
 
   const config = loadPipelineProfiles(workspaceRoot)
   const profile = config.profiles[profileName]
