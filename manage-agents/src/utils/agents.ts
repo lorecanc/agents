@@ -5,6 +5,7 @@ import { randomBytes } from "node:crypto"
 import YAML from "yaml"
 import { isPathInsideWorkspace, isWorkspaceRelativePath } from "./pathValidation.js"
 import { detectFrontmatterVersion, translateFrontmatterV1ToV2, translateFrontmatterV2ToV1 } from "./v2Compat.js"
+import { discoverAvailableCategoryCompanionItems, getCategoryCompanionLinks, type SelectableCompanionItem } from "./companionLinks.js"
 
 function isValidFrontmatter(v: unknown): v is Record<string, any> {
   return typeof v === "object" && v !== null && !Array.isArray(v) && Object.keys(v).length > 0
@@ -62,6 +63,7 @@ export interface AgentResourceCatalog {
   tools: AgentResourceItem[]
   mcpServers: AgentMcpResourceItem[]
   companionFiles: string[]
+  categoryCompanionItems?: SelectableCompanionItem[]
   opencodeRawContent: string | null
 }
 
@@ -216,7 +218,8 @@ export function discoverAgentResources(
 
   return {
     skills, tools, mcpServers,
-    companionFiles: discoverCompanionResourcePaths(generalDir, [agentDomain(agent.filename)]),
+    companionFiles: discoverCompanionResourcePaths(generalDir, [agentDomain(agent.filename), agent.category], undefined, [agent]),
+    categoryCompanionItems: discoverAvailableCategoryCompanionItems(workspaceRoot, agent.category),
     opencodeRawContent
   }
 }
@@ -476,11 +479,9 @@ export function applySafetyPreset(agents: AgentInfo[], presetKey: "readonly_scou
 
 export function updateAgentParams(
   agents: AgentInfo[],
-  params: { steps?: number; temperature?: number; mode?: string; hidden?: boolean; variant?: string | null }
+  params: { steps?: number; temperature?: number; mode?: string; hidden?: boolean; variant?: string | null; allowedVariants?: readonly string[] }
 ) {
-  if (typeof params.variant === "string" && params.variant.trim() === "") {
-    throw new Error("Agent variant cannot be empty. Pass null to clear variant.")
-  }
+  const variant = params.variant === undefined ? undefined : normalizeAgentVariant(params.variant, params.allowedVariants)
 
   for (const agent of agents) {
     const updatedFrontmatter = { ...agent.frontmatter }
@@ -488,15 +489,27 @@ export function updateAgentParams(
     if (params.temperature !== undefined) updatedFrontmatter.temperature = params.temperature
     if (params.mode !== undefined) updatedFrontmatter.mode = params.mode
     if (params.hidden !== undefined) updatedFrontmatter.hidden = params.hidden
-    if (params.variant === null) delete updatedFrontmatter.variant
-    else if (params.variant !== undefined) updatedFrontmatter.variant = params.variant.trim()
+    if (variant === null) delete updatedFrontmatter.variant
+    else if (variant !== undefined) updatedFrontmatter.variant = variant
 
     saveAgentFile(agent.currentPath, updatedFrontmatter, agent.body, agent.frontmatterVersion)
     agent.frontmatter = updatedFrontmatter
   }
 }
 
-export const AGENT_EFFORT_VARIANTS = ["none", "minimal", "low", "medium", "high", "xhigh", "max"] as const
+export const AGENT_EFFORT_VARIANTS = ["low", "medium", "high", "max"] as const
+export const KNOWN_MODEL_VARIANTS = ["minimal", "low", "medium", "high", "xhigh", "max", "none", "thinking"] as const
+
+function normalizeAgentVariant(value: unknown, allowedVariants?: readonly string[]): string | null {
+  if (value === null) return null
+  if (typeof value !== "string") throw new Error("Invalid agent variant. Expected string or null.")
+  const normalized = value.trim().toLocaleLowerCase("und")
+  if (!normalized) throw new Error("Agent variant cannot be empty. Pass null to clear variant.")
+  if (!/^[a-z0-9._-]+$/.test(normalized)) throw new Error(`Invalid agent variant "${value}".`)
+  const allowed = allowedVariants && allowedVariants.length > 0 ? allowedVariants : KNOWN_MODEL_VARIANTS
+  if (!allowed.includes(normalized)) throw new Error(`Invalid agent variant "${value}". Expected one of: ${allowed.join(", ")}.`)
+  return normalized
+}
 
 export interface PermissionOrderAnalysis {
   hasOrderError: boolean
@@ -1837,24 +1850,134 @@ function validateResourceRoot(sourceRoot: string): void {
   if (stat && (stat.isSymbolicLink() || !stat.isDirectory())) throw new Error(`Refusing to use symlink or non-directory resource source root: ${sourceRoot}`)
 }
 
-function discoverCompanionResourcePaths(sourceRoot: string, domains: string[], manifestDirectory?: string): string[] {
+function isExcludedCompanionFile(relPath: string): boolean {
+  const basename = path.posix.basename(relPath.replace(/\\/g, "/"))
+  if (basename === ".DS_Store" || /(\.test\.|_testutil\.|\.d\.ts$)/i.test(basename)) return true
+  return /^README\.md$/i.test(basename) && /^(?:plugins|tools)\//i.test(relPath.replace(/\\/g, "/"))
+}
+
+function safeRelativeStat(sourceRoot: string, relative: string): fs.Stats | undefined {
+  const normalized = relative.replace(/\\/g, "/")
+  if (!normalized || path.posix.isAbsolute(normalized) || normalized.split("/").includes("..")) return undefined
+  let current = sourceRoot
+  for (const component of normalized.split("/")) {
+    current = path.join(current, component)
+    const stat = fs.lstatSync(current, { throwIfNoEntry: false })
+    if (!stat) return undefined
+    if (stat.isSymbolicLink()) throw new Error(`Refusing to export resource symlink: ${current}`)
+  }
+  const resolved = path.resolve(sourceRoot, normalized)
+  if (!resolved.startsWith(`${path.resolve(sourceRoot)}${path.sep}`)) return undefined
+  return fs.lstatSync(resolved, { throwIfNoEntry: false })
+}
+
+function walkFiles(sourceRoot: string, relative: string): string[] {
+  const stat = safeRelativeStat(sourceRoot, relative)
+  if (!stat) return []
+  if (stat.isFile()) return isExcludedCompanionFile(relative) ? [] : [relative]
+  if (!stat.isDirectory()) return []
+  const files: string[] = []
+  const directory = path.join(sourceRoot, relative)
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+    const child = path.posix.join(relative.replace(/\\/g, "/"), entry.name)
+    if (isExcludedCompanionFile(child)) continue
+    const childStat = safeRelativeStat(sourceRoot, child)
+    if (childStat?.isDirectory()) files.push(...walkFiles(sourceRoot, child))
+    else if (childStat?.isFile()) files.push(child)
+  }
+  return files
+}
+
+function traceRelativeToolDependencies(sourceRoot: string, initialRelPaths: Iterable<string>): Set<string> {
+  const traced = new Set<string>()
+  const queue = [...initialRelPaths].map(relative => relative.replace(/\\/g, "/"))
+  const parsed = new Set<string>()
+  const resolveReference = (current: string, reference: string): string | undefined => {
+    const candidates = [path.posix.normalize(path.posix.join(path.posix.dirname(current), reference))]
+    if (reference.endsWith(".js")) candidates.push(`${candidates[0].slice(0, -3)}.ts`)
+    for (const candidate of candidates) {
+      if (!/^(?:tools|plugins)\//.test(candidate) || isExcludedCompanionFile(candidate)) continue
+      const stat = safeRelativeStat(sourceRoot, candidate)
+      if (stat?.isFile()) return candidate
+    }
+    return undefined
+  }
+  while (queue.length) {
+    const relative = queue.shift()!
+    if (parsed.has(relative) || !/^(?:tools|plugins)\/.+\.(?:ts|js|mjs)$/i.test(relative) || isExcludedCompanionFile(relative)) continue
+    const stat = safeRelativeStat(sourceRoot, relative)
+    if (!stat?.isFile()) continue
+    parsed.add(relative)
+    traced.add(relative)
+    const source = fs.readFileSync(path.join(sourceRoot, relative), "utf8")
+    const references = new Set<string>()
+    const imports = /(?:from|import)\s*\(\s*["'](\.[^"']+)["']\s*\)|(?:from|import)\s+["'](\.[^"']+)["']/g
+    for (const match of source.matchAll(imports)) references.add(match[1] || match[2])
+    const assets = /opencodePath\(\s*["']([^"']+)["']\s*\)/g
+    for (const match of source.matchAll(assets)) {
+      const assetPath = path.posix.join("tools", match[1])
+      const stat = safeRelativeStat(sourceRoot, assetPath)
+      if (stat?.isFile() && !isExcludedCompanionFile(assetPath)) {
+        traced.add(assetPath)
+        if (/\.(?:ts|js|mjs)$/i.test(assetPath) && !parsed.has(assetPath)) queue.push(assetPath)
+      }
+    }
+    for (const reference of references) {
+      const resolved = resolveReference(relative, reference)
+      if (resolved && !parsed.has(resolved)) queue.push(resolved)
+    }
+  }
+  return traced
+}
+
+function deriveCompanionResourcesFromAgents(sourceRoot: string, agentsList: AgentInfo[]): Set<string> {
+  const discovered = new Set<string>()
+  const collectTree = (relative: string) => {
+    for (const file of walkFiles(sourceRoot, relative)) discovered.add(file)
+  }
+  for (const agent of agentsList) {
+    const permission = agent.frontmatter?.permission
+    if (!permission || typeof permission !== "object" || Array.isArray(permission)) continue
+    for (const [key, value] of Object.entries(permission)) {
+      if (value !== "allow" && value !== true) continue
+      if (key === "skill" && typeof value === "object") continue
+      if (key === "skill" || key.endsWith("_*")) {
+        if (key.endsWith("_*")) {
+          const prefix = key.slice(0, -2)
+          const toolsStat = safeRelativeStat(sourceRoot, "tools")
+          const toolsDir = path.join(sourceRoot, "tools")
+          if (toolsStat?.isDirectory()) for (const entry of fs.readdirSync(toolsDir, { withFileTypes: true })) {
+            if (entry.isFile() && entry.name.startsWith(`${prefix}_`) && entry.name.endsWith(".ts")) {
+              const relative = `tools/${entry.name}`
+              if (!isExcludedCompanionFile(relative) && safeRelativeStat(sourceRoot, relative)?.isFile()) discovered.add(relative)
+            }
+          }
+          collectTree(`tools/${prefix}`)
+        }
+        continue
+      }
+      const relative = `tools/${key}.ts`
+      if (!isExcludedCompanionFile(relative) && safeRelativeStat(sourceRoot, relative)?.isFile()) discovered.add(relative)
+    }
+    const skills = permission.skill
+    if (skills && typeof skills === "object" && !Array.isArray(skills)) {
+      for (const [name, value] of Object.entries(skills)) {
+        if (name === "*" || (value !== "allow" && value !== true)) continue
+        collectTree(`skills/${name}`)
+        collectTree(`tools/${name}`)
+      }
+    }
+  }
+  for (const dependency of traceRelativeToolDependencies(sourceRoot, discovered)) discovered.add(dependency)
+  return discovered
+}
+
+function discoverCompanionResourcePaths(sourceRoot: string, domains: string[], manifestDirectory?: string, agentsForDerivation?: AgentInfo[]): string[] {
   validateResourceRoot(sourceRoot)
   if (!fs.existsSync(sourceRoot)) return []
   const found = new Set<string>()
   const names = [...new Set(domains.filter(Boolean))]
   const matches = (name: string): boolean => names.some(domain => name === domain || name.startsWith(`${domain}-`))
-
-  function collect(dir: string, relativeBase: string): void {
-    const entries = fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))
-    for (const entry of entries) {
-      const source = path.join(dir, entry.name)
-      const stat = fs.lstatSync(source)
-      if (stat.isSymbolicLink()) throw new Error(`Refusing to export resource symlink: ${source}`)
-      const relative = path.join(relativeBase, entry.name)
-      if (stat.isDirectory()) collect(source, relative)
-      else if (stat.isFile()) found.add(relative)
-    }
-  }
 
   const categoriesDirectory = manifestDirectory ?? (path.basename(sourceRoot) === "general"
     ? path.join(path.dirname(sourceRoot), ".agent-manager", "categories")
@@ -1880,12 +2003,12 @@ function discoverCompanionResourcePaths(sourceRoot: string, domains: string[], m
           const stat = fs.lstatSync(current, { throwIfNoEntry: false })
           if (stat?.isSymbolicLink()) throw new Error(`Refusing to export resource through source symlink: ${current}`)
         }
-        if (resource.kind === "file") found.add(relative)
+        if (resource.kind === "file" && !isExcludedCompanionFile(relative)) found.add(relative)
         const stat = fs.lstatSync(source, { throwIfNoEntry: false })
         if (!stat) continue
         if (resource.kind === "file") {
-          if (stat.isFile()) found.add(relative)
-        } else if (stat.isDirectory()) collect(source, relative)
+          if (stat.isFile() && !isExcludedCompanionFile(relative)) found.add(relative)
+        } else if (stat.isDirectory()) for (const file of walkFiles(sourceRoot, relative)) found.add(file)
       }
     }
   }
@@ -1903,54 +2026,24 @@ function discoverCompanionResourcePaths(sourceRoot: string, domains: string[], m
         if (matches(entry.name) || matches(path.parse(entry.name).name)) throw new Error(`Refusing to export resource symlink: ${entryPath}`)
         continue
       }
-      if (entryStat.isDirectory() && matches(entry.name)) collect(entryPath, path.join(root, entry.name))
-      else if (entryStat.isFile() && matches(path.parse(entry.name).name)) found.add(path.join(root, entry.name))
+      if (entryStat.isDirectory() && matches(entry.name)) for (const file of walkFiles(sourceRoot, path.join(root, entry.name))) found.add(file)
+      else if (entryStat.isFile() && matches(path.parse(entry.name).name) && !isExcludedCompanionFile(path.join(root, entry.name))) found.add(path.join(root, entry.name))
     }
   }
 
-  const supplemental: Record<string, { files: RegExp; helpers: string[]; directories: string[]; extraFiles?: string[] }> = {
-    slides: { files: /^slide_.*\.ts$/, helpers: ["_safeName.js", "_python.js", "_paths.js", "_theme.template.css"], directories: ["skills/pptx", "tools/pptx"] },
-    docs: { files: /^doc_.*\.ts$/, helpers: ["_safeName.js", "_python.js", "_paths.js", "_doc_theme.template.css"], directories: ["skills/docx", "tools/docx"] },
-    hybrid: {
-      files: /^pipeline_.*\.ts$/,
-      helpers: ["_pipeline_core.js", "_pipeline_run.js", "_pipeline_serve.js"],
-      directories: ["skills/code-review-antipatterns"],
-      extraFiles: ["plugins/pipeline-guard.js"]
-    }
-  }
+  const workspaceRoot = path.dirname(sourceRoot)
   for (const domain of names) {
-    const extra = supplemental[domain]
-    if (!extra) continue
-    const tools = path.join(sourceRoot, "tools")
-    const toolsStat = fs.lstatSync(tools, { throwIfNoEntry: false })
-    if (toolsStat?.isSymbolicLink()) throw new Error(`Refusing to export through source symlink: ${tools}`)
-    if (toolsStat?.isDirectory()) {
-      for (const entry of fs.readdirSync(tools, { withFileTypes: true })) {
-        if (!extra.files.test(entry.name) && !extra.helpers.includes(entry.name)) continue
-        const file = path.join(tools, entry.name)
-        const stat = fs.lstatSync(file)
-        if (stat.isSymbolicLink()) throw new Error(`Refusing to export resource symlink: ${file}`)
-        if (stat.isFile()) found.add(path.join("tools", entry.name))
-      }
-    }
-    for (const relative of extra.directories) {
-      const dir = path.join(sourceRoot, relative)
-      const stat = fs.lstatSync(dir, { throwIfNoEntry: false })
-      if (stat?.isSymbolicLink()) throw new Error(`Refusing to export through source symlink: ${dir}`)
-      if (stat?.isDirectory()) collect(dir, relative)
-    }
-    for (const relative of extra.extraFiles ?? []) {
-      const normalizedRelative = path.join(...relative.split("/"))
-      let current = sourceRoot
-      for (const component of relative.split("/")) {
-        current = path.join(current, component)
-        const stat = fs.lstatSync(current, { throwIfNoEntry: false })
-        if (stat?.isSymbolicLink()) throw new Error(`Refusing to export resource symlink: ${current}`)
-      }
-      const stat = fs.lstatSync(current, { throwIfNoEntry: false })
-      if (stat?.isFile()) found.add(normalizedRelative)
+    const links = getCategoryCompanionLinks(workspaceRoot, domain)
+    for (const relative of [...links.plugins, ...links.commands, ...links.skills, ...links.tools]) {
+      const normalized = relative.replace(/\\/g, "/")
+      const stat = safeRelativeStat(sourceRoot, normalized)
+      if (stat?.isDirectory()) for (const file of walkFiles(sourceRoot, normalized)) found.add(file)
+      else if (stat?.isFile() && !isExcludedCompanionFile(normalized)) found.add(normalized)
     }
   }
+  for (const dependency of traceRelativeToolDependencies(sourceRoot, found)) found.add(dependency)
+  if (agentsForDerivation) for (const resource of deriveCompanionResourcesFromAgents(sourceRoot, agentsForDerivation)) found.add(resource)
+  for (const dependency of traceRelativeToolDependencies(sourceRoot, found)) found.add(dependency)
   return [...found].sort((a, b) => a.localeCompare(b))
 }
 
@@ -1962,11 +2055,11 @@ export function compareCompanionResources(workspaceRoot: string, agents?: AgentI
     : [])
   const exportDir = getExportDestination()
   const exportAgents = fs.existsSync(exportDir) ? fs.readdirSync(exportDir).filter(name => name.endsWith(".md")) : []
-  const domains = [...new Set([...localAgents.map(agent => agentDomain(agent.filename)), ...exportAgents.map(agentDomain)])]
-  const localPaths = discoverCompanionResourcePaths(generalRoot, domains)
+  const domains = [...new Set([...localAgents.flatMap(agent => [agentDomain(agent.filename), agent.category]), ...exportAgents.map(agentDomain)])]
+  const localPaths = discoverCompanionResourcePaths(generalRoot, domains, undefined, localAgents)
   const exportRoot = path.dirname(exportDir)
   const manifestDirectory = path.join(workspaceRoot, ".agent-manager", "categories")
-  const exportPaths = discoverCompanionResourcePaths(exportRoot, domains, manifestDirectory)
+  const exportPaths = discoverCompanionResourcePaths(exportRoot, domains, manifestDirectory, localAgents)
   const relatives = [...new Set([...localPaths, ...exportPaths])].sort((a, b) => a.localeCompare(b))
   return relatives.map(relativePath => {
     const localPath = path.join(generalRoot, relativePath)
@@ -1995,8 +2088,8 @@ export function compareCompanionResources(workspaceRoot: string, agents?: AgentI
   })
 }
 
-function copyDomainResources(sourceRoot: string, opencodeRoot: string, domains: string[]): { installed: string[]; backupPath: string | null } {
-  const resources = discoverCompanionResourcePaths(sourceRoot, domains).map(relative => ({ source: path.join(sourceRoot, relative), relative }))
+function copyDomainResources(sourceRoot: string, opencodeRoot: string, domains: string[], agents: AgentInfo[]): { installed: string[]; backupPath: string | null } {
+  const resources = discoverCompanionResourcePaths(sourceRoot, domains, undefined, agents).map(relative => ({ source: path.join(sourceRoot, relative), relative }))
   if (resources.length === 0) return { installed: [], backupPath: null }
 
   const pending: typeof resources = []
@@ -2195,11 +2288,11 @@ export function exportAgents(
     throw error
   }
 
-  const domains = successfulAgents.map(agent => agentDomain(agent.filename))
+  const domains = successfulAgents.flatMap(agent => [agentDomain(agent.filename), agent.category])
   let resourceResult: { installed: string[]; backupPath: string | null }
   try {
     resourceResult = resourceSourceRoot
-      ? copyDomainResources(resourceSourceRoot, opencodeRoot, domains)
+      ? copyDomainResources(resourceSourceRoot, opencodeRoot, domains, successfulAgents)
       : { installed: [], backupPath: null }
   } catch (error: any) {
     const rollbackErrors: string[] = []

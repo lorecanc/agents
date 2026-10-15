@@ -6,6 +6,7 @@ import { execFileSync, spawnSync } from "node:child_process"
 import test from "node:test"
 import { extractFrontmatter, exportAgents, getExportDestination, isInGeneralAgents, parseAgentFile, saveAgentFile, repairAgentModels, updateAgentsModel, forkCategory, parseForkReplacements, compareCompanionResources, previewImport, importAgents, discoverAgentResources, updateAgentResourcesAndMcp, updateAgentParams, AGENT_EFFORT_VARIANTS } from "./agents.js"
 import { AUTO_COMMIT_MESSAGES, repositoryTransaction } from "./repositoryTransaction.js"
+import { updateCategoryCompanionLinks } from "./companionLinks.js"
 
 function fixtureAgent(filePath: string, workspace: string, model: unknown) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true })
@@ -688,7 +689,7 @@ test("agent params set effort variants and preserve other frontmatter and body",
   saveAgentFile(filePath, { description: "Example", model: "test/model", steps: 12 }, "Agent body.")
   const agent = parseAgentFile(filePath, workspace)!
 
-  assert.deepEqual(AGENT_EFFORT_VARIANTS, ["none", "minimal", "low", "medium", "high", "xhigh", "max"])
+  assert.deepEqual(AGENT_EFFORT_VARIANTS, ["low", "medium", "high", "max"])
   for (const variant of ["high", "max", "thinking"]) {
     updateAgentParams([agent], { variant })
     const content = fs.readFileSync(filePath, "utf8")
@@ -696,6 +697,17 @@ test("agent params set effort variants and preserve other frontmatter and body",
     assert.deepEqual(agent.frontmatter, { description: "Example", model: "test/model", max_steps: 12, variant })
     assert.match(content, /Agent body\./)
   }
+  assert.throws(() => updateAgentParams([agent], { variant: "extreme" }), /Invalid agent variant/)
+})
+
+test("agent params accept known model variants and model-specific allowed variants", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "agent-variant-model-"))
+  const agent = fixtureAgent(path.join(workspace, "general/agents/a.md"), workspace, "test/model")
+
+  for (const variant of ["minimal", "xhigh", "thinking"]) updateAgentParams([agent], { variant })
+  updateAgentParams([agent], { variant: "custom-mode", allowedVariants: ["custom-mode"] })
+  assert.equal(agent.frontmatter.variant, "custom-mode")
+  assert.throws(() => updateAgentParams([agent], { variant: "another-mode", allowedVariants: ["custom-mode"] }), /Expected one of: custom-mode/)
 })
 
 test("agent params preserve or clear an existing effort variant", () => {
@@ -852,7 +864,7 @@ test("export rolls back agent and companion resource changes after a mid-install
   assert.deepEqual(fs.readdirSync(opencodeRoot).filter(name => name.startsWith(".resource-export-stage-")), [])
 })
 
-test("manifest, prefix and supplemental companion resources export without duplicates", (t) => {
+test("manifest, linked resources and reachable dependencies export without unrelated helpers", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-manifest-export-"))
   const xdg = path.join(root, "xdg")
   const opencodeRoot = path.join(xdg, "opencode")
@@ -880,11 +892,10 @@ test("manifest, prefix and supplemental companion resources export without dupli
   const sourceFiles: Record<string, string> = {
     "commands/new-slides.md": "manifest command\n",
     "tools/pptx/build.py": "manifest tool\n",
-    "tools/slide_build.ts": "prefix tool\n",
-    "tools/_paths.js": "prefix helper\n",
-    "skills/pptx/SKILL.md": "prefix skill\n",
-    "skills/slides-design/SKILL.md": "prefix design\n",
-    "commands/slides-extra.md": "prefix command\n",
+    "tools/slide_build_pptx.ts": 'import "./_safeName.js";\n',
+    "tools/_safeName.js": "export const safeName = true\n",
+    "tools/_other.js": "export const unrelated = true\n",
+    "skills/pptx/SKILL.md": "linked skill\n",
     "skills/slides-composition/THIRD_PARTY_NOTICES.md": "supplemental notice\n",
     "commands/docs-extra.md": "unrelated command\n"
   }
@@ -893,31 +904,79 @@ test("manifest, prefix and supplemental companion resources export without dupli
     fs.mkdirSync(path.dirname(filePath), { recursive: true })
     fs.writeFileSync(filePath, contents)
   }
+  updateCategoryCompanionLinks(workspace, "slides", {
+    commands: ["commands/new-slides.md"],
+    skills: ["skills/pptx"],
+    tools: ["tools/slide_build_pptx.ts"]
+  })
 
   const result = exportAgents([slidesAgent], new Set([slidesAgent.currentPath]), sourceRoot)
   const installedPaths = [
     "tools/pptx/build.py",
     "commands/new-slides.md",
-    "commands/slides-extra.md",
     "skills/slides-composition/THIRD_PARTY_NOTICES.md",
-    "tools/slide_build.ts",
-    "tools/_paths.js",
-    "skills/pptx/SKILL.md",
-    "skills/slides-design/SKILL.md"
+    "tools/slide_build_pptx.ts",
+    "tools/_safeName.js",
+    "skills/pptx/SKILL.md"
   ].map(relative => path.join(opencodeRoot, relative))
   for (const [relative, contents] of Object.entries({
     "tools/pptx/build.py": "manifest tool\n",
     "commands/new-slides.md": "manifest command\n",
-    "commands/slides-extra.md": "prefix command\n",
     "skills/slides-composition/THIRD_PARTY_NOTICES.md": "supplemental notice\n",
-    "tools/slide_build.ts": "prefix tool\n",
-    "tools/_paths.js": "prefix helper\n",
-    "skills/pptx/SKILL.md": "prefix skill\n",
-    "skills/slides-design/SKILL.md": "prefix design\n"
+    "tools/slide_build_pptx.ts": 'import "./_safeName.js";\n',
+    "tools/_safeName.js": "export const safeName = true\n",
+    "skills/pptx/SKILL.md": "linked skill\n"
   })) assert.equal(fs.readFileSync(path.join(opencodeRoot, relative), "utf8"), contents)
   assert.equal(new Set(result.domainResources).size, result.domainResources.length, "resource paths must be deduplicated")
   for (const installed of installedPaths) assert.equal(result.domainResources.filter(resource => resource === installed).length, 1)
+  assert.equal(fs.existsSync(path.join(opencodeRoot, "tools", "_other.js")), false, "unrelated helpers must not be installed")
+  assert.equal(fs.existsSync(path.join(opencodeRoot, "commands", "slides-extra.md")), false, "unlinked domain resources must not be installed")
   assert.equal(fs.existsSync(path.join(opencodeRoot, "commands", "docs-extra.md")), false, "unrelated domains must not be installed")
+})
+
+test("agent permissions derive tool resources and trace relative helper imports", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "agent-derived-resources-"))
+  const agent = fixtureAgent(path.join(workspace, "general/agents/custom-agent.md"), workspace, "test/model")
+  agent.frontmatter.permission = { custom_tool: "allow" }
+  saveAgentFile(agent.currentPath, agent.frontmatter, agent.body)
+  fs.mkdirSync(path.join(workspace, "general/tools"), { recursive: true })
+  fs.writeFileSync(path.join(workspace, "general/tools/custom_tool.ts"), 'import { helper } from "./_custom_helper.js";\nexport default helper\n')
+  fs.writeFileSync(path.join(workspace, "general/tools/_custom_helper.js"), "export const helper = true\n")
+
+  const catalog = discoverAgentResources(workspace, agent)
+  assert.ok(catalog.companionFiles.some(file => file.replace(/\\/g, "/") === "tools/custom_tool.ts"))
+  assert.ok(catalog.companionFiles.some(file => file.replace(/\\/g, "/") === "tools/_custom_helper.js"))
+})
+
+test("category companion link changes control linked companion discovery", (t) => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "agent-category-links-"))
+  const previousXdg = process.env.XDG_CONFIG_HOME
+  t.after(() => {
+    if (previousXdg === undefined) delete process.env.XDG_CONFIG_HOME
+    else process.env.XDG_CONFIG_HOME = previousXdg
+  })
+  process.env.XDG_CONFIG_HOME = path.join(workspace, "xdg")
+  const agent = fixtureAgent(path.join(workspace, "general/agents/custom-agent.md"), workspace, "test/model")
+  const files = [
+    "plugins/linked-plugin.js",
+    "skills/linked-skill/SKILL.md",
+    "tools/linked_tool.ts"
+  ]
+  for (const relative of files) {
+    const filePath = path.join(workspace, "general", relative)
+    fs.mkdirSync(path.dirname(filePath), { recursive: true })
+    fs.writeFileSync(filePath, "linked\n")
+  }
+
+  updateCategoryCompanionLinks(workspace, "custom", {
+    plugins: ["plugins/linked-plugin.js"], skills: ["skills/linked-skill"], tools: ["tools/linked_tool.ts"]
+  })
+  const linked = compareCompanionResources(workspace, [agent]).map(item => item.relativePath.replace(/\\/g, "/"))
+  for (const relative of files) assert.ok(linked.includes(relative), `${relative} should be discovered while linked`)
+
+  updateCategoryCompanionLinks(workspace, "custom", { plugins: [], skills: [], tools: [] })
+  const unlinked = compareCompanionResources(workspace, [agent]).map(item => item.relativePath.replace(/\\/g, "/"))
+  for (const relative of files) assert.equal(unlinked.includes(relative), false, `${relative} should no longer be discovered`)
 })
 
 test("unchanged companion resources are skipped while content or mode changes are replaced", (t) => {
@@ -1667,11 +1726,19 @@ test("hybrid companion resources are discovered and exported except for tests", 
     "skills/code-review-antipatterns/SKILL.md",
     "plugins/pipeline-guard.js"
   ]
+  const contents: Record<string, string> = {
+    "tools/pipeline_state.ts": 'import "./_pipeline_core.js"\n',
+    "tools/_pipeline_core.js": 'import "./_pipeline_run.js"\n',
+    "tools/_pipeline_run.js": 'import "./_pipeline_serve.js"\n',
+    "tools/_pipeline_serve.js": "pipeline serve dependency\n",
+    "skills/code-review-antipatterns/SKILL.md": "review skill\n",
+    "plugins/pipeline-guard.js": "pipeline plugin\n"
+  }
   for (const relative of [...resources, "tools/_pipeline_core.test.mjs"]) {
     for (const base of [sourceRoot, path.join(workspace, "general")]) {
       const source = path.join(base, relative)
       fs.mkdirSync(path.dirname(source), { recursive: true })
-      fs.writeFileSync(source, `${relative}\n`)
+      fs.writeFileSync(source, contents[relative] ?? `${relative}\n`)
     }
   }
 
@@ -1683,7 +1750,7 @@ test("hybrid companion resources are discovered and exported except for tests", 
 
   const result = exportAgents([hybridAgent], new Set([hybridAgent.currentPath]), sourceRoot)
   for (const relative of resources) {
-    assert.equal(fs.readFileSync(path.join(opencodeRoot, relative), "utf8"), `${relative}\n`)
+    assert.equal(fs.readFileSync(path.join(opencodeRoot, relative), "utf8"), contents[relative])
     assert.ok(result.domainResources.includes(path.join(opencodeRoot, relative)))
   }
   assert.equal(fs.existsSync(path.join(opencodeRoot, "tools/_pipeline_core.test.mjs")), false)

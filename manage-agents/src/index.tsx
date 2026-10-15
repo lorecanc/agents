@@ -6,8 +6,8 @@ import os from "node:os"
 import path from "node:path"
 import readline from "node:readline"
 import { App } from "./App.js"
-import { fetchModels } from "./utils/models.js"
-import { exportAgents, getExportDestination, analyzeAgentName, renameAgent, auditSecurityPermissions, importAgents, previewImport, updateAgentParams, sanitizeFilename, AGENT_EFFORT_VARIANTS } from "./utils/agents.js"
+import { fetchModels, loadModelCatalog, getModelVariants } from "./utils/models.js"
+import { exportAgents, getExportDestination, analyzeAgentName, renameAgent, auditSecurityPermissions, importAgents, previewImport, updateAgentParams, sanitizeFilename, KNOWN_MODEL_VARIANTS } from "./utils/agents.js"
 import {
   DEFAULT_TRANSLATION_CONFIG,
   loadTranslationConfig,
@@ -19,6 +19,8 @@ import {
 import { AUTO_COMMIT_MESSAGES, isRepositoryLocalPath, repositoryTransaction, parseAutoCommitArgs } from "./utils/repositoryTransaction.js"
 import { buildCategoryDistribution, buildAllCategoryDistributions, recoverBuildAllCategoryDistributions, checkCategoryDistribution, loadCategoryManifest, packageCategoryDistributions, parseCategoryArgs } from "./utils/categoryDistribution.js"
 import { loadUiConfig } from "./utils/uiConfig.js"
+import { loadPipelineProfiles, applyPipelineProfile, syncPipelineProfile, resolveProfileRoleSpec, PIPELINE_ROLES } from "./utils/pipelineProfiles.js"
+import { getCompanionLinksConfigPath } from "./utils/companionLinks.js"
 
 function repositoryMutation<T>(workspaceRoot: string, plan: string[] | { localPaths: string[]; externalPaths?: string[] }, message: string, mutation: () => T): T {
   const result = repositoryTransaction(workspaceRoot, plan, message, mutation)
@@ -323,12 +325,15 @@ async function runExport(workspaceRoot: string) {
   const args = process.argv.slice(3)
   let exportAll = false
   let category = ""
+  let profile = ""
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--all" || args[i] === "-a") {
       exportAll = true
     } else if ((args[i] === "--category" || args[i] === "-c") && args[i + 1]) {
       category = args[++i]
+    } else if ((args[i] === "--profile" || args[i] === "-p") && args[i + 1]) {
+      profile = args[++i]
     } else if (args[i] === "--help" || args[i] === "-h") {
       console.log(`
 Usage: manage-agents export [options]
@@ -342,13 +347,20 @@ agent's domain are installed under the same subpath in that directory.
 Options:
   --all, -a               Export all agents
   --category, -c <name>   Export only agents from a specific category
+  --profile, -p <name>    Apply a pipeline profile before exporting
   --help, -h              Show this help
 `)
       process.exit(0)
     }
   }
 
-  const allAgents = findAgentFiles(workspaceRoot, loadTranslationConfig(workspaceRoot, undefined, { persistMigration: false }).sourceDir)
+  const sourceDir = loadTranslationConfig(workspaceRoot, undefined, { persistMigration: false }).sourceDir
+  if (profile) {
+    repositoryMutation(workspaceRoot, [path.join(workspaceRoot, "general", "agents")], "pipeline", () =>
+      applyPipelineProfile(workspaceRoot, profile, category || undefined)
+    )
+  }
+  const allAgents = findAgentFiles(workspaceRoot, sourceDir)
   let agentsToExport = allAgents
 
   if (category) {
@@ -589,7 +601,7 @@ async function runTuneCLI(workspaceRoot: string) {
     console.log("Usage: manage-agents tune [options]")
     console.log("  --steps <number>                  Set max execution steps")
     console.log("  --temp <0.0-1.0>                  Set temperature")
-    console.log(`  --variant <name> / --effort <name> Set model thinking/effort variant (built-in: ${AGENT_EFFORT_VARIANTS.join(", ")}, or custom variant name)`)
+    console.log(`  --variant <name> / --effort <name> Set model variant (known: ${KNOWN_MODEL_VARIANTS.join("|")}; model-exposed variants from opencode models --verbose are supported)`)
     console.log("  --clear-variant / --clear-effort  Remove variant from agent frontmatter (revert to model default)")
     console.log("  --category <cat> / --all          Target a specific category or all agents")
   }
@@ -652,8 +664,61 @@ async function runTuneCLI(workspaceRoot: string) {
   console.log(`   Temperature: ${temp !== undefined ? temp : "unchanged"}`)
   console.log(`   Variant:     ${variant === undefined ? "unchanged" : variant === null ? "cleared" : variant}\n`)
 
-  repositoryMutation(workspaceRoot, targetAgents.map(a => a.currentPath), AUTO_COMMIT_MESSAGES.tune, () => updateAgentParams(targetAgents, { steps, temperature: temp, variant }))
+  const catalog = variant !== undefined && variant !== null ? loadModelCatalog() : undefined
+  const allowedVariants = catalog
+    ? [...new Set([...KNOWN_MODEL_VARIANTS, ...targetAgents.flatMap(agent => getModelVariants(catalog, agent.model) || [])])]
+    : undefined
+  repositoryMutation(workspaceRoot, targetAgents.map(a => a.currentPath), AUTO_COMMIT_MESSAGES.tune, () => updateAgentParams(targetAgents, { steps, temperature: temp, variant, allowedVariants }))
   console.log(`✅ Successfully updated parameters for ${targetAgents.length} agents!\n`)
+}
+
+async function runPipelineCLI(workspaceRoot: string) {
+  const [action, profileName, ...options] = process.argv.slice(3)
+  if (!action || action === "--help" || action === "-h") {
+    console.log("Usage: manage-agents pipeline list|show <profile>|apply <profile> [--category <cat>]|sync <profile> [--target <target-pipeline>]")
+    return
+  }
+
+  if (action === "list") {
+    const config = loadPipelineProfiles(workspaceRoot)
+    console.log(`Base category: ${config.baseCategory}`)
+    for (const [name, profile] of Object.entries(config.profiles)) console.log(`${name}: ${profile.description}`)
+    return
+  }
+
+  if (action !== "show" && action !== "apply" && action !== "sync") throw new Error(`Unknown pipeline action '${action}'`)
+  if (!profileName || profileName.startsWith("-")) throw new Error(`pipeline ${action} requires a profile name`)
+
+  const config = loadPipelineProfiles(workspaceRoot)
+  const profile = config.profiles[profileName]
+  if (!profile) throw new Error(`Unknown pipeline profile '${profileName}'`)
+
+  if (action === "show") {
+    console.log(`${profileName}: ${profile.description}`)
+    for (const role of PIPELINE_ROLES) {
+      const spec = resolveProfileRoleSpec(profile, role)
+      console.log(`  ${role}: ${spec ? `${spec.model}${spec.variant ? `#${spec.variant}` : ""}` : "(not configured)"}`)
+    }
+    return
+  }
+
+  let category = ""
+  for (let i = 0; i < options.length; i++) {
+    if ((options[i] === "--category" && options[i + 1]) || (options[i] === "--target" && options[i + 1])) category = options[++i]
+  }
+
+  if (action === "apply") {
+    const result = repositoryMutation(workspaceRoot, [path.join(workspaceRoot, "general", "agents")], "pipeline", () =>
+      applyPipelineProfile(workspaceRoot, profileName, category || undefined)
+    )
+    console.log(`Applied profile '${profileName}' to category '${result.targetCategory}': updated ${result.updated.length} agent files.`)
+    return
+  }
+
+  const result = repositoryMutation(workspaceRoot, [path.join(workspaceRoot, "general", "agents"), getCompanionLinksConfigPath(workspaceRoot)], "pipeline", () =>
+    syncPipelineProfile(workspaceRoot, profileName, category || undefined)
+  )
+  console.log(`Synced profile '${profileName}' to category '${result.targetCategory}': ${result.synced.length} agents.`)
 }
 
 async function runCategory(workspaceRoot: string) {
@@ -697,6 +762,12 @@ async function run() {
   ) || workingDirectory
 
   // Intercept CLI commands
+  if (process.argv[2] === "--help" || process.argv[2] === "-h") {
+    console.log("Usage: manage-agents <command> [options]")
+    console.log("Commands: create, bridge, export, lint, fix-names, audit, import, tune, pipeline, category")
+    return
+  }
+
   if (process.argv[2] === "create") {
     const agentName = process.argv[3]
     await runCreate(agentName, workspaceRoot)
@@ -735,6 +806,11 @@ async function run() {
 
   if (process.argv[2] === "tune") {
     await runTuneCLI(workspaceRoot)
+    return
+  }
+
+  if (process.argv[2] === "pipeline") {
+    await runPipelineCLI(workspaceRoot)
     return
   }
 

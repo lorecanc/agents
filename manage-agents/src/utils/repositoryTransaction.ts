@@ -7,6 +7,7 @@ export const AUTO_COMMIT_MESSAGES = {
   rename: "chore(agent-manager): fix names/rename agents", tune: "chore(agent-manager): update/tune agents",
   organize: "chore(agent-manager): organize agents", fork: "chore(agent-manager): fork agent category",
   bridge: "chore(agent-manager): generate bridge", config: "chore(agent-manager): save/migrate translation config",
+  companionLinks: "chore(agent-manager): update companion resource links", pipeline: "chore(agent-manager): sync pipeline profile",
 } as const
 
 export class RepositoryTransactionError extends Error {}

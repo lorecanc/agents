@@ -1,16 +1,44 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { loadModelCatalog, parseModelCatalog, isVerifiedModel, suggestModels, collectInvalidModelGroups, modelDisplayValue } from "./models.js"
+import { loadModelCatalog, parseModelCatalog, parseVerboseModelCatalogOutput, getModelVariants, isVerifiedModel, suggestModels, collectInvalidModelGroups, modelDisplayValue } from "./models.js"
 
 test("model catalog parser is strict, trimmed, deduplicated, and preserves slashes", () => {
   assert.deepEqual(parseModelCatalog(" provider/model/a \nprovider/model/a\nmalformed\nprovider/ two\nprovider/model-b "), ["provider/model/a", "provider/model-b"])
   assert.deepEqual(parseModelCatalog("garbage\nnot-a-model"), [])
 })
 
-test("catalog loading uses plain listing and fails closed", () => {
+test("verbose catalog parser reads model variants from balanced JSON blocks", () => {
+  const output = `provider/first
+{
+  "nested": { "text": "braces { } and an escaped quote \\"" },
+  "variants": { "low": {}, "medium": {}, "high": {}, "xhigh": {}, "none": {}, "thinking": {} }
+}
+provider/second
+{"variants": {}}
+`
+  assert.deepEqual(parseVerboseModelCatalogOutput(output), {
+    models: ["provider/first", "provider/second"],
+    variants: {
+      "provider/first": ["low", "medium", "high", "xhigh", "none", "thinking"],
+      "provider/second": [],
+    },
+    hasVerboseBlocks: true,
+  })
+  assert.deepEqual(parseModelCatalog("not a model line"), [])
+})
+
+test("model variants are only returned for verified catalogs with a matching base model", () => {
+  const catalog = { status: "verified" as const, models: ["p/model"], variants: { "p/model": ["low", "high"], "p/empty": [] } }
+  assert.deepEqual(getModelVariants(catalog, "p/model#high"), ["low", "high"])
+  assert.deepEqual(getModelVariants(catalog, "p/empty"), [])
+  assert.equal(getModelVariants({ status: "unavailable", models: [] }, "p/model"), null)
+  assert.equal(getModelVariants({ status: "verified", models: ["p/model"] }, "p/model"), null)
+})
+
+test("catalog loading tries verbose listing first and fails closed", () => {
   let command = ""
   assert.deepEqual(loadModelCatalog(c => { command = c; return "p/model" }, true), { status: "verified", models: ["p/model"] })
-  assert.equal(command, "opencode models")
+  assert.equal(command, "opencode models --verbose")
   assert.equal(loadModelCatalog(() => "").status, "unavailable")
   assert.equal(loadModelCatalog(() => { throw new Error("offline") }).status, "unavailable")
 })
@@ -22,11 +50,22 @@ test("refresh flag is silently ignored for V2 compatibility", () => {
     return "p/model"
   }, true)
   assert.deepEqual(catalog, { status: "verified", models: ["p/model"] })
-  assert.deepEqual(commands, ["opencode models"])
+  assert.deepEqual(commands, ["opencode models --verbose"])
 
   const failedFallback = loadModelCatalog(() => { throw new Error("offline") }, true)
   assert.equal(failedFallback.status, "unavailable")
   assert.equal(failedFallback.status === "unavailable" && failedFallback.error, "offline")
+})
+
+test("catalog loading falls back to the plain listing when verbose command throws", () => {
+  const commands: string[] = []
+  const catalog = loadModelCatalog(command => {
+    commands.push(command)
+    if (command === "opencode models --verbose") throw new Error("unsupported flag")
+    return "p/model"
+  })
+  assert.deepEqual(commands, ["opencode models --verbose", "opencode models"])
+  assert.deepEqual(catalog, { status: "verified", models: ["p/model"] })
 })
 
 test("membership is exact and suggestions are catalog members with provider priority", () => {

@@ -35,7 +35,9 @@ import {
   , sanitizeFilename,
   getCategoryPrefixes
 } from "./utils/agents.js"
-import { loadModelCatalog, suggestModels, collectInvalidModelGroups, modelDisplayValue, type ModelCatalog } from "./utils/models.js"
+import { loadModelCatalog, suggestModels, collectInvalidModelGroups, modelDisplayValue, getModelVariants, type ModelCatalog } from "./utils/models.js"
+import { discoverAvailableCategoryCompanionItems, getCompanionLinksConfigPath, type SelectableCompanionItem, updateCategoryCompanionLinks } from "./utils/companionLinks.js"
+import { applyPipelineProfile, loadPipelineProfiles, syncPipelineProfile } from "./utils/pipelineProfiles.js"
 import { bridgeToClaudeCode } from "./utils/bridge.js"
 import { bridgeToCodex } from "./utils/codexBridge.js"
 import { buildInferenceIndex, loadTranslationConfig, resolveModelTarget, resolveRole, saveTranslationConfig, type TranslationConfig } from "./utils/translationConfig.js"
@@ -82,8 +84,9 @@ interface ActiveItem {
 }
 
 interface ResourceManagerRow {
-  kind: AgentResourceItem["kind"]
-  item: AgentResourceItem | AgentMcpResourceItem
+  section: "agent" | "companion"
+  kind?: AgentResourceItem["kind"]
+  item: AgentResourceItem | AgentMcpResourceItem | SelectableCompanionItem
 }
 
 const CATEGORY_DESCRIPTIONS: Record<string, string> = {
@@ -224,7 +227,10 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
   const [forkSourceCategory, setForkSourceCategory] = useState("")
   const [forkFindQuery, setForkFindQuery] = useState("")
   const [forkReplaceQuery, setForkReplaceQuery] = useState("")
-  const [forkFocusedField, setForkFocusedField] = useState<"find" | "replace">("find")
+  const [forkFocusedField, setForkFocusedField] = useState<"find" | "replace" | "profile" | "target">("find")
+  const [forkProfileName, setForkProfileName] = useState("")
+  const [forkProfileTarget, setForkProfileTarget] = useState("")
+  const [exportCategory, setExportCategory] = useState<string | null>(null)
 
   // Bridge State
   const [bridgePluginName, setBridgePluginName] = useState("")
@@ -273,6 +279,9 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
   const [draftPermissions, setDraftPermissions] = useState<Record<string, boolean>>({})
   const [draftMcpEnabled, setDraftMcpEnabled] = useState<Record<string, boolean>>({})
   const [explicitResourcePermissions, setExplicitResourcePermissions] = useState<Set<string>>(new Set())
+  const [resourceCategoryTarget, setResourceCategoryTarget] = useState<string | null>(null)
+  const [resourceDraftCompanion, setResourceDraftCompanion] = useState<Record<string, boolean>>({})
+  const [companionAvailableItems, setCompanionAvailableItems] = useState<SelectableCompanionItem[]>([])
 
   // Parameter Tuning State
   const [tuningSteps, setTuningSteps] = useState("50")
@@ -434,6 +443,41 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
   const refreshData = () => {
     const list = findAgentFiles(workspaceRoot, translationConfig?.sourceDir || "general")
     setAgents(list)
+  }
+
+  const openResourceManager = (agent: AgentInfo | null, categoryOverride?: string) => {
+    const cat = categoryOverride || agent?.category || "general"
+    try {
+      const compItems = discoverAvailableCategoryCompanionItems(workspaceRoot, cat)
+      setResourceCategoryTarget(cat)
+      setCompanionAvailableItems(compItems)
+      setResourceDraftCompanion(Object.fromEntries(compItems.map(item => [item.relativePath, item.linked])))
+      setResourceTargetAgent(agent)
+      if (agent) {
+        const catalog = discoverAgentResources(workspaceRoot, agent, agents)
+        setResourceCatalog(catalog)
+        setDraftSkillAll(catalog.skills.find(item => item.kind === "skill-wildcard")?.allowed || false)
+        setDraftAllowedSkills(new Set(catalog.skills.filter(item => item.kind === "skill" && item.allowed).map(item => item.name)))
+        setDraftPermissions(Object.fromEntries([...catalog.tools, ...catalog.mcpServers].map(item => [item.permissionKey, item.allowed])))
+        setExplicitResourcePermissions(new Set(catalog.tools
+          .filter(item => item.kind === "tool" && item.familyKey && Object.prototype.hasOwnProperty.call(agent.frontmatter.permission || {}, item.permissionKey))
+          .map(item => item.permissionKey)))
+        setDraftMcpEnabled(Object.fromEntries(catalog.mcpServers.map(item => [item.serverKey, item.serverEnabled])))
+      } else {
+        setResourceCatalog({ skills: [], tools: [], mcpServers: [], companionFiles: [], opencodeRawContent: null })
+        setDraftSkillAll(false)
+        setDraftAllowedSkills(new Set())
+        setDraftPermissions({})
+        setDraftMcpEnabled({})
+        setExplicitResourcePermissions(new Set())
+      }
+      setResourceModalFocusIndex(0)
+      setResourceModalScrollOffset(0)
+      setLayoutStatus("")
+      setViewMode("resource-manager")
+    } catch (error: any) {
+      setLayoutStatus(terminalSafeText(error?.message || error))
+    }
   }
 
   const setMutationRefreshFailure = (error: unknown, warning?: TransactionWarning) => {
@@ -934,6 +978,8 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           setForkSourceCategory(item.category || "")
           setForkFindQuery("")
           setForkReplaceQuery("")
+          setForkProfileName("")
+          setForkProfileTarget("")
           setForkFocusedField("find")
           setViewMode("fork-prompt")
         }
@@ -960,6 +1006,8 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           setViewMode("bridge-prompt")
         }
       } else if (key === "e") {
+        const focused = activeItems[focusedIndex]
+        setExportCategory(selectedAgentPaths.size === 0 && viewStyle === "tree" && focused?.type === "folder" ? focused.category : null)
         setViewMode("export-confirm")
       } else if (key === "c") {
         if (activeItems.length === 0 || !activeItems[focusedIndex]?.agent) {
@@ -1003,29 +1051,9 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
         }
       } else if (key === "u") {
         const target = activeItems[focusedIndex]
-        if (target?.type !== "file" || !target.agent) {
-          setLayoutStatus("Select a specific agent to manage skills, tools & MCP.")
-          return
-        }
-        try {
-          const catalog = discoverAgentResources(workspaceRoot, target.agent, agents)
-          setResourceTargetAgent(target.agent)
-          setResourceCatalog(catalog)
-          setDraftSkillAll(catalog.skills.find(item => item.kind === "skill-wildcard")?.allowed || false)
-          setDraftAllowedSkills(new Set(catalog.skills.filter(item => item.kind === "skill" && item.allowed).map(item => item.name)))
-          const permissions = Object.fromEntries([...catalog.tools, ...catalog.mcpServers].map(item => [item.permissionKey, item.allowed]))
-          setDraftPermissions(permissions)
-          setExplicitResourcePermissions(new Set(catalog.tools
-            .filter(item => item.kind === "tool" && item.familyKey && Object.prototype.hasOwnProperty.call(target.agent!.frontmatter.permission || {}, item.permissionKey))
-            .map(item => item.permissionKey)))
-          setDraftMcpEnabled(Object.fromEntries(catalog.mcpServers.map(item => [item.serverKey, item.serverEnabled])))
-          setResourceModalFocusIndex(0)
-          setResourceModalScrollOffset(0)
-          setLayoutStatus("")
-          setViewMode("resource-manager")
-        } catch (error: any) {
-          setLayoutStatus(terminalSafeText(error?.message || error))
-        }
+        if (target?.type === "file" && target.agent) openResourceManager(target.agent)
+        else if (viewStyle === "tree" && target?.type === "folder") openResourceManager(null, target.category)
+        else setLayoutStatus("Select an agent or category folder to manage resources.")
       } else if (key === "t") {
         if (activeItems.length > 0 && activeItems[focusedIndex]?.agent) {
           const target = activeItems[focusedIndex].agent!
@@ -1309,14 +1337,51 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
       if (key === "escape") {
         setViewMode("main")
       } else if (key === "tab" || key === "up" || key === "down") {
-        setForkFocusedField((prev) => (prev === "find" ? "replace" : "find"))
+        const profiles = Object.keys(loadPipelineProfiles(workspaceRoot).profiles)
+        if (forkFocusedField === "profile" || key === "up" || key === "down") {
+          const current = profiles.indexOf(forkProfileName)
+          const next = (current + (key === "up" ? -1 : 1) + profiles.length + 1) % (profiles.length + 1)
+          const profile = next === 0 ? "" : profiles[next - 1]
+          setForkProfileName(profile)
+          if (!forkProfileTarget || forkProfileTarget === `${forkProfileName}-pipeline`) setForkProfileTarget(profile ? `${profile}-pipeline` : "")
+          setForkFocusedField("profile")
+        } else {
+          setForkFocusedField((prev) => prev === "find" ? "replace" : prev === "replace" ? "target" : prev === "target" ? "profile" : "find")
+        }
       } else if (key === "backspace") {
         if (forkFocusedField === "find") {
           setForkFindQuery((prev) => prev.slice(0, -1))
-        } else {
+        } else if (forkFocusedField === "replace") {
           setForkReplaceQuery((prev) => prev.slice(0, -1))
+        } else if (forkFocusedField === "target") {
+          setForkProfileTarget(prev => prev.slice(0, -1))
         }
       } else if (key === "enter" || key === "return") {
+        if (forkProfileName) {
+          const target = forkProfileTarget.trim() || `${forkProfileName}-pipeline`
+          try {
+            const config = loadPipelineProfiles(workspaceRoot)
+            const inPlace = target === forkSourceCategory
+            const paths = [path.join(workspaceRoot, "general", "agents"), path.join(workspaceRoot, ".agent-manager", "companion-links.json")]
+            const tx = mutate(paths, "fork", () => inPlace
+              ? applyPipelineProfile(workspaceRoot, forkProfileName, target)
+              : syncPipelineProfile(workspaceRoot, forkProfileName, target))
+            const result = tx.value
+            try { refreshData() } catch (error) { setMutationRefreshFailure(error, tx.warning); return }
+            setMutationSuccess(`Pipeline Profile ${inPlace ? "Applied" : "Synced"}`, [
+              `Profile: ${forkProfileName} — ${config.profiles[forkProfileName]?.description || ""}`,
+              `Target category: ${(result as { targetCategory: string }).targetCategory}`,
+              `Updated ${"updated" in result ? result.updated.length : result.synced.length} agents.`,
+              ...("backupsPath" in result && result.backupsPath ? [`Backup: ${result.backupsPath}`] : [])
+            ], tx.warning)
+            setViewMode("action-result")
+          } catch (error: any) {
+            setActionResultTitle("Error Applying Pipeline Profile")
+            setActionResultLines([`An error occurred:`, `  ${error.message || error}`])
+            setViewMode("action-result")
+          }
+          return
+        }
         if (!forkFindQuery) return
         try {
           const selectedPaths: string[] | undefined = selectedAgentPaths.size > 0 ? Array.from(selectedAgentPaths) : undefined
@@ -1343,8 +1408,10 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
       } else if (/^[\x20-\x7E]$/.test(rawChar)) {
         if (forkFocusedField === "find") {
           setForkFindQuery((prev) => prev + rawChar)
-        } else {
+        } else if (forkFocusedField === "replace") {
           setForkReplaceQuery((prev) => prev + rawChar)
+        } else if (forkFocusedField === "target") {
+          setForkProfileTarget(prev => prev + rawChar)
         }
       }
     } else if (viewMode === "bridge-prompt") {
@@ -1373,7 +1440,10 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
       // 7. Export confirmation mode
       if (key === "y" || key === "enter" || key === "return") {
         try {
-          const result = exportAgents(agents, selectedAgentPaths.size > 0 ? selectedAgentPaths : undefined, path.join(workspaceRoot, "general"))
+          const exportPaths = selectedAgentPaths.size > 0
+            ? selectedAgentPaths
+            : exportCategory ? new Set(agents.filter(agent => agent.category === exportCategory).map(agent => agent.currentPath)) : undefined
+          const result = exportAgents(agents, exportPaths, path.join(workspaceRoot, "general"))
           setSelectedAgentPaths(new Set())
           setActionResultTitle("Export Complete")
           const lines = [
@@ -1559,9 +1629,16 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
         const next = Math.max(0, Math.min(resourceManagerRows.length - 1, resourceModalFocusIndex + delta))
         setResourceModalFocusIndex(next)
         setResourceModalScrollOffset(Math.max(0, Math.min(Math.max(0, resourceManagerRows.length - maxVisibleResourceRows), next)))
-      } else if (key === "space") {
+        } else if (key === "space") {
         const row = resourceManagerRows[resourceModalFocusIndex]
-        if (!row || !resourceCatalog) return
+        if (!row) return
+        if (row.section === "companion") {
+          const item = row.item as SelectableCompanionItem
+          setResourceDraftCompanion(previous => ({ ...previous, [item.relativePath]: !previous[item.relativePath] }))
+          return
+        }
+        if (!resourceCatalog) return
+        const agentItem = row.item as AgentResourceItem | AgentMcpResourceItem
         if (row.kind === "skill-wildcard") {
           const nextAll = !draftSkillAll
           setDraftSkillAll(nextAll)
@@ -1569,7 +1646,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
             ? new Set(resourceCatalog.skills.filter(item => item.kind === "skill").map(item => item.name))
             : new Set())
         } else if (row.kind === "skill") {
-          const name = row.item.name
+          const name = agentItem.name
           const next = new Set(draftAllowedSkills)
           if (next.has(name)) next.delete(name)
           else next.add(name)
@@ -1581,15 +1658,15 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           }
           setDraftAllowedSkills(next)
         } else if (row.kind === "tool-family") {
-          const nextAllowed = !draftPermissions[row.item.permissionKey]
-          const keys = [row.item.permissionKey, ...resourceCatalog.tools
-            .filter(item => item.kind === "tool" && item.familyKey === row.item.permissionKey && !explicitResourcePermissions.has(item.permissionKey))
+          const nextAllowed = !draftPermissions[agentItem.permissionKey]
+          const keys = [agentItem.permissionKey, ...resourceCatalog.tools
+            .filter(item => item.kind === "tool" && item.familyKey === agentItem.permissionKey && !explicitResourcePermissions.has(item.permissionKey))
             .map(item => item.permissionKey)]
           setDraftPermissions(previous => Object.fromEntries(Object.entries({ ...previous, ...Object.fromEntries(keys.map(key => [key, nextAllowed])) })))
-          setExplicitResourcePermissions(previous => new Set([...previous, row.item.permissionKey]))
+          setExplicitResourcePermissions(previous => new Set([...previous, agentItem.permissionKey]))
         } else {
-          setDraftPermissions(previous => ({ ...previous, [row.item.permissionKey]: !previous[row.item.permissionKey] }))
-          setExplicitResourcePermissions(previous => new Set([...previous, row.item.permissionKey]))
+          setDraftPermissions(previous => ({ ...previous, [agentItem.permissionKey]: !previous[agentItem.permissionKey] }))
+          setExplicitResourcePermissions(previous => new Set([...previous, agentItem.permissionKey]))
         }
       } else if (key === "x") {
         const row = resourceManagerRows[resourceModalFocusIndex]
@@ -1599,7 +1676,14 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           else setLayoutStatus("Server is not configured in general/opencode.json.")
         }
       } else if (key === "enter" || key === "return") {
-        if (!resourceCatalog || !resourceTargetAgent) return
+        if (!resourceCatalog) return
+        const companionChanged = companionAvailableItems.some(item => Boolean(resourceDraftCompanion[item.relativePath]) !== item.linked)
+        const nextLinks = {
+          plugins: companionAvailableItems.filter(item => item.group === "plugin" && resourceDraftCompanion[item.relativePath]).map(item => item.relativePath),
+          commands: companionAvailableItems.filter(item => item.group === "command" && resourceDraftCompanion[item.relativePath]).map(item => item.relativePath),
+          skills: companionAvailableItems.filter(item => item.group === "skill" && resourceDraftCompanion[item.relativePath]).map(item => item.relativePath),
+          tools: companionAvailableItems.filter(item => item.group === "tool" && resourceDraftCompanion[item.relativePath]).map(item => item.relativePath)
+        }
         const initialWildcard = resourceCatalog.skills.find(item => item.kind === "skill-wildcard")?.allowed || false
         const initialAllowedSkills = new Set<string>(resourceCatalog.skills.filter(item => item.kind === "skill" && item.allowed).map(item => item.name))
         const allowedNames: string[] = Array.from(draftAllowedSkills)
@@ -1619,21 +1703,29 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           ...(Object.keys(permissions).length ? { permissions } : {}),
           ...(Object.keys(mcpEnabled).length ? { mcpEnabled } : {})
         }
-        if (!changes.skills && !changes.permissions && !changes.mcpEnabled) {
+        if (!companionChanged && !changes.skills && !changes.permissions && !changes.mcpEnabled) {
           setLayoutStatus("No changes to save.")
           setViewMode("main")
           return
         }
         const allowedPaths = [
-          ...(changes.skills || changes.permissions ? [path.relative(workspaceRoot, resourceTargetAgent.currentPath)] : []),
-          ...(changes.mcpEnabled ? ["general/opencode.json"] : [])
+          ...(companionChanged ? [getCompanionLinksConfigPath(workspaceRoot)] : []),
+          ...(resourceTargetAgent && (changes.skills || changes.permissions) ? [path.relative(workspaceRoot, resourceTargetAgent.currentPath)] : []),
+          ...(resourceTargetAgent && changes.mcpEnabled ? ["general/opencode.json"] : [])
         ]
         try {
-          const tx = mutate(allowedPaths, "tune", () => updateAgentResourcesAndMcp(workspaceRoot, resourceTargetAgent, resourceCatalog, changes))
+          const tx = mutate(allowedPaths, "tune", () => {
+            if (companionChanged && resourceCategoryTarget) updateCategoryCompanionLinks(workspaceRoot, resourceCategoryTarget, nextLinks)
+            const agentResult = resourceTargetAgent
+              ? updateAgentResourcesAndMcp(workspaceRoot, resourceTargetAgent, resourceCatalog, changes)
+              : { changedPaths: [] }
+            return { changedPaths: [...(companionChanged ? [getCompanionLinksConfigPath(workspaceRoot)] : []), ...agentResult.changedPaths] }
+          })
+          setCompanionAvailableItems(discoverAvailableCategoryCompanionItems(workspaceRoot, resourceCategoryTarget || "general"))
           try { refreshData() } catch (error) { setMutationRefreshFailure(error, tx.warning); return }
-          setMutationSuccess("Agent Resources Updated", [
-            `Updated skills, custom tools, and MCP permissions for:`,
-            `  ${resourceTargetAgent.filename}`,
+          setMutationSuccess(companionChanged && !resourceTargetAgent ? "Category Companion Links Updated" : "Resources Updated", [
+            ...(resourceTargetAgent ? [`Updated skills, custom tools, and MCP permissions for:`, `  ${resourceTargetAgent.filename}`] : []),
+            ...(companionChanged ? [`Updated exported companion links for category: ${resourceCategoryTarget}`] : []),
             ...(tx.value.changedPaths.includes(path.join(workspaceRoot, "general", "opencode.json"))
               ? ["", "general/opencode.json updated. Restart OpenCode for MCP server changes to take effect."]
               : [])
@@ -1649,6 +1741,10 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
       // 12. Parameter tuning mode
       if (key === "escape") {
         setViewMode("main")
+      } else if (key === "tab" && tuningFocusedField === "variant") {
+        const index = tuningVariantChoices.indexOf(tuningVariant)
+        setTuningVariant(tuningVariantChoices[(index + 1 + tuningVariantChoices.length) % tuningVariantChoices.length])
+        setTuningVariantTouched(true)
       } else if (key === "tab" || key === "down") {
         setTuningFocusedField((prev) =>
           prev === "steps" ? "temp" : prev === "temp" ? "variant" : prev === "variant" ? "mode" : prev === "mode" ? "hidden" : "steps"
@@ -1659,7 +1755,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
         )
       } else if (key === "space") {
         if (tuningFocusedField === "variant") {
-          const choices = ["", ...AGENT_EFFORT_VARIANTS]
+          const choices = tuningVariantChoices
           const currentIndex = choices.indexOf(tuningVariant)
           setTuningVariant(choices[(currentIndex + 1 + choices.length) % choices.length])
           setTuningVariantTouched(true)
@@ -1701,7 +1797,8 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
            temperature: tempNum,
            mode: tuningMode,
           hidden: tuningHidden,
-          variant: variantParam
+          variant: variantParam,
+          allowedVariants: modelVariants && modelVariants.length > 0 ? modelVariants : undefined
           }))
           try { refreshData() } catch (error) { setMutationRefreshFailure(error, tx.warning); return }
           setSelectedAgentPaths(new Set())
@@ -1730,7 +1827,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           setTuningVariantTouched(true)
         }
       } else if ((key === "left" || key === "right") && tuningFocusedField === "variant") {
-        const choices = ["", ...AGENT_EFFORT_VARIANTS]
+        const choices = tuningVariantChoices
         const currentIndex = choices.indexOf(tuningVariant)
         const nextIndex = currentIndex < 0
           ? (key === "right" ? 0 : choices.length - 1)
@@ -1913,6 +2010,25 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
 
   // Get active item
   const currentItem = activeItems[focusedIndex]
+  const tuningAgents = selectedAgentPaths.size > 0
+    ? agents.filter(agent => selectedAgentPaths.has(agent.currentPath))
+    : currentItem?.agent ? [currentItem.agent] : []
+  const tuningModels = Array.from(new Set<string>(tuningAgents.map(agent => agent.frontmatter.model)
+    .filter((model): model is string => typeof model === "string" && model.trim().length > 0)))
+  const modelVariants = tuningModels.length === 1
+    ? getModelVariants(modelCatalog, tuningModels[0])
+    : tuningModels.length > 1
+      ? (() => {
+          const variants = tuningModels.map(model => getModelVariants(modelCatalog, model))
+          return variants.every((variant): variant is string[] => variant !== null)
+            ? variants[0].filter(variant => variants.every(items => items.includes(variant)))
+            : null
+        })()
+      : null
+  const tuningVariantChoices = modelVariants !== null
+    ? (modelVariants.length > 0 ? ["", ...modelVariants] : [""])
+    : ["", ...AGENT_EFFORT_VARIANTS]
+  if (tuningVariant && !tuningVariantChoices.includes(tuningVariant)) tuningVariantChoices.push(tuningVariant)
 
   const resourceInspector = useMemo(() => {
     if (inspectorTab !== "resources" || currentItem?.type !== "file" || !currentItem.agent) return { catalog: null, error: "" }
@@ -1933,11 +2049,14 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
       `* ${item.name} [${item.allowed ? "ALLOW" : "DENY"}] ${item.configuredInOpencode ? `[MCP: ${item.serverEnabled ? "ON" : "OFF"}]` : "[Not in opencode.json]"}`
     ), `--- COMPANION FILES (${catalog.companionFiles.length}) ---`, ...(catalog.companionFiles.length ? catalog.companionFiles : ["(none)"])]
   }, [resourceInspector.catalog])
-  const resourceManagerRows = useMemo<ResourceManagerRow[]>(() => resourceCatalog ? [
-    ...resourceCatalog.skills.map(item => ({ kind: item.kind, item })),
-    ...resourceCatalog.tools.map(item => ({ kind: item.kind, item })),
-    ...resourceCatalog.mcpServers.map(item => ({ kind: item.kind, item }))
-  ] : [], [resourceCatalog])
+  const resourceManagerRows = useMemo<ResourceManagerRow[]>(() => [
+    ...(resourceCatalog ? [
+      ...resourceCatalog.skills.map(item => ({ section: "agent" as const, kind: item.kind, item })),
+      ...resourceCatalog.tools.map(item => ({ section: "agent" as const, kind: item.kind, item })),
+      ...resourceCatalog.mcpServers.map(item => ({ section: "agent" as const, kind: item.kind, item }))
+    ] : []),
+    ...companionAvailableItems.map(item => ({ section: "companion" as const, item }))
+  ], [resourceCatalog, companionAvailableItems])
   const maxVisibleResourceRows = Math.max(1, layout.listRows - 7)
   const visibleResourceRows = resourceManagerRows.slice(resourceModalScrollOffset, resourceModalScrollOffset + maxVisibleResourceRows)
   const resourceInspectorPageSize = Math.max(1, layout.listRows - 5)
@@ -2601,13 +2720,13 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
         </box>
       )}
 
-      {viewMode === "resource-manager" && resourceTargetAgent && resourceCatalog && (
+      {viewMode === "resource-manager" && resourceCatalog && (
         <box
           style={{ position: "absolute", left: "10%", top: "8%", width: "80%", height: "84%" }}
           borderStyle="double"
           borderColor="#9B59B6"
           backgroundColor="#1e1e1e"
-          title={` Skills, Tools & MCP Manager: ${middleEllipsis(resourceTargetAgent.filename, 38)} `}
+          title={` Resource Manager: ${resourceTargetAgent ? middleEllipsis(resourceTargetAgent.filename, 38) : resourceCategoryTarget} `}
           titleColor="#9B59B6"
           padding={1}
           flexDirection="column"
@@ -2615,23 +2734,38 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           overflow="hidden"
         >
           <box flexDirection="column" flexGrow={1} minHeight={0} overflow="hidden">
-            <text style={{ textColor: "white" }} flexShrink={0}>Toggle agent permissions; MCP server enabled state is workspace-wide.</text>
+            <text style={{ textColor: "white" }} flexShrink={0}>Toggle agent permissions and category companion links exported with the category.</text>
             <box flexDirection="column" marginTop={1} flexGrow={1} minHeight={0} overflow="hidden">
+              {resourceTargetAgent && <text style={{ textColor: "yellow" }}>--- AGENT RESOURCES ---</text>}
               {visibleResourceRows.map((row, index) => {
                 const rowIndex = resourceModalScrollOffset + index
                 const item = row.item
                 const isFocused = rowIndex === resourceModalFocusIndex
+                if (row.section === "companion") {
+                  const companion = item as SelectableCompanionItem
+                  const linked = Boolean(resourceDraftCompanion[companion.relativePath])
+                  const companionStart = resourceManagerRows.findIndex(candidate => candidate.section === "companion")
+                  return <React.Fragment key={`${companion.id}-${rowIndex}`}>
+                    {rowIndex === companionStart && <text style={{ textColor: "yellow" }}>{`--- CATEGORY COMPANION LINKS (${resourceCategoryTarget}) [exported with category] ---`}</text>}
+                    <box backgroundColor={isFocused ? "#2B5581" : "transparent"} height={1} flexShrink={0} flexDirection="row">
+                      <text width={8} style={{ textColor: linked ? "green" : "gray" }}>{linked ? "[x]" : "[ ]"}</text>
+                      <text width={12} style={{ textColor: "magenta" }}>{`[LINK-${companion.group.toUpperCase()}]`}</text>
+                      <text flexGrow={1} wrapMode="none" overflow="hidden" style={{ textColor: isFocused ? "white" : "#E1E4E8" }} u={isFocused}>{middleEllipsis(companion.relativePath, Math.max(1, panelWidths.inspector + panelWidths.list - 42))}</text>
+                    </box>
+                  </React.Fragment>
+                }
+                const agentResource = item as AgentResourceItem | AgentMcpResourceItem
                 const allowed = row.kind === "skill-wildcard"
                   ? draftSkillAll
                   : row.kind === "skill"
-                    ? draftAllowedSkills.has(item.name)
-                    : draftPermissions[item.permissionKey]
+                    ? draftAllowedSkills.has(agentResource.name)
+                    : draftPermissions[agentResource.permissionKey]
                 const tag = row.kind === "skill-wildcard" || row.kind === "skill" ? "[SKILL]"
                   : row.kind === "tool-family" ? "[TOOL-GRP]"
                     : row.kind === "tool" ? "[TOOL]" : "[MCP]"
                 const status = row.kind === "mcp"
-                  ? (item as AgentMcpResourceItem).configuredInOpencode
-                    ? ` [MCP: ${draftMcpEnabled[(item as AgentMcpResourceItem).serverKey] ? "ON" : "OFF"}]`
+                  ? (agentResource as AgentMcpResourceItem).configuredInOpencode
+                    ? ` [MCP: ${draftMcpEnabled[(agentResource as AgentMcpResourceItem).serverKey] ? "ON" : "OFF"}]`
                     : " [Not configured]"
                   : ""
                 return (
@@ -2641,7 +2775,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
                     <text flexGrow={1} wrapMode="none" overflow="hidden" style={{ textColor: isFocused ? "white" : "#E1E4E8" }} u={isFocused}>
                       {middleEllipsis(item.name, Math.max(1, panelWidths.inspector + panelWidths.list - 42))}
                     </text>
-                    <text style={{ textColor: row.kind === "mcp" && (item as AgentMcpResourceItem).configuredInOpencode && draftMcpEnabled[(item as AgentMcpResourceItem).serverKey] ? "green" : "gray" }}>{status}</text>
+                    <text style={{ textColor: row.kind === "mcp" && (agentResource as AgentMcpResourceItem).configuredInOpencode && draftMcpEnabled[(agentResource as AgentMcpResourceItem).serverKey] ? "green" : "gray" }}>{status}</text>
                   </box>
                 )
               })}
@@ -2651,7 +2785,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
             {resourceManagerRows.length > maxVisibleResourceRows && <text style={{ textColor: "gray" }} flexShrink={0}>
               {`▲ ${resourceModalScrollOffset + 1}-${Math.min(resourceModalScrollOffset + maxVisibleResourceRows, resourceManagerRows.length)}/${resourceManagerRows.length} ▼`}
             </text>}
-            <text style={{ textColor: "gray" }} wrapMode="none" overflow="hidden">Navigate: ↑/↓ | Space: Toggle Access | x: Toggle MCP Server (workspace-wide) | Enter: Save | Esc: Cancel</text>
+            <text style={{ textColor: "gray" }} wrapMode="none" overflow="hidden">Navigate: ↑/↓ | Space: Toggle | x: Toggle MCP | Enter: Save | Esc: Cancel</text>
           </box>
         </box>
       )}
@@ -2731,7 +2865,11 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
                   {tuningVariant || (!tuningVariantTouched && tuningTargetPaths.length > 1 ? "(unchanged)" : "(default / unset)")}
                 </text>
               </box>
-              {tuningFocusedField === "variant" && <text height={1} wrapMode="none" overflow="hidden" style={{ textColor: "gray" }}>[Space/←/→: cycle none/minimal/low/medium/high/xhigh/max | type custom | Backspace: clear]</text>}
+              {tuningFocusedField === "variant" && <text height={1} wrapMode="none" overflow="hidden" style={{ textColor: "gray" }}>{modelVariants !== null && modelVariants.length > 0
+                ? `[Space/←/→: model variants (${modelVariants.join(" | ")}) | type custom | Backspace: clear]`
+                : modelVariants !== null
+                  ? "[Model exposes no preset variants in OpenCode | type custom | Backspace: clear]"
+                  : `[Space/←/→: none/${AGENT_EFFORT_VARIANTS.join("/")} | type custom | Backspace: clear]`}</text>}
             </box>
 
             {/* Mode field */}
@@ -3228,6 +3366,15 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
               Copy agents and replace the find pattern in filenames and content. Plain text is one literal replacement; for multiple replacements, enter go-, kimi-, hybrid-, free-. Brackets are optional for backward compatibility.
             </text>
 
+            <box flexDirection="column" borderStyle="single" borderColor={forkFocusedField === "profile" ? "cyan" : "#333333"} paddingLeft={1} paddingRight={1} marginTop={1}>
+              <text style={{ textColor: forkFocusedField === "profile" ? "cyan" : "gray" }} b>Pipeline profile: {forkProfileName || "(keep current models)"}</text>
+              <text style={{ textColor: "gray" }}>{forkProfileName ? loadPipelineProfiles(workspaceRoot).profiles[forkProfileName]?.description || "" : "Use Up/Down while focused to choose a declarative model profile."}</text>
+            </box>
+            {forkProfileName && <box flexDirection="column" borderStyle="single" borderColor={forkFocusedField === "target" ? "cyan" : "#333333"} paddingLeft={1} paddingRight={1} marginTop={1}>
+              <text style={{ textColor: forkFocusedField === "target" ? "cyan" : "gray" }} b>Target category: {forkProfileTarget || `${forkProfileName}-pipeline`}</text>
+              <text style={{ textColor: "gray" }}>Same as source applies in place; another category forks and syncs the profile.</text>
+            </box>}
+
             {/* Find field */}
             <box
               flexDirection="column"
@@ -3265,7 +3412,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
 
           <box justifyContent="space-between" borderStyle="single" border={["top"]} borderColor="#333333" paddingTop={1}>
             <text style={{ textColor: "gray" }}>
-              [TAB] Switch Fields | [ENTER] Execute Fork
+              [TAB] Fields | [↑/↓] Profile | [ENTER] Fork / Apply Profile
             </text>
             <text style={{ textColor: "red" }} b>
               [ESC] Cancel
@@ -3420,7 +3567,9 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
             <text style={{ textColor: "#E1E4E8" }} marginTop={1}>
               {selectedAgentPaths.size > 0
                 ? `1. ${selectedAgentPaths.size} selected agents will be exported.`
-                : `1. All ${agents.length} agents will be exported.`}
+                : exportCategory
+                  ? `1. ${agents.filter(agent => agent.category === exportCategory).length} agents in focused category '${exportCategory}' will be exported.`
+                  : `1. All ${agents.length} agents will be exported.`}
             </text>
             <text style={{ textColor: "#E1E4E8" }}>
               {`2. Destination: ${getExportDestination().replace(/\/Users\/[^\/]+/, "~")}`}

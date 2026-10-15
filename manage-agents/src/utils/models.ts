@@ -1,7 +1,7 @@
 import { execSync } from "node:child_process"
 
 export type ModelCatalog =
-  | { status: "verified"; models: string[] }
+  | { status: "verified"; models: string[]; variants?: Record<string, string[]> }
   | { status: "unavailable"; models: []; error?: string }
 
 export type CommandRunner = (command: string) => string
@@ -11,32 +11,118 @@ const defaultRunner: CommandRunner = command => execSync(command, {
   stdio: ["ignore", "pipe", "ignore"]
 })
 
+const MODEL_LINE_PATTERN = /^[^/\s]+\/[^\s]+$/
+
 /** Parse only complete, exact provider/model entries. Model names may contain slashes. */
 export function parseModelCatalog(output: string): string[] {
+  if (output.includes("{")) return parseVerboseModelCatalogOutput(output).models
   const models = output.split(/\r?\n/)
     .map(line => line.trim())
-    .filter(line => /^[^/\s]+\/[^\s]+$/.test(line))
+    .filter(line => MODEL_LINE_PATTERN.test(line))
   return Array.from(new Set(models))
+}
+
+export function parseVerboseModelCatalogOutput(output: string): { models: string[]; variants: Record<string, string[]>; hasVerboseBlocks: boolean } {
+  const models: string[] = []
+  const seen = new Set<string>()
+  const variants: Record<string, string[]> = {}
+  let currentModel: string | undefined
+  let hasVerboseBlocks = false
+  let block = ""
+  let depth = 0
+  let inString = false
+  let escaped = false
+
+  const consumeBlock = (line: string) => {
+    block += `${line}\n`
+    for (const character of line) {
+      if (inString) {
+        if (escaped) escaped = false
+        else if (character === "\\") escaped = true
+        else if (character === '"') inString = false
+      } else if (character === '"') {
+        inString = true
+      } else if (character === "{") {
+        depth++
+      } else if (character === "}") {
+        depth--
+      }
+    }
+    if (depth > 0) return
+
+    try {
+      const parsed = JSON.parse(block)
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        const parsedVariants = parsed.variants
+        if (parsedVariants && typeof parsedVariants === "object" && !Array.isArray(parsedVariants)) {
+          const keys = Object.keys(parsedVariants).filter(key => typeof key === "string" && key.trim().length > 0)
+          if (currentModel) {
+            variants[currentModel] = keys
+            hasVerboseBlocks = true
+          }
+        }
+      }
+    } catch {
+      // Ignore malformed model detail blocks and continue scanning the catalog.
+    }
+    block = ""
+    depth = 0
+    inString = false
+    escaped = false
+  }
+
+  for (const line of output.split(/\r?\n/)) {
+    const trimmed = line.trim()
+    if (block) {
+      consumeBlock(line)
+      continue
+    }
+    if (trimmed.startsWith("{") && currentModel) {
+      consumeBlock(line)
+      continue
+    }
+    if (MODEL_LINE_PATTERN.test(trimmed) && !trimmed.startsWith("{") && !trimmed.startsWith("}")) {
+      currentModel = trimmed
+      if (!seen.has(trimmed)) {
+        seen.add(trimmed)
+        models.push(trimmed)
+      }
+    }
+  }
+
+  return { models, variants, hasVerboseBlocks }
 }
 
 export function loadModelCatalog(runnerOrRefresh: CommandRunner | boolean = defaultRunner, refresh = false): ModelCatalog {
   const runner = typeof runnerOrRefresh === "function" ? runnerOrRefresh : defaultRunner
   if (typeof runnerOrRefresh === "boolean") refresh = runnerOrRefresh
-  // OpenCode v2 dropped --refresh: use plain listing only.
-  // V1 compatibility: if refresh=true was passed, we silently ignore it since
-  // V2 models are always fetched fresh from the catalog.
-  const commands = ["opencode models"]
+  // OpenCode v2 dropped --refresh: ignore it since models are fetched fresh.
+  const commands = ["opencode models --verbose", "opencode models"]
   let lastError = "No complete model entries returned"
   for (const command of commands) {
     try {
-      const models = parseModelCatalog(runner(command))
-      if (models.length > 0) return { status: "verified", models }
+      const stdout = runner(command)
+      const parsed = stdout.includes("{")
+        ? parseVerboseModelCatalogOutput(stdout)
+        : { models: parseModelCatalog(stdout), variants: {}, hasVerboseBlocks: false }
+      if (parsed.models.length > 0) {
+        return parsed.hasVerboseBlocks
+          ? { status: "verified", models: parsed.models, variants: parsed.variants }
+          : { status: "verified", models: parsed.models }
+      }
       lastError = "No complete model entries returned"
     } catch (error: any) {
       lastError = error?.message || String(error)
     }
   }
   return { status: "unavailable", models: [], error: lastError }
+}
+
+export function getModelVariants(catalog: ModelCatalog, model?: string): string[] | null {
+  if (catalog.status !== "verified" || !catalog.variants || typeof model !== "string" || !model.trim()) return null
+  const base = model.trim().split("#", 2)[0]
+  if (Object.prototype.hasOwnProperty.call(catalog.variants, base)) return catalog.variants[base]
+  return null
 }
 
 /** Compatibility wrapper; callers must inspect the catalog state when writes matter. */
