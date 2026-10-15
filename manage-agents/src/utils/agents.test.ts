@@ -4,7 +4,7 @@ import os from "node:os"
 import path from "node:path"
 import { execFileSync, spawnSync } from "node:child_process"
 import test from "node:test"
-import { extractFrontmatter, exportAgents, getExportDestination, isInGeneralAgents, parseAgentFile, saveAgentFile, repairAgentModels, updateAgentsModel, forkCategory, parseForkReplacements, compareCompanionResources, previewImport, importAgents, discoverAgentResources, updateAgentResourcesAndMcp, updateAgentParams, AGENT_EFFORT_VARIANTS } from "./agents.js"
+import { extractFrontmatter, exportAgents, getExportDestination, getGlobalOpenCodeConfigPath, isInGeneralAgents, parseAgentFile, saveAgentFile, repairAgentModels, updateAgentsModel, forkCategory, parseForkReplacements, compareCompanionResources, previewImport, importAgents, discoverAgentResources, updateAgentResourcesAndMcp, updateAgentParams, AGENT_EFFORT_VARIANTS } from "./agents.js"
 import * as agentsMod from "./agents.js"
 import { AUTO_COMMIT_MESSAGES, repositoryTransaction } from "./repositoryTransaction.js"
 import { updateCategoryCompanionLinks } from "./companionLinks.js"
@@ -23,6 +23,18 @@ function git(root: string, ...args: string[]) {
 
 function assertPosixMode(actual: number, expected: number) {
   if (process.platform !== "win32") assert.equal(actual, expected)
+}
+
+function withTemporaryXdgConfigHome<T>(run: (xdgDir: string) => T): T {
+  const previousXdg = process.env.XDG_CONFIG_HOME
+  const xdgDir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-test-xdg-"))
+  process.env.XDG_CONFIG_HOME = xdgDir
+  try {
+    return run(xdgDir)
+  } finally {
+    if (previousXdg === undefined) delete process.env.XDG_CONFIG_HOME
+    else process.env.XDG_CONFIG_HOME = previousXdg
+  }
 }
 
 function gitAgentRepository() {
@@ -1014,7 +1026,7 @@ test("manifest, linked resources and reachable dependencies export without unrel
   assert.equal(fs.existsSync(path.join(opencodeRoot, "commands", "docs-extra.md")), false, "unrelated domains must not be installed")
 })
 
-test("agent permissions derive tool resources and trace relative helper imports", () => {
+test("agent permissions derive tool resources and trace relative helper imports", () => withTemporaryXdgConfigHome(() => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "agent-derived-resources-"))
   const agent = fixtureAgent(path.join(workspace, "general/agents/custom-agent.md"), workspace, "test/model")
   agent.frontmatter.permission = { custom_tool: "allow" }
@@ -1026,7 +1038,7 @@ test("agent permissions derive tool resources and trace relative helper imports"
   const catalog = discoverAgentResources(workspace, agent)
   assert.ok(catalog.companionFiles.some(file => file.replace(/\\/g, "/") === "tools/custom_tool.ts"))
   assert.ok(catalog.companionFiles.some(file => file.replace(/\\/g, "/") === "tools/_custom_helper.js"))
-})
+}))
 
 test("category companion link changes control linked companion discovery", (t) => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "agent-category-links-"))
@@ -1562,15 +1574,9 @@ test("export does not install domain resources when the matching agent copy fail
   assert.equal(fs.existsSync(path.join(opencodeRoot, "tools", "slides", "build.py")), false, "resources must not be installed without their agent")
 })
 
-test("resource discovery lists skills, tool families and tools, MCP servers, and companion files", (t) => {
+test("resource discovery lists skills, tool families and tools, MCP servers, and companion files", () => withTemporaryXdgConfigHome(xdgDir => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-resource-catalog-"))
   const workspace = path.join(root, "workspace")
-  const previousXdg = process.env.XDG_CONFIG_HOME
-  t.after(() => {
-    if (previousXdg === undefined) delete process.env.XDG_CONFIG_HOME
-    else process.env.XDG_CONFIG_HOME = previousXdg
-  })
-  process.env.XDG_CONFIG_HOME = path.join(root, "xdg")
 
   const agent = fixtureAgent(path.join(workspace, "general/agents/slides-orchestrator.md"), workspace, "test/model")
   const permission = {
@@ -1597,7 +1603,7 @@ test("resource discovery lists skills, tool families and tools, MCP servers, and
     "doc_render.ts": "export default {}\n"
   })) fs.writeFileSync(path.join(workspace, "general/tools", tool), contents)
 
-  const opencodePath = path.join(workspace, "general/opencode.json")
+  const opencodePath = getGlobalOpenCodeConfigPath()
   fs.mkdirSync(path.dirname(opencodePath), { recursive: true })
   const opencodeRawContent = JSON.stringify({ mcp: {
     "chrome-devtools": { type: "local", command: ["devtools"], enabled: false },
@@ -1646,9 +1652,47 @@ test("resource discovery lists skills, tool families and tools, MCP servers, and
   assert.equal(unconfiguredMcp.allowed, false)
   assert.equal(catalog.opencodeRawContent, opencodeRawContent)
   assert.ok(catalog.companionFiles.some(file => file.replace(/\\/g, "/").endsWith("tools/slide_build.ts")))
-})
+}))
 
-test("resource updates preserve the supported skill wildcard permission forms", () => {
+test("MCP discovery reads global JSONC and recommended repo servers seed the global config", () => withTemporaryXdgConfigHome(() => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "agent-recommended-mcp-"))
+  const agent = fixtureAgent(path.join(workspace, "general/agents/example.md"), workspace, "test/model")
+  const globalOpencodePath = getGlobalOpenCodeConfigPath()
+  fs.mkdirSync(path.dirname(globalOpencodePath), { recursive: true })
+  const globalOpencodeContent = '{\n  "mcp": {\n    // enabled is omitted and should default to true\n    "XcodeBuildMCP": { "type": "local", "command": ["npx", "-y", "xcodebuildmcp"] }\n  }\n}\n'
+  fs.writeFileSync(globalOpencodePath, globalOpencodeContent)
+
+  const repoOpencodePath = path.join(workspace, "general/opencode.json")
+  fs.mkdirSync(path.dirname(repoOpencodePath), { recursive: true })
+  const repoOpencodeContent = JSON.stringify({ mcp: {
+    "recommended-server": { type: "local", command: ["npx", "-y", "recommended-mcp"] }
+  } }, null, 2)
+  fs.writeFileSync(repoOpencodePath, repoOpencodeContent)
+
+  const catalog = discoverAgentResources(workspace, agent)
+  const globalServer = catalog.mcpServers.find(resource => resource.serverKey === "XcodeBuildMCP")
+  assert.ok(globalServer)
+  assert.equal(globalServer.configuredInOpencode, true)
+  assert.equal(globalServer.serverEnabled, true)
+  const recommendedServer = catalog.mcpServers.find(resource => resource.serverKey === "recommended-server")
+  assert.ok(recommendedServer)
+  assert.equal(recommendedServer.configuredInOpencode, false)
+  assert.equal(recommendedServer.recommendedInRepo, true)
+  assert.equal(recommendedServer.serverEnabled, false)
+
+  const result = updateAgentResourcesAndMcp(workspace, agent, catalog, {
+    mcpEnabled: { "recommended-server": true }
+  })
+
+  const globalConfig = JSON.parse(fs.readFileSync(globalOpencodePath, "utf8"))
+  assert.deepEqual(globalConfig.mcp["recommended-server"], {
+    type: "local", command: ["npx", "-y", "recommended-mcp"], enabled: true
+  })
+  assert.deepEqual(fs.readFileSync(repoOpencodePath, "utf8"), repoOpencodeContent)
+  assert.ok(result.changedPaths.includes(globalOpencodePath))
+}))
+
+test("resource updates preserve the supported skill wildcard permission forms", () => withTemporaryXdgConfigHome(() => {
   const cases = [
     { all: true, skillNames: [], allowedNames: [], expected: { "*": "allow" } },
     { all: true, skillNames: ["checked", "unchecked"], allowedNames: ["checked"], expected: { "*": "allow", unchecked: "deny" } },
@@ -1678,17 +1722,11 @@ test("resource updates preserve the supported skill wildcard permission forms", 
     assert.equal(saved.frontmatter.permission.read, "allow")
     assert.equal(saved.frontmatter.permission.bash, "deny")
   }
-})
+}))
 
-test("resource updates order tool family rules before overrides and update configured MCP state", (t) => {
+test("resource updates order tool family rules before overrides and update configured MCP state", (t) => withTemporaryXdgConfigHome(() => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-resource-update-"))
   const workspace = path.join(root, "workspace")
-  const previousXdg = process.env.XDG_CONFIG_HOME
-  t.after(() => {
-    if (previousXdg === undefined) delete process.env.XDG_CONFIG_HOME
-    else process.env.XDG_CONFIG_HOME = previousXdg
-  })
-  process.env.XDG_CONFIG_HOME = path.join(root, "xdg")
   const agent = fixtureAgent(path.join(workspace, "general/agents/slides-orchestrator.md"), workspace, "test/model")
   const originalPermission = {
     read: "allow", bash: "deny", task: { helper: "allow" },
@@ -1701,7 +1739,7 @@ test("resource updates order tool family rules before overrides and update confi
   fs.writeFileSync(selectedSkillPath, "# selected-skill\n")
   fs.mkdirSync(path.join(workspace, "general/tools"), { recursive: true })
   fs.writeFileSync(path.join(workspace, "general/tools/slide_build.ts"), "export default {}\n")
-  const opencodePath = path.join(workspace, "general/opencode.json")
+  const opencodePath = getGlobalOpenCodeConfigPath()
   fs.mkdirSync(path.dirname(opencodePath), { recursive: true })
   fs.writeFileSync(opencodePath, JSON.stringify({ mcp: { "chrome-devtools": { enabled: false } } }))
   const catalog = discoverAgentResources(workspace, updatedAgent)
@@ -1725,9 +1763,9 @@ test("resource updates order tool family rules before overrides and update confi
   assert.deepEqual(JSON.parse(fs.readFileSync(opencodePath, "utf8")).mcp["chrome-devtools"], { enabled: true })
   assert.ok(result.changedPaths.includes(agent.currentPath))
   assert.ok(result.changedPaths.includes(opencodePath))
-})
+}))
 
-test("resource updates no-op on empty changes and reject unconfigured MCP edits", () => {
+test("resource updates no-op on empty changes and reject unconfigured MCP edits", () => withTemporaryXdgConfigHome(() => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "agent-resource-noop-"))
   const agent = fixtureAgent(path.join(workspace, "general/agents/example.md"), workspace, "test/model")
   fs.mkdirSync(path.join(workspace, "general/tools"), { recursive: true })
@@ -1743,21 +1781,15 @@ test("resource updates no-op on empty changes and reject unconfigured MCP edits"
     mcpEnabled: { "not-configured": true }
   }), /unconfigured|configured/i)
   assert.deepEqual(fs.readFileSync(agent.currentPath), original)
-})
+}))
 
-test("resource update restores agent.currentPath and bytes when opencode write fails", (t) => {
+test("resource update restores agent.currentPath and bytes when opencode write fails", (t) => withTemporaryXdgConfigHome(() => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-resource-rollback-"))
   const workspace = path.join(root, "workspace")
-  const previousXdg = process.env.XDG_CONFIG_HOME
-  t.after(() => {
-    if (previousXdg === undefined) delete process.env.XDG_CONFIG_HOME
-    else process.env.XDG_CONFIG_HOME = previousXdg
-  })
-  process.env.XDG_CONFIG_HOME = path.join(root, "xdg")
   const agent = fixtureAgent(path.join(workspace, "general/agents/slides-orchestrator.md"), workspace, "test/model")
   fs.mkdirSync(path.join(workspace, "general/tools"), { recursive: true })
   fs.writeFileSync(path.join(workspace, "general/tools/slide_build.ts"), "export default {}\n")
-  const opencodePath = path.join(workspace, "general/opencode.json")
+  const opencodePath = getGlobalOpenCodeConfigPath()
   fs.mkdirSync(path.dirname(opencodePath), { recursive: true })
   fs.writeFileSync(opencodePath, JSON.stringify({ mcp: { server: { enabled: false } } }))
   const catalog = discoverAgentResources(workspace, agent)
@@ -1783,20 +1815,13 @@ test("resource update restores agent.currentPath and bytes when opencode write f
   assert.equal(agent.currentPath, originalAgentPath)
   assert.deepEqual(fs.readFileSync(originalAgentPath), originalAgentBytes)
   assert.deepEqual(fs.readFileSync(opencodePath), originalConfigBytes)
-})
+}))
 
-test("hybrid companion resources are discovered and exported except for tests", (t) => {
+test("hybrid companion resources are discovered and exported except for tests", (t) => withTemporaryXdgConfigHome(xdg => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-hybrid-resources-"))
-  const xdg = path.join(root, "xdg")
   const opencodeRoot = path.join(xdg, "opencode")
   const sourceRoot = path.join(root, "source")
   const workspace = path.join(root, "workspace")
-  const previousXdg = process.env.XDG_CONFIG_HOME
-  t.after(() => {
-    if (previousXdg === undefined) delete process.env.XDG_CONFIG_HOME
-    else process.env.XDG_CONFIG_HOME = previousXdg
-  })
-  process.env.XDG_CONFIG_HOME = xdg
   const hybridAgent = fixtureAgent(path.join(workspace, "general/agents/hybrid-orchestrator.md"), workspace, "test/model")
   const resources = [
     "tools/pipeline_state.ts",
@@ -1834,9 +1859,9 @@ test("hybrid companion resources are discovered and exported except for tests", 
     assert.ok(result.domainResources.includes(path.join(opencodeRoot, relative)))
   }
   assert.equal(fs.existsSync(path.join(opencodeRoot, "tools/_pipeline_core.test.mjs")), false)
-})
+}))
 
-test("OpenCode V2 agent updates preserve frontmatter while changing params, model, and resources", () => {
+test("OpenCode V2 agent updates preserve frontmatter while changing params, model, and resources", () => withTemporaryXdgConfigHome(() => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "agent-v2-frontmatter-"))
   const filePath = path.join(workspace, "general/agents/v2-agent.md")
   fs.mkdirSync(path.dirname(filePath), { recursive: true })
@@ -1885,4 +1910,4 @@ test("OpenCode V2 agent updates preserve frontmatter while changing params, mode
   assert.match(savedContent, /action: skill\n\s+resource: selected-skill\n\s+effect: allow/)
   assert.match(savedContent, /action: read\n\s+resource: ["']\*["']\n\s+effect: allow/)
   assert.match(saved.body, /V2 agent body\./)
-})
+}))

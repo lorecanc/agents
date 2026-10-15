@@ -127,6 +127,9 @@ export interface AgentMcpResourceItem extends AgentResourceItem {
   serverKey: string
   serverEnabled: boolean
   configuredInOpencode: boolean
+  recommendedInRepo?: boolean
+  serverType?: string
+  serverTarget?: string
 }
 
 export interface AgentResourceCatalog {
@@ -136,6 +139,8 @@ export interface AgentResourceCatalog {
   companionFiles: string[]
   categoryCompanionItems?: SelectableCompanionItem[]
   opencodeRawContent: string | null
+  opencodeConfigPath?: string
+  recommendedMcpServers?: Record<string, Record<string, any>>
 }
 
 export interface AgentResourceChanges {
@@ -151,6 +156,69 @@ function isPlainObject(value: unknown): value is Record<string, any> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
+function parseOpenCodeJson(raw: string, filePath: string): Record<string, any> {
+  let withoutComments = ""
+  let inString = false
+  let escaped = false
+  for (let index = 0; index < raw.length; index++) {
+    const char = raw[index]
+    const next = raw[index + 1]
+    if (inString) {
+      withoutComments += char
+      if (escaped) escaped = false
+      else if (char === "\\") escaped = true
+      else if (char === '"') inString = false
+    } else if (char === '"') {
+      inString = true
+      withoutComments += char
+    } else if (char === "/" && next === "/") {
+      while (index < raw.length && raw[index] !== "\n" && raw[index] !== "\r") {
+        withoutComments += " "
+        index++
+      }
+      if (index < raw.length) withoutComments += raw[index]
+    } else if (char === "/" && next === "*") {
+      withoutComments += "  "
+      index += 2
+      while (index < raw.length && !(raw[index] === "*" && raw[index + 1] === "/")) {
+        withoutComments += raw[index] === "\n" || raw[index] === "\r" ? raw[index] : " "
+        index++
+      }
+      if (index < raw.length) {
+        withoutComments += "  "
+        index++
+      }
+    } else withoutComments += char
+  }
+
+  let json = ""
+  inString = false
+  escaped = false
+  for (let index = 0; index < withoutComments.length; index++) {
+    const char = withoutComments[index]
+    if (inString) {
+      json += char
+      if (escaped) escaped = false
+      else if (char === "\\") escaped = true
+      else if (char === '"') inString = false
+    } else if (char === '"') {
+      inString = true
+      json += char
+    } else if (char === ",") {
+      let nextIndex = index + 1
+      while (/\s/.test(withoutComments[nextIndex] ?? "")) nextIndex++
+      if (withoutComments[nextIndex] !== "}" && withoutComments[nextIndex] !== "]") json += char
+    } else json += char
+  }
+
+  const parsed: unknown = JSON.parse(json)
+  if (!isPlainObject(parsed)) throw new Error(`Invalid OpenCode config object: ${filePath}`)
+  if (Object.prototype.hasOwnProperty.call(parsed, "mcp") && !isPlainObject(parsed.mcp)) {
+    throw new Error(`Invalid mcp object in OpenCode config: ${filePath}`)
+  }
+  return parsed
+}
+
 function resourcePathStat(filePath: string): fs.Stats | undefined {
   const stat = fs.lstatSync(filePath, { throwIfNoEntry: false })
   if (stat?.isSymbolicLink()) throw new Error(`Refusing to use symlink resource path: ${filePath}`)
@@ -160,7 +228,8 @@ function resourcePathStat(filePath: string): fs.Stats | undefined {
 export function discoverAgentResources(
   workspaceRoot: string,
   agent: AgentInfo,
-  allAgents?: AgentInfo[]
+  allAgents?: AgentInfo[],
+  env: NodeJS.ProcessEnv = process.env
 ): AgentResourceCatalog {
   const generalDir = path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot))
   const generalStat = resourcePathStat(generalDir)
@@ -252,21 +321,29 @@ export function discoverAgentResources(
     })
   }
 
-  const opencodePath = path.join(generalDir, "opencode.json")
+  const opencodePath = getGlobalOpenCodeConfigPath(env)
   const opencodeStat = resourcePathStat(opencodePath)
   let opencodeRawContent: string | null = null
-  let parsedOpencode: Record<string, any> = {}
+  let globalOpencode: Record<string, any> = {}
   if (opencodeStat) {
     if (!opencodeStat.isFile()) throw new Error(`OpenCode config is not a regular file: ${opencodePath}`)
     opencodeRawContent = fs.readFileSync(opencodePath, "utf8")
-    parsedOpencode = JSON.parse(opencodeRawContent)
-    if (!isPlainObject(parsedOpencode)) throw new Error(`Invalid OpenCode config object: ${opencodePath}`)
-    if (Object.prototype.hasOwnProperty.call(parsedOpencode, "mcp") && !isPlainObject(parsedOpencode.mcp)) {
-      throw new Error(`Invalid mcp object in OpenCode config: ${opencodePath}`)
-    }
+    globalOpencode = parseOpenCodeJson(opencodeRawContent, opencodePath)
   }
-  const mcpObj = isPlainObject(parsedOpencode.mcp) ? parsedOpencode.mcp : {}
-  const mcpNames = new Set(Object.keys(mcpObj))
+  const globalMcpObj = isPlainObject(globalOpencode.mcp) ? globalOpencode.mcp : {}
+  const repoOpencodePath = path.join(generalDir, "opencode.json")
+  const repoOpencodeStat = resourcePathStat(repoOpencodePath)
+  let repoOpencode: Record<string, any> = {}
+  if (repoOpencodeStat) {
+    if (!repoOpencodeStat.isFile()) throw new Error(`OpenCode config is not a regular file: ${repoOpencodePath}`)
+    repoOpencode = parseOpenCodeJson(fs.readFileSync(repoOpencodePath, "utf8"), repoOpencodePath)
+  }
+  const repoMcpObj = isPlainObject(repoOpencode.mcp) ? repoOpencode.mcp : {}
+  const recommendedMcpServers: Record<string, Record<string, any>> = {}
+  for (const [serverKey, config] of Object.entries(repoMcpObj)) {
+    if (isPlainObject(config)) recommendedMcpServers[serverKey] = config
+  }
+  const mcpNames = new Set([...Object.keys(globalMcpObj), ...Object.keys(repoMcpObj)])
   const collectMcpPermissionKeys = (source: unknown) => {
     if (!isPlainObject(source)) return
     for (const key of Object.keys(source)) {
@@ -278,12 +355,17 @@ export function discoverAgentResources(
   collectMcpPermissionKeys(perm)
   for (const other of allAgents ?? []) collectMcpPermissionKeys(other.frontmatter?.permission)
   const mcpServers: AgentMcpResourceItem[] = [...mcpNames].sort((a, b) => a.localeCompare(b)).map(serverKey => {
-    const configuredInOpencode = Object.prototype.hasOwnProperty.call(mcpObj, serverKey)
+    const configuredInOpencode = Object.prototype.hasOwnProperty.call(globalMcpObj, serverKey)
+    const recommendedInRepo = Object.prototype.hasOwnProperty.call(repoMcpObj, serverKey)
+    const rawEntry = configuredInOpencode ? globalMcpObj[serverKey] : repoMcpObj[serverKey]
     return {
       id: `mcp:${serverKey}`, kind: "mcp", name: serverKey, serverKey, permissionKey: `${serverKey}_*`,
-      allowed: allowedValue(perm[`${serverKey}_*`]), exists: configuredInOpencode,
-      relativePath: configuredInOpencode ? "opencode.json" : undefined,
-      serverEnabled: configuredInOpencode ? Boolean(mcpObj[serverKey]?.enabled) : false, configuredInOpencode
+      allowed: allowedValue(perm[`${serverKey}_*`]), exists: configuredInOpencode || recommendedInRepo,
+      relativePath: configuredInOpencode ? opencodePath : recommendedInRepo ? "opencode.json" : undefined,
+      serverEnabled: configuredInOpencode ? globalMcpObj[serverKey]?.enabled !== false : false,
+      configuredInOpencode, recommendedInRepo,
+      serverType: typeof rawEntry?.type === "string" ? rawEntry.type : undefined,
+      serverTarget: typeof rawEntry?.url === "string" ? rawEntry.url : Array.isArray(rawEntry?.command) ? rawEntry.command.join(" ") : undefined
     }
   })
 
@@ -291,7 +373,7 @@ export function discoverAgentResources(
     skills, tools, mcpServers,
     companionFiles: discoverCompanionResourcePaths(generalDir, [agentDomain(agent.filename), agent.category], undefined, [agent]),
     categoryCompanionItems: discoverAvailableCategoryCompanionItems(workspaceRoot, agent.category),
-    opencodeRawContent
+    opencodeRawContent, opencodeConfigPath: opencodePath, recommendedMcpServers
   }
 }
 
@@ -299,7 +381,8 @@ export function updateAgentResourcesAndMcp(
   workspaceRoot: string,
   agent: AgentInfo,
   catalog: AgentResourceCatalog,
-  changes: AgentResourceChanges
+  changes: AgentResourceChanges,
+  env: NodeJS.ProcessEnv = process.env
 ): { changedPaths: string[] } {
   const hasPermissions = Object.keys(changes.permissions ?? {}).length > 0
   const hasMcpChanges = Object.keys(changes.mcpEnabled ?? {}).length > 0
@@ -316,14 +399,13 @@ export function updateAgentResourcesAndMcp(
     if (!catalog.skills.some(item => item.kind === "skill" && item.name === name)) throw new Error(`Unknown skill: ${name}`)
   }
   for (const key of Object.keys(changes.mcpEnabled ?? {})) {
-    if (!catalog.mcpServers.some(item => item.serverKey === key && item.configuredInOpencode)) {
+    if (!catalog.mcpServers.some(item => item.serverKey === key && (item.configuredInOpencode || item.recommendedInRepo))) {
       throw new Error(`Unknown configured MCP server: ${key}`)
     }
   }
 
   const agentPath = agent.currentPath
-  const generalDir = path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot))
-  const opencodePath = path.join(generalDir, "opencode.json")
+  const opencodePath = catalog.opencodeConfigPath ?? getGlobalOpenCodeConfigPath(env)
   const changesAgent = !!changes.skills || hasPermissions
   let originalAgent: Buffer | undefined
   let agentMode: number | undefined
@@ -337,9 +419,16 @@ export function updateAgentResourcesAndMcp(
   }
   if (hasMcpChanges) {
     const stat = resourcePathStat(opencodePath)
-    if (!stat?.isFile() || catalog.opencodeRawContent === null) throw new Error(`OpenCode config does not exist: ${opencodePath}`)
-    originalOpencode = fs.readFileSync(opencodePath)
-    if (originalOpencode.toString("utf8") !== catalog.opencodeRawContent) throw new Error("OpenCode config changed on disk before MCP update")
+    if (catalog.opencodeRawContent !== null) {
+      if (!stat?.isFile() || fs.readFileSync(opencodePath, "utf8") !== catalog.opencodeRawContent) {
+        throw new Error("OpenCode config changed on disk before MCP update")
+      }
+      originalOpencode = Buffer.from(catalog.opencodeRawContent, "utf8")
+    } else if (stat) {
+      throw new Error("OpenCode config changed on disk before MCP update")
+    } else if (Object.keys(changes.mcpEnabled ?? {}).some(key => !isPlainObject(catalog.recommendedMcpServers?.[key]))) {
+      throw new Error(`OpenCode config does not exist: ${opencodePath}`)
+    }
   }
 
   let updatedFrontmatter: Record<string, any> | undefined
@@ -387,9 +476,15 @@ export function updateAgentResourcesAndMcp(
 
   let renderedOpencode: string | undefined
   if (hasMcpChanges) {
-    const parsed = JSON.parse(catalog.opencodeRawContent!) as Record<string, any>
+    const parsed = catalog.opencodeRawContent !== null
+      ? parseOpenCodeJson(catalog.opencodeRawContent, opencodePath)
+      : { $schema: "https://opencode.ai/config.json", mcp: {} }
     if (!isPlainObject(parsed.mcp)) parsed.mcp = {}
     for (const [serverKey, enabled] of Object.entries(changes.mcpEnabled ?? {})) {
+      if (!isPlainObject(parsed.mcp[serverKey])) {
+        const seed = catalog.recommendedMcpServers?.[serverKey]
+        if (isPlainObject(seed)) parsed.mcp[serverKey] = JSON.parse(JSON.stringify(seed))
+      }
       if (!isPlainObject(parsed.mcp[serverKey])) throw new Error(`Invalid MCP server configuration: ${serverKey}`)
       parsed.mcp[serverKey].enabled = Boolean(enabled)
     }
@@ -400,8 +495,9 @@ export function updateAgentResourcesAndMcp(
   const agentBytes = renderedAgent === undefined ? undefined : Buffer.from(renderedAgent, "utf8")
   const opencodeBytes = renderedOpencode === undefined ? undefined : Buffer.from(renderedOpencode, "utf8")
   const agentChanged = !!(agentBytes && originalAgent && !agentBytes.equals(originalAgent))
-  const opencodeChanged = !!(opencodeBytes && originalOpencode && !opencodeBytes.equals(originalOpencode))
+  const opencodeChanged = !!(opencodeBytes && (!originalOpencode || !opencodeBytes.equals(originalOpencode)))
   let agentWritten = false
+  let opencodeWritten = false
   try {
     if (agentChanged) {
       atomicWriteAgentFile(agentPath, agentBytes!)
@@ -409,10 +505,20 @@ export function updateAgentResourcesAndMcp(
       changedPaths.push(agentPath)
     }
     if (opencodeChanged) {
+      fs.mkdirSync(path.dirname(opencodePath), { recursive: true })
       atomicWriteAgentFile(opencodePath, opencodeBytes!)
+      opencodeWritten = true
       changedPaths.push(opencodePath)
     }
   } catch (error: any) {
+    if (opencodeWritten) {
+      try {
+        if (catalog.opencodeRawContent === null) fs.unlinkSync(opencodePath)
+        else atomicWriteAgentFile(opencodePath, Buffer.from(catalog.opencodeRawContent, "utf8"))
+      } catch (rollbackError: any) {
+        throw new Error(`${error?.message || error}; rollback incomplete: ${rollbackError?.message || rollbackError}`)
+      }
+    }
     if (agentWritten) {
       try {
         atomicWriteAgentFile(agentPath, originalAgent!)
@@ -2277,6 +2383,10 @@ export interface ExportResult {
 export function getExportDestination(env: NodeJS.ProcessEnv = process.env): string {
   const configHome = env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config")
   return path.join(configHome, "opencode", "agents")
+}
+
+export function getGlobalOpenCodeConfigPath(env: NodeJS.ProcessEnv = process.env): string {
+  return path.join(path.dirname(getExportDestination(env)), "opencode.json")
 }
 
 /**

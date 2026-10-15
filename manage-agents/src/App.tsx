@@ -38,6 +38,7 @@ import {
   buildTuningUpdateParams,
   sanitizeFilename,
   getCategoryPrefixes,
+  getGlobalOpenCodeConfigPath,
   resolveSourceSubdir,
   resolveCategoriesSubdir
 } from "./utils/agents.js"
@@ -1731,8 +1732,11 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
         const row = resourceManagerRows[resourceModalFocusIndex]
         if (row?.kind === "mcp") {
           const item = row.item as AgentMcpResourceItem
-          if (item.configuredInOpencode) setDraftMcpEnabled(previous => ({ ...previous, [item.serverKey]: !previous[item.serverKey] }))
-          else setLayoutStatus("Server is not configured in general/opencode.json.")
+          if (item.configuredInOpencode || item.recommendedInRepo) {
+            setDraftMcpEnabled(previous => ({ ...previous, [item.serverKey]: !previous[item.serverKey] }))
+          } else {
+            setLayoutStatus("Server is not configured in ~/.config/opencode/opencode.json.")
+          }
         }
       } else if (key === "enter" || key === "return") {
         if (!resourceCatalog) return
@@ -1755,7 +1759,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           })
           .map(item => [item.permissionKey, draftPermissions[item.permissionKey]]))
         const mcpEnabled: Record<string, boolean> = Object.fromEntries(resourceCatalog.mcpServers
-          .filter(item => item.configuredInOpencode && draftMcpEnabled[item.serverKey] !== item.serverEnabled)
+          .filter(item => (item.configuredInOpencode || item.recommendedInRepo) && draftMcpEnabled[item.serverKey] !== item.serverEnabled)
           .map(item => [item.serverKey, draftMcpEnabled[item.serverKey]]))
         const changes: AgentResourceChanges = {
           ...(skillsChanged ? { skills: { all: draftSkillAll, allowedNames } } : {}),
@@ -1767,11 +1771,12 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           setViewMode("main")
           return
         }
+        const hasAgentChanges = Boolean(changes.skills || changes.permissions)
         const allowedPaths = [
           ...(companionChanged ? [getCompanionLinksConfigPath(workspaceRoot)] : []),
-          ...(resourceTargetAgent && (changes.skills || changes.permissions) ? [path.relative(workspaceRoot, resourceTargetAgent.currentPath)] : []),
-          ...(resourceTargetAgent && changes.mcpEnabled ? [path.join(resolveSourceSubdir(workspaceRoot), "opencode.json")] : [])
+          ...(resourceTargetAgent && hasAgentChanges ? [path.relative(workspaceRoot, resourceTargetAgent.currentPath)] : [])
         ]
+        if (allowedPaths.length === 0 && resourceTargetAgent) allowedPaths.push(path.relative(workspaceRoot, resourceTargetAgent.currentPath))
         try {
           const tx = mutate(allowedPaths, "tune", () => {
             if (companionChanged && resourceCategoryTarget) updateCategoryCompanionLinks(workspaceRoot, resourceCategoryTarget, nextLinks)
@@ -1785,8 +1790,8 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           setMutationSuccess(companionChanged && !resourceTargetAgent ? "Category Companion Links Updated" : "Resources Updated", [
             ...(resourceTargetAgent ? [`Updated skills, custom tools, and MCP permissions for:`, `  ${resourceTargetAgent.filename}`] : []),
             ...(companionChanged ? [`Updated exported companion links for category: ${resourceCategoryTarget}`] : []),
-            ...(tx.value.changedPaths.includes(path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot), "opencode.json"))
-              ? ["", `${resolveSourceSubdir(workspaceRoot)}/opencode.json updated. Restart OpenCode for MCP server changes to take effect.`]
+            ...(tx.value.changedPaths.includes(resourceCatalog.opencodeConfigPath ?? getGlobalOpenCodeConfigPath())
+              ? ["", "~/.config/opencode/opencode.json updated. Restart OpenCode for MCP server changes to take effect."]
               : [])
           ], tx.warning)
           setViewMode("action-result")
@@ -2121,7 +2126,11 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
     ), "--- CUSTOM TOOLS ---", ...catalog.tools.map(item =>
       `${item.kind === "tool-family" ? "*" : "  -"} ${item.name} [${item.allowed ? "ALLOW" : "DENY"}]`
     ), "--- MCP SERVERS ---", ...catalog.mcpServers.map(item =>
-      `* ${item.name} [${item.allowed ? "ALLOW" : "DENY"}] ${item.configuredInOpencode ? `[MCP: ${item.serverEnabled ? "ON" : "OFF"}]` : "[Not in opencode.json]"}`
+      `* ${item.name} [${item.allowed ? "ALLOW" : "DENY"}] ${item.configuredInOpencode
+        ? `[MCP: ${item.serverEnabled ? "ON" : "OFF"}]`
+        : item.recommendedInRepo
+          ? "[Recommended in repo (x in u to enable)]"
+          : "[Not in ~/.config/opencode/opencode.json]"}`
     ), `--- COMPANION FILES (${catalog.companionFiles.length}) ---`, ...(catalog.companionFiles.length ? catalog.companionFiles : ["(none)"])]
   }, [resourceInspector.catalog])
   const resourceManagerRows = useMemo<ResourceManagerRow[]>(() => [
@@ -2811,10 +2820,13 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
                 const tag = row.kind === "skill-wildcard" || row.kind === "skill" ? "[SKILL]"
                   : row.kind === "tool-family" ? "[TOOL-GRP]"
                     : row.kind === "tool" ? "[TOOL]" : "[MCP]"
+                const mcpItem = agentResource as AgentMcpResourceItem
                 const status = row.kind === "mcp"
-                  ? (agentResource as AgentMcpResourceItem).configuredInOpencode
-                    ? ` [MCP: ${draftMcpEnabled[(agentResource as AgentMcpResourceItem).serverKey] ? "ON" : "OFF"}]`
-                    : " [Not configured]"
+                  ? mcpItem.configuredInOpencode
+                    ? ` [MCP: ${draftMcpEnabled[mcpItem.serverKey] ? "ON" : "OFF"}]`
+                    : mcpItem.recommendedInRepo
+                      ? ` [MCP: ${draftMcpEnabled[mcpItem.serverKey] ? "ON (install to global)" : "Recommended (x to install)"}]`
+                      : " [Not in global opencode.json]"
                   : ""
                 return (
                   <box key={`${item.id}-${rowIndex}`} backgroundColor={isFocused ? "#2B5581" : "transparent"} height={1} flexShrink={0} flexDirection="row">
@@ -2823,7 +2835,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
                     <text flexGrow={1} wrapMode="none" overflow="hidden" style={{ textColor: isFocused ? "white" : "#E1E4E8" }} u={isFocused}>
                       {middleEllipsis(item.name, Math.max(1, panelWidths.inspector + panelWidths.list - 42))}
                     </text>
-                    <text style={{ textColor: row.kind === "mcp" && (agentResource as AgentMcpResourceItem).configuredInOpencode && draftMcpEnabled[(agentResource as AgentMcpResourceItem).serverKey] ? "green" : "gray" }}>{status}</text>
+                    <text style={{ textColor: row.kind === "mcp" && (mcpItem.configuredInOpencode || mcpItem.recommendedInRepo) && draftMcpEnabled[mcpItem.serverKey] ? "green" : "gray" }}>{status}</text>
                   </box>
                 )
               })}
