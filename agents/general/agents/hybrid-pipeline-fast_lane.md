@@ -47,7 +47,7 @@ Follow the repository `AGENTS.md` rules. Handle tiny, obvious, low-risk tasks wi
 
 ## Use only for
 - Clear local edits.
-- Small bug fixes.
+- Never for bug fixes (even 1-line bugs require at least Standard Lane with mandatory TDD Red-Green verification).
 - Typos and docs tweaks.
 - Simple config changes.
 - Straightforward rename/update.
@@ -57,6 +57,7 @@ Follow the repository `AGENTS.md` rules. Handle tiny, obvious, low-risk tasks wi
 Before your first edit, run `git branch --show-current`, `git log -1 --format=%H` and `git status --porcelain=v1 -uall`, and open your output with a `## Session baseline` block: branch, HEAD hash, and the files that were already modified or untracked. If a file you must edit is already modified, stop and report it instead of editing.
 
 ## Stop and escalate when
+- The task is a bug fix (bugs are never eligible for Fast Lane — stop immediately and escalate so the orchestrator runs the TDD Red-Green protocol).
 - Relevant files are unclear.
 - The task spans multiple concepts.
 - The change has security, performance, concurrency, or migration risk.

@@ -157,6 +157,35 @@ test("a second LIVE root cannot edit files claimed by the first; idle or unknown
   await before(blind, "ses_x2", "edit", { filePath: "a.txt" })
 })
 
+test("bash writes claim files on the root session and are blocked when another live session holds a claim", async () => {
+  const dir = mkRepo()
+  fs.mkdirSync(path.join(dir, "sub"))
+  const client = makeClient({ ses_c1: "ses_r1", ses_c2: "ses_r2" })
+  const hooks = await createPipelineGuard({ client, directory: dir })
+  const info = repoInfo(dir)
+  await hooks["chat.params"]({ sessionID: "ses_r1", agent: ORCH })
+  await hooks["chat.params"]({ sessionID: "ses_c1", agent: EXEC })
+  await hooks["chat.params"]({ sessionID: "ses_r2", agent: ORCH })
+  await hooks["chat.params"]({ sessionID: "ses_c2", agent: EXEC })
+
+  await hooks["tool.execute.after"]({ tool: "bash", sessionID: "ses_c1", callID: "b1", args: { command: "echo hi > bash-claimed.txt" } }, {})
+  assert.ok(readSession(info, "ses_r1").files["bash-claimed.txt"])
+  await assert.rejects(
+    before(hooks, "ses_c2", "bash", { command: "echo conflict > bash-claimed.txt" }),
+    /bash-claimed\.txt is being modified by another active opencode session/,
+  )
+  await hooks["tool.execute.after"]({ tool: "bash", sessionID: "ses_c1", callID: "b2", args: { command: "cd sub && echo hi > file.txt" } }, {})
+  assert.ok(readSession(info, "ses_r1").files["sub/file.txt"])
+  await assert.rejects(
+    before(hooks, "ses_c2", "bash", { command: "cd sub && echo conflict > file.txt" }),
+    /sub\/file\.txt is being modified by another active opencode session/,
+  )
+  await assert.rejects(
+    before(hooks, "ses_c2", "edit", { filePath: path.join(dir, "bash-claimed.txt") }),
+    /bash-claimed\.txt is being modified by another active opencode session/,
+  )
+})
+
 test("idle event reports git state changes (new branch, worktree, stash) once the baseline exists", async () => {
   makeClient.toasts.length = 0
   const { hooks, dir, info } = await setup()

@@ -17,6 +17,7 @@
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
+import { randomUUID } from "node:crypto"
 import { execFileSync } from "node:child_process"
 
 // ---------------------------------------------------------------- basics
@@ -305,24 +306,39 @@ export async function withLock(info, name, fn, { timeoutMs = 300000, staleMs = 2
   fs.mkdirSync(dir, { recursive: true })
   const lock = path.join(dir, `${name}.lock`)
   const started = Date.now()
+  const myToken = { pid: process.pid, owner, at: Date.now(), identity: randomUUID() }
   for (;;) {
     try {
       fs.mkdirSync(lock)
-      fs.writeFileSync(path.join(lock, "owner.json"), JSON.stringify({ pid: process.pid, owner, at: Date.now() }))
+      fs.writeFileSync(path.join(lock, "owner.json"), JSON.stringify(myToken))
       break
     } catch (e) {
       if (e.code !== "EEXIST") throw e
       let holder = null
       try {
-        holder = JSON.parse(fs.readFileSync(path.join(lock, "owner.json"), "utf8"))
+        const parsed = JSON.parse(fs.readFileSync(path.join(lock, "owner.json"), "utf8"))
+        if (parsed && typeof parsed === "object") holder = parsed
       } catch {
         /* lock being created */
       }
-      const dead = holder && !pidAlive(holder.pid)
-      const old = holder && Date.now() - holder.at > staleMs
-      if (dead || old) {
+      if (holder && Number.isInteger(holder.pid) && !pidAlive(holder.pid)) {
         fs.rmSync(lock, { recursive: true, force: true })
         continue
+      }
+      if (holder && !Number.isInteger(holder.pid) && Date.now() - (holder.at || 0) > staleMs) {
+        fs.rmSync(lock, { recursive: true, force: true })
+        continue
+      }
+      if (!holder) {
+        try {
+          const age = Date.now() - fs.statSync(lock).mtimeMs
+          if (age > Math.min(staleMs, 5000)) {
+            fs.rmSync(lock, { recursive: true, force: true })
+            continue
+          }
+        } catch {
+          /* lock may have been removed concurrently */
+        }
       }
       if (Date.now() - started > timeoutMs) {
         const err = new Error(`lock "${name}" busy (held by ${holder ? holder.owner : "unknown"})`)
@@ -335,7 +351,16 @@ export async function withLock(info, name, fn, { timeoutMs = 300000, staleMs = 2
   try {
     return await fn()
   } finally {
-    fs.rmSync(lock, { recursive: true, force: true })
+    let ownsLock = false
+    try {
+      const cur = JSON.parse(fs.readFileSync(path.join(lock, "owner.json"), "utf8"))
+      ownsLock = Boolean(
+        cur && cur.pid === myToken.pid && cur.owner === myToken.owner && cur.identity === myToken.identity,
+      )
+    } catch {
+      /* owner file may be missing or corrupt */
+    }
+    if (ownsLock) fs.rmSync(lock, { recursive: true, force: true })
   }
 }
 
@@ -423,6 +448,7 @@ export function executeCommit(info, plan, message, trailers = []) {
 // ------------------------------------------------------------ bash guard
 
 const WRAPPERS = new Set(["env", "command", "time", "nohup", "exec", "builtin", "xargs", "nice", "setsid", "stdbuf", "timeout", "gtimeout"])
+const SHELLS = new Set(["sh", "bash", "zsh", "dash", "ksh"])
 const NEVER = new Set(["sudo", "doas", "su"])
 
 const GIT_READ = new Set([
@@ -439,16 +465,20 @@ const GIT_ALWAYS_BLOCKED_CFG = /^(alias\.|core\.(hookspath|sshcommand|editor|pag
 export function tokenize(command) {
   const segments = []
   const redirects = []
+  const segmentRedirects = []
   const nested = []
   let tokens = []
+  let curRedirects = []
   let cur = ""
   let has = false
   let expectRedirect = false
+  let invalidAnsiC = false
   const pendingHeredocs = []
   const pushToken = () => {
     if (!has) return
     if (expectRedirect) {
       redirects.push(cur)
+      curRedirects.push(cur)
       expectRedirect = false
     } else {
       tokens.push(cur)
@@ -458,8 +488,12 @@ export function tokenize(command) {
   }
   const pushSegment = () => {
     pushToken()
-    if (tokens.length) segments.push(tokens)
+    if (tokens.length || curRedirects.length) {
+      segments.push(tokens)
+      segmentRedirects.push(curRedirects)
+    }
     tokens = []
+    curRedirects = []
   }
   const grabNested = (i, open, close) => {
     let depth = 1
@@ -489,6 +523,67 @@ export function tokenize(command) {
         has = true
       }
       i += 2
+      continue
+    }
+    if (quote === null && c === "$" && command[i + 1] === "'") {
+      let j = i + 2
+      let value = ""
+      let closed = false
+      while (j < command.length) {
+        const ch = command[j]
+        if (ch === "'") {
+          closed = true
+          j++
+          break
+        }
+        if (ch !== "\\") {
+          value += ch
+          j++
+          continue
+        }
+        j++
+        if (j >= command.length) break
+        const escaped = command[j]
+        const simpleEscapes = {
+          "\\": "\\", "'": "'", '"': '"', n: "\n", r: "\r", t: "\t",
+          v: "\v", f: "\f", b: "\b", a: "\x07", e: "\x1b", E: "\x1b",
+        }
+        if (Object.hasOwn(simpleEscapes, escaped)) {
+          value += simpleEscapes[escaped]
+          j++
+          continue
+        }
+        const digitCount = escaped === "x" ? 2 : escaped === "u" ? 4 : escaped === "U" ? 8 : 0
+        if (digitCount) {
+          let end = j + 1
+          while (end < command.length && end <= j + digitCount && /[0-9a-fA-F]/.test(command[end])) end++
+          if (end === j + 1) {
+            invalidAnsiC = true
+            break
+          }
+          const codePoint = Number.parseInt(command.slice(j + 1, end), 16)
+          if (codePoint > 0x10ffff) {
+            invalidAnsiC = true
+            break
+          }
+          value += String.fromCodePoint(codePoint)
+          j = end
+          continue
+        }
+        if (/[0-7]/.test(escaped)) {
+          let end = j + 1
+          while (end < command.length && end < j + 3 && /[0-7]/.test(command[end])) end++
+          value += String.fromCharCode(Number.parseInt(command.slice(j, end), 8))
+          j = end
+          continue
+        }
+        invalidAnsiC = true
+        break
+      }
+      if (!closed) invalidAnsiC = true
+      cur += value
+      has = true
+      i = j
       continue
     }
     if (quote === '"') {
@@ -614,7 +709,7 @@ export function tokenize(command) {
     i++
   }
   pushSegment()
-  return { segments, redirects, nested }
+  return { segments, redirects, segmentRedirects, nested, invalidAnsiC }
 }
 
 function expandArg(arg, ctx) {
@@ -646,6 +741,111 @@ export function checkWritePath(arg, ctx) {
 
 function nonFlags(args) {
   return args.filter((a) => !a.startsWith("-"))
+}
+
+function shellCommandArg(cmd, args) {
+  if (!SHELLS.has(cmd)) return null
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]
+    if (arg === "--") break
+    if (arg === "-c" || /^-[a-zA-Z]*c[a-zA-Z]*$/.test(arg)) return typeof args[i + 1] === "string" ? args[i + 1] : null
+    if (/^[-+][oO]$/.test(arg)) i++
+    else if (arg.startsWith("-") || arg.startsWith("+")) continue
+    else break
+  }
+  return null
+}
+
+function stripWrappers(tokens) {
+  const t = tokens.slice()
+  for (;;) {
+    while (t.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(t[0])) t.shift()
+    if (t.length && WRAPPERS.has(t[0])) {
+      const wrapper = t.shift()
+      while (t.length && (t[0].startsWith("-") || /^[A-Za-z_][A-Za-z0-9_]*=/.test(t[0]))) t.shift()
+      if ((wrapper === "timeout" || wrapper === "gtimeout") && t.length) t.shift()
+      continue
+    }
+    break
+  }
+  return t
+}
+
+function inPlaceTargets(cmd, args) {
+  if (!args.some((a) => /^-[a-zA-Z]*i/.test(a) || a === "-i" || a.startsWith("--in-place"))) return []
+  const positional = []
+  let hasExplicitScript = false
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]
+    if (arg === "-e" || arg === "-f") {
+      hasExplicitScript = true
+      i++
+    } else if (arg === "-i" && args[i + 1] === "") {
+      i++
+    } else if (arg.startsWith("-") || arg.startsWith("+")) {
+      continue
+    } else if (arg !== "") positional.push(arg)
+  }
+  if (hasExplicitScript) return positional
+  if (positional.length <= 1) return []
+  let scriptIndex = 0
+  if (positional.length >= 3 && /^\.[^/]*$/.test(positional[0])) scriptIndex = 1
+  return positional.slice(scriptIndex + 1)
+}
+
+function segmentWritePaths(tokens) {
+  const t = stripWrappers(tokens)
+  if (!t.length) return { rawPaths: [], subcommands: [], cwdChange: null }
+  const cmd = path.basename(t[0])
+  const args = t.slice(1)
+  const rawPaths = []
+  const subcommands = []
+  let cwdChange = null
+  const dest = (list) => (list.length ? [list[list.length - 1]] : [])
+  if (SHELLS.has(cmd)) {
+    const subcmd = shellCommandArg(cmd, args)
+    if (subcmd) subcommands.push(subcmd)
+  }
+  if (cmd === "cd" || cmd === "pushd") {
+    cwdChange = args.find((a) => !a.startsWith("-")) || null
+  }
+  switch (cmd) {
+    case "rm": case "rmdir": case "mkdir": case "touch": case "truncate": case "chmod":
+    case "chown": case "chgrp": case "tee": case "unlink": case "shred": case "mktemp":
+      rawPaths.push(...(cmd === "chmod" || cmd === "chown" || cmd === "chgrp" ? nonFlags(args).slice(1) : nonFlags(args)))
+      break
+    case "mv":
+      rawPaths.push(...nonFlags(args))
+      break
+    case "cp": case "ln": case "install": case "rsync": case "ditto":
+      rawPaths.push(...dest(nonFlags(args)))
+      break
+    case "dd":
+      for (const a of args) if (a.startsWith("of=")) rawPaths.push(a.slice(3))
+      break
+    case "curl":
+      for (let k = 0; k < args.length; k++) {
+        if (["-o", "--output", "-D", "--dump-header", "-c", "--cookie-jar"].includes(args[k])) rawPaths.push(args[k + 1])
+        else if (["--output", "--dump-header", "--cookie-jar"].some((flag) => args[k].startsWith(`${flag}=`))) rawPaths.push(args[k].slice(args[k].indexOf("=") + 1))
+      }
+      break
+    case "wget":
+      for (let k = 0; k < args.length; k++) {
+        if (args[k] === "-O" || args[k] === "--output-document") rawPaths.push(args[k + 1])
+        else if (args[k].startsWith("--output-document=")) rawPaths.push(args[k].slice(18))
+      }
+      break
+    case "tar":
+      for (let k = 0; k < args.length; k++) if (args[k] === "-C" || args[k] === "--directory") rawPaths.push(args[k + 1])
+      break
+    case "unzip":
+      for (let k = 0; k < args.length; k++) if (args[k] === "-d") rawPaths.push(args[k + 1])
+      break
+    case "sed": case "perl":
+      rawPaths.push(...inPlaceTargets(cmd, args))
+      break
+  }
+  return { rawPaths, subcommands, cwdChange }
 }
 
 function checkGitCommand(args, role, ctx) {
@@ -720,21 +920,15 @@ function checkGitCommand(args, role, ctx) {
   }
 }
 
-function checkSegment(tokens, role, ctx) {
-  let t = tokens.slice()
-  for (;;) {
-    while (t.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(t[0])) t.shift()
-    if (t.length && WRAPPERS.has(t[0])) {
-      const wrapper = t.shift()
-      while (t.length && (t[0].startsWith("-") || /^[A-Za-z_][A-Za-z0-9_]*=/.test(t[0]))) t.shift()
-      if ((wrapper === "timeout" || wrapper === "gtimeout") && t.length) t.shift()
-      continue
-    }
-    break
-  }
+function checkSegment(tokens, role, ctx, depth = 0) {
+  const t = stripWrappers(tokens)
   if (!t.length) return null
   const cmd = path.basename(t[0])
   const args = t.slice(1)
+  if (SHELLS.has(cmd)) {
+    const subcmd = shellCommandArg(cmd, args)
+    if (subcmd) return checkBash(subcmd, role, ctx, depth + 1)
+  }
   if (NEVER.has(cmd)) return `${cmd} is not allowed.`
   if (cmd === "git") return checkGitCommand(args, role, ctx)
   if (cmd === "cd" || cmd === "pushd") {
@@ -777,9 +971,7 @@ function checkSegment(tokens, role, ctx) {
       for (let k = 0; k < args.length; k++) if (args[k] === "-d") paths.push(args[k + 1])
       break
     case "sed": case "perl":
-      if (args.some((a) => /^-[a-zA-Z]*i/.test(a) || a === "-i" || a.startsWith("--in-place"))) {
-        paths.push(...nonFlags(args).filter((a) => a.startsWith("/") || a.startsWith("~")))
-      }
+      paths.push(...inPlaceTargets(cmd, args))
       break
     default:
       break
@@ -797,26 +989,87 @@ function checkSegment(tokens, role, ctx) {
  * Returns null when acceptable, otherwise a human-readable reason.
  */
 export function checkBash(command, role, ctx, depth = 0) {
-  if (typeof command !== "string" || depth > 4) return null
+  if (typeof command !== "string") return null
+  if (depth > 4) return "Shell command nesting exceeds the validation limit."
   let parsed
   try {
     parsed = tokenize(command)
   } catch {
     return null
   }
-  for (const target of parsed.redirects) {
-    const reason = checkWritePath(target, ctx)
-    if (reason) return `output redirection to ${reason}`
-  }
-  for (const seg of parsed.segments) {
-    const reason = checkSegment(seg, role, ctx)
+  if (parsed.invalidAnsiC) return "Unable to safely parse ANSI-C quoted string."
+  let cwd = ctx.cwd || ctx.info.top
+  for (let i = 0; i < parsed.segments.length; i++) {
+    const segmentCtx = { ...ctx, cwd }
+    for (const target of parsed.segmentRedirects[i] || []) {
+      const reason = checkWritePath(target, segmentCtx)
+      if (reason) return `output redirection to ${reason}`
+    }
+    const seg = parsed.segments[i]
+    const reason = checkSegment(seg, role, segmentCtx, depth)
     if (reason) return reason
+    const command = segmentWritePaths(seg)
+    if (command.cwdChange) {
+      const next = command.cwdChange === "-" ? cwd : path.resolve(cwd, expandArg(command.cwdChange, { scratch: ctx.scratch }))
+      if (!next.includes("$")) cwd = next
+    }
   }
   for (const inner of parsed.nested) {
-    const reason = checkBash(inner, role, ctx, depth + 1)
+    const reason = checkBash(inner, role, { ...ctx, cwd }, depth + 1)
     if (reason) return reason
   }
   return null
+}
+
+/** Repo-relative files a bash command may modify. */
+export function bashWriteTargets(command, ctx, depth = 0) {
+  if (typeof command !== "string" || depth > 4) return []
+  const info = ctx?.info || ctx || {
+    top: process.cwd(),
+    gitDir: path.join(process.cwd(), ".git"),
+    common: process.cwd(),
+    isLinked: false,
+  }
+  if (!info.top) return []
+  const baseCwd = ctx?.cwd || info.top
+  const scratchPath = ctx?.scratch || info.scratchDir || scratchDir(info)
+  let parsed
+  try {
+    parsed = tokenize(command)
+  } catch {
+    return []
+  }
+  const targets = new Set()
+  let cwd = baseCwd
+  const collect = (rawPaths, atCwd = cwd) => {
+    for (const raw of rawPaths) {
+      if (typeof raw !== "string" || !raw || raw === "-" || raw.startsWith("&") || raw.startsWith("/dev/")) continue
+      const expanded = expandArg(raw, { scratch: scratchPath })
+      if (expanded.includes("$")) continue
+      const abs = realpathLoose(path.resolve(atCwd, expanded))
+      if (isInside(realpathLoose(scratchPath), abs)) continue
+      if (info.gitDir && isInside(realpathLoose(info.gitDir), abs)) continue
+      const rel = toRel(info, abs)
+      if (rel && rel !== "") targets.add(rel)
+    }
+  }
+  for (let i = 0; i < parsed.segments.length; i++) {
+    const seg = parsed.segments[i]
+    collect(parsed.segmentRedirects[i] || [], cwd)
+    const result = segmentWritePaths(seg)
+    collect(result.rawPaths, cwd)
+    for (const sub of result.subcommands) {
+      for (const rel of bashWriteTargets(sub, { ...ctx, info, cwd, scratch: scratchPath }, depth + 1)) targets.add(rel)
+    }
+    if (result.cwdChange) {
+      const next = result.cwdChange === "-" ? cwd : path.resolve(cwd, expandArg(result.cwdChange, { scratch: scratchPath }))
+      if (!next.includes("$")) cwd = next
+    }
+  }
+  for (const inner of parsed.nested) {
+    for (const rel of bashWriteTargets(inner, { ...ctx, info, cwd, scratch: scratchPath }, depth + 1)) targets.add(rel)
+  }
+  return [...targets]
 }
 
 /** Paths written by an edit/write/apply_patch style tool call. */

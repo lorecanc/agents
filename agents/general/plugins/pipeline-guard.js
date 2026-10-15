@@ -21,7 +21,7 @@
 import path from "node:path"
 
 import {
-  FILE_WRITE_TOOLS, checkBash, checkWritePath, conflictingClaims, editTargets, ensureScratch, gitAnomalies,
+  FILE_WRITE_TOOLS, bashWriteTargets, checkBash, checkWritePath, conflictingClaims, editTargets, ensureScratch, gitAnomalies,
   isPipelineAgent, readSession, removeStaleSessions, repoInfo, roleOf, scratchDir, snapshot, toRel, writeSession,
 } from "../tools/_pipeline_core.js"
 import { stopServicesOwnedBy } from "../tools/_pipeline_serve.js"
@@ -314,6 +314,17 @@ export async function createPipelineGuard({ client, directory } = {}, options = 
           const cwd = typeof args.workdir === "string" ? path.resolve(ctx.cwd, args.workdir) : ctx.cwd
           const reason = checkBash(args.command, role, { ...ctx, cwd })
           if (reason) throw blocked(reason)
+          if (s.rootKnown) {
+            for (const rel of bashWriteTargets(args.command, { ...ctx, cwd })) {
+              const clash = conflictingClaims(ctx.info, s.rootId, rel)
+              if (clash.length) {
+                throw blocked(
+                  `${rel} is being modified by another active opencode session (${clash.map((c) => c.sessionId).join(", ")}).`,
+                  "Do not edit it now: finish the other work first or report the conflict to the orchestrator.",
+                )
+              }
+            }
+          }
           return
         }
         if (FILE_WRITE_TOOLS.has(input.tool)) {
@@ -342,13 +353,19 @@ export async function createPipelineGuard({ client, directory } = {}, options = 
     "tool.execute.after": async (input) => {
       try {
         const s = sessions.get(input.sessionID)
-        if (!s || !s.pipeline || !FILE_WRITE_TOOLS.has(input.tool)) return
+        if (!s || !s.pipeline || (!FILE_WRITE_TOOLS.has(input.tool) && input.tool !== "bash")) return
         const rec = rootRec(s)
         const info = infoFor(s.directory)
         if (!rec || !info) return
         let changed = false
-        for (const target of editTargets(input.tool, input.args)) {
-          const rel = toRel(info, path.resolve(s.directory || directory, target))
+        const baseCwd = typeof input.args?.workdir === "string"
+          ? path.resolve(s.directory || directory, input.args.workdir)
+          : (s.directory || directory)
+        const targets = input.tool === "bash"
+          ? bashWriteTargets(input.args?.command, { info, cwd: baseCwd, scratch: scratchDir(info) })
+          : editTargets(input.tool, input.args)
+        for (const target of targets) {
+          const rel = input.tool === "bash" ? target : toRel(info, path.resolve(baseCwd, target))
           if (rel && !rec.files[rel]) {
             rec.files[rel] = Date.now()
             changed = true

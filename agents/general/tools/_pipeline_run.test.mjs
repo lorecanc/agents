@@ -211,6 +211,123 @@ test("runSmoke: a real expectation mismatch is a code failure and the service is
   assert.equal(res.cleanup.port_free, true)
 })
 
+test("runSmoke: preserves status=aborted and failure_class_hint=harness when aborted during ready or checks", async () => {
+  const fastServer = `
+const http = require("http")
+console.log("smoke-ready")
+http.createServer((req, res) => { res.writeHead(200); res.end("ok") }).listen(Number(process.env.PORT), "127.0.0.1")
+`
+  const checksDir = mkRepo(
+    { "server.js": fastServer },
+    {
+      smoke: {
+        start: `echo smoke-ready; ${node} server.js`,
+        ready: { log: "smoke-ready", timeout_s: 10 },
+        checks: [{ name: "slow-check", cmd: 'node -e "setTimeout(() => {}, 30000)"', timeout_s: 30 }],
+      },
+    },
+  )
+  const ac = new AbortController()
+  const abortChecks = setTimeout(() => ac.abort(), 350)
+  let res
+  try {
+    res = await runSmoke({ info: repoInfo(checksDir), signal: ac.signal, owner: "test" })
+  } finally {
+    clearTimeout(abortChecks)
+  }
+  const delayedServer = `
+const http = require("http")
+setTimeout(() => http.createServer((req, res) => { res.writeHead(200); res.end("ok") }).listen(Number(process.env.PORT), "127.0.0.1"), 30000)
+`
+  const readyDir = mkRepo(
+    { "server.js": delayedServer },
+    {
+      smoke: {
+        start: `${node} server.js`,
+        ready: { url: "http://127.0.0.1:\u0024{PORT}/health", timeout_s: 10 },
+        checks: [],
+      },
+    },
+  )
+  const ac2 = new AbortController()
+  const abortReady = setTimeout(() => ac2.abort(), 200)
+  let res2
+  try {
+    res2 = await runSmoke({ info: repoInfo(readyDir), signal: ac2.signal, owner: "test" })
+  } finally {
+    clearTimeout(abortReady)
+  }
+  assert.deepEqual(
+    {
+      checks: { status: res.status, reason: res.reason, failure_class_hint: res.failure_class_hint, check_status: res.checks[0]?.status },
+      ready: { status: res2.status, reason: res2.reason, failure_class_hint: res2.failure_class_hint },
+    },
+    {
+      checks: { status: "aborted", reason: "aborted", failure_class_hint: "harness", check_status: "aborted" },
+      ready: { status: "aborted", reason: "aborted", failure_class_hint: "harness" },
+    },
+  )
+})
+
+test("runSmoke: an abort during a successful URL check is reported as aborted", async () => {
+  const server = `
+const http = require("http")
+http.createServer((req, res) => { res.writeHead(200); res.end("ok") }).listen(Number(process.env.PORT), "127.0.0.1")
+`
+  const dir = mkRepo(
+    { "server.js": server },
+    { smoke: { start: `echo smoke-ready; ${node} server.js`, ready: { log: "smoke-ready", timeout_s: 10 }, checks: [{ name: "slow-url", url: "http://127.0.0.1:${PORT}/slow" }] } },
+  )
+  const ac = new AbortController()
+  const originalFetch = globalThis.fetch
+  let successfulUrlCheck = false
+  globalThis.fetch = async (...args) => {
+    const response = await originalFetch(...args)
+    if (String(args[0]).includes("/slow")) {
+      successfulUrlCheck = response.status === 200 && (await response.clone().text()) === "ok"
+      ac.abort()
+    }
+    return response
+  }
+  let res
+  try {
+    res = await runSmoke({ info: repoInfo(dir), signal: ac.signal, owner: "test" })
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+  assert.equal(successfulUrlCheck, true)
+  assert.equal(res.status, "aborted")
+  assert.equal(res.failure_class_hint, "harness")
+  assert.equal(res.checks[0].status, "aborted")
+})
+
+test("runSmoke: an abort immediately after readiness cannot pass with no checks", async () => {
+  const dir = mkRepo(
+    { "server.js": SERVER },
+    { smoke: { start: `${node} server.js`, ready: { url: "http://127.0.0.1:${PORT}/health", timeout_s: 10 }, checks: [] } },
+  )
+  const ac = new AbortController()
+  const originalFetch = globalThis.fetch
+  let readySucceeded = false
+  globalThis.fetch = async (...args) => {
+    const response = await originalFetch(...args)
+    if (String(args[0]).endsWith("/health")) {
+      readySucceeded = response.status === 200
+      ac.abort()
+    }
+    return response
+  }
+  let res
+  try {
+    res = await runSmoke({ info: repoInfo(dir), signal: ac.signal, owner: "test" })
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+  assert.equal(readySucceeded, true)
+  assert.equal(res.status, "aborted")
+  assert.equal(res.failure_class_hint, "harness")
+})
+
 test("runSmoke: command checks, env substitution and env_file (values never echoed)", async () => {
   const dir = mkRepo(
     { "server.js": SERVER, ".env.smoke": "SMOKE_SECRET=topsecretvalue\n" },

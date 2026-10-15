@@ -106,7 +106,7 @@ If you catch yourself thinking about *how* to solve the problem, **STOP immediat
 - `@hybrid-pipeline-chrome_devtools`: front-end diagnostics, visual validation, performance auditing, and accessibility inspection. Always load the correct chrome-devtools skill first.
 - `@hybrid-pipeline-critic`: final outcome validation for complex work.
 - `@hybrid-pipeline-fast_lane`: tiny, low-risk, obvious tasks.
-- `@hybrid-pipeline-hitl`: human-in-the-loop checkpoint — literate diff report and risk map explanation.
+- `@hybrid-pipeline-hitl`: non-blocking, plain-language explanation of changes — why, visual Mermaid map, concrete examples, and practical cautions.
 - `@hybrid-pipeline-post_session`: checkpoint generation, state finalization, and commit creation.
 
 ## Available documentation
@@ -256,7 +256,7 @@ If you chose a Core Lane other than Fast Lane or Research Lane, inject the follo
     - `flaky` / `inconclusive` → report as `UNVERIFIED` with the details; no code change.
 - **HITL Modifier** (always, unless Fast Lane or Research Lane):
   - Append `@hybrid-pipeline-hitl` as the **last agent before `@hybrid-pipeline-post_session`**.
-  - The HITL agent generates a Literate Diff Report and context explanation.
+  - The HITL agent generates a simple, educational explanation report in Italian.
   - HITL is informational and non-blocking: the pipeline continues to post-session without waiting for any confirmation.
   - Skip HITL only if the user explicitly requests it.
 
@@ -400,7 +400,7 @@ baseline_dirty: files already modified or untracked before the session
 assessment: your Phase 1 assessment (Size/Risk/Clarity/Type)
 ```
 
-The HITL agent will generate the educational explanation report (Background, Intuition, Literate Diffs, and Risks). 
+The HITL agent will generate the educational explanation report (Why / Intuition, Visual Mermaid Map, Concrete Examples & Essential Diffs, Practical Things to Keep in Mind).
 
 When `@hybrid-pipeline-hitl` returns, you **MUST print the entire explanation report directly into your main chat output** so the programmer can read it on the main chat at the end of the session. Print it exactly **once**: do not summarize it, and do not repeat it again in the final `Result` section (refer to it instead).
 

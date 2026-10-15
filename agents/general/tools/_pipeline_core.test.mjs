@@ -5,6 +5,7 @@ import os from "node:os"
 import path from "node:path"
 import { execFileSync } from "node:child_process"
 import { mkTmp } from "./_pipeline_testutil.mjs"
+import * as core from "./_pipeline_core.js"
 
 import {
   checkBash, checkWritePath, tokenize, repoInfo, snapshot, gitAnomalies, scratchDir, ensureScratch,
@@ -68,6 +69,17 @@ test("tokenize: segments, redirects, nested substitutions", () => {
   assert.ok(t.redirects.includes("/dev/null"))
   assert.deepEqual(t.segments[1].slice(0, 3), ["rm", "-f", "x"])
   assert.deepEqual(t.nested, ["cat y"])
+})
+
+test("tokenize: ANSI-C quoted strings do not retain the dollar prefix", () => {
+  assert.deepEqual(tokenize("$'git checkout -b evil'").segments, [["git checkout -b evil"]])
+  assert.deepEqual(tokenize(String.raw`$'hello\nworld'`).segments, [["hello\nworld"]])
+})
+
+test("checkBash: ANSI-C escapes are decoded before recursive shell validation", () => {
+  const ctx = ctxFor(mkRepo())
+  assert.ok(checkBash(String.raw`bash -c $'git\x20stash'`, "executor", ctx))
+  assert.match(checkBash(String.raw`bash -c $'git\qstash'`, "executor", ctx), /ANSI-C/)
 })
 
 test("tokenize: heredoc bodies are data, ${VAR} stays one token, >&2 leaves no stray token", () => {
@@ -140,6 +152,47 @@ test("checkBash: unknown variables and unparseable input fail open", () => {
   const ctx = ctxFor(mkRepo())
   assert.equal(checkBash("echo x > $SOME_UNKNOWN/file", "executor", ctx), null)
   assert.equal(checkBash(undefined, "executor", ctx), null)
+})
+
+test("checkBash: recursively validates sh/bash/zsh -c and -lc command strings", () => {
+  const ctx = ctxFor(mkRepo())
+  const results = [
+    checkBash("sh -c 'git checkout -b evil'", "executor", ctx),
+    checkBash("bash -lc 'echo x > /tmp/pwn'", "executor", ctx),
+    checkBash("env zsh -ec 'git stash'", "executor", ctx),
+    checkBash("sh -c 'git status && echo ok > out.txt'", "executor", ctx),
+  ]
+  assert.deepEqual(results.map(Boolean), [true, true, true, false])
+})
+
+test("checkBash: rejects shell nesting beyond the validation limit", () => {
+  const ctx = ctxFor(mkRepo())
+  const nest = (command, depth) => {
+    for (let i = 0; i < depth; i++) {
+      command = `sh -c "${command.replaceAll(/["\\]/g, "\\$&")}"`
+    }
+    return command
+  }
+
+  assert.ok(checkBash(nest("git checkout -b evil", 5), "executor", ctx))
+  assert.equal(checkBash(nest("echo ok", 4), "executor", ctx), null)
+})
+
+test("bashWriteTargets extracts repo-relative targets from redirects, file commands, sed -i, and nested sh -c", () => {
+  assert.equal(typeof core.bashWriteTargets, "function")
+  const targets = (command) => core.bashWriteTargets(command)
+  assert.ok(targets("echo hi > a.txt").includes("a.txt"))
+  assert.ok(targets("cp b.txt c.txt").includes("c.txt"))
+  assert.ok(targets("sed -i 's/foo/bar/' a.txt").includes("a.txt"))
+  assert.ok(targets("sh -c 'echo hi > d.txt'").includes("d.txt"))
+  assert.ok(!targets("echo hi > /dev/null").includes("/dev/null"))
+  assert.ok(!targets("echo hi > $PIPELINE_SCRATCH/tmp.txt").includes("$PIPELINE_SCRATCH/tmp.txt"))
+})
+
+test("bashWriteTargets resolves redirects after cd from that segment's working directory", () => {
+  const dir = mkRepo()
+  fs.mkdirSync(path.join(dir, "sub"))
+  assert.ok(core.bashWriteTargets("cd sub && echo hi > file.txt", ctxFor(dir)).includes("sub/file.txt"))
 })
 
 test("checkWritePath resolves symlinks before comparing roots", () => {
@@ -241,6 +294,63 @@ test("withLock serializes and cleans up", async () => {
     withLock(info, "busy", () => withLock(info, "busy", async () => {}, { timeoutMs: 300 }), { owner: "outer" }),
     /busy/,
   )
+})
+
+test("withLock: never evicts a live pid past staleMs, recovers orphaned lock dirs without owner.json, and checks ownership in finally", async (t) => {
+  const info = repoInfo(mkRepo())
+  const locks = path.join(info.stateDir, "locks")
+  fs.mkdirSync(locks, { recursive: true })
+  const liveLock = path.join(locks, "live.lock")
+  fs.mkdirSync(liveLock)
+  fs.writeFileSync(path.join(liveLock, "owner.json"), JSON.stringify({ pid: process.pid, owner: "holder", at: Date.now() - 60_000 }))
+  await t.test("a live PID is not evicted based only on stale timestamp", async () => {
+    try {
+      await assert.rejects(withLock(info, "live", async () => "stole", { staleMs: 10, timeoutMs: 300 }), /lock "live" busy/)
+    } finally {
+      fs.rmSync(liveLock, { recursive: true, force: true })
+    }
+  })
+
+  await t.test("an orphaned lock directory without owner.json is recovered", async () => {
+    const orphanLock = path.join(locks, "orphan.lock")
+    fs.mkdirSync(orphanLock)
+    const past = new Date(Date.now() - 10_000)
+    fs.utimesSync(orphanLock, past, past)
+    try {
+      assert.equal(await withLock(info, "orphan", async () => "recovered", { staleMs: 1000, timeoutMs: 1000 }), "recovered")
+    } finally {
+      fs.rmSync(orphanLock, { recursive: true, force: true })
+    }
+  })
+
+  await t.test("finally preserves a lock whose owner changed", async () => {
+    const replacedLock = path.join(locks, "replaced.lock")
+    try {
+      await withLock(info, "replaced", async () => {
+        const ownerFile = path.join(replacedLock, "owner.json")
+        const original = JSON.parse(fs.readFileSync(ownerFile, "utf8"))
+        fs.writeFileSync(ownerFile, JSON.stringify({ ...original, identity: "different-acquisition" }))
+      })
+      assert.equal(fs.existsSync(replacedLock), true)
+    } finally {
+      fs.rmSync(replacedLock, { recursive: true, force: true })
+    }
+  })
+
+  for (const [label, replaceOwner] of [
+    ["missing", (ownerFile) => fs.unlinkSync(ownerFile)],
+    ["corrupt", (ownerFile) => fs.writeFileSync(ownerFile, "{")],
+  ]) {
+    await t.test(`finally preserves a lock with a ${label} owner file`, async () => {
+      const lock = path.join(locks, `${label}.owner.lock`)
+      try {
+        await withLock(info, `${label}.owner`, async () => replaceOwner(path.join(lock, "owner.json")))
+        assert.equal(fs.existsSync(lock), true)
+      } finally {
+        fs.rmSync(lock, { recursive: true, force: true })
+      }
+    })
+  }
 })
 
 // ----------------------------------------------------------- commit plan

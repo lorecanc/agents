@@ -507,6 +507,15 @@ export async function runSmoke({ info, signal, owner }) {
       result.ready_ms = ready.ms
       if (!ready.ok) {
         const log = readLog()
+        if (ready.reason === "aborted" || (signal && signal.aborted)) {
+          const spec = (smoke.checks || [])[0]
+          if (spec) result.checks.push({ name: spec.name || spec.url || spec.cmd || "check", status: "aborted", detail: "aborted" })
+          result.status = "aborted"
+          result.reason = "aborted"
+          result.failure_class_hint = "harness"
+          result.log_tail = tail(log, 5000)
+          return result
+        }
         result.reason = ready.reason
         result.exit = exitInfo
         result.log_tail = tail(log, 5000)
@@ -514,15 +523,49 @@ export async function runSmoke({ info, signal, owner }) {
         if (ready.exited && !envHint(log)) result.note = "the service crashed at startup without an environment signature: read log_tail and decide between a code defect and an environment problem"
         return result
       }
+      if (signal && signal.aborted) {
+        const spec = (smoke.checks || [])[0]
+        if (spec) result.checks.push({ name: spec.name || spec.url || spec.cmd || "check", status: "aborted", detail: "aborted" })
+        result.status = "aborted"
+        result.reason = "aborted"
+        result.failure_class_hint = "harness"
+        result.log_tail = tail(readLog(), 3000)
+        return result
+      }
       result.phase = "checks"
       let allPass = true
       let codeFailure = false
       for (const spec of smoke.checks || []) {
         const name = spec.name || spec.url || spec.cmd || "check"
+        if (signal && signal.aborted) {
+          result.checks.push({ name, status: "aborted", detail: "aborted" })
+          result.status = "aborted"
+          result.reason = "aborted"
+          result.failure_class_hint = "harness"
+          result.log_tail = tail(readLog(), 3000)
+          return result
+        }
         let r
-        if (spec.url) r = await checkUrl(spec, subst, 10000)
-        else if (spec.cmd) {
+        if (spec.url) {
+          r = await checkUrl(spec, subst, 10000)
+          if (signal && signal.aborted) {
+            result.checks.push({ name, status: "aborted", detail: "aborted" })
+            result.status = "aborted"
+            result.reason = "aborted"
+            result.failure_class_hint = "harness"
+            result.log_tail = tail(readLog(), 3000)
+            return result
+          }
+        } else if (spec.cmd) {
           const c = await runCommand(subst(spec.cmd), { cwd: info.top, env, timeoutMs: (spec.timeout_s || 30) * 1000, signal })
+          if (c.aborted || (signal && signal.aborted)) {
+            result.checks.push({ name, status: "aborted", detail: "aborted", ...(c.output ? { output_excerpt: tail(c.output, 1000) } : {}) })
+            result.status = "aborted"
+            result.reason = "aborted"
+            result.failure_class_hint = "harness"
+            result.log_tail = tail(readLog(), 3000)
+            return result
+          }
           const okExit = c.exitCode === 0
           const okOut = !spec.expect_output || new RegExp(spec.expect_output).test(c.output)
           r = okExit && okOut ? { status: "pass", detail: "exit 0" } : { status: c.timedOut ? "error" : "fail", detail: `exit ${c.exitCode}${okOut ? "" : `, output did not match /${spec.expect_output}/`}`, output_excerpt: tail(c.output, 1000) }
