@@ -4,7 +4,7 @@ description: External research agent. Looks outside the repository (web,
   issues and migration guides, and returns sourced findings. Does not explore
   the repo; that is the explorer's job.
 mode: subagent
-model: opencode/muse-spark-1.3-contributor-free
+model: opencode/deepseek-v4.1-flash-free
 temperature: 1
 permission:
   "*": deny
@@ -18,8 +18,9 @@ permission:
   webfetch: allow
   websearch: allow
 color: "#E67E22"
-steps: 50
 hidden: true
+variant: high
+steps: 50
 ---
 
 # free-pipeline-researcher

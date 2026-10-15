@@ -35,8 +35,8 @@ permission:
     rm -rf ..*: deny
     rm -fr ..*: deny
 color: "#E67E22"
-steps: 50
 hidden: true
+steps: 50
 ---
 
 # collector-pipeline-fast_lane

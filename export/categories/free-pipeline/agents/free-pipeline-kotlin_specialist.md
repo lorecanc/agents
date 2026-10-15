@@ -3,7 +3,7 @@ description: Kotlin/Android specialist. Uses Google Developer Knowledge MCP
   (developer.android.com docs, Jetpack guides, API reference) to validate plans
   and code against Android conventions and API correctness. Does not edit files.
 mode: subagent
-model: opencode/muse-spark-1.3-contributor-free
+model: opencode/deepseek-v4.1-flash-free
 temperature: 1
 permission:
   "*": deny
@@ -31,8 +31,9 @@ permission:
     gradle --version: allow
     ./gradlew --version: allow
 color: "#E67E22"
-steps: 50
 hidden: true
+variant: high
+steps: 50
 ---
 
 # `pipeline-kotlin_specialist`

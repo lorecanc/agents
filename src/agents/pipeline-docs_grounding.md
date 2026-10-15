@@ -8,7 +8,7 @@ permission:
   "*": deny
   external_directory:
     "*": deny
-    "~/.local/share/opencode/tool-output/*": allow
+    ~/.local/share/opencode/tool-output/*: allow
   doom_loop: deny
   read: allow
   grep: allow
@@ -29,6 +29,7 @@ permission:
 color: "#E67E22"
 steps: 50
 hidden: true
+variant: high
 ---
 
 # `pipeline-docs_grounding`

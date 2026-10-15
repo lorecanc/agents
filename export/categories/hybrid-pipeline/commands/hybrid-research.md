@@ -1,6 +1,6 @@
 ---
 description: hybrid pipeline: research only, no code changes (internal explorer in parallel with external researcher)
-agent: hybrid-pipeline-orchestrator
+agent: hybrid-hybrid-pipeline-orchestrator
 ---
 
 Question (research only): $ARGUMENTS

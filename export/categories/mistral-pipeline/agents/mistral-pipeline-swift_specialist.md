@@ -37,8 +37,9 @@ permission:
     xcrun --version*: allow
     xcrun --show-sdk-version*: allow
 color: "#E67E22"
-steps: 50
 hidden: true
+variant: high
+steps: 50
 ---
 
 # `pipeline-swift_specialist`

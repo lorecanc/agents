@@ -51,8 +51,9 @@ permission:
     git commit * --no-verify*: deny
     git commit * --all*: deny
 color: "#E67E22"
-steps: 50
 hidden: true
+variant: high
+steps: 50
 ---
 
 # mistral-pipeline-post_session
@@ -106,7 +107,7 @@ If `expected files` is missing or empty, stop and report `NEEDS_EXPECTED_FILES`.
 If the `pipeline_commit` tool is available, use it instead of raw git:
 
 1. Call `pipeline_state` to see `changed.session`, `pre_existing`, `unattributed`, and `anomalies`.
-2. Call `pipeline_commit` with `mode`, `message` (subject only; the `chore(checkpoint): ` prefix and the `mistral-pipeline-Checkpoint: true` trailer are added for you), `expected_files`, `validation`, `validation_note` (required when `unverified`), and the caller's `baseline_dirty`. Use `dry_run: true` first whenever anything is `unattributed` or in conflict.
+2. Call `pipeline_commit` with `mode`, `message` (subject only; the `chore(checkpoint): ` prefix and the `Pipeline-Checkpoint: true` trailer are added for you), `expected_files`, `validation`, `validation_note` (required when `unverified`), and the caller's `baseline_dirty`. Use `dry_run: true` first whenever anything is `unattributed` or in conflict.
 3. Report the tool's `committed`, `conflicts`, `unattributed`, and `notChanged` lists in your output. Never work around a refusal with raw git.
 
 The manual workflow below is the fallback when the tool is not available.
@@ -130,7 +131,7 @@ Applies to both modes.
 
 - `checkpoint`: `chore(checkpoint): <phase> — <scope>`
 - `final`: conventional format, `feat(<scope>): <description>` or `fix(<scope>): <description>`
-- Both include the trailer `mistral-pipeline-Checkpoint: true`.
+- Both include the trailer `Pipeline-Checkpoint: true`.
 - If `validation status` is `unverified`, add a line `Validation: unverified (<reason>)` to the message body.
 
 ## You must not

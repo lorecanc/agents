@@ -2,7 +2,7 @@
 description: Designs, writes, and evaluates tests for changed behavior. Focuses
   on minimal meaningful coverage and regression prevention.
 mode: subagent
-model: opencode/muse-spark-1.3-contributor-free
+model: opencode/deepseek-v4.1-flash-free
 temperature: 1
 permission:
   "*": deny
@@ -37,8 +37,9 @@ permission:
     rm -rf ..*: deny
     rm -fr ..*: deny
 color: "#E67E22"
-steps: 50
 hidden: true
+variant: high
+steps: 50
 ---
 
 # free-pipeline-tester

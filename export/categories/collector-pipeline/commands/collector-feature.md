@@ -1,6 +1,6 @@
 ---
 description: collector pipeline: implement a feature through the smallest effective lane
-agent: collector-pipeline-orchestrator
+agent: collector-collector-pipeline-orchestrator
 ---
 
 Request (feature): $ARGUMENTS

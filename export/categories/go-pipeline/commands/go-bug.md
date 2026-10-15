@@ -1,6 +1,6 @@
 ---
 description: go pipeline: fix a bug with mandatory test-first (Red then Green)
-agent: go-pipeline-orchestrator
+agent: go-go-pipeline-orchestrator
 ---
 
 Request (bug fix): $ARGUMENTS

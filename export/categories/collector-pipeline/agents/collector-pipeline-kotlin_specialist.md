@@ -31,8 +31,8 @@ permission:
     gradle --version: allow
     ./gradlew --version: allow
 color: "#E67E22"
-steps: 50
 hidden: true
+steps: 50
 ---
 
 # `pipeline-kotlin_specialist`

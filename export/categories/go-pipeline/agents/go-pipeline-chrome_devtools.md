@@ -24,9 +24,9 @@ permission:
   bash:
     "*": deny
 color: "#E67E22"
-steps: 50
 hidden: true
 variant: high
+steps: 50
 ---
 
 # go-pipeline-chrome_devtools

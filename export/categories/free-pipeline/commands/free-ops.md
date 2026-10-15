@@ -1,6 +1,6 @@
 ---
 description: free pipeline: operational diagnostics and runtime checks, no code changes
-agent: free-pipeline-orchestrator
+agent: free-free-pipeline-orchestrator
 ---
 
 Task (operations): $ARGUMENTS

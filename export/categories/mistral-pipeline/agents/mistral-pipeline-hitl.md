@@ -43,8 +43,9 @@ permission:
     tail *: allow
     wc *: allow
 color: "#E67E22"
-steps: 50
 hidden: true
+variant: high
+steps: 50
 ---
 
 # mistral-pipeline-hitl

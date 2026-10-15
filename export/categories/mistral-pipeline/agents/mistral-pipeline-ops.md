@@ -54,8 +54,9 @@ permission:
     pkill *: deny
     killall *: deny
 color: "#E67E22"
-steps: 50
 hidden: true
+variant: high
+steps: 50
 ---
 
 # mistral-pipeline-ops

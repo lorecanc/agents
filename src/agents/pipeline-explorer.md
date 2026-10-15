@@ -8,8 +8,8 @@ permission:
   "*": deny
   external_directory:
     "*": deny
-    "~/.local/share/opencode/tool-output/*": allow
-    "~/.config/opencode/skills/*": allow
+    ~/.local/share/opencode/tool-output/*: allow
+    ~/.config/opencode/skills/*: allow
   doom_loop: deny
   pipeline_state: allow
   read: allow
@@ -50,6 +50,7 @@ permission:
 color: "#E67E22"
 steps: 50
 hidden: true
+variant: high
 ---
 
 # pipeline-explorer

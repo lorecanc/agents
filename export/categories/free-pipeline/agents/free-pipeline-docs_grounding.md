@@ -2,7 +2,7 @@
 description: Fetches and summarizes external library documentation to ground the
   planner and executor in real APIs. Does not edit files.
 mode: subagent
-model: opencode/muse-spark-1.3-contributor-free
+model: opencode/deepseek-v4.1-flash-free
 temperature: 1
 permission:
   "*": deny
@@ -27,8 +27,9 @@ permission:
     find * -fprint*: deny
     cat *: allow
 color: "#E67E22"
-steps: 50
 hidden: true
+variant: high
+steps: 50
 ---
 
 # `pipeline-docs_grounding`

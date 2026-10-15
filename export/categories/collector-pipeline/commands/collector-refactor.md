@@ -1,6 +1,6 @@
 ---
 description: collector pipeline: behavior-preserving refactor
-agent: collector-pipeline-orchestrator
+agent: collector-collector-pipeline-orchestrator
 ---
 
 Request (refactor): $ARGUMENTS

@@ -1,8 +1,8 @@
 ---
 description: External research agent. Looks outside the repository (web,
-  registries, changelogs, advisories) for best practices, alternatives,
-  known issues and migration guides, and returns sourced findings. Does not
-  explore the repo; that is the explorer's job.
+  registries, changelogs, advisories) for best practices, alternatives, known
+  issues and migration guides, and returns sourced findings. Does not explore
+  the repo; that is the explorer's job.
 mode: subagent
 model: opencode-go/deepseek-v4.1-flash
 temperature: 1
@@ -10,7 +10,7 @@ permission:
   "*": deny
   external_directory:
     "*": deny
-    "~/.local/share/opencode/tool-output/*": allow
+    ~/.local/share/opencode/tool-output/*: allow
   doom_loop: deny
   read: allow
   grep: allow
@@ -20,6 +20,7 @@ permission:
 color: "#E67E22"
 steps: 50
 hidden: true
+variant: high
 ---
 
 # pipeline-researcher

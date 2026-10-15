@@ -1,6 +1,6 @@
 ---
 description: free pipeline: implement a feature through the smallest effective lane
-agent: free-pipeline-orchestrator
+agent: free-free-pipeline-orchestrator
 ---
 
 Request (feature): $ARGUMENTS

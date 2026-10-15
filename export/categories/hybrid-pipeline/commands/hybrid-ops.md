@@ -1,6 +1,6 @@
 ---
 description: hybrid pipeline: operational diagnostics and runtime checks, no code changes
-agent: hybrid-pipeline-orchestrator
+agent: hybrid-hybrid-pipeline-orchestrator
 ---
 
 Task (operations): $ARGUMENTS

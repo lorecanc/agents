@@ -47,8 +47,8 @@ permission:
     tail *: allow
     wc *: allow
 color: "#E67E22"
-steps: 50
 hidden: true
+steps: 50
 ---
 
 # collector-pipeline-critic
