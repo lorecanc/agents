@@ -32,8 +32,11 @@ import {
   importAgents,
   AgentDiffResult,
   analyzePermissionOrder,
-  fixPermissionOrder
-  , sanitizeFilename,
+  fixPermissionOrder,
+  type TuningField,
+  inspectTuningTargets,
+  buildTuningUpdateParams,
+  sanitizeFilename,
   getCategoryPrefixes,
   resolveSourceSubdir,
   resolveCategoriesSubdir
@@ -292,11 +295,17 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
   const [tuningSteps, setTuningSteps] = useState("50")
   const [tuningTemp, setTuningTemp] = useState("0.2")
   const [tuningVariant, setTuningVariant] = useState("")
-  const [tuningVariantTouched, setTuningVariantTouched] = useState(false)
+  const [tuningDirtyFields, setTuningDirtyFields] = useState<Set<TuningField>>(new Set())
   const [tuningMode, setTuningMode] = useState<"subagent" | "primary">("subagent")
   const [tuningHidden, setTuningHidden] = useState(false)
   const [tuningFocusedField, setTuningFocusedField] = useState<"steps" | "temp" | "variant" | "mode" | "hidden">("steps")
   const [tuningTargetPaths, setTuningTargetPaths] = useState<string[]>([])
+  const markTuningDirty = (field: TuningField) => setTuningDirtyFields(prev => {
+    if (prev.has(field)) return prev
+    const next = new Set(prev)
+    next.add(field)
+    return next
+  })
 
   // Import Diff State
   const [importDiffs, setImportDiffs] = useState<AgentDiffResult[]>([])
@@ -1049,21 +1058,22 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           }
         }
       } else if (key === "t") {
-        if (activeItems.length > 0 && activeItems[focusedIndex]?.agent) {
-          const target = activeItems[focusedIndex].agent!
+        if (activeItems.length > 0) {
+          const focusedItem = activeItems[focusedIndex]
           const targetAgents = selectedAgentPaths.size > 0
-            ? agents.filter((a) => selectedAgentPaths.has(a.currentPath))
-            : [target]
+            ? agents.filter(a => selectedAgentPaths.has(a.currentPath))
+            : focusedItem?.type === "folder"
+              ? agents.filter(a => a.category === focusedItem.category)
+              : focusedItem?.agent ? [focusedItem.agent] : []
+          if (targetAgents.length === 0) return
+          const summary = inspectTuningTargets(targetAgents)
           setTuningTargetPaths(targetAgents.map((a) => a.currentPath))
-          const defaults = targetAgents[0]
-          const variants = targetAgents.map((a) => String(a.frontmatter.variant ?? "").trim())
-          const variantsMatch = variants.every((variant) => variant === variants[0])
-          setTuningSteps(String(defaults.frontmatter.steps || 50))
-          setTuningTemp(String(defaults.frontmatter.temperature || 0.2))
-          setTuningVariant(variantsMatch ? String(defaults.frontmatter.variant ?? "").trim() : "")
-          setTuningVariantTouched(false)
-          setTuningMode((target.frontmatter.mode as any) || "subagent")
-          setTuningHidden(Boolean(target.frontmatter.hidden))
+          setTuningSteps(summary.steps.value)
+          setTuningTemp(summary.temp.value)
+          setTuningVariant(summary.variant.value)
+          setTuningMode(summary.mode.value)
+          setTuningHidden(summary.hidden.value)
+          setTuningDirtyFields(new Set())
           setTuningFocusedField("steps")
           setViewMode("parameter-tuning")
         }
@@ -1793,7 +1803,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
       } else if (key === "tab" && tuningFocusedField === "variant") {
         const index = tuningVariantChoices.indexOf(tuningVariant)
         setTuningVariant(tuningVariantChoices[(index + 1 + tuningVariantChoices.length) % tuningVariantChoices.length])
-        setTuningVariantTouched(true)
+        markTuningDirty("variant")
       } else if (key === "tab" || key === "down") {
         setTuningFocusedField((prev) =>
           prev === "steps" ? "temp" : prev === "temp" ? "variant" : prev === "variant" ? "mode" : prev === "mode" ? "hidden" : "steps"
@@ -1807,82 +1817,93 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           const choices = tuningVariantChoices
           const currentIndex = choices.indexOf(tuningVariant)
           setTuningVariant(choices[(currentIndex + 1 + choices.length) % choices.length])
-          setTuningVariantTouched(true)
+          markTuningDirty("variant")
         } else if (tuningFocusedField === "mode") {
           setTuningMode((prev) => (prev === "primary" ? "subagent" : "primary"))
+          markTuningDirty("mode")
         } else if (tuningFocusedField === "hidden") {
           setTuningHidden((prev) => !prev)
+          markTuningDirty("hidden")
         }
       } else if (key === "backspace") {
         if (tuningFocusedField === "steps") {
-          setTuningSteps((prev) => prev.slice(0, -1))
+          if (!tuningDirtyFields.has("steps") && tuningSummary.steps.mixed) setTuningSteps("")
+          else setTuningSteps(prev => prev.slice(0, -1))
+          markTuningDirty("steps")
         } else if (tuningFocusedField === "temp") {
-          setTuningTemp((prev) => prev.slice(0, -1))
+          if (!tuningDirtyFields.has("temp") && tuningSummary.temp.mixed) setTuningTemp("")
+          else setTuningTemp(prev => prev.slice(0, -1))
+          markTuningDirty("temp")
         } else if (tuningFocusedField === "variant") {
           setTuningVariant((prev) => prev.slice(0, -1))
-          setTuningVariantTouched(true)
+          markTuningDirty("variant")
         }
       } else if (key === "enter" || key === "return") {
         const targetAgents = tuningTargetPaths.length > 0
           ? agents.filter((a) => tuningTargetPaths.includes(a.currentPath))
           : []
-        
-        if (targetAgents.length === 0) return
-
-        const stepsNum = tuningSteps ? parseInt(tuningSteps, 10) : undefined
-        const tempNum = tuningTemp ? parseFloat(tuningTemp) : undefined
-        const variantParam = tuningVariantTouched ? (tuningVariant.trim() === "" ? null : tuningVariant.trim()) : undefined
-        if ((stepsNum !== undefined && (!Number.isFinite(stepsNum) || stepsNum < 0)) ||
-            (tempNum !== undefined && (!Number.isFinite(tempNum) || tempNum < 0 || tempNum > 1))) {
-          setActionResultTitle("Invalid Parameters")
-          setActionResultLines(["Steps must be a non-negative number and temperature must be between 0 and 1."])
-          setViewMode("action-result")
+        if (tuningDirtyFields.size === 0) {
+          setViewMode("main")
+          setLayoutStatus("No parameters modified — left all agents unchanged.")
           return
         }
+        if (targetAgents.length === 0) return
 
         try {
-          const tx = mutate(targetAgents.map(a => a.currentPath), "tune", () => updateAgentParams(targetAgents, {
-          steps: stepsNum,
-           temperature: tempNum,
-           mode: tuningMode,
-          hidden: tuningHidden,
-          variant: variantParam,
-          allowedVariants: modelVariants && modelVariants.length > 0 ? modelVariants : undefined
-          }))
+          const params = buildTuningUpdateParams(
+            { steps: tuningSteps, temp: tuningTemp, variant: tuningVariant, mode: tuningMode, hidden: tuningHidden },
+            tuningDirtyFields,
+            modelVariants && modelVariants.length > 0 ? modelVariants : undefined
+          )
+          const tx = mutate(targetAgents.map(a => a.currentPath), "tune", () => updateAgentParams(targetAgents, params))
           try { refreshData() } catch (error) { setMutationRefreshFailure(error, tx.warning); return }
           setSelectedAgentPaths(new Set())
-           setMutationSuccess("Parameters Updated Successfully", [
-          `Successfully tuned parameters for ${targetAgents.length} agents:`,
-          `  * Steps:  ${tuningSteps || "unchanged"}`,
-          `  * Temp:   ${tuningTemp || "unchanged"}`,
-          ...(variantParam !== undefined ? [`  * Variant (Effort): ${variantParam ?? "cleared (default)"}`] : []),
-          `  * Mode:   ${tuningMode}`,
-          `  * Hidden: ${tuningHidden}`
-           ], tx.warning)
+          setMutationSuccess("Parameters Updated Successfully", [
+           `Successfully tuned parameters for ${targetAgents.length} agents:`,
+           `  * Steps:  ${tuningDirtyFields.has("steps") ? tuningSteps : "unchanged"}`,
+           `  * Temp:   ${tuningDirtyFields.has("temp") ? tuningTemp : "unchanged"}`,
+           `  * Variant (Effort): ${tuningDirtyFields.has("variant") ? (tuningVariant.trim() || "cleared (default)") : "unchanged"}`,
+           `  * Mode:   ${tuningDirtyFields.has("mode") ? tuningMode : "unchanged"}`,
+           `  * Hidden: ${tuningDirtyFields.has("hidden") ? tuningHidden : "unchanged"}`
+          ], tx.warning)
         } catch (error: any) {
-          setActionResultTitle("Error Updating Parameters")
-          setActionResultLines([`An error occurred:`, `  ${error.message || error}`])
+          setLayoutStatus(error.message || String(error))
+          return
         }
         setViewMode("action-result")
       } else if (/^[\x20-\x7E]$/.test(rawChar) && rawChar !== " ") {
         if (tuningFocusedField === "steps" && /[0-9]/.test(rawChar)) {
-          setTuningSteps((prev) => prev + rawChar)
+          if (!tuningDirtyFields.has("steps") && tuningSummary.steps.mixed) setTuningSteps(rawChar)
+          else setTuningSteps(prev => prev + rawChar)
+          markTuningDirty("steps")
         } else if (tuningFocusedField === "temp" && /[0-9]/.test(rawChar)) {
-          setTuningTemp((prev) => prev + rawChar)
-        } else if (tuningFocusedField === "temp" && rawChar === "." && !tuningTemp.includes(".")) {
-          setTuningTemp((prev) => prev + rawChar)
+          if (!tuningDirtyFields.has("temp") && tuningSummary.temp.mixed) setTuningTemp(rawChar)
+          else setTuningTemp(prev => prev + rawChar)
+          markTuningDirty("temp")
+        } else if (tuningFocusedField === "temp" && rawChar === ".") {
+          if (!tuningDirtyFields.has("temp") && tuningSummary.temp.mixed) setTuningTemp("0.")
+          else setTuningTemp(prev => rawChar === "." && prev.includes(".") ? prev : prev + rawChar)
+          markTuningDirty("temp")
         } else if (tuningFocusedField === "variant" && /^[a-zA-Z0-9_-]$/.test(rawChar)) {
           setTuningVariant((prev) => prev + rawChar)
-          setTuningVariantTouched(true)
+          markTuningDirty("variant")
         }
-      } else if ((key === "left" || key === "right") && tuningFocusedField === "variant") {
-        const choices = tuningVariantChoices
-        const currentIndex = choices.indexOf(tuningVariant)
-        const nextIndex = currentIndex < 0
-          ? (key === "right" ? 0 : choices.length - 1)
-          : (currentIndex + (key === "right" ? 1 : -1) + choices.length) % choices.length
-        setTuningVariant(choices[nextIndex])
-        setTuningVariantTouched(true)
+      } else if (key === "left" || key === "right") {
+        if (tuningFocusedField === "variant") {
+          const choices = tuningVariantChoices
+          const currentIndex = choices.indexOf(tuningVariant)
+          const nextIndex = currentIndex < 0
+            ? (key === "right" ? 0 : choices.length - 1)
+            : (currentIndex + (key === "right" ? 1 : -1) + choices.length) % choices.length
+          setTuningVariant(choices[nextIndex])
+          markTuningDirty("variant")
+        } else if (tuningFocusedField === "mode") {
+          setTuningMode(prev => prev === "primary" ? "subagent" : "primary")
+          markTuningDirty("mode")
+        } else if (tuningFocusedField === "hidden") {
+          setTuningHidden(prev => !prev)
+          markTuningDirty("hidden")
+        }
       }
     } else if (viewMode === "rename-prompt") {
       // 13. Rename agent prompt mode
@@ -2059,9 +2080,14 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
 
   // Get active item
   const currentItem = activeItems[focusedIndex]
-  const tuningAgents = selectedAgentPaths.size > 0
-    ? agents.filter(agent => selectedAgentPaths.has(agent.currentPath))
-    : currentItem?.agent ? [currentItem.agent] : []
+  const tuningAgents = viewMode === "parameter-tuning" && tuningTargetPaths.length > 0
+    ? agents.filter(agent => tuningTargetPaths.includes(agent.currentPath))
+    : selectedAgentPaths.size > 0
+      ? agents.filter(agent => selectedAgentPaths.has(agent.currentPath))
+      : currentItem?.type === "folder"
+        ? agents.filter(agent => agent.category === currentItem.category)
+        : currentItem?.agent ? [currentItem.agent] : []
+  const tuningSummary = useMemo(() => inspectTuningTargets(tuningAgents), [tuningAgents])
   const tuningModels = Array.from(new Set<string>(tuningAgents.map(agent => agent.frontmatter.model)
     .filter((model): model is string => typeof model === "string" && model.trim().length > 0)))
   const modelVariants = tuningModels.length === 1
@@ -2850,7 +2876,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
               <text width="60%" wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: tuningFocusedField === "steps" ? "#F1C40F" : "gray" }} b>
                 {tuningFocusedField === "steps" ? "► 1. Max Agentic Steps (e.g. 50):" : "  1. Max Agentic Steps:"}
               </text>
-              <text width="40%" height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "white" }}>{tuningSteps || "50"}</text>
+              <text width="40%" height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "white" }}>{!tuningDirtyFields.has("steps") && tuningSummary.steps.mixed ? tuningSummary.steps.displayMixed : `${tuningSteps}${!tuningDirtyFields.has("steps") && tuningTargetPaths.length > 1 ? " (unchanged)" : ""}`}</text>
             </box>
 
             {/* Temp field */}
@@ -2866,7 +2892,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
               <text width="60%" wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: tuningFocusedField === "temp" ? "#F1C40F" : "gray" }} b>
                 {tuningFocusedField === "temp" ? "► 2. Temperature (e.g. 0.1 - 0.7):" : "  2. Temperature:"}
               </text>
-              <text width="40%" height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "white" }}>{tuningTemp || "0.2"}</text>
+              <text width="40%" height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "white" }}>{!tuningDirtyFields.has("temp") && tuningSummary.temp.mixed ? tuningSummary.temp.displayMixed : `${tuningTemp}${!tuningDirtyFields.has("temp") && tuningTargetPaths.length > 1 ? " (unchanged)" : ""}`}</text>
             </box>
 
             {/* Thinking / Effort field */}
@@ -2884,7 +2910,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
                   {tuningFocusedField === "variant" ? "► 3. Thinking / Effort (variant):" : "  3. Thinking / Effort:"}
                 </text>
                 <text width="40%" wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "cyan" }}>
-                  {tuningVariant || (!tuningVariantTouched && tuningTargetPaths.length > 1 ? "(unchanged)" : "(default / unset)")}
+                  {!tuningDirtyFields.has("variant") && tuningSummary.variant.mixed ? tuningSummary.variant.displayMixed : `${tuningVariant || "(default / unset)"}${!tuningDirtyFields.has("variant") && tuningTargetPaths.length > 1 ? " (unchanged)" : ""}`}
                 </text>
               </box>
               {tuningFocusedField === "variant" && <text height={1} wrapMode="none" overflow="hidden" style={{ textColor: "gray" }}>{modelVariants !== null && modelVariants.length > 0
@@ -2907,7 +2933,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
               <text width="60%" wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: tuningFocusedField === "mode" ? "#F1C40F" : "gray" }} b>
                 {tuningFocusedField === "mode" ? "► 4. Mode (Press SPACE to toggle):" : "  4. Mode:"}
               </text>
-              <text width="40%" height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "yellow" }}>{tuningMode.toUpperCase()}</text>
+              <text width="40%" height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "yellow" }}>{!tuningDirtyFields.has("mode") && tuningSummary.mode.mixed ? tuningSummary.mode.displayMixed : `${tuningMode.toUpperCase()}${!tuningDirtyFields.has("mode") && tuningTargetPaths.length > 1 ? " (unchanged)" : ""}`}</text>
             </box>
 
             {/* Hidden field */}
@@ -2923,7 +2949,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
               <text width="60%" wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: tuningFocusedField === "hidden" ? "#F1C40F" : "gray" }} b>
                 {tuningFocusedField === "hidden" ? "► 5. Hidden Status (Press SPACE to toggle):" : "  5. Hidden Status:"}
               </text>
-              <text width="40%" height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: tuningHidden ? "red" : "green" }}>{tuningHidden ? "TRUE" : "FALSE"}</text>
+              <text width="40%" height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: tuningHidden ? "red" : "green" }}>{!tuningDirtyFields.has("hidden") && tuningSummary.hidden.mixed ? tuningSummary.hidden.displayMixed : `${tuningHidden ? "TRUE" : "FALSE"}${!tuningDirtyFields.has("hidden") && tuningTargetPaths.length > 1 ? " (unchanged)" : ""}`}</text>
             </box>
           </box>
 

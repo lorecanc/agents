@@ -360,6 +360,8 @@ export function detectFrontmatterVersion(fm: Record<string, any>): "v1" | "v2" |
   const hasV2 = v2OnlyFields.some(f => f in fm)
   const hasV1 = v1OnlyFields.some(f => f in fm)
 
+  // V1 agent files in this repository use `steps` alongside singular `permission`.
+  if ("steps" in fm && "permission" in fm && !["disabled", "system", "permissions", "request"].some(f => f in fm)) return "v1"
   if (hasV2 && !hasV1) return "v2"
   if (hasV1 && !hasV2) return "v1"
   return "unknown"

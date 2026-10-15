@@ -38,6 +38,67 @@ export interface AgentInfo {
   frontmatterVersion?: "v1" | "v2" | "unknown"
 }
 
+export type TuningField = "steps" | "temp" | "variant" | "mode" | "hidden"
+
+export interface TuningInitialState {
+  steps: { value: string; mixed: boolean; distinctValues: number[]; displayMixed: string }
+  temp: { value: string; mixed: boolean; distinctValues: number[]; displayMixed: string }
+  variant: { value: string; mixed: boolean; distinctValues: string[]; displayMixed: string }
+  mode: { value: "subagent" | "primary"; mixed: boolean; distinctValues: string[]; displayMixed: string }
+  hidden: { value: boolean; mixed: boolean; distinctValues: boolean[]; displayMixed: string }
+}
+
+export function inspectTuningTargets(agents: AgentInfo[]): TuningInitialState {
+  const stepsDistinct = [...new Set(agents.map(agent => agent.frontmatter.steps ?? agent.frontmatter.max_steps ?? 50))].sort((a, b) => a - b)
+  const stepsMixed = stepsDistinct.length > 1
+  const stepsValue = stepsDistinct.length === 1 ? String(stepsDistinct[0]) : String(agents[0]?.frontmatter.steps ?? agents[0]?.frontmatter.max_steps ?? 50)
+  const tempDistinct = [...new Set(agents.map(agent => agent.frontmatter.temperature ?? 0.2))].sort((a, b) => a - b)
+  const tempMixed = tempDistinct.length > 1
+  const tempValue = tempDistinct.length === 1 ? String(tempDistinct[0]) : String(agents[0]?.frontmatter.temperature ?? 0.2)
+  const variantDistinct = [...new Set(agents.map(agent => typeof agent.frontmatter.variant === "string" ? agent.frontmatter.variant.trim() : ""))].sort()
+  const variantMixed = variantDistinct.length > 1
+  const variantValue = variantDistinct.length === 1 ? variantDistinct[0] : ""
+  const modeDistinct = [...new Set(agents.map(agent => agent.frontmatter.mode === "primary" ? "primary" : "subagent"))].sort()
+  const modeMixed = modeDistinct.length > 1
+  const modeValue = modeDistinct.length === 1 ? modeDistinct[0] as "primary" | "subagent" : agents[0]?.frontmatter.mode === "primary" ? "primary" : "subagent"
+  const hiddenDistinct = [...new Set(agents.map(agent => Boolean(agent.frontmatter.hidden)))].sort((a, b) => Number(a) - Number(b))
+  const hiddenMixed = hiddenDistinct.length > 1
+  const hiddenValue = hiddenDistinct.length === 1 ? hiddenDistinct[0] : Boolean(agents[0]?.frontmatter.hidden)
+
+  return {
+    steps: { value: stepsValue, mixed: stepsMixed, distinctValues: stepsDistinct, displayMixed: stepsMixed ? `(mixed: ${stepsDistinct.join(", ")} — unchanged)` : stepsValue },
+    temp: { value: tempValue, mixed: tempMixed, distinctValues: tempDistinct, displayMixed: tempMixed ? `(mixed: ${tempDistinct.join(", ")} — unchanged)` : tempValue },
+    variant: { value: variantValue, mixed: variantMixed, distinctValues: variantDistinct, displayMixed: variantMixed ? `(mixed: ${variantDistinct.map(value => value || "default").join(", ")} — unchanged)` : variantValue },
+    mode: { value: modeValue, mixed: modeMixed, distinctValues: modeDistinct, displayMixed: modeMixed ? `(mixed: ${modeDistinct.map(mode => mode.toUpperCase()).join(", ")} — unchanged)` : modeValue.toUpperCase() },
+    hidden: { value: hiddenValue, mixed: hiddenMixed, distinctValues: hiddenDistinct, displayMixed: hiddenMixed ? `(mixed: ${hiddenDistinct.map(value => value ? "TRUE" : "FALSE").join(", ")} — unchanged)` : hiddenValue ? "TRUE" : "FALSE" }
+  }
+}
+
+export function buildTuningUpdateParams(
+  draft: { steps: string; temp: string; variant: string; mode: "subagent" | "primary"; hidden: boolean },
+  dirtyFields: ReadonlySet<TuningField>,
+  allowedVariants?: readonly string[]
+): { steps?: number; temperature?: number; mode?: "subagent" | "primary"; hidden?: boolean; variant?: string | null; allowedVariants?: readonly string[] } {
+  const params: { steps?: number; temperature?: number; mode?: "subagent" | "primary"; hidden?: boolean; variant?: string | null; allowedVariants?: readonly string[] } = {}
+  if (dirtyFields.has("steps")) {
+    const stepsNum = parseInt(draft.steps, 10)
+    if (isNaN(stepsNum) || stepsNum < 0) throw new Error("Steps must be a valid positive number.")
+    params.steps = stepsNum
+  }
+  if (dirtyFields.has("temp")) {
+    const tempNum = parseFloat(draft.temp)
+    if (isNaN(tempNum) || tempNum < 0 || tempNum > 1) throw new Error("Temperature must be a valid number between 0.0 and 1.0.")
+    params.temperature = tempNum
+  }
+  if (dirtyFields.has("variant")) {
+    params.variant = draft.variant.trim() === "" ? null : draft.variant.trim()
+    if (allowedVariants && allowedVariants.length > 0) params.allowedVariants = allowedVariants
+  }
+  if (dirtyFields.has("mode")) params.mode = draft.mode
+  if (dirtyFields.has("hidden")) params.hidden = draft.hidden
+  return params
+}
+
 export function resolveSourceSubdir(workspaceRoot: string): string {
   return fs.existsSync(path.join(workspaceRoot, "src")) ? "src" : "general"
 }
@@ -495,7 +556,11 @@ export function updateAgentParams(
 
   for (const agent of agents) {
     const updatedFrontmatter = { ...agent.frontmatter }
-    if (params.steps !== undefined) updatedFrontmatter.steps = params.steps
+    if (params.steps !== undefined) {
+      if (updatedFrontmatter.steps !== undefined) updatedFrontmatter.steps = params.steps
+      if (updatedFrontmatter.max_steps !== undefined) updatedFrontmatter.max_steps = params.steps
+      if (updatedFrontmatter.steps === undefined && updatedFrontmatter.max_steps === undefined) updatedFrontmatter.steps = params.steps
+    }
     if (params.temperature !== undefined) updatedFrontmatter.temperature = params.temperature
     if (params.mode !== undefined) updatedFrontmatter.mode = params.mode
     if (params.hidden !== undefined) updatedFrontmatter.hidden = params.hidden

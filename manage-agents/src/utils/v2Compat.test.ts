@@ -233,6 +233,10 @@ test("detectFrontmatterVersion detects V2 format", () => {
   assert.equal(detectFrontmatterVersion(v2), "v2")
 })
 
+test("detectFrontmatterVersion detects repository V1 steps with singular permission", () => {
+  assert.equal(detectFrontmatterVersion({ steps: 120, permission: { bash: "allow" } }), "v1")
+})
+
 test("detectFrontmatterVersion returns unknown for mixed or empty", () => {
   assert.equal(detectFrontmatterVersion({}), "unknown")
   assert.equal(detectFrontmatterVersion({ model: "test/model" }), "unknown")

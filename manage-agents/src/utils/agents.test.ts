@@ -5,6 +5,7 @@ import path from "node:path"
 import { execFileSync, spawnSync } from "node:child_process"
 import test from "node:test"
 import { extractFrontmatter, exportAgents, getExportDestination, isInGeneralAgents, parseAgentFile, saveAgentFile, repairAgentModels, updateAgentsModel, forkCategory, parseForkReplacements, compareCompanionResources, previewImport, importAgents, discoverAgentResources, updateAgentResourcesAndMcp, updateAgentParams, AGENT_EFFORT_VARIANTS } from "./agents.js"
+import * as agentsMod from "./agents.js"
 import { AUTO_COMMIT_MESSAGES, repositoryTransaction } from "./repositoryTransaction.js"
 import { updateCategoryCompanionLinks } from "./companionLinks.js"
 
@@ -698,6 +699,85 @@ test("agent params set effort variants and preserve other frontmatter and body",
     assert.match(content, /Agent body\./)
   }
   assert.throws(() => updateAgentParams([agent], { variant: "extreme" }), /Invalid agent variant/)
+})
+
+test("legacy V1 max_steps survives parsing and tuning updates", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "agent-legacy-steps-"))
+  const filePath = path.join(workspace, "general/agents/legacy-agent.md")
+  fs.mkdirSync(path.dirname(filePath), { recursive: true })
+  fs.writeFileSync(filePath, [
+    "---",
+    "description: Legacy agent",
+    "max_steps: 12",
+    "permission:",
+    "  read: allow",
+    "---",
+    "",
+    "Agent body."
+  ].join("\n"))
+
+  const agent = parseAgentFile(filePath, workspace)!
+  assert.equal(agent.frontmatterVersion, "v1")
+  assert.equal(agent.frontmatter.max_steps, 12)
+  assert.equal(Object.hasOwn(agent.frontmatter, "steps"), false)
+
+  updateAgentParams([agent], { temperature: 0.5 })
+  let content = fs.readFileSync(filePath, "utf8")
+  assert.match(content, /\nmax_steps: 12\n/)
+  assert.doesNotMatch(content, /\nsteps:/)
+  assert.equal(parseAgentFile(filePath, workspace)!.frontmatterVersion, "v1")
+
+  updateAgentParams([agent], { steps: 20 })
+  content = fs.readFileSync(filePath, "utf8")
+  assert.match(content, /\nmax_steps: 20\n/)
+  assert.doesNotMatch(content, /\nsteps:/)
+  const updated = parseAgentFile(filePath, workspace)!
+  assert.equal(updated.frontmatterVersion, "v1")
+  assert.equal(updated.frontmatter.max_steps, 20)
+  assert.equal(Object.hasOwn(updated.frontmatter, "steps"), false)
+})
+
+test("multi-agent parameter tuning summarizes mixed values and only updates dirty fields", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "agent-multi-tuning-"))
+  const subagentPath = path.join(workspace, "general/agents/go-pipeline-executor.md")
+  const orchestratorPath = path.join(workspace, "general/agents/go-pipeline-orchestrator.md")
+  for (const [filePath, frontmatter] of [
+    [orchestratorPath, { description: "Pipeline orchestrator", mode: "primary", steps: 120, temperature: 1, hidden: false }],
+    [subagentPath, { description: "Pipeline executor", mode: "subagent", steps: 50, temperature: 0.2, hidden: true }]
+  ] as const) {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true })
+    saveAgentFile(filePath, frontmatter, "Agent body.")
+  }
+  const subagent = parseAgentFile(subagentPath, workspace)!
+  const orchestrator = parseAgentFile(orchestratorPath, workspace)!
+
+  assert.equal(typeof (agentsMod as any).inspectTuningTargets, "function")
+  assert.equal(typeof (agentsMod as any).buildTuningUpdateParams, "function")
+  const summary = (agentsMod as any).inspectTuningTargets([subagent, orchestrator])
+  assert.equal(summary.steps.mixed, true)
+  assert.equal(summary.steps.displayMixed, "(mixed: 50, 120 — unchanged)")
+  assert.equal(summary.temp.mixed, true)
+  assert.equal(summary.temp.displayMixed, "(mixed: 0.2, 1 — unchanged)")
+  assert.equal(summary.mode.mixed, true)
+  assert.equal(summary.mode.displayMixed, "(mixed: PRIMARY, SUBAGENT — unchanged)")
+  assert.equal(summary.hidden.mixed, true)
+  assert.equal(summary.hidden.displayMixed, "(mixed: FALSE, TRUE — unchanged)")
+
+  const params = (agentsMod as any).buildTuningUpdateParams(
+    { steps: "50", temp: "0.2", variant: "high", mode: "subagent", hidden: true },
+    new Set(["variant"])
+  )
+  assert.deepEqual(params, { variant: "high" })
+
+  updateAgentParams([subagent, orchestrator], params)
+  const updatedSubagent = parseAgentFile(subagentPath, workspace)!
+  const updatedOrchestrator = parseAgentFile(orchestratorPath, workspace)!
+  assert.equal(updatedSubagent.frontmatter.variant, "high")
+  assert.equal(updatedOrchestrator.frontmatter.variant, "high")
+  assert.equal(updatedOrchestrator.frontmatter.mode, "primary")
+  assert.equal(updatedOrchestrator.frontmatter.max_steps, 120)
+  assert.equal(updatedOrchestrator.frontmatter.temperature, 1)
+  assert.equal(updatedOrchestrator.frontmatter.hidden, false)
 })
 
 test("agent params accept known model variants and model-specific allowed variants", () => {

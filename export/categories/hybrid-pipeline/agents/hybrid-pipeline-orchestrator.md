@@ -48,7 +48,7 @@ permission:
   codebase-memory-mcp_index_repository: deny
 color: "#E67E22"
 steps: 120
-hidden: true
+hidden: false
 variant: high
 ---
 
