@@ -37,6 +37,326 @@ export interface AgentInfo {
   frontmatterVersion?: "v1" | "v2" | "unknown"
 }
 
+export type AgentResourceKind = "skill-wildcard" | "skill" | "tool-family" | "tool" | "mcp"
+
+export interface AgentResourceItem {
+  id: string
+  kind: AgentResourceKind
+  name: string
+  permissionKey: string
+  allowed: boolean
+  exists: boolean
+  relativePath?: string
+  familyKey?: string
+}
+
+export interface AgentMcpResourceItem extends AgentResourceItem {
+  kind: "mcp"
+  serverKey: string
+  serverEnabled: boolean
+  configuredInOpencode: boolean
+}
+
+export interface AgentResourceCatalog {
+  skills: AgentResourceItem[]
+  tools: AgentResourceItem[]
+  mcpServers: AgentMcpResourceItem[]
+  companionFiles: string[]
+  opencodeRawContent: string | null
+}
+
+export interface AgentResourceChanges {
+  skills?: {
+    all: boolean
+    allowedNames: string[]
+  }
+  permissions?: Record<string, boolean>
+  mcpEnabled?: Record<string, boolean>
+}
+
+function isPlainObject(value: unknown): value is Record<string, any> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function resourcePathStat(filePath: string): fs.Stats | undefined {
+  const stat = fs.lstatSync(filePath, { throwIfNoEntry: false })
+  if (stat?.isSymbolicLink()) throw new Error(`Refusing to use symlink resource path: ${filePath}`)
+  return stat
+}
+
+export function discoverAgentResources(
+  workspaceRoot: string,
+  agent: AgentInfo,
+  allAgents?: AgentInfo[]
+): AgentResourceCatalog {
+  const generalDir = path.join(workspaceRoot, "general")
+  const generalStat = resourcePathStat(generalDir)
+  if (generalStat && !generalStat.isDirectory()) throw new Error(`Resource root is not a directory: ${generalDir}`)
+  const permission = agent.frontmatter?.permission
+  const perm = isPlainObject(permission) ? permission : {}
+  const allowedValue = (value: unknown) => value === "allow" || value === true
+  const skillPermission = perm.skill
+  const skillPermissionObject = isPlainObject(skillPermission) ? skillPermission : undefined
+  const wildcardAllowed = allowedValue(skillPermission) || !!(skillPermissionObject && allowedValue(skillPermissionObject["*"]))
+  const skillNames = new Set<string>()
+  if (skillPermissionObject) {
+    for (const key of Object.keys(skillPermissionObject)) if (key !== "*") skillNames.add(key)
+  }
+
+  const skillRoot = path.join(generalDir, "skills")
+  const skillRootStat = resourcePathStat(skillRoot)
+  if (skillRootStat && !skillRootStat.isDirectory()) throw new Error(`Skills resource root is not a directory: ${skillRoot}`)
+  const diskSkillNames = new Set<string>()
+  if (skillRootStat) {
+    for (const entry of fs.readdirSync(skillRoot)) {
+      const entryPath = path.join(skillRoot, entry)
+      const entryStat = resourcePathStat(entryPath)
+      if (!entryStat?.isDirectory()) continue
+      const skillFile = path.join(entryPath, "SKILL.md")
+      const skillFileStat = resourcePathStat(skillFile)
+      if (skillFileStat?.isFile()) {
+        diskSkillNames.add(entry)
+        skillNames.add(entry)
+      }
+    }
+  }
+
+  const skills: AgentResourceItem[] = [{
+    id: "skill:*", kind: "skill-wildcard", name: "* (All Skills)", permissionKey: "*", allowed: wildcardAllowed, exists: true
+  }]
+  for (const name of [...skillNames].sort((a, b) => a.localeCompare(b))) {
+    const exists = diskSkillNames.has(name)
+    const allowed = skillPermissionObject && Object.prototype.hasOwnProperty.call(skillPermissionObject, name)
+      ? allowedValue(skillPermissionObject[name])
+      : wildcardAllowed
+    skills.push({
+      id: `skill:${name}`, kind: "skill", name, permissionKey: name, allowed, exists,
+      relativePath: exists ? path.join("skills", name, "SKILL.md") : undefined
+    })
+  }
+
+  const tools: AgentResourceItem[] = []
+  const toolRoot = path.join(generalDir, "tools")
+  const toolRootStat = resourcePathStat(toolRoot)
+  if (toolRootStat && !toolRootStat.isDirectory()) throw new Error(`Tools resource root is not a directory: ${toolRoot}`)
+  const toolNames = new Set<string>()
+  if (toolRootStat) {
+    for (const entry of fs.readdirSync(toolRoot)) {
+      if (!entry.endsWith(".ts") || entry.endsWith(".d.ts") || entry.endsWith(".test.ts")) continue
+      const entryPath = path.join(toolRoot, entry)
+      if (resourcePathStat(entryPath)?.isFile()) toolNames.add(entry.slice(0, -3))
+    }
+  }
+  const families = new Map<string, string[]>()
+  const standalone: string[] = []
+  for (const name of toolNames) {
+    const match = name.match(/^([^_]+)_.+$/)
+    if (!match) {
+      standalone.push(name)
+      continue
+    }
+    const members = families.get(match[1]) ?? []
+    members.push(name)
+    families.set(match[1], members)
+  }
+  const toolPrefixes = new Set(families.keys())
+  for (const prefix of [...families.keys()].sort((a, b) => a.localeCompare(b))) {
+    const familyKey = `${prefix}_*`
+    const familyAllowed = allowedValue(perm[familyKey])
+    tools.push({ id: `tool-family:${prefix}`, kind: "tool-family", name: familyKey, permissionKey: familyKey, allowed: familyAllowed, exists: true, familyKey })
+    for (const name of families.get(prefix)!.sort((a, b) => a.localeCompare(b))) {
+      const allowed = Object.prototype.hasOwnProperty.call(perm, name) ? allowedValue(perm[name]) : familyAllowed
+      tools.push({
+        id: `tool:${name}`, kind: "tool", name, permissionKey: name, allowed, exists: true,
+        relativePath: path.join("tools", `${name}.ts`), familyKey
+      })
+    }
+  }
+  for (const name of standalone.sort((a, b) => a.localeCompare(b))) {
+    tools.push({
+      id: `tool:${name}`, kind: "tool", name, permissionKey: name, allowed: allowedValue(perm[name]), exists: true,
+      relativePath: path.join("tools", `${name}.ts`)
+    })
+  }
+
+  const opencodePath = path.join(generalDir, "opencode.json")
+  const opencodeStat = resourcePathStat(opencodePath)
+  let opencodeRawContent: string | null = null
+  let parsedOpencode: Record<string, any> = {}
+  if (opencodeStat) {
+    if (!opencodeStat.isFile()) throw new Error(`OpenCode config is not a regular file: ${opencodePath}`)
+    opencodeRawContent = fs.readFileSync(opencodePath, "utf8")
+    parsedOpencode = JSON.parse(opencodeRawContent)
+    if (!isPlainObject(parsedOpencode)) throw new Error(`Invalid OpenCode config object: ${opencodePath}`)
+    if (Object.prototype.hasOwnProperty.call(parsedOpencode, "mcp") && !isPlainObject(parsedOpencode.mcp)) {
+      throw new Error(`Invalid mcp object in OpenCode config: ${opencodePath}`)
+    }
+  }
+  const mcpObj = isPlainObject(parsedOpencode.mcp) ? parsedOpencode.mcp : {}
+  const mcpNames = new Set(Object.keys(mcpObj))
+  const collectMcpPermissionKeys = (source: unknown) => {
+    if (!isPlainObject(source)) return
+    for (const key of Object.keys(source)) {
+      if (!key.endsWith("_*")) continue
+      const prefix = key.slice(0, -2)
+      if (prefix && !toolPrefixes.has(prefix)) mcpNames.add(prefix)
+    }
+  }
+  collectMcpPermissionKeys(perm)
+  for (const other of allAgents ?? []) collectMcpPermissionKeys(other.frontmatter?.permission)
+  const mcpServers: AgentMcpResourceItem[] = [...mcpNames].sort((a, b) => a.localeCompare(b)).map(serverKey => {
+    const configuredInOpencode = Object.prototype.hasOwnProperty.call(mcpObj, serverKey)
+    return {
+      id: `mcp:${serverKey}`, kind: "mcp", name: serverKey, serverKey, permissionKey: `${serverKey}_*`,
+      allowed: allowedValue(perm[`${serverKey}_*`]), exists: configuredInOpencode,
+      relativePath: configuredInOpencode ? "opencode.json" : undefined,
+      serverEnabled: configuredInOpencode ? Boolean(mcpObj[serverKey]?.enabled) : false, configuredInOpencode
+    }
+  })
+
+  return {
+    skills, tools, mcpServers,
+    companionFiles: discoverCompanionResourcePaths(generalDir, [agentDomain(agent.filename)]),
+    opencodeRawContent
+  }
+}
+
+export function updateAgentResourcesAndMcp(
+  workspaceRoot: string,
+  agent: AgentInfo,
+  catalog: AgentResourceCatalog,
+  changes: AgentResourceChanges
+): { changedPaths: string[] } {
+  const hasPermissions = Object.keys(changes.permissions ?? {}).length > 0
+  const hasMcpChanges = Object.keys(changes.mcpEnabled ?? {}).length > 0
+  if (!changes.skills && !hasPermissions && !hasMcpChanges) return { changedPaths: [] }
+
+  const permission = agent.frontmatter.permission
+  if (permission !== undefined && !isPlainObject(permission)) throw new Error("Agent permission must be an object")
+  for (const key of Object.keys(changes.permissions ?? {})) {
+    if (![...catalog.tools, ...catalog.mcpServers].some(item => item.permissionKey === key)) {
+      throw new Error(`Unknown resource permission key: ${key}`)
+    }
+  }
+  for (const name of changes.skills?.allowedNames ?? []) {
+    if (!catalog.skills.some(item => item.kind === "skill" && item.name === name)) throw new Error(`Unknown skill: ${name}`)
+  }
+  for (const key of Object.keys(changes.mcpEnabled ?? {})) {
+    if (!catalog.mcpServers.some(item => item.serverKey === key && item.configuredInOpencode)) {
+      throw new Error(`Unknown configured MCP server: ${key}`)
+    }
+  }
+
+  const agentPath = agent.currentPath
+  const generalDir = path.join(workspaceRoot, "general")
+  const opencodePath = path.join(generalDir, "opencode.json")
+  const changesAgent = !!changes.skills || hasPermissions
+  let originalAgent: Buffer | undefined
+  let agentMode: number | undefined
+  let originalOpencode: Buffer | undefined
+  if (changesAgent) {
+    const stat = fs.lstatSync(agentPath)
+    if (stat.isSymbolicLink() || !stat.isFile()) throw new Error(`Refusing to update non-regular agent file: ${agentPath}`)
+    originalAgent = fs.readFileSync(agentPath)
+    if (originalAgent.toString("utf8") !== agent.rawContent) throw new Error(`Agent changed on disk before resource update: ${agent.filename}`)
+    agentMode = stat.mode & 0o7777
+  }
+  if (hasMcpChanges) {
+    const stat = resourcePathStat(opencodePath)
+    if (!stat?.isFile() || catalog.opencodeRawContent === null) throw new Error(`OpenCode config does not exist: ${opencodePath}`)
+    originalOpencode = fs.readFileSync(opencodePath)
+    if (originalOpencode.toString("utf8") !== catalog.opencodeRawContent) throw new Error("OpenCode config changed on disk before MCP update")
+  }
+
+  let updatedFrontmatter: Record<string, any> | undefined
+  let renderedAgent: string | undefined
+  if (changesAgent) {
+    const existingPerm: Record<string, any> = { ...(agent.frontmatter.permission || {}) }
+    if (changes.skills) {
+      const knownNames = catalog.skills.filter(item => item.kind === "skill").map(item => item.name)
+      const allowedNames = new Set(changes.skills.allowedNames)
+      if (changes.skills.all) {
+        const unchecked = knownNames.filter(name => !allowedNames.has(name)).sort((a, b) => a.localeCompare(b))
+        existingPerm.skill = unchecked.length
+          ? { "*": "allow", ...Object.fromEntries(unchecked.map(name => [name, "deny"])) }
+          : { "*": "allow" }
+      } else {
+        const checked = knownNames.filter(name => allowedNames.has(name)).sort((a, b) => a.localeCompare(b))
+        existingPerm.skill = checked.length
+          ? { "*": "deny", ...Object.fromEntries(checked.map(name => [name, "allow"])) }
+          : "deny"
+      }
+    }
+    for (const [key, allow] of Object.entries(changes.permissions ?? {})) existingPerm[key] = allow ? "allow" : "deny"
+    if (hasPermissions) {
+      const familyKeys = [...new Set(catalog.tools.filter(item => item.kind === "tool-family").map(item => item.permissionKey))]
+        .filter(key => Object.prototype.hasOwnProperty.call(existingPerm, key))
+      const reordered: Record<string, any> = {}
+      const emittedFamilies = new Set<string>()
+      for (const [key, value] of Object.entries(existingPerm)) {
+        const memberFamily = familyKeys.find(family => key.startsWith(family.slice(0, -1)) && key !== family)
+        if (memberFamily && !emittedFamilies.has(memberFamily)) {
+          reordered[memberFamily] = existingPerm[memberFamily]
+          emittedFamilies.add(memberFamily)
+        }
+        if (familyKeys.includes(key)) {
+          if (!emittedFamilies.has(key)) reordered[key] = value
+          emittedFamilies.add(key)
+        } else reordered[key] = value
+      }
+      for (const key of Object.keys(existingPerm)) delete existingPerm[key]
+      Object.assign(existingPerm, reordered)
+    }
+    updatedFrontmatter = { ...agent.frontmatter, permission: existingPerm }
+    renderedAgent = renderAgentFile(updatedFrontmatter, agent.body, agent.frontmatterVersion)
+  }
+
+  let renderedOpencode: string | undefined
+  if (hasMcpChanges) {
+    const parsed = JSON.parse(catalog.opencodeRawContent!) as Record<string, any>
+    if (!isPlainObject(parsed.mcp)) parsed.mcp = {}
+    for (const [serverKey, enabled] of Object.entries(changes.mcpEnabled ?? {})) {
+      if (!isPlainObject(parsed.mcp[serverKey])) throw new Error(`Invalid MCP server configuration: ${serverKey}`)
+      parsed.mcp[serverKey].enabled = Boolean(enabled)
+    }
+    renderedOpencode = `${JSON.stringify(parsed, null, 2)}\n`
+  }
+
+  const changedPaths: string[] = []
+  const agentBytes = renderedAgent === undefined ? undefined : Buffer.from(renderedAgent, "utf8")
+  const opencodeBytes = renderedOpencode === undefined ? undefined : Buffer.from(renderedOpencode, "utf8")
+  const agentChanged = !!(agentBytes && originalAgent && !agentBytes.equals(originalAgent))
+  const opencodeChanged = !!(opencodeBytes && originalOpencode && !opencodeBytes.equals(originalOpencode))
+  let agentWritten = false
+  try {
+    if (agentChanged) {
+      atomicWriteAgentFile(agentPath, agentBytes!)
+      agentWritten = true
+      changedPaths.push(agentPath)
+    }
+    if (opencodeChanged) {
+      atomicWriteAgentFile(opencodePath, opencodeBytes!)
+      changedPaths.push(opencodePath)
+    }
+  } catch (error: any) {
+    if (agentWritten) {
+      try {
+        atomicWriteAgentFile(agentPath, originalAgent!)
+        fs.chmodSync(agentPath, agentMode!)
+      } catch (rollbackError: any) {
+        throw new Error(`${error?.message || error}; rollback incomplete: ${rollbackError?.message || rollbackError}`)
+      }
+      throw new Error(`${error?.message || error}; rollback completed`)
+    }
+    throw error
+  }
+  if (updatedFrontmatter && renderedAgent !== undefined) {
+    agent.frontmatter = updatedFrontmatter
+    agent.rawContent = renderedAgent
+  }
+  return { changedPaths }
+}
+
 export type AgentList = AgentInfo[] & { warnings?: string[] }
 
 export interface NamingAnalysis {
@@ -149,26 +469,34 @@ export function applySafetyPreset(agents: AgentInfo[], presetKey: "readonly_scou
         ...preset.permissions
       }
     }
-    saveAgentFile(agent.currentPath, updatedFrontmatter, agent.body)
+    saveAgentFile(agent.currentPath, updatedFrontmatter, agent.body, agent.frontmatterVersion)
     agent.frontmatter = updatedFrontmatter
   }
 }
 
 export function updateAgentParams(
   agents: AgentInfo[],
-  params: { steps?: number; temperature?: number; mode?: string; hidden?: boolean }
+  params: { steps?: number; temperature?: number; mode?: string; hidden?: boolean; variant?: string | null }
 ) {
+  if (typeof params.variant === "string" && params.variant.trim() === "") {
+    throw new Error("Agent variant cannot be empty. Pass null to clear variant.")
+  }
+
   for (const agent of agents) {
     const updatedFrontmatter = { ...agent.frontmatter }
     if (params.steps !== undefined) updatedFrontmatter.steps = params.steps
     if (params.temperature !== undefined) updatedFrontmatter.temperature = params.temperature
     if (params.mode !== undefined) updatedFrontmatter.mode = params.mode
     if (params.hidden !== undefined) updatedFrontmatter.hidden = params.hidden
+    if (params.variant === null) delete updatedFrontmatter.variant
+    else if (params.variant !== undefined) updatedFrontmatter.variant = params.variant.trim()
 
-    saveAgentFile(agent.currentPath, updatedFrontmatter, agent.body)
+    saveAgentFile(agent.currentPath, updatedFrontmatter, agent.body, agent.frontmatterVersion)
     agent.frontmatter = updatedFrontmatter
   }
 }
+
+export const AGENT_EFFORT_VARIANTS = ["none", "minimal", "low", "medium", "high", "xhigh", "max"] as const
 
 export interface PermissionOrderAnalysis {
   hasOrderError: boolean
@@ -231,7 +559,7 @@ export function fixPermissionOrder(agent: AgentInfo): boolean {
 
   if (modified) {
     const updatedFrontmatter = { ...agent.frontmatter, permission: updatedPerm }
-    saveAgentFile(agent.currentPath, updatedFrontmatter, agent.body)
+    saveAgentFile(agent.currentPath, updatedFrontmatter, agent.body, agent.frontmatterVersion)
     agent.frontmatter = updatedFrontmatter
   }
 
@@ -259,7 +587,7 @@ export function updateAgentDelegations(
     }
   }
 
-  saveAgentFile(agent.currentPath, updatedFrontmatter, agent.body)
+  saveAgentFile(agent.currentPath, updatedFrontmatter, agent.body, agent.frontmatterVersion)
   agent.frontmatter = updatedFrontmatter
   agent.allowedSubagents = allowedSubagentNames
 }
@@ -268,10 +596,31 @@ export interface AgentDiffResult {
   filename: string
   localPath: string
   exportPath: string
+  existsLocally: boolean
   existsInExport: boolean
   hasDifferences: boolean
   localContent: string
   exportContent: string
+}
+
+export interface CompanionResourceDiff {
+  relativePath: string
+  localPath: string
+  exportPath: string
+  existsLocally: boolean
+  existsInExport: boolean
+  hasDifferences: boolean
+}
+
+export interface ImportPreview {
+  agents: AgentDiffResult[]
+  companionResources: CompanionResourceDiff[]
+}
+
+export interface ImportResult {
+  imported: string[]
+  importedResources: string[]
+  backupPath: string | null
 }
 
 export function compareAgentWithExport(agent: AgentInfo): AgentDiffResult {
@@ -283,6 +632,7 @@ export function compareAgentWithExport(agent: AgentInfo): AgentDiffResult {
       filename: agent.filename,
       localPath: agent.currentPath,
       exportPath,
+      existsLocally: true,
       existsInExport: false,
       hasDifferences: true,
       localContent: agent.rawContent,
@@ -297,6 +647,7 @@ export function compareAgentWithExport(agent: AgentInfo): AgentDiffResult {
     filename: agent.filename,
     localPath: agent.currentPath,
     exportPath,
+    existsLocally: true,
     existsInExport: true,
     hasDifferences,
     localContent: agent.rawContent,
@@ -304,30 +655,146 @@ export function compareAgentWithExport(agent: AgentInfo): AgentDiffResult {
   }
 }
 
-export function importAgents(workspaceRoot: string, selectedFilenames?: string[]): { imported: string[]; backupPath: string | null } {
+function validateImportFile(filePath: string): fs.Stats | undefined {
+  const stat = fs.lstatSync(filePath, { throwIfNoEntry: false })
+  if (stat && (stat.isSymbolicLink() || !stat.isFile())) throw new Error(`Refusing to import symlink or non-regular file: ${filePath}`)
+  return stat
+}
+
+function validateImportDestination(workspaceRoot: string, filePath: string): void {
+  const generalRoot = path.resolve(workspaceRoot, "general")
+  const resolvedPath = path.resolve(filePath)
+  const relative = path.relative(generalRoot, resolvedPath)
+  if (relative.startsWith(`..${path.sep}`) || relative === ".." || path.isAbsolute(relative)) {
+    throw new Error(`Refusing import destination outside general/: ${filePath}`)
+  }
+
+  let current = generalRoot
+  const components = relative.split(path.sep).filter(Boolean)
+  for (const component of components.slice(0, -1)) {
+    current = path.join(current, component)
+    const stat = fs.lstatSync(current, { throwIfNoEntry: false })
+    if (stat && (stat.isSymbolicLink() || !stat.isDirectory())) throw new Error(`Refusing import through symlink or non-directory path: ${current}`)
+  }
+  validateImportFile(resolvedPath)
+}
+
+function validateImportDirectory(directoryPath: string): void {
+  const stat = fs.lstatSync(directoryPath, { throwIfNoEntry: false })
+  if (stat && (stat.isSymbolicLink() || !stat.isDirectory())) throw new Error(`Refusing import through symlink or non-directory path: ${directoryPath}`)
+}
+
+export function previewImport(workspaceRoot: string): ImportPreview {
+  const agentsDir = path.join(workspaceRoot, "general", "agents")
   const exportDir = getExportDestination()
-  if (!fs.existsSync(exportDir)) {
-    throw new Error(`OpenCode agents directory not found at: ${exportDir}`)
+  validateImportDirectory(path.join(workspaceRoot, "general"))
+  validateImportDestination(workspaceRoot, path.join(agentsDir, ".validation"))
+  validateImportDirectory(agentsDir)
+  validateImportDirectory(path.dirname(exportDir))
+  validateImportDirectory(exportDir)
+  const localAgents = fs.existsSync(agentsDir)
+    ? fs.readdirSync(agentsDir).filter(filename => filename.endsWith(".md")).map(filename => {
+      const filePath = path.join(agentsDir, filename)
+      validateImportDestination(workspaceRoot, filePath)
+      return parseAgentFile(filePath, workspaceRoot)
+    }).filter((agent): agent is AgentInfo => !!agent)
+    : []
+  const byFilename = new Map<string, AgentInfo>(localAgents.map(agent => [agent.filename, agent]))
+  if (fs.existsSync(exportDir)) {
+    for (const filename of fs.readdirSync(exportDir).filter(name => name.endsWith(".md"))) {
+      validateImportFile(path.join(exportDir, filename))
+      if (!byFilename.has(filename)) {
+        byFilename.set(filename, {
+          filename, currentPath: "", targetPath: "", category: "", description: "", model: "", rawContent: "",
+          frontmatter: {}, body: "", allowedSubagents: []
+        })
+      }
+    }
   }
+  const agents = [...byFilename.keys()].sort().map(filename => {
+    const agent = byFilename.get(filename)!
+    if (agent.currentPath) {
+      validateImportDestination(workspaceRoot, agent.currentPath)
+      const exportPath = path.join(exportDir, filename)
+      validateImportFile(exportPath)
+      return compareAgentWithExport(agent)
+    }
+    const exportPath = path.join(exportDir, filename)
+    validateImportFile(exportPath)
+    return { filename, localPath: path.join(agentsDir, filename), exportPath, existsLocally: false, existsInExport: true,
+      hasDifferences: true, localContent: "", exportContent: fs.readFileSync(exportPath, "utf8") }
+  })
+  return { agents, companionResources: compareCompanionResources(workspaceRoot) }
+}
 
-  const backupsPath = createBackup(workspaceRoot)
+export function importAgents(
+  workspaceRoot: string,
+  selectedFilenames?: string[],
+  options?: { includeResources?: boolean; selectedResources?: string[] }
+): ImportResult {
+  const preview = previewImport(workspaceRoot)
+  const selected = selectedFilenames && selectedFilenames.length > 0 ? new Set(selectedFilenames) : null
+  const agents = preview.agents.filter(diff => diff.existsInExport && diff.hasDifferences && (!selected || selected.has(diff.filename)))
+  const resources = options?.includeResources === false ? [] : preview.companionResources.filter(diff => diff.existsInExport && diff.hasDifferences &&
+    (!options?.selectedResources || options.selectedResources.length === 0 || options.selectedResources.includes(diff.relativePath)))
+  if (!agents.length && !resources.length) return { imported: [], importedResources: [], backupPath: null }
 
-  const files = fs.readdirSync(exportDir).filter(f => f.endsWith(".md"))
-  const toImport = selectedFilenames && selectedFilenames.length > 0
-    ? files.filter(f => selectedFilenames.includes(f))
-    : files
-
+  const backupPath = createBackup(workspaceRoot)
   const imported: string[] = []
+  const importedResources: string[] = []
+  const generalDir = path.join(workspaceRoot, "general")
+  fs.mkdirSync(generalDir, { recursive: true })
+  const staging = fs.mkdtempSync(path.join(generalDir, ".import-stage-"))
+  const appliedImports: Array<{ localPath: string; relativeToGeneral: string; existed: boolean; mode?: number }> = []
+  try {
+    const stagedImports = [
+      ...agents.map(diff => ({ diff, relativeToGeneral: path.relative(generalDir, diff.localPath), name: diff.filename, resource: false })),
+      ...resources.map(diff => ({ diff, relativeToGeneral: path.relative(generalDir, diff.localPath), name: diff.relativePath, resource: true }))
+    ]
 
-  for (const filename of toImport) {
-    const src = path.join(exportDir, filename)
-    const dest = path.join(workspaceRoot, "general", "agents", filename)
-    fs.mkdirSync(path.dirname(dest), { recursive: true })
-    fs.copyFileSync(src, dest)
-    imported.push(filename)
+    for (const item of stagedImports) {
+      validateImportFile(item.diff.exportPath)
+      validateImportDestination(workspaceRoot, item.diff.localPath)
+      const stagedPath = path.join(staging, item.relativeToGeneral)
+      fs.mkdirSync(path.dirname(stagedPath), { recursive: true })
+      fs.copyFileSync(item.diff.exportPath, stagedPath)
+      fs.chmodSync(stagedPath, fs.statSync(item.diff.exportPath).mode & 0o7777)
+    }
+
+    for (const item of stagedImports) {
+      fs.mkdirSync(path.dirname(item.diff.localPath), { recursive: true })
+      const targetStat = fs.lstatSync(item.diff.localPath, { throwIfNoEntry: false })
+      appliedImports.push({
+        localPath: item.diff.localPath,
+        relativeToGeneral: item.relativeToGeneral,
+        existed: !!targetStat,
+        mode: targetStat?.mode & 0o7777
+      })
+      fs.renameSync(path.join(staging, item.relativeToGeneral), item.diff.localPath)
+      if (item.resource) importedResources.push(item.name)
+      else imported.push(item.name)
+    }
+  } catch (error: any) {
+    const rollbackErrors: string[] = []
+    for (const applied of appliedImports.reverse()) {
+      try {
+        if (applied.existed) {
+          const saved = path.join(backupPath!, applied.relativeToGeneral)
+          fs.copyFileSync(saved, applied.localPath)
+          fs.chmodSync(applied.localPath, applied.mode ?? (fs.statSync(saved).mode & 0o7777))
+        } else {
+          fs.rmSync(applied.localPath, { force: true })
+        }
+      } catch (rollbackError: any) {
+        rollbackErrors.push(`${applied.localPath}: ${rollbackError?.message || rollbackError}`)
+      }
+    }
+    const detail = rollbackErrors.length ? `; rollback incomplete: ${rollbackErrors.join("; ")}` : "; rollback completed"
+    throw new Error(`${error?.message || error}${detail}`)
+  } finally {
+    fs.rmSync(staging, { recursive: true, force: true })
   }
-
-  return { imported, backupPath: backupsPath }
+  return { imported, importedResources, backupPath }
 }
 
 /**
@@ -501,7 +968,7 @@ export function renameAgent(
   // Prepare all reference updates before mutating the filesystem.
   const updatedReferences: string[] = []
   const skipped: string[] = []
-  const pendingWrites: { filePath: string; frontmatter: Record<string, any>; body: string }[] = []
+  const pendingWrites: { filePath: string; frontmatter: Record<string, any>; body: string; frontmatterVersion: "v1" | "v2" | "unknown" }[] = []
 
   for (const agent of agents) {
     const filePath = agent.currentPath === oldPath ? newPath : agent.currentPath
@@ -518,13 +985,15 @@ export function renameAgent(
     }
 
     let frontmatter: Record<string, any>
+    let frontmatterVersion: "v1" | "v2" | "unknown"
     try {
       const parsed = YAML.parse(yamlText)
       if (!isValidFrontmatter(parsed)) {
         skipped.push(path.basename(filePath))
         continue
       }
-      frontmatter = parsed
+      frontmatterVersion = detectFrontmatterVersion(parsed)
+      frontmatter = frontmatterVersion === "v2" ? translateFrontmatterV2ToV1(parsed) : parsed
     } catch (e) {
       skipped.push(path.basename(filePath))
       continue
@@ -553,7 +1022,7 @@ export function renameAgent(
     }
 
     if (modified) {
-      pendingWrites.push({ filePath, frontmatter, body: newBody })
+      pendingWrites.push({ filePath, frontmatter, body: newBody, frontmatterVersion })
       updatedReferences.push(path.basename(filePath))
     }
   }
@@ -562,7 +1031,7 @@ export function renameAgent(
   fs.renameSync(oldPath, newPath)
   try {
     for (const write of pendingWrites) {
-      saveAgentFile(write.filePath, write.frontmatter, write.body)
+      saveAgentFile(write.filePath, write.frontmatter, write.body, write.frontmatterVersion)
     }
   } catch (e: any) {
     return {
@@ -818,16 +1287,15 @@ export function saveAgentFile(filePath: string, frontmatter: Record<string, any>
   if (!isValidFrontmatter(frontmatter)) {
     throw new Error(`Invalid frontmatter for agent file: ${filePath}`)
   }
-  // If the original file was V2, convert back to V2 format for writing
-  const frontmatterToWrite = originalVersion === "v2"
-    ? translateFrontmatterV1ToV2(frontmatter)
-    : frontmatter
-  const content = renderAgentFile(frontmatterToWrite, body)
+  const content = renderAgentFile(frontmatter, body, originalVersion)
   atomicWriteAgentFile(filePath, Buffer.from(content, "utf8"))
 }
 
-function renderAgentFile(frontmatter: Record<string, any>, body: string): string {
-  const yamlText = YAML.stringify(frontmatter).trim()
+function renderAgentFile(frontmatter: Record<string, any>, body: string, originalVersion?: "v1" | "v2" | "unknown"): string {
+  const frontmatterToWrite = originalVersion === "v2"
+    ? translateFrontmatterV1ToV2(frontmatter)
+    : frontmatter
+  const yamlText = YAML.stringify(frontmatterToWrite).trim()
   const normalizedBody = normalizeAgentBody(body)
   return normalizedBody ? `---\n${yamlText}\n---\n\n${normalizedBody}` : `---\n${yamlText}\n---\n`
 }
@@ -936,7 +1404,7 @@ export function organizeAgents(workspaceRoot: string, agents: AgentInfo[]): { co
       const copyInfo = parseAgentFile(agent.targetPath, workspaceRoot)
       if (copyInfo && isValidFrontmatter(copyInfo.frontmatter)) {
         copyInfo.frontmatter.category = agent.category
-        saveAgentFile(agent.targetPath, copyInfo.frontmatter, copyInfo.body)
+      saveAgentFile(agent.targetPath, copyInfo.frontmatter, copyInfo.body, copyInfo.frontmatterVersion)
       } else {
         skipped.push(agent.filename)
         continue
@@ -982,7 +1450,7 @@ export function updateAgentsModel(agents: AgentInfo[], model: string, verifiedMo
   if (!verifiedModels.includes(model)) throw new Error(`Model is not present in refreshed catalog: ${model}`)
   const originals = new Map<string, { bytes: Buffer; stat: fs.Stats }>()
   const expected = new Map<string, { bytes: Buffer; mode: number }>()
-  const snapshots = new Map<AgentInfo, { model: string; frontmatter: Record<string, any>; frontmatterContent: Record<string, any>; rawContent: string }>()
+  const snapshots = new Map<AgentInfo, { model: string; frontmatter: Record<string, any>; frontmatterContent: Record<string, any>; rawContent: string; frontmatterVersion?: "v1" | "v2" | "unknown" }>()
   for (const agent of agents) {
     const disk = parseAgentFile(agent.currentPath, path.dirname(path.dirname(path.dirname(agent.currentPath))))
     const bytes = fs.readFileSync(agent.currentPath)
@@ -997,8 +1465,8 @@ export function updateAgentsModel(agents: AgentInfo[], model: string, verifiedMo
     for (const agent of agents) {
       attempted.push(agent.currentPath)
       const updatedFrontmatter = { ...agent.frontmatter, model }
-      expected.set(agent.currentPath, { bytes: Buffer.from(renderAgentFile(updatedFrontmatter, agent.body)), mode: originals.get(agent.currentPath)!.stat.mode & 0o7777 })
-      writer(agent.currentPath, updatedFrontmatter, agent.body)
+      expected.set(agent.currentPath, { bytes: Buffer.from(renderAgentFile(updatedFrontmatter, agent.body, agent.frontmatterVersion)), mode: originals.get(agent.currentPath)!.stat.mode & 0o7777 })
+      writer(agent.currentPath, updatedFrontmatter, agent.body, agent.frontmatterVersion)
     }
     for (const agent of agents) {
       agent.model = model
@@ -1048,7 +1516,7 @@ export function repairAgentModels(agents: AgentInfo[], mappings: ModelRepairMapp
   const paths = new Set<string>()
   const originals = new Map<string, Buffer>()
   const expected = new Map<string, { bytes: Buffer; mode: number }>()
-  const snapshots = new Map<AgentInfo, { model: string; frontmatter: Record<string, any>; frontmatterContent: Record<string, any>; rawContent: string }>()
+  const snapshots = new Map<AgentInfo, { model: string; frontmatter: Record<string, any>; frontmatterContent: Record<string, any>; rawContent: string; frontmatterVersion: "v1" | "v2" | "unknown" }>()
   for (const mapping of mappings) {
     if (!catalog.has(mapping.newModel)) throw new Error(`Replacement is not present in refreshed catalog: ${mapping.newModel}`)
     for (const agentPath of mapping.agentPaths) {
@@ -1066,9 +1534,13 @@ export function repairAgentModels(agents: AgentInfo[], mappings: ModelRepairMapp
       }
       const { yamlText } = extractFrontmatter(currentBytes.toString("utf8"))
       let diskFrontmatter: Record<string, any> = {}
+      let diskFrontmatterVersion: "v1" | "v2" | "unknown" = "unknown"
       try {
         const parsed = yamlText === null ? null : YAML.parse(yamlText)
-        if (isValidFrontmatter(parsed)) diskFrontmatter = parsed
+        if (isValidFrontmatter(parsed)) {
+          diskFrontmatterVersion = detectFrontmatterVersion(parsed)
+          diskFrontmatter = diskFrontmatterVersion === "v2" ? translateFrontmatterV2ToV1(parsed) : parsed
+        }
       } catch {
         // Keep the empty frontmatter so the model validation below rejects it.
       }
@@ -1078,7 +1550,8 @@ export function repairAgentModels(agents: AgentInfo[], mappings: ModelRepairMapp
         model: agent.model,
         frontmatter: agent.frontmatter,
         frontmatterContent: structuredClone(agent.frontmatter),
-        rawContent: agent.rawContent
+        rawContent: agent.rawContent,
+        frontmatterVersion: diskFrontmatterVersion
       })
     }
   }
@@ -1089,8 +1562,9 @@ export function repairAgentModels(agents: AgentInfo[], mappings: ModelRepairMapp
         const agent = agents.find(item => item.currentPath === agentPath)!
         attempted.push(agentPath)
         const updatedFrontmatter = { ...agent.frontmatter, model: mapping.newModel }
-        expected.set(agentPath, { bytes: Buffer.from(renderAgentFile(updatedFrontmatter, agent.body)), mode: fs.lstatSync(agentPath).mode & 0o7777 })
-        writer(agent.currentPath, updatedFrontmatter, agent.body)
+        const frontmatterVersion = snapshots.get(agent)!.frontmatterVersion
+        expected.set(agentPath, { bytes: Buffer.from(renderAgentFile(updatedFrontmatter, agent.body, frontmatterVersion)), mode: fs.lstatSync(agentPath).mode & 0o7777 })
+        writer(agent.currentPath, updatedFrontmatter, agent.body, frontmatterVersion)
       }
     }
     for (const mapping of mappings) {
@@ -1139,7 +1613,7 @@ export function repairAgentModels(agents: AgentInfo[], mappings: ModelRepairMapp
 export function updateAgentsColor(agents: AgentInfo[], color: string) {
   for (const agent of agents) {
     const updatedFrontmatter = { ...agent.frontmatter, color }
-    saveAgentFile(agent.currentPath, updatedFrontmatter, agent.body)
+    saveAgentFile(agent.currentPath, updatedFrontmatter, agent.body, agent.frontmatterVersion)
     agent.frontmatter = updatedFrontmatter
   }
 }
@@ -1236,7 +1710,7 @@ export function forkCategory(
 
   const copied: string[] = []
   const skipped: string[] = []
-  const plans: Array<{ agent: AgentInfo; targetPath: string; frontmatter: Record<string, any>; body: string }> = []
+  const plans: Array<{ agent: AgentInfo; targetPath: string; frontmatter: Record<string, any>; body: string; frontmatterVersion: "v1" | "v2" | "unknown" }> = []
   const targetPaths = new Set<string>()
   const agentsByPath = new Map<string, AgentInfo[]>()
   for (const existingAgent of allAgents) {
@@ -1328,21 +1802,288 @@ export function forkCategory(
         continue
       }
 
+      const frontmatterVersion = detectFrontmatterVersion(frontmatter)
+      if (frontmatterVersion === "v2") frontmatter = translateFrontmatterV2ToV1(frontmatter)
+
       // Never replace a model as part of the global content substitution.
       if (!hasExistingModel && sourceHasModel) frontmatter.model = sourceModel
       if (hasExistingModel) frontmatter.model = existingModel
-      plans.push({ agent, targetPath, frontmatter, body })
+      plans.push({ agent, targetPath, frontmatter, body, frontmatterVersion })
     }
   }
 
   // All parseability and targets are checked before the first write.
   const backupsPath = plans.length > 0 ? createBackup(workspaceRoot) : null
   for (const plan of plans) {
-    saveAgentFile(plan.targetPath, plan.frontmatter, plan.body)
+    saveAgentFile(plan.targetPath, plan.frontmatter, plan.body, plan.frontmatterVersion)
     copied.push(`${plan.agent.filename} -> ${path.basename(plan.targetPath)}`)
   }
 
   return { copied, skipped, backupsPath }
+}
+
+/** Resource roots under agents/general/ whose per-domain subdirectories travel with their agents on export. */
+const DOMAIN_RESOURCE_ROOTS = ["tools", "commands", "skills", "plugins"] as const
+
+/** Domain key of an agent filename: the first hyphen-delimited segment (family when present, else category). */
+export function agentDomain(filename: string): string {
+  return filename.replace(/\.md$/i, "").split("-")[0].toLocaleLowerCase("und")
+}
+
+const MAX_RESOURCE_BACKUPS = 5
+
+function validateResourceRoot(sourceRoot: string): void {
+  const stat = fs.lstatSync(sourceRoot, { throwIfNoEntry: false })
+  if (stat && (stat.isSymbolicLink() || !stat.isDirectory())) throw new Error(`Refusing to use symlink or non-directory resource source root: ${sourceRoot}`)
+}
+
+function discoverCompanionResourcePaths(sourceRoot: string, domains: string[], manifestDirectory?: string): string[] {
+  validateResourceRoot(sourceRoot)
+  if (!fs.existsSync(sourceRoot)) return []
+  const found = new Set<string>()
+  const names = [...new Set(domains.filter(Boolean))]
+  const matches = (name: string): boolean => names.some(domain => name === domain || name.startsWith(`${domain}-`))
+
+  function collect(dir: string, relativeBase: string): void {
+    const entries = fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))
+    for (const entry of entries) {
+      const source = path.join(dir, entry.name)
+      const stat = fs.lstatSync(source)
+      if (stat.isSymbolicLink()) throw new Error(`Refusing to export resource symlink: ${source}`)
+      const relative = path.join(relativeBase, entry.name)
+      if (stat.isDirectory()) collect(source, relative)
+      else if (stat.isFile()) found.add(relative)
+    }
+  }
+
+  const categoriesDirectory = manifestDirectory ?? (path.basename(sourceRoot) === "general"
+    ? path.join(path.dirname(sourceRoot), ".agent-manager", "categories")
+    : undefined)
+  if (categoriesDirectory) {
+    for (const domain of names) {
+      const manifestPath = path.join(categoriesDirectory, `${domain}.json`)
+      const manifestStat = fs.lstatSync(manifestPath, { throwIfNoEntry: false })
+      if (!manifestStat) continue
+      if (manifestStat.isSymbolicLink() || !manifestStat.isFile()) throw new Error(`Invalid category manifest: ${manifestPath}`)
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"))
+      if (!Array.isArray(manifest.resources)) continue
+      for (const resource of manifest.resources) {
+        if (typeof resource?.source !== "string" || !["file", "directory"].includes(resource.kind)) continue
+        if (!["general/tools/", "general/commands/", "general/skills/", "general/plugins/"].some(prefix => resource.source.startsWith(prefix))) continue
+        const relative = resource.source.slice("general/".length)
+        if (relative.split(/[\\/]/).includes("..") || path.isAbsolute(relative)) throw new Error(`Invalid resource path in category manifest: ${resource.source}`)
+        const source = path.resolve(sourceRoot, relative)
+        if (!source.startsWith(`${path.resolve(sourceRoot)}${path.sep}`)) throw new Error(`Invalid resource path in category manifest: ${resource.source}`)
+        let current = sourceRoot
+        for (const component of relative.split(/[\\/]/)) {
+          current = path.join(current, component)
+          const stat = fs.lstatSync(current, { throwIfNoEntry: false })
+          if (stat?.isSymbolicLink()) throw new Error(`Refusing to export resource through source symlink: ${current}`)
+        }
+        if (resource.kind === "file") found.add(relative)
+        const stat = fs.lstatSync(source, { throwIfNoEntry: false })
+        if (!stat) continue
+        if (resource.kind === "file") {
+          if (stat.isFile()) found.add(relative)
+        } else if (stat.isDirectory()) collect(source, relative)
+      }
+    }
+  }
+
+  for (const root of DOMAIN_RESOURCE_ROOTS) {
+    const rootDir = path.join(sourceRoot, root)
+    const stat = fs.lstatSync(rootDir, { throwIfNoEntry: false })
+    if (!stat) continue
+    if (stat.isSymbolicLink()) throw new Error(`Refusing to export through source symlink: ${rootDir}`)
+    if (!stat.isDirectory()) continue
+    for (const entry of fs.readdirSync(rootDir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const entryPath = path.join(rootDir, entry.name)
+      const entryStat = fs.lstatSync(entryPath)
+      if (entryStat.isSymbolicLink()) {
+        if (matches(entry.name) || matches(path.parse(entry.name).name)) throw new Error(`Refusing to export resource symlink: ${entryPath}`)
+        continue
+      }
+      if (entryStat.isDirectory() && matches(entry.name)) collect(entryPath, path.join(root, entry.name))
+      else if (entryStat.isFile() && matches(path.parse(entry.name).name)) found.add(path.join(root, entry.name))
+    }
+  }
+
+  const supplemental: Record<string, { files: RegExp; helpers: string[]; directories: string[]; extraFiles?: string[] }> = {
+    slides: { files: /^slide_.*\.ts$/, helpers: ["_safeName.js", "_python.js", "_paths.js", "_theme.template.css"], directories: ["skills/pptx", "tools/pptx"] },
+    docs: { files: /^doc_.*\.ts$/, helpers: ["_safeName.js", "_python.js", "_paths.js", "_doc_theme.template.css"], directories: ["skills/docx", "tools/docx"] },
+    hybrid: {
+      files: /^pipeline_.*\.ts$/,
+      helpers: ["_pipeline_core.js", "_pipeline_run.js", "_pipeline_serve.js"],
+      directories: ["skills/code-review-antipatterns"],
+      extraFiles: ["plugins/pipeline-guard.js"]
+    }
+  }
+  for (const domain of names) {
+    const extra = supplemental[domain]
+    if (!extra) continue
+    const tools = path.join(sourceRoot, "tools")
+    const toolsStat = fs.lstatSync(tools, { throwIfNoEntry: false })
+    if (toolsStat?.isSymbolicLink()) throw new Error(`Refusing to export through source symlink: ${tools}`)
+    if (toolsStat?.isDirectory()) {
+      for (const entry of fs.readdirSync(tools, { withFileTypes: true })) {
+        if (!extra.files.test(entry.name) && !extra.helpers.includes(entry.name)) continue
+        const file = path.join(tools, entry.name)
+        const stat = fs.lstatSync(file)
+        if (stat.isSymbolicLink()) throw new Error(`Refusing to export resource symlink: ${file}`)
+        if (stat.isFile()) found.add(path.join("tools", entry.name))
+      }
+    }
+    for (const relative of extra.directories) {
+      const dir = path.join(sourceRoot, relative)
+      const stat = fs.lstatSync(dir, { throwIfNoEntry: false })
+      if (stat?.isSymbolicLink()) throw new Error(`Refusing to export through source symlink: ${dir}`)
+      if (stat?.isDirectory()) collect(dir, relative)
+    }
+    for (const relative of extra.extraFiles ?? []) {
+      const normalizedRelative = path.join(...relative.split("/"))
+      let current = sourceRoot
+      for (const component of relative.split("/")) {
+        current = path.join(current, component)
+        const stat = fs.lstatSync(current, { throwIfNoEntry: false })
+        if (stat?.isSymbolicLink()) throw new Error(`Refusing to export resource symlink: ${current}`)
+      }
+      const stat = fs.lstatSync(current, { throwIfNoEntry: false })
+      if (stat?.isFile()) found.add(normalizedRelative)
+    }
+  }
+  return [...found].sort((a, b) => a.localeCompare(b))
+}
+
+export function compareCompanionResources(workspaceRoot: string, agents?: AgentInfo[]): CompanionResourceDiff[] {
+  const generalRoot = path.join(workspaceRoot, "general")
+  const localAgentsDir = path.join(generalRoot, "agents")
+  const localAgents = agents ?? (fs.existsSync(localAgentsDir)
+    ? fs.readdirSync(localAgentsDir).filter(name => name.endsWith(".md")).map(name => parseAgentFile(path.join(localAgentsDir, name), workspaceRoot)).filter((agent): agent is AgentInfo => !!agent)
+    : [])
+  const exportDir = getExportDestination()
+  const exportAgents = fs.existsSync(exportDir) ? fs.readdirSync(exportDir).filter(name => name.endsWith(".md")) : []
+  const domains = [...new Set([...localAgents.map(agent => agentDomain(agent.filename)), ...exportAgents.map(agentDomain)])]
+  const localPaths = discoverCompanionResourcePaths(generalRoot, domains)
+  const exportRoot = path.dirname(exportDir)
+  const manifestDirectory = path.join(workspaceRoot, ".agent-manager", "categories")
+  const exportPaths = discoverCompanionResourcePaths(exportRoot, domains, manifestDirectory)
+  const relatives = [...new Set([...localPaths, ...exportPaths])].sort((a, b) => a.localeCompare(b))
+  return relatives.map(relativePath => {
+    const localPath = path.join(generalRoot, relativePath)
+    const exportPath = path.join(exportRoot, relativePath)
+    let current = generalRoot
+    for (const component of relativePath.split(path.sep).slice(0, -1)) {
+      current = path.join(current, component)
+      const stat = fs.lstatSync(current, { throwIfNoEntry: false })
+      if (stat && (stat.isSymbolicLink() || !stat.isDirectory())) throw new Error(`Refusing to compare through symlink or non-directory companion path: ${current}`)
+    }
+    let exportCurrent = exportRoot
+    for (const component of relativePath.split(path.sep).slice(0, -1)) {
+      exportCurrent = path.join(exportCurrent, component)
+      const stat = fs.lstatSync(exportCurrent, { throwIfNoEntry: false })
+      if (stat && (stat.isSymbolicLink() || !stat.isDirectory())) throw new Error(`Refusing to compare through symlink or non-directory companion path: ${exportCurrent}`)
+    }
+    const localStat = fs.lstatSync(localPath, { throwIfNoEntry: false })
+    const exportStat = fs.lstatSync(exportPath, { throwIfNoEntry: false })
+    if (localStat?.isSymbolicLink() || exportStat?.isSymbolicLink()) throw new Error(`Refusing to compare symlinked companion resource: ${localStat?.isSymbolicLink() ? localPath : exportPath}`)
+    if ((localStat && !localStat.isFile()) || (exportStat && !exportStat.isFile())) throw new Error(`Refusing to compare non-regular companion resource: ${localStat && !localStat.isFile() ? localPath : exportPath}`)
+    const existsLocally = !!localStat?.isFile()
+    const existsInExport = !!exportStat?.isFile()
+    const hasDifferences = existsLocally !== existsInExport || (existsLocally && existsInExport &&
+      (!fs.readFileSync(localPath).equals(fs.readFileSync(exportPath)) || (localStat!.mode & 0o7777) !== (exportStat!.mode & 0o7777)))
+    return { relativePath, localPath, exportPath, existsLocally, existsInExport, hasDifferences }
+  })
+}
+
+function copyDomainResources(sourceRoot: string, opencodeRoot: string, domains: string[]): { installed: string[]; backupPath: string | null } {
+  const resources = discoverCompanionResourcePaths(sourceRoot, domains).map(relative => ({ source: path.join(sourceRoot, relative), relative }))
+  if (resources.length === 0) return { installed: [], backupPath: null }
+
+  const pending: typeof resources = []
+  for (const resource of resources) {
+    const destination = path.join(opencodeRoot, resource.relative)
+    const sourceStat = fs.lstatSync(resource.source)
+    let current = opencodeRoot
+    for (const component of resource.relative.split(path.sep).slice(0, -1)) {
+      current = path.join(current, component)
+      const stat = fs.lstatSync(current, { throwIfNoEntry: false })
+      if (stat?.isSymbolicLink()) throw new Error(`Refusing to export through destination symlink: ${current}`)
+      if (stat && !stat.isDirectory()) throw new Error(`Resource export destination is not a directory: ${current}`)
+    }
+    const target = fs.lstatSync(destination, { throwIfNoEntry: false })
+    if (target && (target.isSymbolicLink() || !target.isFile())) throw new Error(`Refusing to replace non-regular resource: ${destination}`)
+    if (target && sourceStat.isFile() && fs.readFileSync(resource.source).equals(fs.readFileSync(destination)) &&
+      (sourceStat.mode & 0o7777) === (target.mode & 0o7777)) continue
+    pending.push(resource)
+  }
+  if (pending.length === 0) return { installed: [], backupPath: null }
+
+  const staging = fs.mkdtempSync(path.join(opencodeRoot, ".resource-export-stage-"))
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-")
+  const backupPath = path.join(opencodeRoot, `resource_export_backup_${timestamp}_${randomBytes(4).toString("hex")}`)
+  const existing: string[] = []
+  const installed: string[] = []
+  let backupCreated = false
+
+  try {
+    for (const resource of pending) {
+      const staged = path.join(staging, resource.relative)
+      fs.mkdirSync(path.dirname(staged), { recursive: true })
+      fs.copyFileSync(resource.source, staged)
+      fs.chmodSync(staged, fs.statSync(resource.source).mode & 0o7777)
+      const destination = path.join(opencodeRoot, resource.relative)
+      const target = fs.lstatSync(destination, { throwIfNoEntry: false })
+      if (target && (target.isSymbolicLink() || !target.isFile())) throw new Error(`Refusing to replace non-regular resource: ${destination}`)
+      if (target) existing.push(resource.relative)
+    }
+
+    if (existing.length > 0) {
+      for (const relative of existing) {
+        const saved = path.join(backupPath, relative)
+        fs.mkdirSync(path.dirname(saved), { recursive: true })
+        fs.copyFileSync(path.join(opencodeRoot, relative), saved)
+        fs.chmodSync(saved, fs.statSync(path.join(opencodeRoot, relative)).mode & 0o7777)
+      }
+      backupCreated = true
+    }
+
+    for (const resource of pending) {
+      const destination = path.join(opencodeRoot, resource.relative)
+      fs.mkdirSync(path.dirname(destination), { recursive: true })
+      installed.push(resource.relative)
+      fs.renameSync(path.join(staging, resource.relative), destination)
+    }
+    if (backupCreated) {
+      const backups = fs.readdirSync(opencodeRoot, { withFileTypes: true })
+        .filter(entry => /^resource_export_backup_/.test(entry.name) && entry.isDirectory())
+        .map(entry => ({ name: entry.name, path: path.join(opencodeRoot, entry.name), mtime: fs.statSync(path.join(opencodeRoot, entry.name)).mtimeMs }))
+        .sort((a, b) => a.mtime - b.mtime || a.name.localeCompare(b.name))
+      for (const old of backups.slice(0, Math.max(0, backups.length - MAX_RESOURCE_BACKUPS))) fs.rmSync(old.path, { recursive: true, force: true })
+    }
+    return { installed: pending.map(resource => path.join(opencodeRoot, resource.relative)), backupPath: backupCreated ? backupPath : null }
+  } catch (error: any) {
+    const rollbackErrors: string[] = []
+    for (const relative of installed.reverse()) {
+      try {
+        const destination = path.join(opencodeRoot, relative)
+        if (existing.includes(relative)) {
+          const saved = path.join(backupPath, relative)
+          fs.copyFileSync(saved, destination)
+          fs.chmodSync(destination, fs.statSync(saved).mode & 0o7777)
+        }
+        else fs.rmSync(destination, { force: true })
+      } catch (rollbackError: any) {
+        rollbackErrors.push(`${relative}: ${rollbackError?.message || rollbackError}`)
+      }
+    }
+    if (!backupCreated && fs.existsSync(backupPath)) {
+      try { fs.rmSync(backupPath, { recursive: true, force: true }) } catch {}
+    }
+    const detail = rollbackErrors.length ? `; rollback incomplete: ${rollbackErrors.join("; ")}` : "; rollback completed"
+    throw new Error(`${error?.message || error}${detail}${backupCreated ? `; backup: ${backupPath}` : ""}`)
+  } finally {
+    fs.rmSync(staging, { recursive: true, force: true })
+  }
 }
 
 export interface ExportResult {
@@ -1350,6 +2091,8 @@ export interface ExportResult {
   backupPath: string
   destinationPath: string
   skipped: string[]
+  domainResources: string[]
+  domainBackupPath: string | null
 }
 
 /**
@@ -1367,10 +2110,17 @@ export function getExportDestination(env: NodeJS.ProcessEnv = process.env): stri
  */
 export function exportAgents(
   agents: AgentInfo[],
-  selectedPaths?: Set<string>
+  selectedPaths?: Set<string>,
+  resourceSourceRoot?: string
 ): ExportResult {
   const destinationPath = getExportDestination()
-  const backupPath = path.join(path.dirname(destinationPath), "agents_backup")
+  const opencodeRoot = path.dirname(destinationPath)
+  const backupPath = path.join(opencodeRoot, "agents_backup")
+  const rootStat = fs.lstatSync(opencodeRoot, { throwIfNoEntry: false })
+  if (rootStat && (rootStat.isSymbolicLink() || !rootStat.isDirectory())) throw new Error(`Invalid OpenCode destination directory: ${opencodeRoot}`)
+  const destinationStat = fs.lstatSync(destinationPath, { throwIfNoEntry: false })
+  if (destinationStat && (destinationStat.isSymbolicLink() || !destinationStat.isDirectory())) throw new Error(`Invalid agent destination directory: ${destinationPath}`)
+  if (resourceSourceRoot) validateResourceRoot(resourceSourceRoot)
 
   // Determine which agents to export
   const toExport = selectedPaths && selectedPaths.size > 0
@@ -1378,7 +2128,7 @@ export function exportAgents(
     : agents
 
   // Create disaster-recovery backup of current destination (if it exists)
-  if (fs.existsSync(destinationPath)) {
+  if (destinationStat) {
     const tempBackupPath = `${backupPath}.tmp-${Date.now()}`
     try {
       fs.cpSync(destinationPath, tempBackupPath, { recursive: true })
@@ -1399,16 +2149,73 @@ export function exportAgents(
 
   const exported: string[] = []
   const skipped: string[] = []
+  const successfulAgents: AgentInfo[] = []
+  const writtenAgents: Array<{ filename: string; targetFile: string; existed: boolean }> = []
 
-  for (const agent of toExport) {
-    try {
+  try {
+    for (const agent of toExport) {
+      const sourceStat = fs.lstatSync(agent.currentPath, { throwIfNoEntry: false })
+      if (!sourceStat || sourceStat.isSymbolicLink() || !sourceStat.isFile()) throw new Error(`Refusing to export symlink or non-regular agent file: ${agent.currentPath}`)
       const targetFile = path.join(destinationPath, sanitizeFilename(agent.filename))
-      fs.copyFileSync(agent.currentPath, targetFile)
+      const targetStat = fs.lstatSync(targetFile, { throwIfNoEntry: false })
+      if (targetStat && (targetStat.isSymbolicLink() || !targetStat.isFile())) throw new Error(`Refusing to replace symlink or non-regular agent file: ${targetFile}`)
+      const sourceBytes = fs.readFileSync(agent.currentPath)
+      if (!targetStat || !sourceBytes.equals(fs.readFileSync(targetFile)) ||
+          (sourceStat.mode & 0o7777) !== (targetStat.mode & 0o7777)) {
+        const stagedTarget = path.join(destinationPath, `.agent-stage-${process.pid}-${randomBytes(8).toString("hex")}`)
+        try {
+          try {
+            fs.copyFileSync(agent.currentPath, stagedTarget)
+          } catch (error: any) {
+            skipped.push(`${agent.filename}: ${error.message || error}`)
+            continue
+          }
+          fs.chmodSync(stagedTarget, sourceStat.mode & 0o7777)
+          writtenAgents.push({ filename: sanitizeFilename(agent.filename), targetFile, existed: !!targetStat })
+          fs.renameSync(stagedTarget, targetFile)
+        } finally {
+          fs.rmSync(stagedTarget, { force: true })
+        }
+      }
       exported.push(agent.filename)
-    } catch (error: any) {
-      skipped.push(`${agent.filename}: ${error.message || error}`)
+      successfulAgents.push(agent)
     }
+  } catch (error: any) {
+    const rollbackErrors: string[] = []
+    for (const written of writtenAgents.reverse()) {
+      try {
+        if (written.existed) {
+          const saved = path.join(backupPath, written.filename)
+          fs.copyFileSync(saved, written.targetFile)
+          fs.chmodSync(written.targetFile, fs.statSync(saved).mode & 0o7777)
+        } else fs.rmSync(written.targetFile, { force: true })
+      } catch (rollbackError: any) { rollbackErrors.push(`${written.filename}: ${rollbackError?.message || rollbackError}`) }
+    }
+    if (rollbackErrors.length) throw new Error(`${error?.message || error}; agent rollback incomplete: ${rollbackErrors.join("; ")}`)
+    throw error
   }
 
-  return { exported, backupPath, destinationPath, skipped }
+  const domains = successfulAgents.map(agent => agentDomain(agent.filename))
+  let resourceResult: { installed: string[]; backupPath: string | null }
+  try {
+    resourceResult = resourceSourceRoot
+      ? copyDomainResources(resourceSourceRoot, opencodeRoot, domains)
+      : { installed: [], backupPath: null }
+  } catch (error: any) {
+    const rollbackErrors: string[] = []
+    for (const written of writtenAgents.reverse()) {
+      try {
+        if (written.existed) {
+          const saved = path.join(backupPath, written.filename)
+          fs.copyFileSync(saved, written.targetFile)
+          fs.chmodSync(written.targetFile, fs.statSync(saved).mode & 0o7777)
+        } else fs.rmSync(written.targetFile, { force: true })
+      } catch (rollbackError: any) { rollbackErrors.push(`${written.filename}: ${rollbackError?.message || rollbackError}`) }
+    }
+    const message = error?.message || String(error)
+    if (rollbackErrors.length) throw new Error(`${message}; agent rollback incomplete: ${rollbackErrors.join("; ")}`)
+    throw new Error(message)
+  }
+
+  return { exported, backupPath, destinationPath, skipped, domainResources: resourceResult.installed, domainBackupPath: resourceResult.backupPath }
 }

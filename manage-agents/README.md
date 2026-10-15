@@ -19,6 +19,8 @@ Enabled auto-commit is best-effort. Git preflight, staging, commit, or publish f
 
 Standalone Node/Bun terminal manager and OpenTUI application for the canonical `agents/general/` catalog. It is the supported interface for category generation, bridge translation, catalog maintenance, and safe repository mutations.
 
+[Guida pratica in italiano](GUIDA.md)
+
 ## Purpose and architecture
 
 The CLI/TUI reads the workspace, canonical agent files, category manifests, and translation configuration. Category renderers create deterministic distributions from manifest allowlists. Bridge renderers translate selected agents to Claude Code or Codex without modifying source prompts. Generated outputs include metadata or warnings where the target format cannot represent an OpenCode feature.
@@ -49,11 +51,11 @@ Without a subcommand, the TUI starts. Available commands:
 
 * `create [name]` — interactively create an agent.
 * `bridge --category <name> [--target claude|codex] [--output path] [--name name] [--prefix prefix] [--source-dir dir] [--config path] [--wizard]` — generate translation layers and manifests.
-* `export [--all|--category name]` — export to OpenCode with a disaster-recovery backup.
+* `export [--all|--category name]` — export agents and matching domain resources to OpenCode with disaster-recovery backups.
 * `lint` — inspect naming convention compliance; `fix-names [--dry-run]` repairs names and references.
 * `audit` — audit permission ordering and risk.
-* `import [--dry-run]` — import from the OpenCode agent directory.
-* `tune [--steps n] [--temp n] [--category name]` — update model parameters.
+* `import [--dry-run]` — import agents and companion resources from the OpenCode configuration.
+* `tune [--steps n] [--temp n] [--variant name|--effort name] [--clear-variant|--clear-effort] [--category name]` — update model parameters.
 * `category list` — list category manifests.
 * `category build <id|--all>`, `category check <id|--all>`, `category status <id|--all>`, `category explain <id|--all>` — build, verify, or inspect v2 distributions.
 * `category package <id|--all> --output artifacts/categories [--dry-run]` — validate and copy current distributions into a repository-local artifact directory.
@@ -61,9 +63,19 @@ Without a subcommand, the TUI starts. Available commands:
 
 All commands support focused `--help` where implemented. Category output is under `agents/categories/`; it includes README, exact MIT `LICENSE`, AGENTS, CATEGORY lock, five Wiki agents, one command, three skills, minimal local `codebase-memory-mcp` configuration, and provenance hashes. `general/` is the source of truth; resources are selected through manifests and dependencies, not merely by filename.
 
+`import --dry-run` previews agent and companion-resource changes without modifying files or creating backups. The effective import applies only changed/new agents and modified resources from `tools/`, `commands/`, `skills/`, and `plugins/`; identical files are skipped and no backup is created when there are no differences.
+
 ## TUI keymap
 
-Use arrows or `j/k`, `Tab` for list/tree, `/` search, `Space` select, `a` all/category, `s` same model, `m` model, `Shift-T` tier, `t` parameters, `c` color, `p` permission preset, `g` delegations, `r` rename, `o` organize, `f` fork, `b` Claude bridge, `Shift-B` Codex bridge, `e` export, `i` import diff, `1–4` inspector tabs, `Shift-L` layout, `F` fix permission order, `PageUp/PageDown` scroll, and `Esc` close modals. In the layout modal, arrows/`h/l` adjust the split, `Home`/`End` select bounds, `R` resets, `Enter` saves, and `Esc` cancels. Modals support prompts, model/provider trees, tier assignment, color palettes, delegation toggles, import diffs, bridge configuration, confirmation dialogs, and action-result scrolling.
+Use arrows or `j/k`, `Tab` for list/tree, `/` search, `Space` select, `a` all/category, `s` same model, `m` model, `Shift-T` tier, `t` parameters, `c` color, `p` permission preset, `g` delegations, `u` Skills, Tools & MCP Manager, `r` rename, `o` organize, `f` fork, `b` Claude bridge, `Shift-B` Codex bridge, `e` export, `i` import diff, `1–5` inspector tabs, `Shift-L` layout, `F` fix permission order, `PageUp/PageDown` scroll, and `Esc` close modals. In the layout modal, arrows/`h/l` adjust the split, `Home`/`End` select bounds, `R` resets, `Enter` saves, and `Esc` cancels. Modals support prompts, model/provider trees, tier assignment, color palettes, delegation toggles, resource permissions, import diffs, bridge configuration, confirmation dialogs, and action-result scrolling.
+
+Inspector tabs `1–5` are Info (Overview), Name, Sec, Graph, and `Res` (Skills & Tools). Tab `1` displays the focused agent’s configured Thinking / Effort (`variant`) and any provider pass-through `reasoningEffort` option. OpenCode maps an agent’s `variant` to the selected model’s provider variant configuration. Tab `5` shows the focused agent’s authorized Skills (`permission.skill`, including `*` wildcard and dead-reference detection), custom tools from `general/tools/*.ts` (including families such as `slide_*` and `doc_*`), MCP servers/namespaces and their enabled status from `general/opencode.json` alongside agent permissions (`<server>_*`), and domain companion files under `tools/`, `commands/`, `skills/`, and `plugins/`. The inspector scrolls with `Up/Down` (`j/k`) and `PageUp/PageDown`.
+
+Press `t` to open Parameter Tuning. Along with `steps`, `temperature`, `mode`, and `hidden`, it lets you set Thinking / Effort (`variant`). In that field, `Space` or `←`/`→` cycles through OpenCode’s standard variants (`none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`) and unset/default; you can also type a custom variant name (for example, `thinking`) and press `Backspace` to clear it. The available variants depend on the provider/model; OpenCode documents Anthropic `high`/`max`, OpenAI `none`/`minimal`/`low`/`medium`/`high`/`xhigh`, and Google `low`/`high`. Custom variants can be configured for a model. See the official [agent configuration](https://opencode.ai/docs/agents/#additional) and [model variants](https://opencode.ai/docs/models/#variants) documentation.
+
+The CLI `tune` command accepts `--variant <name>` (alias `--effort <name>`) to set the variant, or `--clear-variant` (alias `--clear-effort`) to unset it. For example: `./manage-agents.sh tune --effort high --category copilot`.
+
+Press `u` on a focused agent to open the **Skills, Tools & MCP Manager** checklist. `Space` toggles the agent’s `allow`/`deny` permission for a skill (or `* (All Skills)`), tool family (such as `slide_*` or `doc_*`), individual tool, or MCP server (`<server>_*`). On a configured MCP server, `x` toggles its workspace-wide `enabled` flag in `general/opencode.json`, independently of agent permissions; restart OpenCode for changes to that file to take effect at runtime. `Enter` atomically saves all draft changes, rolling back if any write fails, and creates a repository checkpoint when auto-commit is enabled. `Esc` discards the draft without modifying files.
 
 The TUI list/inspector split can be adjusted without writing to the repository. Create `.agent-manager/ui-config.json` with `{ "version": 1, "listShare": 0.6667 }`; values from `0.60` through `0.75` are accepted. Set `AGENT_MANAGER_UI_CONFIG` to use an external read-only config instead. Missing or invalid configuration uses the default two-thirds list share.
 
@@ -77,7 +89,11 @@ Edit canonical files under `agents/general/` and configuration under `agents/.ag
 
 ## Backups, bridges, and safety
 
-OpenCode exports back up to `~/.config/opencode/agents_backup/`; organize/fork operations use `agents/backups/` (ignored). Bridges are written to `agents/bridges/claude-code/` or `agents/bridges/codex/`, unless an external output is explicitly supplied. Repository mutations auto-commit only after a clean-worktree, identity, branch, lock, symlink, and scope check. Commits are local, unsigned, hook-free, and scoped. Normal Git worktree races remain possible, but selected paths are fingerprinted after mutation and verified immediately before commit; committed blobs and modes are verified afterward. Use `--no-auto-commit` or `AGENT_MANAGER_AUTO_COMMIT=0`; failures leave changes for manual recovery and do not reset user work. Topic `--check` always bypasses transactions. Temporary staging/backup siblings are never staged.
+OpenCode agent exports back up to `$XDG_CONFIG_HOME/opencode/agents_backup/` (or `~/.config/opencode/agents_backup/` when XDG is unset); organize/fork operations use `agents/backups/` (ignored). Bridges are written to `agents/bridges/claude-code/` or `agents/bridges/codex/`, unless an external output is explicitly supplied. Repository mutations auto-commit only after a clean-worktree, identity, branch, lock, symlink, and scope check. Commits are local, unsigned, hook-free, and scoped. Normal Git worktree races remain possible, but selected paths are fingerprinted after mutation and verified immediately before commit; committed blobs and modes are verified afterward. Use `--no-auto-commit` or `AGENT_MANAGER_AUTO_COMMIT=0`; failures leave changes for manual recovery and do not reset user work. Topic `--check` always bypasses transactions. Temporary staging/backup siblings are never staged.
+
+Global export uses `$XDG_CONFIG_HOME/opencode` when set, otherwise `~/.config/opencode`. For each successfully exported agent, companion resources are discovered under `general/tools/`, `general/commands/`, `general/skills/`, and `general/plugins/` using the matching `.agent-manager/categories/<domain>.json` manifest when present, domain-prefixed directories and top-level files (`<domain>` or `<domain>-*`), and supplemental wrapper/skill mappings. The supplemental mappings include `slides` (`slide_*.ts`, `pptx`, and runtime helpers), `docs` (`doc_*.ts`, `docx`, and runtime helpers), and `hybrid` (`pipeline_*.ts`, `_pipeline_*.js`, `skills/code-review-antipatterns`, and `plugins/pipeline-guard.js`). The domain is the first segment of the agent filename (for example, `slides` for `slides-orchestrator.md`). Only resources for domains of successfully copied agents are exported; resources and files from other domains already in the OpenCode configuration are preserved. Tool scripts are installed under `$XDG_CONFIG_HOME/opencode/tools/<domain>/` (or `~/.config/opencode/tools/<domain>/` when XDG is unset); agents should resolve a script to an absolute path before invocation. Identical resource files (content and permissions) are skipped without writes or backups. Before replacing changed files, only the resource files being overwritten are saved in a separate `resource_export_backup_<timestamp>_<suffix>/` directory under the OpenCode configuration root; the 5 most recent such directories are retained automatically. If resource installation fails, both companion resources and agents exported in that operation are rolled back.
+
+`import --dry-run` previews agent and companion-resource changes without modifying files or creating backups. `import` from the CLI or TUI imports only changed/new agents and modified companion resources (`tools/`, `commands/`, `skills/`, and `plugins/`) back into `general/`; identical files are skipped, and no backup is created when there are no differences. For `hybrid`, the companion-resource set includes `pipeline_*.ts`, `_pipeline_*.js`, `skills/code-review-antipatterns`, and `plugins/pipeline-guard.js`.
 
 ## Development and validation
 

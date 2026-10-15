@@ -4,7 +4,7 @@ import os from "node:os"
 import path from "node:path"
 import { execFileSync, spawnSync } from "node:child_process"
 import test from "node:test"
-import { extractFrontmatter, getExportDestination, isInGeneralAgents, parseAgentFile, saveAgentFile, repairAgentModels, updateAgentsModel, forkCategory, parseForkReplacements } from "./agents.js"
+import { extractFrontmatter, exportAgents, getExportDestination, isInGeneralAgents, parseAgentFile, saveAgentFile, repairAgentModels, updateAgentsModel, forkCategory, parseForkReplacements, compareCompanionResources, previewImport, importAgents, discoverAgentResources, updateAgentResourcesAndMcp, updateAgentParams, AGENT_EFFORT_VARIANTS } from "./agents.js"
 import { AUTO_COMMIT_MESSAGES, repositoryTransaction } from "./repositoryTransaction.js"
 
 function fixtureAgent(filePath: string, workspace: string, model: unknown) {
@@ -679,4 +679,1063 @@ test("fork rejects a case-equivalent existing target without overwrite or siblin
   assert.deepEqual(fs.readFileSync(existing), original)
   assert.deepEqual(fs.readdirSync(path.dirname(existing)).sort(), entriesBefore)
   assert.deepEqual(backupDirectories(workspace), [])
+})
+
+test("agent params set effort variants and preserve other frontmatter and body", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "agent-variant-"))
+  const filePath = path.join(workspace, "general/agents/a.md")
+  fs.mkdirSync(path.dirname(filePath), { recursive: true })
+  saveAgentFile(filePath, { description: "Example", model: "test/model", steps: 12 }, "Agent body.")
+  const agent = parseAgentFile(filePath, workspace)!
+
+  assert.deepEqual(AGENT_EFFORT_VARIANTS, ["none", "minimal", "low", "medium", "high", "xhigh", "max"])
+  for (const variant of ["high", "max", "thinking"]) {
+    updateAgentParams([agent], { variant })
+    const content = fs.readFileSync(filePath, "utf8")
+    assert.match(content, new RegExp(`\\nmodel: test/model#${variant}\\n`))
+    assert.deepEqual(agent.frontmatter, { description: "Example", model: "test/model", max_steps: 12, variant })
+    assert.match(content, /Agent body\./)
+  }
+})
+
+test("agent params preserve or clear an existing effort variant", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "agent-variant-"))
+  const agent = fixtureAgent(path.join(workspace, "general/agents/a.md"), workspace, "test/model")
+  agent.frontmatter.variant = "high"
+  agent.frontmatter.steps = 12
+  agent.frontmatterVersion = "v2"
+  saveAgentFile(agent.currentPath, agent.frontmatter, agent.body, "v2")
+  agent.rawContent = fs.readFileSync(agent.currentPath, "utf8")
+
+  updateAgentParams([agent], { variant: undefined })
+  assert.equal(agent.frontmatter.variant, "high")
+  assert.match(fs.readFileSync(agent.currentPath, "utf8"), /\nmodel: test\/model#high\n/)
+
+  updateAgentParams([agent], { variant: null })
+  assert.equal(Object.hasOwn(agent.frontmatter, "variant"), false)
+  assert.equal(Object.hasOwn(parseAgentFile(agent.currentPath, workspace)!.frontmatter, "variant"), false)
+  assert.doesNotMatch(fs.readFileSync(agent.currentPath, "utf8"), /\nmodel: test\/model#high\n/)
+})
+
+test("agent params reject blank variants before modifying any agent", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "agent-variant-"))
+  const a = fixtureAgent(path.join(workspace, "general/agents/a.md"), workspace, "test/model")
+  const b = fixtureAgent(path.join(workspace, "general/agents/b.md"), workspace, "test/model")
+  const originalContents = [a, b].map(agent => fs.readFileSync(agent.currentPath, "utf8"))
+  const originalFrontmatter = [a.frontmatter, b.frontmatter]
+
+  assert.throws(() => updateAgentParams([a, b], { variant: "   " }), {
+    message: "Agent variant cannot be empty. Pass null to clear variant."
+  })
+  for (const [index, agent] of [a, b].entries()) {
+    assert.equal(fs.readFileSync(agent.currentPath, "utf8"), originalContents[index])
+    assert.strictEqual(agent.frontmatter, originalFrontmatter[index])
+  }
+})
+
+test("selected export installs matching domain resources, backs up replacements, and preserves unrelated files", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-domain-export-"))
+  const xdg = path.join(root, "custom-xdg")
+  const opencodeRoot = path.join(xdg, "opencode")
+  const destination = path.join(opencodeRoot, "agents")
+  const sourceRoot = path.join(root, "resource-source")
+  const workspace = path.join(root, "workspace")
+  const previousXdg = process.env.XDG_CONFIG_HOME
+  t.after(() => {
+    if (previousXdg === undefined) delete process.env.XDG_CONFIG_HOME
+    else process.env.XDG_CONFIG_HOME = previousXdg
+  })
+  process.env.XDG_CONFIG_HOME = xdg
+
+  const slidesAgent = fixtureAgent(path.join(workspace, "general/agents/slides-orchestrator.md"), workspace, "test/model")
+  fixtureAgent(path.join(workspace, "general/agents/docs-writer.md"), workspace, "test/model")
+  fs.mkdirSync(destination, { recursive: true })
+  fs.writeFileSync(path.join(destination, "unrelated-agent.md"), "keep agent file\n")
+  fs.writeFileSync(path.join(opencodeRoot, "unrelated.txt"), "keep config file\n")
+  fs.mkdirSync(path.join(opencodeRoot, "skills", "slides-design"), { recursive: true })
+  fs.mkdirSync(path.join(opencodeRoot, "tools", "slides"), { recursive: true })
+  fs.writeFileSync(path.join(opencodeRoot, "skills", "slides-design", "SKILL.md"), "old design skill\n")
+  fs.writeFileSync(path.join(opencodeRoot, "tools", "slides", "existing.py"), "old build tool\n")
+  fs.writeFileSync(path.join(opencodeRoot, "tools", "slides", "unrelated.py"), "preserve this tool\n")
+
+  for (const [skill, contents] of [["slides-design", "new design skill\n"]]) {
+    const source = path.join(sourceRoot, "skills", skill, "SKILL.md")
+    fs.mkdirSync(path.dirname(source), { recursive: true })
+    fs.writeFileSync(source, contents)
+  }
+  const unrelatedSkill = path.join(sourceRoot, "skills", "slide-show", "SKILL.md")
+  fs.mkdirSync(path.dirname(unrelatedSkill), { recursive: true })
+  fs.writeFileSync(unrelatedSkill, "unrelated skill\n")
+  const nestedTool = path.join(sourceRoot, "tools", "slides", "nested", "build.py")
+  fs.mkdirSync(path.dirname(nestedTool), { recursive: true })
+  fs.writeFileSync(nestedTool, "new build tool\n")
+  fs.writeFileSync(path.join(sourceRoot, "tools", "slides", "new.py"), "another new tool\n")
+  fs.writeFileSync(path.join(sourceRoot, "tools", "slides", "existing.py"), "replacement build tool\n")
+
+  const result = exportAgents([slidesAgent], new Set([slidesAgent.currentPath]), sourceRoot)
+
+  assert.equal(result.destinationPath, destination)
+  assert.deepEqual(result.exported, [slidesAgent.filename])
+  assert.deepEqual(result.skipped, [])
+  assert.equal(fs.readFileSync(path.join(destination, slidesAgent.filename), "utf8"), fs.readFileSync(slidesAgent.currentPath, "utf8"))
+  assert.equal(fs.existsSync(path.join(destination, "docs-writer.md")), false, "unselected agent must not be exported")
+  assert.equal(fs.readFileSync(path.join(destination, "unrelated-agent.md"), "utf8"), "keep agent file\n")
+  assert.equal(fs.readFileSync(path.join(opencodeRoot, "unrelated.txt"), "utf8"), "keep config file\n")
+  assert.equal(fs.readFileSync(path.join(opencodeRoot, "skills", "slides-design", "SKILL.md"), "utf8"), "new design skill\n")
+  assert.equal(fs.existsSync(path.join(opencodeRoot, "skills", "slide-show", "SKILL.md")), false, "a directory without the '<domain>-' boundary must not match")
+  assert.equal(fs.readFileSync(path.join(opencodeRoot, "tools", "slides", "nested", "build.py"), "utf8"), "new build tool\n")
+  assert.equal(fs.readFileSync(path.join(opencodeRoot, "tools", "slides", "new.py"), "utf8"), "another new tool\n")
+  assert.equal(fs.readFileSync(path.join(opencodeRoot, "tools", "slides", "existing.py"), "utf8"), "replacement build tool\n")
+  assert.equal(fs.readFileSync(path.join(opencodeRoot, "tools", "slides", "unrelated.py"), "utf8"), "preserve this tool\n")
+  assert.ok(result.domainResources.includes(path.join(opencodeRoot, "skills", "slides-design", "SKILL.md")))
+  assert.ok(result.domainResources.includes(path.join(opencodeRoot, "tools", "slides", "nested", "build.py")))
+  assert.ok(result.domainBackupPath)
+  assert.equal(fs.readFileSync(path.join(result.domainBackupPath!, "skills", "slides-design", "SKILL.md"), "utf8"), "old design skill\n")
+  assert.equal(fs.readFileSync(path.join(result.domainBackupPath!, "tools", "slides", "existing.py"), "utf8"), "old build tool\n")
+  assert.equal(fs.existsSync(path.join(result.domainBackupPath!, "tools", "slides", "nested", "build.py")), false, "new files are not part of the replacement backup")
+  assert.equal(fs.readFileSync(path.join(result.backupPath, "unrelated-agent.md"), "utf8"), "keep agent file\n")
+})
+
+test("export rolls back agent and companion resource changes after a mid-install failure", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-domain-rollback-"))
+  const xdg = path.join(root, "xdg")
+  const opencodeRoot = path.join(xdg, "opencode")
+  const sourceRoot = path.join(root, "resource-source")
+  const workspace = path.join(root, "workspace")
+  const previousXdg = process.env.XDG_CONFIG_HOME
+  t.after(() => {
+    if (previousXdg === undefined) delete process.env.XDG_CONFIG_HOME
+    else process.env.XDG_CONFIG_HOME = previousXdg
+  })
+  process.env.XDG_CONFIG_HOME = xdg
+
+  const slidesAgent = fixtureAgent(path.join(workspace, "general/agents/slides-orchestrator.md"), workspace, "test/model")
+  const newAgent = fixtureAgent(path.join(workspace, "general/agents/slides-writer.md"), workspace, "test/model")
+  fs.mkdirSync(path.join(opencodeRoot, "agents"), { recursive: true })
+  fs.writeFileSync(path.join(opencodeRoot, "agents", slidesAgent.filename), "old exported agent\n")
+  fs.mkdirSync(path.join(opencodeRoot, "skills", "slides-design"), { recursive: true })
+  fs.mkdirSync(path.join(opencodeRoot, "tools", "slides"), { recursive: true })
+  fs.writeFileSync(path.join(opencodeRoot, "skills", "slides-design", "SKILL.md"), "original design skill\n")
+  fs.writeFileSync(path.join(opencodeRoot, "tools", "slides", "existing.py"), "original build tool\n")
+  const sourceSkill = path.join(sourceRoot, "skills", "slides-design", "SKILL.md")
+  fs.mkdirSync(path.dirname(sourceSkill), { recursive: true })
+  fs.writeFileSync(sourceSkill, "replacement design skill\n")
+  const replacementTool = path.join(sourceRoot, "tools", "slides", "existing.py")
+  const firstTool = path.join(sourceRoot, "tools", "slides", "first.py")
+  const secondTool = path.join(sourceRoot, "tools", "slides", "second.py")
+  fs.mkdirSync(path.dirname(replacementTool), { recursive: true })
+  fs.writeFileSync(replacementTool, "replacement build tool\n")
+  fs.writeFileSync(firstTool, "new first tool\n")
+  fs.writeFileSync(secondTool, "new second tool\n")
+
+  const originalRename = fs.renameSync
+  let stagedRenames = 0
+  t.mock.method(fs, "renameSync", function (oldPath: fs.PathLike, newPath: fs.PathLike) {
+    if (String(oldPath).includes(".resource-export-stage-")) {
+      stagedRenames += 1
+      if (stagedRenames === 4) throw new Error("simulated mid-install failure")
+    }
+    return originalRename.call(fs, oldPath, newPath)
+  })
+
+  assert.throws(
+    () => exportAgents([slidesAgent, newAgent], new Set([slidesAgent.currentPath, newAgent.currentPath]), sourceRoot),
+    /simulated mid-install failure; rollback completed; backup:/
+  )
+  assert.equal(stagedRenames, 4, "failure occurs after replacements and a newly created file were installed")
+  assert.equal(fs.readFileSync(path.join(opencodeRoot, "agents", slidesAgent.filename), "utf8"), "old exported agent\n")
+  assert.equal(fs.existsSync(path.join(opencodeRoot, "agents", newAgent.filename)), false)
+  assert.equal(fs.readFileSync(path.join(opencodeRoot, "skills", "slides-design", "SKILL.md"), "utf8"), "original design skill\n")
+  assert.equal(fs.readFileSync(path.join(opencodeRoot, "tools", "slides", "existing.py"), "utf8"), "original build tool\n")
+  assert.equal(fs.existsSync(path.join(opencodeRoot, "tools", "slides", "first.py")), false)
+  assert.equal(fs.existsSync(path.join(opencodeRoot, "tools", "slides", "second.py")), false)
+  assert.deepEqual(fs.readdirSync(opencodeRoot).filter(name => name.startsWith(".resource-export-stage-")), [])
+})
+
+test("manifest, prefix and supplemental companion resources export without duplicates", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-manifest-export-"))
+  const xdg = path.join(root, "xdg")
+  const opencodeRoot = path.join(xdg, "opencode")
+  const workspace = path.join(root, "workspace")
+  const sourceRoot = path.join(workspace, "general")
+  const previousXdg = process.env.XDG_CONFIG_HOME
+  t.after(() => {
+    if (previousXdg === undefined) delete process.env.XDG_CONFIG_HOME
+    else process.env.XDG_CONFIG_HOME = previousXdg
+  })
+  process.env.XDG_CONFIG_HOME = xdg
+
+  const slidesAgent = fixtureAgent(path.join(workspace, "general/agents/slides-orchestrator.md"), workspace, "test/model")
+  const manifest = {
+    resources: [
+      { kind: "file", source: "general/commands/new-slides.md", target: "commands/new-slides.md" },
+      { kind: "directory", source: "general/tools/pptx", target: "tools/pptx" },
+      { kind: "file", source: "general/skills/slides-composition/THIRD_PARTY_NOTICES.md", target: "THIRD_PARTY_NOTICES.md" }
+    ]
+  }
+  const manifestPath = path.join(workspace, ".agent-manager/categories/slides.json")
+  fs.mkdirSync(path.dirname(manifestPath), { recursive: true })
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest))
+
+  const sourceFiles: Record<string, string> = {
+    "commands/new-slides.md": "manifest command\n",
+    "tools/pptx/build.py": "manifest tool\n",
+    "tools/slide_build.ts": "prefix tool\n",
+    "tools/_paths.js": "prefix helper\n",
+    "skills/pptx/SKILL.md": "prefix skill\n",
+    "skills/slides-design/SKILL.md": "prefix design\n",
+    "commands/slides-extra.md": "prefix command\n",
+    "skills/slides-composition/THIRD_PARTY_NOTICES.md": "supplemental notice\n",
+    "commands/docs-extra.md": "unrelated command\n"
+  }
+  for (const [relative, contents] of Object.entries(sourceFiles)) {
+    const filePath = path.join(sourceRoot, relative)
+    fs.mkdirSync(path.dirname(filePath), { recursive: true })
+    fs.writeFileSync(filePath, contents)
+  }
+
+  const result = exportAgents([slidesAgent], new Set([slidesAgent.currentPath]), sourceRoot)
+  const installedPaths = [
+    "tools/pptx/build.py",
+    "commands/new-slides.md",
+    "commands/slides-extra.md",
+    "skills/slides-composition/THIRD_PARTY_NOTICES.md",
+    "tools/slide_build.ts",
+    "tools/_paths.js",
+    "skills/pptx/SKILL.md",
+    "skills/slides-design/SKILL.md"
+  ].map(relative => path.join(opencodeRoot, relative))
+  for (const [relative, contents] of Object.entries({
+    "tools/pptx/build.py": "manifest tool\n",
+    "commands/new-slides.md": "manifest command\n",
+    "commands/slides-extra.md": "prefix command\n",
+    "skills/slides-composition/THIRD_PARTY_NOTICES.md": "supplemental notice\n",
+    "tools/slide_build.ts": "prefix tool\n",
+    "tools/_paths.js": "prefix helper\n",
+    "skills/pptx/SKILL.md": "prefix skill\n",
+    "skills/slides-design/SKILL.md": "prefix design\n"
+  })) assert.equal(fs.readFileSync(path.join(opencodeRoot, relative), "utf8"), contents)
+  assert.equal(new Set(result.domainResources).size, result.domainResources.length, "resource paths must be deduplicated")
+  for (const installed of installedPaths) assert.equal(result.domainResources.filter(resource => resource === installed).length, 1)
+  assert.equal(fs.existsSync(path.join(opencodeRoot, "commands", "docs-extra.md")), false, "unrelated domains must not be installed")
+})
+
+test("unchanged companion resources are skipped while content or mode changes are replaced", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-resource-skip-"))
+  const xdg = path.join(root, "xdg")
+  const opencodeRoot = path.join(xdg, "opencode")
+  const sourceRoot = path.join(root, "source")
+  const workspace = path.join(root, "workspace")
+  const previousXdg = process.env.XDG_CONFIG_HOME
+  t.after(() => {
+    if (previousXdg === undefined) delete process.env.XDG_CONFIG_HOME
+    else process.env.XDG_CONFIG_HOME = previousXdg
+  })
+  process.env.XDG_CONFIG_HOME = xdg
+  const slidesAgent = fixtureAgent(path.join(workspace, "general/agents/slides-orchestrator.md"), workspace, "test/model")
+  const source = path.join(sourceRoot, "tools/slides/build.ts")
+  const destination = path.join(opencodeRoot, "tools/slides/build.ts")
+  fs.mkdirSync(path.dirname(source), { recursive: true })
+  fs.mkdirSync(path.dirname(destination), { recursive: true })
+  fs.writeFileSync(source, "same resource\n")
+  fs.writeFileSync(destination, "same resource\n")
+  fs.chmodSync(source, 0o755)
+  fs.chmodSync(destination, 0o755)
+
+  const unchanged = exportAgents([slidesAgent], new Set([slidesAgent.currentPath]), sourceRoot)
+  assert.deepEqual(unchanged.domainResources, [])
+  assert.equal(unchanged.domainBackupPath, null)
+
+  fs.writeFileSync(source, "changed content\n")
+  const contentChanged = exportAgents([slidesAgent], new Set([slidesAgent.currentPath]), sourceRoot)
+  assert.deepEqual(contentChanged.domainResources, [destination])
+  assert.ok(contentChanged.domainBackupPath)
+  assert.equal(fs.readFileSync(destination, "utf8"), "changed content\n")
+
+  fs.chmodSync(source, 0o700)
+  const modeChanged = exportAgents([slidesAgent], new Set([slidesAgent.currentPath]), sourceRoot)
+  assert.deepEqual(modeChanged.domainResources, [destination])
+  assert.ok(modeChanged.domainBackupPath)
+  assertPosixMode(fs.statSync(destination).mode & 0o7777, 0o700)
+})
+
+test("unchanged exported agents are reported without copying", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-export-skip-"))
+  const xdg = path.join(root, "xdg")
+  const workspace = path.join(root, "workspace")
+  const previousXdg = process.env.XDG_CONFIG_HOME
+  t.after(() => {
+    if (previousXdg === undefined) delete process.env.XDG_CONFIG_HOME
+    else process.env.XDG_CONFIG_HOME = previousXdg
+  })
+  process.env.XDG_CONFIG_HOME = xdg
+  const agent = fixtureAgent(path.join(workspace, "general/agents/slides-orchestrator.md"), workspace, "test/model")
+  const target = path.join(getExportDestination(), agent.filename)
+  fs.mkdirSync(path.dirname(target), { recursive: true })
+  fs.copyFileSync(agent.currentPath, target)
+  fs.chmodSync(target, fs.statSync(agent.currentPath).mode & 0o7777)
+  const copyFileSync = fs.copyFileSync
+  let agentCopies = 0
+  t.mock.method(fs, "copyFileSync", function (source: fs.PathLike, destination: fs.PathLike, mode?: number) {
+    if (source === agent.currentPath) agentCopies += 1
+    return copyFileSync.call(fs, source, destination, mode)
+  })
+
+  const result = exportAgents([agent], new Set([agent.currentPath]))
+
+  assert.deepEqual(result.exported, [agent.filename])
+  assert.deepEqual(result.skipped, [])
+  assert.equal(agentCopies, 0)
+})
+
+test("resource replacement retains only the five newest backups", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-resource-retention-"))
+  const xdg = path.join(root, "xdg")
+  const opencodeRoot = path.join(xdg, "opencode")
+  const sourceRoot = path.join(root, "source")
+  const workspace = path.join(root, "workspace")
+  const previousXdg = process.env.XDG_CONFIG_HOME
+  t.after(() => {
+    if (previousXdg === undefined) delete process.env.XDG_CONFIG_HOME
+    else process.env.XDG_CONFIG_HOME = previousXdg
+  })
+  process.env.XDG_CONFIG_HOME = xdg
+  fs.mkdirSync(opencodeRoot, { recursive: true })
+  const seeded = Array.from({ length: 6 }, (_, index) => {
+    const directory = path.join(opencodeRoot, `resource_export_backup_${index}`)
+    fs.mkdirSync(directory)
+    const timestamp = new Date(1_000 + index * 1_000)
+    fs.utimesSync(directory, timestamp, timestamp)
+    return directory
+  })
+  const unrelated = path.join(opencodeRoot, "unrelated-backup")
+  fs.mkdirSync(unrelated)
+  const slidesAgent = fixtureAgent(path.join(workspace, "general/agents/slides-orchestrator.md"), workspace, "test/model")
+  const source = path.join(sourceRoot, "tools/slides/build.ts")
+  const destination = path.join(opencodeRoot, "tools/slides/build.ts")
+  fs.mkdirSync(path.dirname(source), { recursive: true })
+  fs.mkdirSync(path.dirname(destination), { recursive: true })
+  fs.writeFileSync(source, "new\n")
+  fs.writeFileSync(destination, "old\n")
+
+  const result = exportAgents([slidesAgent], new Set([slidesAgent.currentPath]), sourceRoot)
+  const retained = fs.readdirSync(opencodeRoot).filter(name => name.startsWith("resource_export_backup_"))
+  assert.equal(retained.length, 5)
+  assert.equal(fs.existsSync(unrelated), true)
+  assert.ok(result.domainBackupPath)
+  assert.ok(seeded.slice(0, 2).every(directory => retained.includes(path.basename(directory)) === false))
+  assert.ok(seeded.slice(2).every(directory => retained.includes(path.basename(directory))))
+})
+
+test("export rejects a symlinked resource source root and agent destination", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-export-symlink-"))
+  const xdg = path.join(root, "xdg")
+  const opencodeRoot = path.join(xdg, "opencode")
+  const sourceRoot = path.join(root, "source")
+  const sourceLink = path.join(root, "source-link")
+  const workspace = path.join(root, "workspace")
+  const outside = path.join(root, "outside.md")
+  const previousXdg = process.env.XDG_CONFIG_HOME
+  t.after(() => {
+    if (previousXdg === undefined) delete process.env.XDG_CONFIG_HOME
+    else process.env.XDG_CONFIG_HOME = previousXdg
+  })
+  process.env.XDG_CONFIG_HOME = xdg
+  const agent = fixtureAgent(path.join(workspace, "general/agents/slides-orchestrator.md"), workspace, "test/model")
+  fs.mkdirSync(sourceRoot)
+  fs.symlinkSync(sourceRoot, sourceLink)
+  assert.throws(() => exportAgents([agent], new Set([agent.currentPath]), sourceLink), /symlink/i)
+
+  fs.mkdirSync(path.join(opencodeRoot, "agents"), { recursive: true })
+  fs.writeFileSync(outside, "must not change\n")
+  fs.symlinkSync(outside, path.join(opencodeRoot, "agents", agent.filename))
+  assert.throws(() => exportAgents([agent], new Set([agent.currentPath])), /symlink|non-regular/i)
+  assert.equal(fs.readFileSync(outside, "utf8"), "must not change\n")
+})
+
+test("companion resource comparison and import are symmetric, read-only in preview, and skip unchanged files", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-resource-import-"))
+  const xdg = path.join(root, "xdg")
+  const opencodeRoot = path.join(xdg, "opencode")
+  const exportDir = path.join(opencodeRoot, "agents")
+  const workspace = path.join(root, "workspace")
+  const previousXdg = process.env.XDG_CONFIG_HOME
+  t.after(() => {
+    if (previousXdg === undefined) delete process.env.XDG_CONFIG_HOME
+    else process.env.XDG_CONFIG_HOME = previousXdg
+  })
+  process.env.XDG_CONFIG_HOME = xdg
+  const localChangedAgent = fixtureAgent(path.join(workspace, "general/agents/slides-orchestrator.md"), workspace, "local/model")
+  const unchangedAgent = fixtureAgent(path.join(workspace, "general/agents/slides-writer.md"), workspace, "same/model")
+  fs.mkdirSync(exportDir, { recursive: true })
+  fs.writeFileSync(path.join(exportDir, localChangedAgent.filename), "exported agent version\n")
+  fs.writeFileSync(path.join(exportDir, unchangedAgent.filename), fs.readFileSync(unchangedAgent.currentPath))
+  fs.writeFileSync(path.join(exportDir, "slides-new.md"), "new exported agent\n")
+
+  const localResources: Record<string, string> = {
+    "tools/slides/changed.ts": "local resource version\n",
+    "tools/slides/unchanged.ts": "same resource\n"
+  }
+  const exportedResources: Record<string, string> = {
+    "tools/slides/changed.ts": "export resource version\n",
+    "tools/slides/unchanged.ts": "same resource\n",
+    "tools/slides/new.ts": "new exported resource\n"
+  }
+  for (const [relative, contents] of Object.entries(localResources)) {
+    const filePath = path.join(workspace, "general", relative)
+    fs.mkdirSync(path.dirname(filePath), { recursive: true })
+    fs.writeFileSync(filePath, contents)
+  }
+  for (const [relative, contents] of Object.entries(exportedResources)) {
+    const filePath = path.join(opencodeRoot, relative)
+    fs.mkdirSync(path.dirname(filePath), { recursive: true })
+    fs.writeFileSync(filePath, contents)
+  }
+
+  const companionDiffs = compareCompanionResources(workspace)
+  const changedResourceDiff = companionDiffs.find((diff: any) => diff.path?.endsWith("changed.ts") || diff.relativePath?.endsWith("changed.ts"))
+  const newResourceDiff = companionDiffs.find((diff: any) => diff.path?.endsWith("new.ts") || diff.relativePath?.endsWith("new.ts"))
+  const unchangedResourceDiff = companionDiffs.find((diff: any) => diff.path?.endsWith("unchanged.ts") || diff.relativePath?.endsWith("unchanged.ts"))
+  assert.ok(changedResourceDiff)
+  assert.equal(changedResourceDiff.existsLocally, true)
+  assert.equal(changedResourceDiff.existsInExport, true)
+  assert.equal(changedResourceDiff.hasDifferences, true)
+  assert.ok(newResourceDiff)
+  assert.equal(newResourceDiff.existsLocally, false)
+  assert.equal(newResourceDiff.existsInExport, true)
+  assert.equal(newResourceDiff.hasDifferences, true)
+  assert.ok(unchangedResourceDiff)
+  assert.equal(unchangedResourceDiff.existsLocally, true)
+  assert.equal(unchangedResourceDiff.existsInExport, true)
+  assert.equal(unchangedResourceDiff.hasDifferences, false)
+
+  const preview = previewImport(workspace)
+  assert.equal(fs.existsSync(path.join(workspace, "backups")), false, "preview must not create backups")
+  const agentDiffs = preview.agents
+  const changedAgentDiff = agentDiffs.find((diff: any) => diff.filename === localChangedAgent.filename)
+  assert.equal(changedAgentDiff.existsLocally, true)
+  assert.equal(changedAgentDiff.existsInExport, true)
+  assert.equal(changedAgentDiff.hasDifferences, true)
+  const missingAgentDiff = agentDiffs.find((diff: any) => diff.filename === "slides-new.md")
+  assert.equal(missingAgentDiff.existsLocally, false)
+  assert.equal(missingAgentDiff.existsInExport, true)
+  assert.equal(missingAgentDiff.hasDifferences, true)
+  const previewResourceDiff = preview.companionResources.find((diff: any) => diff.path?.endsWith("changed.ts") || diff.relativePath?.endsWith("changed.ts"))
+  assert.ok(previewResourceDiff)
+  assert.equal(previewResourceDiff.existsLocally, true)
+  assert.equal(previewResourceDiff.existsInExport, true)
+  assert.equal(previewResourceDiff.hasDifferences, true)
+
+  const imported = importAgents(workspace)
+  assert.ok(imported.imported.includes(localChangedAgent.filename))
+  assert.ok(imported.imported.includes("slides-new.md"))
+  assert.equal(imported.imported.includes(unchangedAgent.filename), false, "unchanged agents must be skipped")
+  assert.equal(fs.readFileSync(localChangedAgent.currentPath, "utf8"), "exported agent version\n")
+  assert.equal(fs.readFileSync(path.join(workspace, "general/agents/slides-new.md"), "utf8"), "new exported agent\n")
+  assert.equal(fs.readFileSync(path.join(workspace, "general", "tools/slides/changed.ts"), "utf8"), "export resource version\n")
+  assert.equal(fs.readFileSync(path.join(workspace, "general", "tools/slides/new.ts"), "utf8"), "new exported resource\n")
+  assert.equal(fs.readFileSync(path.join(workspace, "general", "tools/slides/unchanged.ts"), "utf8"), "same resource\n")
+
+  const noChanges = importAgents(workspace)
+  assert.equal(noChanges.backupPath, null)
+  assert.deepEqual(noChanges.imported, [])
+})
+
+test("manifest-declared resources missing locally remain import candidates", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-manifest-import-"))
+  const xdg = path.join(root, "xdg")
+  const opencodeRoot = path.join(xdg, "opencode")
+  const workspace = path.join(root, "workspace")
+  const previousXdg = process.env.XDG_CONFIG_HOME
+  t.after(() => {
+    if (previousXdg === undefined) delete process.env.XDG_CONFIG_HOME
+    else process.env.XDG_CONFIG_HOME = previousXdg
+  })
+  process.env.XDG_CONFIG_HOME = xdg
+  fixtureAgent(path.join(workspace, "general/agents/slides-orchestrator.md"), workspace, "test/model")
+  const manifestPath = path.join(workspace, ".agent-manager/categories/slides.json")
+  fs.mkdirSync(path.dirname(manifestPath), { recursive: true })
+  fs.writeFileSync(manifestPath, JSON.stringify({ resources: [
+    { kind: "file", source: "general/commands/new-slides.md", target: "commands/new-slides.md" }
+  ] }))
+  const exportedResource = path.join(opencodeRoot, "commands/new-slides.md")
+  fs.mkdirSync(path.dirname(exportedResource), { recursive: true })
+  fs.writeFileSync(exportedResource, "exported manifest command\n")
+
+  const preview = previewImport(workspace)
+  const diff = preview.companionResources.find(resource => resource.relativePath === "commands/new-slides.md")
+  assert.ok(diff)
+  assert.equal(diff.existsLocally, false)
+  assert.equal(diff.existsInExport, true)
+  assert.equal(diff.hasDifferences, true)
+
+  const result = importAgents(workspace)
+  assert.ok(result.importedResources.includes("commands/new-slides.md"))
+  assert.equal(fs.readFileSync(path.join(workspace, "general/commands/new-slides.md"), "utf8"), "exported manifest command\n")
+})
+
+test("import rolls back overwritten files and removes newly created files after a mid-import failure", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-import-rollback-"))
+  const xdg = path.join(root, "xdg")
+  const opencodeRoot = path.join(xdg, "opencode")
+  const exportAgentsDir = path.join(opencodeRoot, "agents")
+  const workspace = path.join(root, "workspace")
+  const localAgentPath = path.join(workspace, "general/agents/slides-existing.md")
+  const localResourcePath = path.join(workspace, "general/tools/slides/changed.ts")
+  const previousXdg = process.env.XDG_CONFIG_HOME
+  t.after(() => {
+    if (previousXdg === undefined) delete process.env.XDG_CONFIG_HOME
+    else process.env.XDG_CONFIG_HOME = previousXdg
+  })
+  process.env.XDG_CONFIG_HOME = xdg
+  fixtureAgent(localAgentPath, workspace, "local/model")
+  const originalAgent = fs.readFileSync(localAgentPath)
+  fs.mkdirSync(path.dirname(localResourcePath), { recursive: true })
+  fs.writeFileSync(localResourcePath, "original local resource\n")
+  fs.chmodSync(localResourcePath, 0o751)
+  fs.mkdirSync(exportAgentsDir, { recursive: true })
+  fs.writeFileSync(path.join(exportAgentsDir, "slides-existing.md"), "exported agent replacement\n")
+  fs.writeFileSync(path.join(exportAgentsDir, "slides-new.md"), "new exported agent\n")
+  for (const [relative, contents] of [
+    ["tools/slides/changed.ts", "exported resource replacement\n"],
+    ["tools/slides/new.ts", "new exported resource\n"],
+    ["tools/slides/z-last.ts", "last exported resource\n"]
+  ]) {
+    const exportedResource = path.join(opencodeRoot, relative)
+    fs.mkdirSync(path.dirname(exportedResource), { recursive: true })
+    fs.writeFileSync(exportedResource, contents)
+  }
+
+  const renameSync = fs.renameSync
+  let appliedRenames = 0
+  t.mock.method(fs, "renameSync", function (oldPath: fs.PathLike, newPath: fs.PathLike) {
+    if (String(oldPath).includes(".import-stage-") && ++appliedRenames === 5) {
+      throw new Error("simulated import failure")
+    }
+    return renameSync.call(fs, oldPath, newPath)
+  })
+
+  assert.throws(() => importAgents(workspace), /simulated import failure; rollback completed/)
+  assert.equal(appliedRenames, 5)
+  assert.deepEqual(fs.readFileSync(localAgentPath), originalAgent)
+  assert.equal(fs.existsSync(path.join(workspace, "general/agents/slides-new.md")), false)
+  assert.equal(fs.readFileSync(localResourcePath, "utf8"), "original local resource\n")
+  assertPosixMode(fs.statSync(localResourcePath).mode & 0o7777, 0o751)
+  assert.equal(fs.existsSync(path.join(workspace, "general/tools/slides/new.ts")), false)
+  assert.equal(fs.existsSync(path.join(workspace, "general/tools/slides/z-last.ts")), false)
+  assert.deepEqual(fs.readdirSync(path.join(workspace, "general")).filter(name => name.startsWith(".import-stage-")), [])
+})
+
+test("agent export validation failure rolls back earlier agent writes and preserves mode", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-export-agent-rollback-"))
+  const xdg = path.join(root, "xdg")
+  const workspace = path.join(root, "workspace")
+  const previousXdg = process.env.XDG_CONFIG_HOME
+  t.after(() => {
+    if (previousXdg === undefined) delete process.env.XDG_CONFIG_HOME
+    else process.env.XDG_CONFIG_HOME = previousXdg
+  })
+  process.env.XDG_CONFIG_HOME = xdg
+  const first = fixtureAgent(path.join(workspace, "general/agents/slides-first.md"), workspace, "test/model")
+  const second = fixtureAgent(path.join(workspace, "general/agents/slides-second.md"), workspace, "test/model")
+  const destination = path.join(xdg, "opencode/agents")
+  const firstTarget = path.join(destination, first.filename)
+  fs.mkdirSync(destination, { recursive: true })
+  fs.writeFileSync(firstTarget, "previous export\n")
+  fs.chmodSync(firstTarget, 0o751)
+  const secondSource = second.currentPath
+  fs.rmSync(secondSource)
+  fs.symlinkSync(path.join(root, "missing-second-agent.md"), secondSource)
+
+  assert.throws(
+    () => exportAgents([first, second], new Set([first.currentPath, second.currentPath])),
+    /Refusing to export symlink or non-regular agent file/
+  )
+  assert.equal(fs.readFileSync(firstTarget, "utf8"), "previous export\n")
+  assertPosixMode(fs.statSync(firstTarget).mode & 0o7777, 0o751)
+})
+
+test("preview and import reject symlinked agent and companion import paths", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-import-symlink-"))
+  const xdg = path.join(root, "xdg")
+  const opencodeRoot = path.join(xdg, "opencode")
+  const workspace = path.join(root, "workspace")
+  const outside = path.join(root, "outside.md")
+  const previousXdg = process.env.XDG_CONFIG_HOME
+  t.after(() => {
+    if (previousXdg === undefined) delete process.env.XDG_CONFIG_HOME
+    else process.env.XDG_CONFIG_HOME = previousXdg
+  })
+  process.env.XDG_CONFIG_HOME = xdg
+  fixtureAgent(path.join(workspace, "general/agents/slides-orchestrator.md"), workspace, "test/model")
+  fs.mkdirSync(path.join(opencodeRoot, "agents"), { recursive: true })
+  fs.writeFileSync(outside, "outside content\n")
+  fs.symlinkSync(outside, path.join(opencodeRoot, "agents/slides-orchestrator.md"))
+  assert.throws(() => previewImport(workspace), /symlink|non-regular/i)
+  assert.throws(() => importAgents(workspace), /symlink|non-regular/i)
+
+  fs.rmSync(path.join(opencodeRoot, "agents/slides-orchestrator.md"))
+  fs.writeFileSync(path.join(opencodeRoot, "agents/slides-orchestrator.md"), "changed agent\n")
+  const resourceSource = path.join(opencodeRoot, "tools/slides/build.ts")
+  fs.mkdirSync(path.dirname(resourceSource), { recursive: true })
+  fs.writeFileSync(resourceSource, "exported resource\n")
+  const localTools = path.join(workspace, "general/tools")
+  fs.symlinkSync(path.join(root, "outside-tools"), localTools)
+  assert.throws(() => previewImport(workspace), /symlink/i)
+  assert.throws(() => importAgents(workspace), /symlink/i)
+})
+
+test("CLI import --dry-run reports companion changes without modifying general/ or creating backups", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-import-cli-dry-run-"))
+  const xdg = path.join(root, "xdg")
+  const workspace = path.join(root, "workspace")
+  const agentPath = path.join(workspace, "general", "agents", "slides-orchestrator.md")
+  const localResource = path.join(workspace, "general", "tools", "slides", "build.ts")
+  const exportedAgent = path.join(xdg, "opencode", "agents", "slides-orchestrator.md")
+  const exportedResource = path.join(xdg, "opencode", "tools", "slides", "build.ts")
+  const content = "---\ndescription: Test agent\n---\n\nBody\n"
+  fs.mkdirSync(path.dirname(agentPath), { recursive: true })
+  fs.mkdirSync(path.dirname(localResource), { recursive: true })
+  fs.mkdirSync(path.dirname(exportedAgent), { recursive: true })
+  fs.mkdirSync(path.dirname(exportedResource), { recursive: true })
+  fs.writeFileSync(agentPath, content)
+  fs.writeFileSync(exportedAgent, content)
+  fs.writeFileSync(localResource, "local companion version\n")
+  fs.writeFileSync(exportedResource, "local companion version\n")
+
+  const runDryRun = () => spawnSync(process.execPath, [path.resolve("manage-agents.mjs"), "import", "--dry-run"], {
+    cwd: workspace,
+    encoding: "utf8",
+    env: { ...process.env, XDG_CONFIG_HOME: xdg }
+  })
+
+  const inSync = runDryRun()
+  assert.equal(inSync.status, 0, inSync.stderr)
+  assert.match(inSync.stdout, /No changes to import/)
+  assert.equal(fs.existsSync(path.join(workspace, "backups")), false)
+
+  fs.writeFileSync(exportedResource, "exported companion version\n")
+  const changed = runDryRun()
+  assert.equal(changed.status, 0, changed.stderr)
+  assert.match(changed.stdout, /Preview: 0 agent\(s\), 1 companion resource\(s\) will be imported\./)
+  assert.match(changed.stdout, /modified resource: general[\\/]tools[\\/]slides[\\/]build\.ts/)
+  assert.equal(fs.readFileSync(localResource, "utf8"), "local companion version\n", "dry-run must not modify general/")
+  assert.equal(fs.existsSync(path.join(workspace, "backups")), false, "dry-run must not create backups")
+})
+
+test("export without a resource source root installs no companion resources and uses XDG destination", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-no-resource-export-"))
+  const xdg = path.join(root, "custom-xdg")
+  const opencodeRoot = path.join(xdg, "opencode")
+  const destination = path.join(opencodeRoot, "agents")
+  const workspace = path.join(root, "workspace")
+  const previousXdg = process.env.XDG_CONFIG_HOME
+  t.after(() => {
+    if (previousXdg === undefined) delete process.env.XDG_CONFIG_HOME
+    else process.env.XDG_CONFIG_HOME = previousXdg
+  })
+  process.env.XDG_CONFIG_HOME = xdg
+
+  const docsAgent = fixtureAgent(path.join(workspace, "general/agents/docs-writer.md"), workspace, "test/model")
+  fs.mkdirSync(path.join(opencodeRoot, "skills", "slides-design"), { recursive: true })
+  fs.mkdirSync(path.join(opencodeRoot, "tools", "slides"), { recursive: true })
+  fs.writeFileSync(path.join(opencodeRoot, "skills", "slides-design", "SKILL.md"), "keep skill\n")
+  fs.writeFileSync(path.join(opencodeRoot, "tools", "slides", "existing.py"), "keep tool\n")
+
+  const result = exportAgents([docsAgent], new Set([docsAgent.currentPath]))
+
+  assert.equal(result.destinationPath, destination)
+  assert.deepEqual(result.exported, [docsAgent.filename])
+  assert.deepEqual(result.domainResources, [])
+  assert.equal(result.domainBackupPath, null)
+  assert.equal(fs.readFileSync(path.join(opencodeRoot, "skills", "slides-design", "SKILL.md"), "utf8"), "keep skill\n")
+  assert.equal(fs.readFileSync(path.join(opencodeRoot, "tools", "slides", "existing.py"), "utf8"), "keep tool\n")
+})
+
+test("export bundles tools, commands and skills for any domain by directory prefix", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-generic-export-"))
+  const xdg = path.join(root, "custom-xdg")
+  const opencodeRoot = path.join(xdg, "opencode")
+  const sourceRoot = path.join(root, "source")
+  const workspace = path.join(root, "workspace")
+  const previousXdg = process.env.XDG_CONFIG_HOME
+  t.after(() => {
+    if (previousXdg === undefined) delete process.env.XDG_CONFIG_HOME
+    else process.env.XDG_CONFIG_HOME = previousXdg
+  })
+  process.env.XDG_CONFIG_HOME = xdg
+
+  const slidesAgent = fixtureAgent(path.join(workspace, "general/agents/slides-orchestrator.md"), workspace, "test/model")
+  for (const [rel, contents] of [
+    ["tools/slides/build.py", "slides tool\n"],
+    ["commands/slides/new.md", "slides command\n"],
+    ["skills/slides-design/SKILL.md", "slides design skill\n"],
+    ["skills/docs-html/SKILL.md", "unrelated docs skill\n"],
+    ["tools/presentation/render.py", "unrelated tool\n"],
+  ]) {
+    const source = path.join(sourceRoot, rel)
+    fs.mkdirSync(path.dirname(source), { recursive: true })
+    fs.writeFileSync(source, contents)
+  }
+
+  const result = exportAgents([slidesAgent], new Set([slidesAgent.currentPath]), sourceRoot)
+
+  assert.deepEqual(result.exported, [slidesAgent.filename])
+  assert.equal(fs.readFileSync(path.join(opencodeRoot, "tools", "slides", "build.py"), "utf8"), "slides tool\n")
+  assert.equal(fs.readFileSync(path.join(opencodeRoot, "commands", "slides", "new.md"), "utf8"), "slides command\n")
+  assert.equal(fs.readFileSync(path.join(opencodeRoot, "skills", "slides-design", "SKILL.md"), "utf8"), "slides design skill\n")
+  assert.equal(fs.existsSync(path.join(opencodeRoot, "skills", "docs-html", "SKILL.md")), false, "another domain's skills must not be bundled")
+  assert.equal(fs.existsSync(path.join(opencodeRoot, "tools", "presentation", "render.py")), false, "a tool dir not named after the domain must not be bundled")
+  assert.equal(result.domainBackupPath, null, "no replacements means no backup")
+  assert.ok(result.domainResources.includes(path.join(opencodeRoot, "tools", "slides", "build.py")))
+  assert.ok(result.domainResources.includes(path.join(opencodeRoot, "commands", "slides", "new.md")))
+  assert.ok(result.domainResources.includes(path.join(opencodeRoot, "skills", "slides-design", "SKILL.md")))
+})
+
+test("export does not install domain resources when the matching agent copy fails", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-failed-copy-export-"))
+  const xdg = path.join(root, "xdg")
+  const opencodeRoot = path.join(xdg, "opencode")
+  const sourceRoot = path.join(root, "source")
+  const workspace = path.join(root, "workspace")
+  const previousXdg = process.env.XDG_CONFIG_HOME
+  t.after(() => {
+    if (previousXdg === undefined) delete process.env.XDG_CONFIG_HOME
+    else process.env.XDG_CONFIG_HOME = previousXdg
+  })
+  process.env.XDG_CONFIG_HOME = xdg
+
+  const slidesAgent = fixtureAgent(path.join(workspace, "general/agents/slides-orchestrator.md"), workspace, "test/model")
+  const sourceTool = path.join(sourceRoot, "tools", "slides", "build.py")
+  fs.mkdirSync(path.dirname(sourceTool), { recursive: true })
+  fs.writeFileSync(sourceTool, "slides tool\n")
+
+  const copyFileSync = fs.copyFileSync
+  t.mock.method(fs, "copyFileSync", function (source: fs.PathLike, destination: fs.PathLike, mode?: number) {
+    if (source === slidesAgent.currentPath) throw new Error("simulated agent copy failure")
+    return copyFileSync.call(fs, source, destination, mode)
+  })
+
+  const result = exportAgents([slidesAgent], new Set([slidesAgent.currentPath]), sourceRoot)
+
+  assert.deepEqual(result.exported, [])
+  assert.match(result.skipped[0] ?? "", /simulated agent copy failure/)
+  assert.equal(fs.existsSync(path.join(opencodeRoot, "tools", "slides", "build.py")), false, "resources must not be installed without their agent")
+})
+
+test("resource discovery lists skills, tool families and tools, MCP servers, and companion files", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-resource-catalog-"))
+  const workspace = path.join(root, "workspace")
+  const previousXdg = process.env.XDG_CONFIG_HOME
+  t.after(() => {
+    if (previousXdg === undefined) delete process.env.XDG_CONFIG_HOME
+    else process.env.XDG_CONFIG_HOME = previousXdg
+  })
+  process.env.XDG_CONFIG_HOME = path.join(root, "xdg")
+
+  const agent = fixtureAgent(path.join(workspace, "general/agents/slides-orchestrator.md"), workspace, "test/model")
+  const permission = {
+    read: "allow",
+    skill: { "*": "allow", "missing-skill": "allow" },
+    "slide_*": "allow",
+    slide_build: "deny",
+    "doc_*": "deny",
+    "chrome-devtools_*": "allow",
+    "unknown-mcp_*": "deny"
+  }
+  saveAgentFile(agent.currentPath, { ...agent.frontmatter, permission }, agent.body)
+  const updatedAgent = parseAgentFile(agent.currentPath, workspace)!
+
+  for (const skill of ["slides-design", "slides-composition", "other-skill"]) {
+    const skillPath = path.join(workspace, "general/skills", skill, "SKILL.md")
+    fs.mkdirSync(path.dirname(skillPath), { recursive: true })
+    fs.writeFileSync(skillPath, `# ${skill}\n`)
+  }
+  fs.mkdirSync(path.join(workspace, "general/tools"), { recursive: true })
+  for (const [tool, contents] of Object.entries({
+    "slide_build.ts": "export default {}\n",
+    "slide_preview.ts": "export default {}\n",
+    "doc_render.ts": "export default {}\n"
+  })) fs.writeFileSync(path.join(workspace, "general/tools", tool), contents)
+
+  const opencodePath = path.join(workspace, "general/opencode.json")
+  fs.mkdirSync(path.dirname(opencodePath), { recursive: true })
+  const opencodeRawContent = JSON.stringify({ mcp: {
+    "chrome-devtools": { type: "local", command: ["devtools"], enabled: false },
+    "another-server": { type: "local", command: ["another"], enabled: true }
+  } }, null, 2)
+  fs.writeFileSync(opencodePath, opencodeRawContent)
+
+  const catalog = discoverAgentResources(workspace, updatedAgent, [updatedAgent])
+
+  assert.equal(catalog.skills[0].kind, "skill-wildcard")
+  assert.equal(catalog.skills[0].permissionKey, "*")
+  assert.equal(catalog.skills[0].allowed, true)
+  const discoveredSkill = catalog.skills.find(resource => resource.name === "slides-design")
+  assert.ok(discoveredSkill)
+  assert.equal(discoveredSkill.kind, "skill")
+  assert.equal(discoveredSkill.exists, true)
+  assert.equal(discoveredSkill.allowed, true)
+  assert.ok(discoveredSkill.relativePath?.endsWith(path.join("skills", "slides-design", "SKILL.md")))
+  const deadSkill = catalog.skills.find(resource => resource.name === "missing-skill")
+  assert.ok(deadSkill)
+  assert.equal(deadSkill.exists, false)
+  assert.equal(deadSkill.allowed, true)
+
+  const slideFamily = catalog.tools.find(resource => resource.kind === "tool-family" && resource.permissionKey === "slide_*")
+  const docFamily = catalog.tools.find(resource => resource.kind === "tool-family" && resource.permissionKey === "doc_*")
+  const slideBuild = catalog.tools.find(resource => resource.kind === "tool" && resource.name.includes("slide_build"))
+  const slidePreview = catalog.tools.find(resource => resource.kind === "tool" && resource.name.includes("slide_preview"))
+  assert.ok(slideFamily)
+  assert.equal(slideFamily.allowed, true)
+  assert.ok(docFamily)
+  assert.equal(docFamily.allowed, false)
+  assert.ok(slideBuild)
+  assert.equal(slideBuild.allowed, false, "individual permission overrides its family")
+  assert.ok(slidePreview)
+  assert.equal(slidePreview.allowed, true, "individual tools inherit the family permission")
+  assert.equal(slidePreview.familyKey, "slide_*")
+
+  const configuredMcp = catalog.mcpServers.find(resource => resource.serverKey === "chrome-devtools")
+  assert.ok(configuredMcp)
+  assert.equal(configuredMcp.configuredInOpencode, true)
+  assert.equal(configuredMcp.serverEnabled, false)
+  assert.equal(configuredMcp.allowed, true)
+  const unconfiguredMcp = catalog.mcpServers.find(resource => resource.serverKey === "unknown-mcp")
+  assert.ok(unconfiguredMcp)
+  assert.equal(unconfiguredMcp.configuredInOpencode, false)
+  assert.equal(unconfiguredMcp.allowed, false)
+  assert.equal(catalog.opencodeRawContent, opencodeRawContent)
+  assert.ok(catalog.companionFiles.some(file => file.replace(/\\/g, "/").endsWith("tools/slide_build.ts")))
+})
+
+test("resource updates preserve the supported skill wildcard permission forms", () => {
+  const cases = [
+    { all: true, skillNames: [], allowedNames: [], expected: { "*": "allow" } },
+    { all: true, skillNames: ["checked", "unchecked"], allowedNames: ["checked"], expected: { "*": "allow", unchecked: "deny" } },
+    { all: false, allowedNames: ["checked"], expected: { "*": "deny", checked: "allow" } },
+    { all: false, allowedNames: [], expected: "deny" }
+  ]
+
+  for (const [index, item] of cases.entries()) {
+    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), `agent-skill-resource-${index}-`))
+    const agent = fixtureAgent(path.join(workspace, "general/agents/example.md"), workspace, "test/model")
+    for (const name of item.skillNames ?? (item.allowedNames.length ? item.allowedNames : [])) {
+      const skillPath = path.join(workspace, "general/skills", name, "SKILL.md")
+      fs.mkdirSync(path.dirname(skillPath), { recursive: true })
+      fs.writeFileSync(skillPath, `# ${name}\n`)
+    }
+    const originalPermission = { read: "allow", skill: "ask", bash: "deny" }
+    saveAgentFile(agent.currentPath, { ...agent.frontmatter, permission: originalPermission }, agent.body)
+    const updatedAgent = parseAgentFile(agent.currentPath, workspace)!
+    const catalog = discoverAgentResources(workspace, updatedAgent)
+
+    updateAgentResourcesAndMcp(workspace, updatedAgent, catalog, {
+      skills: { all: item.all, allowedNames: item.allowedNames }
+    })
+
+    const saved = parseAgentFile(agent.currentPath, workspace)!
+    assert.deepEqual(saved.frontmatter.permission.skill, item.expected)
+    assert.equal(saved.frontmatter.permission.read, "allow")
+    assert.equal(saved.frontmatter.permission.bash, "deny")
+  }
+})
+
+test("resource updates order tool family rules before overrides and update configured MCP state", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-resource-update-"))
+  const workspace = path.join(root, "workspace")
+  const previousXdg = process.env.XDG_CONFIG_HOME
+  t.after(() => {
+    if (previousXdg === undefined) delete process.env.XDG_CONFIG_HOME
+    else process.env.XDG_CONFIG_HOME = previousXdg
+  })
+  process.env.XDG_CONFIG_HOME = path.join(root, "xdg")
+  const agent = fixtureAgent(path.join(workspace, "general/agents/slides-orchestrator.md"), workspace, "test/model")
+  const originalPermission = {
+    read: "allow", bash: "deny", task: { helper: "allow" },
+    skill: { "*": "deny" }, "slide_*": "deny", slide_build: "allow", "chrome-devtools_*": "deny"
+  }
+  saveAgentFile(agent.currentPath, { ...agent.frontmatter, permission: originalPermission }, agent.body)
+  const updatedAgent = parseAgentFile(agent.currentPath, workspace)!
+  const selectedSkillPath = path.join(workspace, "general/skills/selected-skill/SKILL.md")
+  fs.mkdirSync(path.dirname(selectedSkillPath), { recursive: true })
+  fs.writeFileSync(selectedSkillPath, "# selected-skill\n")
+  fs.mkdirSync(path.join(workspace, "general/tools"), { recursive: true })
+  fs.writeFileSync(path.join(workspace, "general/tools/slide_build.ts"), "export default {}\n")
+  const opencodePath = path.join(workspace, "general/opencode.json")
+  fs.mkdirSync(path.dirname(opencodePath), { recursive: true })
+  fs.writeFileSync(opencodePath, JSON.stringify({ mcp: { "chrome-devtools": { enabled: false } } }))
+  const catalog = discoverAgentResources(workspace, updatedAgent)
+
+  const result = updateAgentResourcesAndMcp(workspace, updatedAgent, catalog, {
+    skills: { all: false, allowedNames: ["selected-skill"] },
+    permissions: { "slide_*": true, slide_build: false, "chrome-devtools_*": true },
+    mcpEnabled: { "chrome-devtools": true }
+  })
+
+  const saved = parseAgentFile(agent.currentPath, workspace)!
+  assert.deepEqual(Object.keys(saved.frontmatter.permission).slice(0, 2), ["read", "bash"])
+  const updatedKeys = Object.keys(saved.frontmatter.permission)
+  assert.ok(updatedKeys.indexOf("slide_*") < updatedKeys.indexOf("slide_build"))
+  assert.equal(saved.frontmatter.permission["slide_*"], "allow")
+  assert.equal(saved.frontmatter.permission.slide_build, "deny")
+  assert.equal(saved.frontmatter.permission["chrome-devtools_*"], "allow")
+  assert.deepEqual(saved.frontmatter.permission.task, { helper: "allow" })
+  assert.equal(saved.frontmatter.permission.read, "allow")
+  assert.equal(saved.frontmatter.permission.bash, "deny")
+  assert.deepEqual(JSON.parse(fs.readFileSync(opencodePath, "utf8")).mcp["chrome-devtools"], { enabled: true })
+  assert.ok(result.changedPaths.includes(agent.currentPath))
+  assert.ok(result.changedPaths.includes(opencodePath))
+})
+
+test("resource updates no-op on empty changes and reject unconfigured MCP edits", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "agent-resource-noop-"))
+  const agent = fixtureAgent(path.join(workspace, "general/agents/example.md"), workspace, "test/model")
+  fs.mkdirSync(path.join(workspace, "general/tools"), { recursive: true })
+  fs.writeFileSync(path.join(workspace, "general/tools/example_tool.ts"), "export default {}\n")
+  const catalog = discoverAgentResources(workspace, agent)
+  const original = fs.readFileSync(agent.currentPath)
+
+  const result = updateAgentResourcesAndMcp(workspace, agent, catalog, {})
+
+  assert.deepEqual(result, { changedPaths: [] })
+  assert.deepEqual(fs.readFileSync(agent.currentPath), original)
+  assert.throws(() => updateAgentResourcesAndMcp(workspace, agent, catalog, {
+    mcpEnabled: { "not-configured": true }
+  }), /unconfigured|configured/i)
+  assert.deepEqual(fs.readFileSync(agent.currentPath), original)
+})
+
+test("resource update restores agent.currentPath and bytes when opencode write fails", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-resource-rollback-"))
+  const workspace = path.join(root, "workspace")
+  const previousXdg = process.env.XDG_CONFIG_HOME
+  t.after(() => {
+    if (previousXdg === undefined) delete process.env.XDG_CONFIG_HOME
+    else process.env.XDG_CONFIG_HOME = previousXdg
+  })
+  process.env.XDG_CONFIG_HOME = path.join(root, "xdg")
+  const agent = fixtureAgent(path.join(workspace, "general/agents/slides-orchestrator.md"), workspace, "test/model")
+  fs.mkdirSync(path.join(workspace, "general/tools"), { recursive: true })
+  fs.writeFileSync(path.join(workspace, "general/tools/slide_build.ts"), "export default {}\n")
+  const opencodePath = path.join(workspace, "general/opencode.json")
+  fs.mkdirSync(path.dirname(opencodePath), { recursive: true })
+  fs.writeFileSync(opencodePath, JSON.stringify({ mcp: { server: { enabled: false } } }))
+  const catalog = discoverAgentResources(workspace, agent)
+  const originalAgentPath = agent.currentPath
+  const originalAgentBytes = fs.readFileSync(originalAgentPath)
+  const originalConfigBytes = fs.readFileSync(opencodePath)
+  const writeFileSync = fs.writeFileSync
+  const renameSync = fs.renameSync
+  t.mock.method(fs, "writeFileSync", function (filePath: fs.PathLike, ...args: any[]) {
+    if (filePath === opencodePath) throw new Error("simulated opencode write failure")
+    return (writeFileSync as any).call(fs, filePath, ...args)
+  })
+  t.mock.method(fs, "renameSync", function (oldPath: fs.PathLike, newPath: fs.PathLike) {
+    if (newPath === opencodePath) throw new Error("simulated opencode write failure")
+    return renameSync.call(fs, oldPath, newPath)
+  })
+
+  assert.throws(() => updateAgentResourcesAndMcp(workspace, agent, catalog, {
+    permissions: { "slide_*": true },
+    mcpEnabled: { server: true }
+  }), /simulated opencode write failure/)
+
+  assert.equal(agent.currentPath, originalAgentPath)
+  assert.deepEqual(fs.readFileSync(originalAgentPath), originalAgentBytes)
+  assert.deepEqual(fs.readFileSync(opencodePath), originalConfigBytes)
+})
+
+test("hybrid companion resources are discovered and exported except for tests", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-hybrid-resources-"))
+  const xdg = path.join(root, "xdg")
+  const opencodeRoot = path.join(xdg, "opencode")
+  const sourceRoot = path.join(root, "source")
+  const workspace = path.join(root, "workspace")
+  const previousXdg = process.env.XDG_CONFIG_HOME
+  t.after(() => {
+    if (previousXdg === undefined) delete process.env.XDG_CONFIG_HOME
+    else process.env.XDG_CONFIG_HOME = previousXdg
+  })
+  process.env.XDG_CONFIG_HOME = xdg
+  const hybridAgent = fixtureAgent(path.join(workspace, "general/agents/hybrid-orchestrator.md"), workspace, "test/model")
+  const resources = [
+    "tools/pipeline_state.ts",
+    "tools/_pipeline_core.js",
+    "tools/_pipeline_run.js",
+    "tools/_pipeline_serve.js",
+    "skills/code-review-antipatterns/SKILL.md",
+    "plugins/pipeline-guard.js"
+  ]
+  for (const relative of [...resources, "tools/_pipeline_core.test.mjs"]) {
+    for (const base of [sourceRoot, path.join(workspace, "general")]) {
+      const source = path.join(base, relative)
+      fs.mkdirSync(path.dirname(source), { recursive: true })
+      fs.writeFileSync(source, `${relative}\n`)
+    }
+  }
+
+  const catalog = discoverAgentResources(workspace, hybridAgent)
+  for (const relative of resources) {
+    assert.ok(catalog.companionFiles.some(file => file.replace(/\\/g, "/").endsWith(relative)), `${relative} should be discovered`)
+  }
+  assert.equal(catalog.companionFiles.some(file => file.replace(/\\/g, "/").endsWith("tools/_pipeline_core.test.mjs")), false)
+
+  const result = exportAgents([hybridAgent], new Set([hybridAgent.currentPath]), sourceRoot)
+  for (const relative of resources) {
+    assert.equal(fs.readFileSync(path.join(opencodeRoot, relative), "utf8"), `${relative}\n`)
+    assert.ok(result.domainResources.includes(path.join(opencodeRoot, relative)))
+  }
+  assert.equal(fs.existsSync(path.join(opencodeRoot, "tools/_pipeline_core.test.mjs")), false)
+})
+
+test("OpenCode V2 agent updates preserve frontmatter while changing params, model, and resources", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "agent-v2-frontmatter-"))
+  const filePath = path.join(workspace, "general/agents/v2-agent.md")
+  fs.mkdirSync(path.dirname(filePath), { recursive: true })
+  const frontmatter = {
+    name: "v2-agent",
+    description: "V2 OpenCode agent",
+    mode: "subagent",
+    color: "#7c3aed",
+    model: "old/model",
+    steps: 8,
+    request: { body: { temperature: 0.2, top_p: 0.8 } },
+    system: "Keep this prompt",
+    tools: { read: true, write: false },
+    permissions: [
+      { action: "read", resource: "*", effect: "allow" },
+      { action: "skill", resource: "*", effect: "deny" },
+      { action: "shell", resource: "*", effect: "deny" }
+    ],
+    metadata: { owner: "test", nested: { preserve: true } }
+  }
+  saveAgentFile(filePath, frontmatter, "V2 agent body.")
+  let agent = parseAgentFile(filePath, workspace)!
+  const preserved = { ...agent.frontmatter }
+  fs.mkdirSync(path.join(workspace, "general/skills/selected-skill"), { recursive: true })
+  fs.writeFileSync(path.join(workspace, "general/skills/selected-skill/SKILL.md"), "# selected-skill\n")
+  fs.mkdirSync(path.join(workspace, "general/tools"), { recursive: true })
+  fs.writeFileSync(path.join(workspace, "general/tools/example_tool.ts"), "export default {}\n")
+  const catalog = discoverAgentResources(workspace, agent)
+
+  updateAgentParams([agent], { temperature: 0.4 })
+  agent = parseAgentFile(filePath, workspace)!
+  updateAgentsModel([agent], "new/model", ["new/model"])
+  agent = parseAgentFile(filePath, workspace)!
+  updateAgentResourcesAndMcp(workspace, agent, catalog, {
+    skills: { all: false, allowedNames: ["selected-skill"] }
+  })
+
+  const saved = parseAgentFile(filePath, workspace)!
+  const savedContent = fs.readFileSync(filePath, "utf8")
+  for (const key of ["name", "mode", "color", "top_p", "prompt", "tools", "metadata"]) {
+    assert.deepEqual(saved.frontmatter[key], preserved[key], `${key} frontmatter should be preserved`)
+  }
+  assert.equal(saved.frontmatter.description, preserved.description)
+  assert.equal(saved.frontmatter.temperature, 0.4)
+  assert.equal(saved.frontmatter.model, "new/model")
+  assert.match(savedContent, /action: skill\n\s+resource: selected-skill\n\s+effect: allow/)
+  assert.match(savedContent, /action: read\n\s+resource: ["']\*["']\n\s+effect: allow/)
+  assert.match(saved.body, /V2 agent body\./)
 })

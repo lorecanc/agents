@@ -7,7 +7,7 @@ import path from "node:path"
 import readline from "node:readline"
 import { App } from "./App.js"
 import { fetchModels } from "./utils/models.js"
-import { exportAgents, getExportDestination, analyzeAgentName, renameAgent, auditSecurityPermissions, importAgents, updateAgentParams, sanitizeFilename } from "./utils/agents.js"
+import { exportAgents, getExportDestination, analyzeAgentName, renameAgent, auditSecurityPermissions, importAgents, previewImport, updateAgentParams, sanitizeFilename, AGENT_EFFORT_VARIANTS } from "./utils/agents.js"
 import {
   DEFAULT_TRANSLATION_CONFIG,
   loadTranslationConfig,
@@ -333,8 +333,11 @@ async function runExport(workspaceRoot: string) {
       console.log(`
 Usage: manage-agents export [options]
 
-Export agent files to ~/.config/opencode/agents/ with full overwrite.
-A single disaster-recovery backup is kept at ~/.config/opencode/agents_backup/.
+OpenCode config directory: $XDG_CONFIG_HOME/opencode/ (default: ~/.config/opencode/).
+Export agent files to its agents/ directory with full overwrite.
+A single disaster-recovery backup is kept at agents_backup/ in that directory.
+Companion resources in tools/, commands/, skills/, and plugins/ matching each exported
+agent's domain are installed under the same subpath in that directory.
 
 Options:
   --all, -a               Export all agents
@@ -364,7 +367,7 @@ Options:
   console.log(`   Agents to export: ${agentsToExport.length}${category ? ` (category: ${category})` : " (all)"}`)
   console.log(`   Destination:      ${destination}`)
   console.log(`   Overwrite mode:   FULL (including model field)`)
-  console.log(`   Backup location:  ~/.config/opencode/agents_backup/`)
+  console.log(`   Backup location:  ${shortenHome(path.join(path.dirname(getExportDestination()), "agents_backup"))}`)
   console.log(`   ------------------------------------------\n`)
 
   const answer = await askQuestion("⚠  Proceed with export? (Y/n): ")
@@ -373,13 +376,19 @@ Options:
     process.exit(0)
   }
 
-  const result = exportAgents(agentsToExport)
+  const result = exportAgents(agentsToExport, undefined, path.join(workspaceRoot, "general"))
 
   console.log(`\n✅ Export complete!`)
   console.log(`   Exported ${result.exported.length} agents to:`)
   console.log(`   ${shortenHome(result.destinationPath)}`)
   console.log(`\n   Backup at:`)
   console.log(`   ${shortenHome(result.backupPath)}\n`)
+
+  if (result.domainResources.length > 0) {
+    console.log(`   Companion resources installed:`)
+    result.domainResources.forEach(resource => console.log(`     ${shortenHome(resource)}`))
+    console.log(`   Resource backup: ${result.domainBackupPath ? shortenHome(result.domainBackupPath) : "not needed (no existing files replaced)"}`)
+  }
 
   if (result.skipped.length > 0) {
     console.log(`   ⚠ Skipped ${result.skipped.length} files:`)
@@ -520,10 +529,34 @@ async function runImportCLI(workspaceRoot: string) {
   const args = process.argv.slice(3)
   const isDryRun = args.includes("--dry-run")
 
+  if (args.includes("--help") || args.includes("-h")) {
+    console.log("Usage: manage-agents import [--dry-run]")
+    console.log("Import modified/new agents from OpenCode ($XDG_CONFIG_HOME/opencode/agents/) and modified companion resources (tools/, commands/, skills/, plugins/) into general/, skipping unchanged files.")
+    return
+  }
+
   console.log(`\n🔁 Two-Way Sync: Import / Pull from OpenCode`)
   console.log(`   Source: ~/.config/opencode/agents/`)
   console.log(`   Destination: general/agents/`)
   console.log(`   Mode: ${isDryRun ? "DRY RUN" : "EXECUTE"}\n`)
+
+  const preview = previewImport(workspaceRoot)
+  const changedAgents = preview.agents.filter(agent => agent.existsInExport && agent.hasDifferences)
+  const changedResources = preview.companionResources.filter(resource => resource.existsInExport && resource.hasDifferences)
+
+  if (changedAgents.length === 0 && changedResources.length === 0) {
+    console.log("No changes to import (all exported files match local general/). Everything is already in sync.\n")
+    return
+  }
+
+  console.log(`Preview: ${changedAgents.length} agent(s), ${changedResources.length} companion resource(s) will be imported.`)
+  for (const agent of changedAgents) {
+    console.log(`   ${agent.existsLocally ? "modified" : "new"} agent: ${path.relative(workspaceRoot, agent.localPath)}`)
+  }
+  for (const resource of changedResources) {
+    console.log(`   ${resource.existsLocally ? "modified" : "new"} resource: ${path.relative(workspaceRoot, resource.localPath)}`)
+  }
+  console.log("")
 
   if (isDryRun) {
     console.log("💡 Dry run complete. Run without --dry-run to apply changes.\n")
@@ -537,9 +570,12 @@ async function runImportCLI(workspaceRoot: string) {
   }
 
   try {
-    const res = repositoryMutation(workspaceRoot, [path.join(workspaceRoot, "general", "agents")], AUTO_COMMIT_MESSAGES.import, () => importAgents(workspaceRoot))
-    console.log(`\n✅ Successfully imported ${res.imported.length} agents!`)
-    console.log(`   ${res.backupPath ? `Backup saved to: ${shortenHome(res.backupPath)}` : "No backup needed"}\n`)
+    const allowedPaths = [...changedAgents.map(agent => agent.localPath), ...changedResources.map(resource => resource.localPath)]
+    const res = repositoryMutation(workspaceRoot, allowedPaths, AUTO_COMMIT_MESSAGES.import, () => importAgents(workspaceRoot))
+    console.log(`\n✅ Successfully imported ${res.imported.length} agents and ${res.importedResources.length} companion resources!`)
+    if (res.imported.length > 0) console.log(`   Agents: ${res.imported.join(", ")}`)
+    if (res.importedResources.length > 0) console.log(`   Companion resources: ${res.importedResources.join(", ")}`)
+    console.log(`   Backup: ${res.backupPath ? shortenHome(res.backupPath) : "not needed"}\n`)
   } catch (e: any) {
     console.error(`Error during import: ${e.message || e}`)
   }
@@ -549,25 +585,74 @@ async function runTuneCLI(workspaceRoot: string) {
   const { findAgentFiles } = await import("./utils/agents.js")
   const args = process.argv.slice(3)
 
+  const usage = () => {
+    console.log("Usage: manage-agents tune [options]")
+    console.log("  --steps <number>                  Set max execution steps")
+    console.log("  --temp <0.0-1.0>                  Set temperature")
+    console.log(`  --variant <name> / --effort <name> Set model thinking/effort variant (built-in: ${AGENT_EFFORT_VARIANTS.join(", ")}, or custom variant name)`)
+    console.log("  --clear-variant / --clear-effort  Remove variant from agent frontmatter (revert to model default)")
+    console.log("  --category <cat> / --all          Target a specific category or all agents")
+  }
+
+  if (args.includes("--help") || args.includes("-h")) {
+    usage()
+    return
+  }
+
   let steps: number | undefined
   let temp: number | undefined
+  let variant: string | null | undefined
+  let variantProvided = false
+  let clearVariant = false
   let category = ""
+  let allCategories = false
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--steps" && args[i + 1]) steps = parseInt(args[++i], 10)
     else if (args[i] === "--temp" && args[i + 1]) temp = parseFloat(args[++i])
     else if ((args[i] === "--category" || args[i] === "-c") && args[i + 1]) category = args[++i]
+    else if (args[i] === "--all") allCategories = true
+    else if (args[i] === "--clear-variant" || args[i] === "--clear-effort") clearVariant = true
+    else if (args[i] === "--variant" || args[i] === "--effort") {
+      const value = args[i + 1]
+      if (value === undefined || value.trim() === "" || value.startsWith("-")) {
+        console.error(`Error: ${args[i]} requires a non-empty variant name.\n`)
+        usage()
+        process.exitCode = 1
+        return
+      }
+      variant = value
+      variantProvided = true
+      i++
+    }
   }
 
+  if (variantProvided && clearVariant) {
+    console.error("Error: --variant/--effort cannot be used with --clear-variant/--clear-effort.\n")
+    usage()
+    process.exitCode = 1
+    return
+  }
+
+  if (steps === undefined && temp === undefined && !variantProvided && !clearVariant) {
+    console.error("Error: Specify at least one of --steps, --temp, --variant, or --clear-variant.\n")
+    usage()
+    process.exitCode = 1
+    return
+  }
+
+  if (clearVariant) variant = null
+
   const agents = findAgentFiles(workspaceRoot, loadTranslationConfig(workspaceRoot, undefined, { persistMigration: false }).sourceDir)
-  const targetAgents = category ? agents.filter(a => a.category === category) : agents
+  const targetAgents = !allCategories && category ? agents.filter(a => a.category === category) : agents
 
   console.log(`\n🎯 Parameter Tuning CLI`)
-  console.log(`   Target agents: ${targetAgents.length}${category ? ` (category: ${category})` : " (all)"}`)
+  console.log(`   Target agents: ${targetAgents.length}${!allCategories && category ? ` (category: ${category})` : " (all)"}`)
   console.log(`   Steps:       ${steps !== undefined ? steps : "unchanged"}`)
-  console.log(`   Temperature: ${temp !== undefined ? temp : "unchanged"}\n`)
+  console.log(`   Temperature: ${temp !== undefined ? temp : "unchanged"}`)
+  console.log(`   Variant:     ${variant === undefined ? "unchanged" : variant === null ? "cleared" : variant}\n`)
 
-  repositoryMutation(workspaceRoot, targetAgents.map(a => a.currentPath), AUTO_COMMIT_MESSAGES.tune, () => updateAgentParams(targetAgents, { steps, temperature: temp }))
+  repositoryMutation(workspaceRoot, targetAgents.map(a => a.currentPath), AUTO_COMMIT_MESSAGES.tune, () => updateAgentParams(targetAgents, { steps, temperature: temp, variant }))
   console.log(`✅ Successfully updated parameters for ${targetAgents.length} agents!\n`)
 }
 

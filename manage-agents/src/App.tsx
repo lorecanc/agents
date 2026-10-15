@@ -17,10 +17,17 @@ import {
   renameAgent,
   getAgentPermissionSummary,
   SAFETY_PRESETS,
+  AGENT_EFFORT_VARIANTS,
   applySafetyPreset,
   updateAgentParams,
   updateAgentDelegations,
-  compareAgentWithExport,
+  discoverAgentResources,
+  updateAgentResourcesAndMcp,
+  AgentResourceCatalog,
+  AgentResourceChanges,
+  AgentResourceItem,
+  AgentMcpResourceItem,
+  previewImport,
   importAgents,
   AgentDiffResult,
   analyzePermissionOrder,
@@ -60,6 +67,7 @@ type ViewMode =
   | "rename-prompt"
   | "permission-preset"
   | "delegation-manager"
+  | "resource-manager"
   | "parameter-tuning"
    | "import-diff"
    | "layout"
@@ -71,6 +79,11 @@ interface ActiveItem {
   label: string
   category: string
   agent?: AgentInfo
+}
+
+interface ResourceManagerRow {
+  kind: AgentResourceItem["kind"]
+  item: AgentResourceItem | AgentMcpResourceItem
 }
 
 const CATEGORY_DESCRIPTIONS: Record<string, string> = {
@@ -250,12 +263,25 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
   const [focusedDelegationIndex, setFocusedDelegationIndex] = useState(0)
   const [delegationScrollOffset, setDelegationScrollOffset] = useState(0)
 
+  // Skills, tools, and MCP resource manager state
+  const [resourceTargetAgent, setResourceTargetAgent] = useState<AgentInfo | null>(null)
+  const [resourceCatalog, setResourceCatalog] = useState<AgentResourceCatalog | null>(null)
+  const [resourceModalFocusIndex, setResourceModalFocusIndex] = useState(0)
+  const [resourceModalScrollOffset, setResourceModalScrollOffset] = useState(0)
+  const [draftSkillAll, setDraftSkillAll] = useState(false)
+  const [draftAllowedSkills, setDraftAllowedSkills] = useState<Set<string>>(new Set())
+  const [draftPermissions, setDraftPermissions] = useState<Record<string, boolean>>({})
+  const [draftMcpEnabled, setDraftMcpEnabled] = useState<Record<string, boolean>>({})
+  const [explicitResourcePermissions, setExplicitResourcePermissions] = useState<Set<string>>(new Set())
+
   // Parameter Tuning State
   const [tuningSteps, setTuningSteps] = useState("50")
   const [tuningTemp, setTuningTemp] = useState("0.2")
+  const [tuningVariant, setTuningVariant] = useState("")
+  const [tuningVariantTouched, setTuningVariantTouched] = useState(false)
   const [tuningMode, setTuningMode] = useState<"subagent" | "primary">("subagent")
   const [tuningHidden, setTuningHidden] = useState(false)
-  const [tuningFocusedField, setTuningFocusedField] = useState<"steps" | "temp" | "mode" | "hidden">("steps")
+  const [tuningFocusedField, setTuningFocusedField] = useState<"steps" | "temp" | "variant" | "mode" | "hidden">("steps")
   const [tuningTargetPaths, setTuningTargetPaths] = useState<string[]>([])
 
   // Import Diff State
@@ -264,8 +290,9 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
   const [importDiffScrollOffset, setImportDiffScrollOffset] = useState(0)
 
   // Inspector Tab State
-  const [inspectorTab, setInspectorTab] = useState<"overview" | "naming" | "security" | "delegations">("overview")
+  const [inspectorTab, setInspectorTab] = useState<"overview" | "naming" | "security" | "delegations" | "resources">("overview")
   const [graphScrollOffset, setGraphScrollOffset] = useState(0)
+  const [resourceScrollIndex, setResourceScrollIndex] = useState(0)
 
   const allAgentFilenames = useMemo(() => agents.map(a => a.filename), [agents])
   const bridgePrefixSuggestions = useMemo(() => [
@@ -382,6 +409,10 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
   useEffect(() => {
     setGraphScrollOffset(0)
   }, [focusedIndex])
+
+  useEffect(() => {
+    setResourceScrollIndex(0)
+  }, [focusedIndex, inspectorTab])
 
   useEffect(() => {
     if (viewMode === "bridge-prompt") {
@@ -734,11 +765,15 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
         if (!isSearching) { setLayoutSnapshot(appliedShare); setLayoutDraft(appliedShare); setLayoutError(""); setLayoutStatus(""); setViewMode("layout") }
       } else if ((key === "up" || key === "k") && (inspectorTab === "security" || inspectorTab === "delegations") && currentItem?.agent) {
         setGraphScrollOffset((offset) => Math.max(0, offset - 1))
+      } else if ((key === "up" || key === "k") && inspectorTab === "resources" && activeItems[focusedIndex]?.agent) {
+        setResourceScrollIndex((offset) => Math.max(0, offset - 1))
       } else if ((key === "down" || key === "j") && (inspectorTab === "security" || inspectorTab === "delegations") && currentItem?.agent) {
         const itemCount = inspectorTab === "security"
           ? Object.keys(currentItem.agent.frontmatter.permission || {}).filter((key) => key !== "task").length
           : (currentItem.agent.allowedSubagents || []).length
         setGraphScrollOffset((offset) => Math.min(Math.max(0, itemCount - Math.max(1, maxVisibleItems - 2)), offset + 1))
+      } else if ((key === "down" || key === "j") && inspectorTab === "resources" && activeItems[focusedIndex]?.agent) {
+        setResourceScrollIndex((offset) => Math.min(Math.max(0, resourceInspectorLines.length - Math.max(1, layout.listRows - 5)), offset + 1))
       } else if (key === "up" || key === "k") {
         if (activeItems.length === 0) return
         setFocusedIndex((prev) => {
@@ -966,6 +1001,31 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           setDelegationScrollOffset(0)
           setViewMode("delegation-manager")
         }
+      } else if (key === "u") {
+        const target = activeItems[focusedIndex]
+        if (target?.type !== "file" || !target.agent) {
+          setLayoutStatus("Select a specific agent to manage skills, tools & MCP.")
+          return
+        }
+        try {
+          const catalog = discoverAgentResources(workspaceRoot, target.agent, agents)
+          setResourceTargetAgent(target.agent)
+          setResourceCatalog(catalog)
+          setDraftSkillAll(catalog.skills.find(item => item.kind === "skill-wildcard")?.allowed || false)
+          setDraftAllowedSkills(new Set(catalog.skills.filter(item => item.kind === "skill" && item.allowed).map(item => item.name)))
+          const permissions = Object.fromEntries([...catalog.tools, ...catalog.mcpServers].map(item => [item.permissionKey, item.allowed]))
+          setDraftPermissions(permissions)
+          setExplicitResourcePermissions(new Set(catalog.tools
+            .filter(item => item.kind === "tool" && item.familyKey && Object.prototype.hasOwnProperty.call(target.agent!.frontmatter.permission || {}, item.permissionKey))
+            .map(item => item.permissionKey)))
+          setDraftMcpEnabled(Object.fromEntries(catalog.mcpServers.map(item => [item.serverKey, item.serverEnabled])))
+          setResourceModalFocusIndex(0)
+          setResourceModalScrollOffset(0)
+          setLayoutStatus("")
+          setViewMode("resource-manager")
+        } catch (error: any) {
+          setLayoutStatus(terminalSafeText(error?.message || error))
+        }
       } else if (key === "t") {
         if (activeItems.length > 0 && activeItems[focusedIndex]?.agent) {
           const target = activeItems[focusedIndex].agent!
@@ -974,8 +1034,12 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
             : [target]
           setTuningTargetPaths(targetAgents.map((a) => a.currentPath))
           const defaults = targetAgents[0]
+          const variants = targetAgents.map((a) => String(a.frontmatter.variant ?? "").trim())
+          const variantsMatch = variants.every((variant) => variant === variants[0])
           setTuningSteps(String(defaults.frontmatter.steps || 50))
           setTuningTemp(String(defaults.frontmatter.temperature || 0.2))
+          setTuningVariant(variantsMatch ? String(defaults.frontmatter.variant ?? "").trim() : "")
+          setTuningVariantTouched(false)
           setTuningMode((target.frontmatter.mode as any) || "subagent")
           setTuningHidden(Boolean(target.frontmatter.hidden))
           setTuningFocusedField("steps")
@@ -983,7 +1047,18 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
         }
       } else if (key === "i") {
         try {
-          const diffs = agents.map(a => compareAgentWithExport(a))
+          const preview = previewImport(workspaceRoot)
+          const companionDiffs: AgentDiffResult[] = preview.companionResources.map(resource => ({
+            filename: resource.relativePath,
+            localPath: resource.localPath,
+            exportPath: resource.exportPath,
+            existsLocally: resource.existsLocally,
+            existsInExport: resource.existsInExport,
+            hasDifferences: resource.hasDifferences,
+            localContent: "",
+            exportContent: ""
+          }))
+          const diffs = [...preview.agents, ...companionDiffs]
            setImportDiffs(diffs)
            setFocusedDiffIndex(0)
            setImportDiffScrollOffset(0)
@@ -1003,6 +1078,13 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
       } else if (key === "4") {
         setInspectorTab("delegations")
         setGraphScrollOffset(0)
+      } else if (key === "5") {
+        setInspectorTab("resources")
+        setResourceScrollIndex(0)
+      } else if (key === "pageup" && inspectorTab === "resources") {
+        setResourceScrollIndex(offset => Math.max(0, offset - resourceInspectorPageSize))
+      } else if (key === "pagedown" && inspectorTab === "resources") {
+        setResourceScrollIndex(offset => Math.min(Math.max(0, resourceInspectorLines.length - resourceInspectorPageSize), offset + resourceInspectorPageSize))
       } else if (key === "pageup" && (inspectorTab === "security" || inspectorTab === "delegations")) {
         const graphPageSize = Math.max(1, maxVisibleItems - 2)
         setGraphScrollOffset((offset) => {
@@ -1291,7 +1373,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
       // 7. Export confirmation mode
       if (key === "y" || key === "enter" || key === "return") {
         try {
-          const result = exportAgents(agents, selectedAgentPaths.size > 0 ? selectedAgentPaths : undefined)
+          const result = exportAgents(agents, selectedAgentPaths.size > 0 ? selectedAgentPaths : undefined, path.join(workspaceRoot, "general"))
           setSelectedAgentPaths(new Set())
           setActionResultTitle("Export Complete")
           const lines = [
@@ -1301,6 +1383,14 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
             `Disaster-recovery backup at:`,
             `  ${result.backupPath.replace(/\/Users\/[^\/]+/, "~")}`
           ]
+          if (result.domainResources.length > 0) {
+            lines.push(
+              ``,
+              `Companion resources installed:`,
+              ...result.domainResources.map(resource => `  ${resource.replace(/\/Users\/[^\/]+/, "~")}`),
+              `Resource backup: ${result.domainBackupPath ? result.domainBackupPath.replace(/\/Users\/[^\/]+/, "~") : "not needed"}`
+            )
+          }
           if (result.skipped.length > 0) {
             lines.push(``, `⚠ Skipped ${result.skipped.length} files:`,
               ...result.skipped.map((s) => `  * ${s}`))
@@ -1454,20 +1544,126 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
       } else if (key === "escape") {
         setViewMode("main")
       }
+    } else if (viewMode === "resource-manager") {
+      if (key === "escape") {
+        setViewMode("main")
+      } else if (key === "up" || key === "k" || key === "down" || key === "j") {
+        if (resourceManagerRows.length === 0) return
+        const direction = key === "up" || key === "k" ? -1 : 1
+        const next = Math.max(0, Math.min(resourceManagerRows.length - 1, resourceModalFocusIndex + direction))
+        setResourceModalFocusIndex(next)
+        setResourceModalScrollOffset(offset => next < offset ? next : next >= offset + maxVisibleResourceRows ? next - maxVisibleResourceRows + 1 : offset)
+      } else if (key === "pageup" || key === "pagedown") {
+        if (resourceManagerRows.length === 0) return
+        const delta = key === "pageup" ? -maxVisibleResourceRows : maxVisibleResourceRows
+        const next = Math.max(0, Math.min(resourceManagerRows.length - 1, resourceModalFocusIndex + delta))
+        setResourceModalFocusIndex(next)
+        setResourceModalScrollOffset(Math.max(0, Math.min(Math.max(0, resourceManagerRows.length - maxVisibleResourceRows), next)))
+      } else if (key === "space") {
+        const row = resourceManagerRows[resourceModalFocusIndex]
+        if (!row || !resourceCatalog) return
+        if (row.kind === "skill-wildcard") {
+          const nextAll = !draftSkillAll
+          setDraftSkillAll(nextAll)
+          setDraftAllowedSkills(nextAll
+            ? new Set(resourceCatalog.skills.filter(item => item.kind === "skill").map(item => item.name))
+            : new Set())
+        } else if (row.kind === "skill") {
+          const name = row.item.name
+          const next = new Set(draftAllowedSkills)
+          if (next.has(name)) next.delete(name)
+          else next.add(name)
+          const skillNames = resourceCatalog.skills.filter(item => item.kind === "skill").map(item => item.name)
+          if (!draftSkillAll && skillNames.length > 0 && skillNames.every(skill => next.has(skill))) {
+            setDraftSkillAll(true)
+          } else if (draftSkillAll && next.size === 0) {
+            setDraftSkillAll(false)
+          }
+          setDraftAllowedSkills(next)
+        } else if (row.kind === "tool-family") {
+          const nextAllowed = !draftPermissions[row.item.permissionKey]
+          const keys = [row.item.permissionKey, ...resourceCatalog.tools
+            .filter(item => item.kind === "tool" && item.familyKey === row.item.permissionKey && !explicitResourcePermissions.has(item.permissionKey))
+            .map(item => item.permissionKey)]
+          setDraftPermissions(previous => Object.fromEntries(Object.entries({ ...previous, ...Object.fromEntries(keys.map(key => [key, nextAllowed])) })))
+          setExplicitResourcePermissions(previous => new Set([...previous, row.item.permissionKey]))
+        } else {
+          setDraftPermissions(previous => ({ ...previous, [row.item.permissionKey]: !previous[row.item.permissionKey] }))
+          setExplicitResourcePermissions(previous => new Set([...previous, row.item.permissionKey]))
+        }
+      } else if (key === "x") {
+        const row = resourceManagerRows[resourceModalFocusIndex]
+        if (row?.kind === "mcp") {
+          const item = row.item as AgentMcpResourceItem
+          if (item.configuredInOpencode) setDraftMcpEnabled(previous => ({ ...previous, [item.serverKey]: !previous[item.serverKey] }))
+          else setLayoutStatus("Server is not configured in general/opencode.json.")
+        }
+      } else if (key === "enter" || key === "return") {
+        if (!resourceCatalog || !resourceTargetAgent) return
+        const initialWildcard = resourceCatalog.skills.find(item => item.kind === "skill-wildcard")?.allowed || false
+        const initialAllowedSkills = new Set<string>(resourceCatalog.skills.filter(item => item.kind === "skill" && item.allowed).map(item => item.name))
+        const allowedNames: string[] = Array.from(draftAllowedSkills)
+        const skillsChanged = draftSkillAll !== initialWildcard || allowedNames.length !== initialAllowedSkills.size || allowedNames.some(name => !initialAllowedSkills.has(name))
+        const permissions: Record<string, boolean> = Object.fromEntries([...resourceCatalog.tools, ...resourceCatalog.mcpServers]
+          .filter(item => {
+            const changed = draftPermissions[item.permissionKey] !== item.allowed
+            const inheritedChildTool = item.kind === "tool" && Boolean(item.familyKey)
+            return changed && (!inheritedChildTool || explicitResourcePermissions.has(item.permissionKey))
+          })
+          .map(item => [item.permissionKey, draftPermissions[item.permissionKey]]))
+        const mcpEnabled: Record<string, boolean> = Object.fromEntries(resourceCatalog.mcpServers
+          .filter(item => item.configuredInOpencode && draftMcpEnabled[item.serverKey] !== item.serverEnabled)
+          .map(item => [item.serverKey, draftMcpEnabled[item.serverKey]]))
+        const changes: AgentResourceChanges = {
+          ...(skillsChanged ? { skills: { all: draftSkillAll, allowedNames } } : {}),
+          ...(Object.keys(permissions).length ? { permissions } : {}),
+          ...(Object.keys(mcpEnabled).length ? { mcpEnabled } : {})
+        }
+        if (!changes.skills && !changes.permissions && !changes.mcpEnabled) {
+          setLayoutStatus("No changes to save.")
+          setViewMode("main")
+          return
+        }
+        const allowedPaths = [
+          ...(changes.skills || changes.permissions ? [path.relative(workspaceRoot, resourceTargetAgent.currentPath)] : []),
+          ...(changes.mcpEnabled ? ["general/opencode.json"] : [])
+        ]
+        try {
+          const tx = mutate(allowedPaths, "tune", () => updateAgentResourcesAndMcp(workspaceRoot, resourceTargetAgent, resourceCatalog, changes))
+          try { refreshData() } catch (error) { setMutationRefreshFailure(error, tx.warning); return }
+          setMutationSuccess("Agent Resources Updated", [
+            `Updated skills, custom tools, and MCP permissions for:`,
+            `  ${resourceTargetAgent.filename}`,
+            ...(tx.value.changedPaths.includes(path.join(workspaceRoot, "general", "opencode.json"))
+              ? ["", "general/opencode.json updated. Restart OpenCode for MCP server changes to take effect."]
+              : [])
+          ], tx.warning)
+          setViewMode("action-result")
+        } catch (error: any) {
+          setActionResultTitle("Error Updating Agent Resources")
+          setActionResultLines([`An error occurred:`, `  ${error.message || error}`])
+          setViewMode("action-result")
+        }
+      }
     } else if (viewMode === "parameter-tuning") {
       // 12. Parameter tuning mode
       if (key === "escape") {
         setViewMode("main")
       } else if (key === "tab" || key === "down") {
         setTuningFocusedField((prev) =>
-          prev === "steps" ? "temp" : prev === "temp" ? "mode" : prev === "mode" ? "hidden" : "steps"
+          prev === "steps" ? "temp" : prev === "temp" ? "variant" : prev === "variant" ? "mode" : prev === "mode" ? "hidden" : "steps"
         )
-      } else if (key === "up" || key === "k") {
+      } else if (key === "up") {
         setTuningFocusedField((prev) =>
-          prev === "hidden" ? "mode" : prev === "mode" ? "temp" : prev === "temp" ? "steps" : "hidden"
+          prev === "hidden" ? "mode" : prev === "mode" ? "variant" : prev === "variant" ? "temp" : prev === "temp" ? "steps" : "hidden"
         )
       } else if (key === "space") {
-        if (tuningFocusedField === "mode") {
+        if (tuningFocusedField === "variant") {
+          const choices = ["", ...AGENT_EFFORT_VARIANTS]
+          const currentIndex = choices.indexOf(tuningVariant)
+          setTuningVariant(choices[(currentIndex + 1 + choices.length) % choices.length])
+          setTuningVariantTouched(true)
+        } else if (tuningFocusedField === "mode") {
           setTuningMode((prev) => (prev === "primary" ? "subagent" : "primary"))
         } else if (tuningFocusedField === "hidden") {
           setTuningHidden((prev) => !prev)
@@ -1477,6 +1673,9 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           setTuningSteps((prev) => prev.slice(0, -1))
         } else if (tuningFocusedField === "temp") {
           setTuningTemp((prev) => prev.slice(0, -1))
+        } else if (tuningFocusedField === "variant") {
+          setTuningVariant((prev) => prev.slice(0, -1))
+          setTuningVariantTouched(true)
         }
       } else if (key === "enter" || key === "return") {
         const targetAgents = tuningTargetPaths.length > 0
@@ -1487,6 +1686,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
 
         const stepsNum = tuningSteps ? parseInt(tuningSteps, 10) : undefined
         const tempNum = tuningTemp ? parseFloat(tuningTemp) : undefined
+        const variantParam = tuningVariantTouched ? (tuningVariant.trim() === "" ? null : tuningVariant.trim()) : undefined
         if ((stepsNum !== undefined && (!Number.isFinite(stepsNum) || stepsNum < 0)) ||
             (tempNum !== undefined && (!Number.isFinite(tempNum) || tempNum < 0 || tempNum > 1))) {
           setActionResultTitle("Invalid Parameters")
@@ -1498,9 +1698,10 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
         try {
           const tx = mutate(targetAgents.map(a => a.currentPath), "tune", () => updateAgentParams(targetAgents, {
           steps: stepsNum,
-          temperature: tempNum,
-          mode: tuningMode,
-          hidden: tuningHidden
+           temperature: tempNum,
+           mode: tuningMode,
+          hidden: tuningHidden,
+          variant: variantParam
           }))
           try { refreshData() } catch (error) { setMutationRefreshFailure(error, tx.warning); return }
           setSelectedAgentPaths(new Set())
@@ -1508,6 +1709,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           `Successfully tuned parameters for ${targetAgents.length} agents:`,
           `  * Steps:  ${tuningSteps || "unchanged"}`,
           `  * Temp:   ${tuningTemp || "unchanged"}`,
+          ...(variantParam !== undefined ? [`  * Variant (Effort): ${variantParam ?? "cleared (default)"}`] : []),
           `  * Mode:   ${tuningMode}`,
           `  * Hidden: ${tuningHidden}`
            ], tx.warning)
@@ -1523,7 +1725,18 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           setTuningTemp((prev) => prev + rawChar)
         } else if (tuningFocusedField === "temp" && rawChar === "." && !tuningTemp.includes(".")) {
           setTuningTemp((prev) => prev + rawChar)
+        } else if (tuningFocusedField === "variant" && /^[a-zA-Z0-9_-]$/.test(rawChar)) {
+          setTuningVariant((prev) => prev + rawChar)
+          setTuningVariantTouched(true)
         }
+      } else if ((key === "left" || key === "right") && tuningFocusedField === "variant") {
+        const choices = ["", ...AGENT_EFFORT_VARIANTS]
+        const currentIndex = choices.indexOf(tuningVariant)
+        const nextIndex = currentIndex < 0
+          ? (key === "right" ? 0 : choices.length - 1)
+          : (currentIndex + (key === "right" ? 1 : -1) + choices.length) % choices.length
+        setTuningVariant(choices[nextIndex])
+        setTuningVariantTouched(true)
       }
     } else if (viewMode === "rename-prompt") {
       // 13. Rename agent prompt mode
@@ -1618,13 +1831,21 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
          }
       } else if (key === "enter" || key === "return") {
         try {
-            const tx = mutate([path.join(workspaceRoot, "general", "agents")], "import", () => importAgents(workspaceRoot))
+            const tx = mutate([
+              path.join(workspaceRoot, "general", "agents"),
+              path.join(workspaceRoot, "general", "tools"),
+              path.join(workspaceRoot, "general", "commands"),
+              path.join(workspaceRoot, "general", "skills"),
+              path.join(workspaceRoot, "general", "plugins")
+            ], "import", () => importAgents(workspaceRoot))
             const result = tx.value
            try { refreshData() } catch (error) { setMutationRefreshFailure(error, tx.warning); return }
-           setMutationSuccess("Import Complete", [
-            `Successfully imported ${result.imported.length} agents:`,
-            ...result.imported.map((filename) => `  * ${filename}`),
-            ``,
+            setMutationSuccess("Import Complete", [
+             `Successfully imported ${result.imported.length} agents:`,
+             ...result.imported.map((filename) => `  * ${filename}`),
+             `Successfully imported ${result.importedResources.length} companion resources:`,
+             ...result.importedResources.map((filename) => `  * ${filename}`),
+             ``,
             result.backupPath ? `Backup created at:` : `No backup needed`,
             ...(result.backupPath ? [`  ${result.backupPath}`] : [])
            ], tx.warning)
@@ -1692,6 +1913,34 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
 
   // Get active item
   const currentItem = activeItems[focusedIndex]
+
+  const resourceInspector = useMemo(() => {
+    if (inspectorTab !== "resources" || currentItem?.type !== "file" || !currentItem.agent) return { catalog: null, error: "" }
+    try {
+      return { catalog: discoverAgentResources(workspaceRoot, currentItem.agent, agents), error: "" }
+    } catch (error: any) {
+      return { catalog: null, error: terminalSafeText(error?.message || error) }
+    }
+  }, [inspectorTab, currentItem?.agent, agents, workspaceRoot])
+  const resourceInspectorLines = useMemo(() => {
+    const catalog = resourceInspector.catalog
+    if (!catalog) return []
+    return ["--- SKILLS ---", ...catalog.skills.map(item =>
+      `* ${item.name} [${item.allowed ? "ALLOW" : "DENY"}]${item.exists ? "" : " [Dead Ref]"}`
+    ), "--- CUSTOM TOOLS ---", ...catalog.tools.map(item =>
+      `${item.kind === "tool-family" ? "*" : "  -"} ${item.name} [${item.allowed ? "ALLOW" : "DENY"}]`
+    ), "--- MCP SERVERS ---", ...catalog.mcpServers.map(item =>
+      `* ${item.name} [${item.allowed ? "ALLOW" : "DENY"}] ${item.configuredInOpencode ? `[MCP: ${item.serverEnabled ? "ON" : "OFF"}]` : "[Not in opencode.json]"}`
+    ), `--- COMPANION FILES (${catalog.companionFiles.length}) ---`, ...(catalog.companionFiles.length ? catalog.companionFiles : ["(none)"])]
+  }, [resourceInspector.catalog])
+  const resourceManagerRows = useMemo<ResourceManagerRow[]>(() => resourceCatalog ? [
+    ...resourceCatalog.skills.map(item => ({ kind: item.kind, item })),
+    ...resourceCatalog.tools.map(item => ({ kind: item.kind, item })),
+    ...resourceCatalog.mcpServers.map(item => ({ kind: item.kind, item }))
+  ] : [], [resourceCatalog])
+  const maxVisibleResourceRows = Math.max(1, layout.listRows - 7)
+  const visibleResourceRows = resourceManagerRows.slice(resourceModalScrollOffset, resourceModalScrollOffset + maxVisibleResourceRows)
+  const resourceInspectorPageSize = Math.max(1, layout.listRows - 5)
 
   // Render viewport lists
   const visibleItems = activeItems.slice(scrollOffset, scrollOffset + maxVisibleItems)
@@ -1925,6 +2174,10 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
             <text style={{ textColor: inspectorTab === "delegations" ? "green" : "gray" }} u={inspectorTab === "delegations"}>
               4.Graph
             </text>
+            <text style={{ textColor: "gray" }}>|</text>
+            <text style={{ textColor: inspectorTab === "resources" ? "magenta" : "gray" }} u={inspectorTab === "resources"}>
+              5.Res
+            </text>
           </box>
 
           {currentItem ? (
@@ -1984,6 +2237,13 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
                         <text style={{ textColor: "gray" }} width="35%">Steps/Temp:</text>
                         <text style={{ textColor: "white" }}>
                            {middleEllipsis(`${currentItem.agent.frontmatter.steps || 50} steps / ${currentItem.agent.frontmatter.temperature ?? 0.2}°`, 30)}
+                        </text>
+                      </box>
+
+                      <box flexDirection="row" marginTop={1}>
+                        <text style={{ textColor: "gray" }} width="35%">Thinking / Effort:</text>
+                        <text style={{ textColor: currentItem.agent.frontmatter.variant ? "cyan" : "gray" }} width="65%">
+                          {middleEllipsis(`${String(currentItem.agent.frontmatter.variant ?? "default")}${currentItem.agent.frontmatter.reasoningEffort ?? currentItem.agent.frontmatter.options?.reasoningEffort ? ` (reasoningEffort: ${String(currentItem.agent.frontmatter.reasoningEffort ?? currentItem.agent.frontmatter.options?.reasoningEffort)})` : ""}`, 36)}
                         </text>
                       </box>
 
@@ -2124,6 +2384,28 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
                       })()}
                     </box>
                   )}
+
+                  {inspectorTab === "resources" && (
+                    <box flexDirection="column" marginTop={1} flexGrow={1} minHeight={0} overflow="hidden">
+                      {resourceInspector.error ? (
+                        <text style={{ textColor: "red" }}>{resourceInspector.error}</text>
+                      ) : (
+                        <>
+                          <box flexDirection="column" flexGrow={1} minHeight={0} overflow="hidden">
+                            {resourceInspectorLines.slice(resourceScrollIndex, resourceScrollIndex + resourceInspectorPageSize).map((line, index) => (
+                              <text key={`${resourceScrollIndex}-${index}`} style={{ textColor: line.startsWith("---") ? "yellow" : line.includes("[DENY]") || line.includes("[Dead Ref]") ? "red" : "white" }} wrapMode="none" overflow="hidden">
+                                {middleEllipsis(line, Math.max(1, panelWidths.inspector - 6))}
+                              </text>
+                            ))}
+                          </box>
+                          {resourceInspectorLines.length > resourceInspectorPageSize && <text style={{ textColor: "gray" }} flexShrink={0}>
+                            {`▲ ${resourceScrollIndex + 1}-${Math.min(resourceScrollIndex + resourceInspectorPageSize, resourceInspectorLines.length)}/${resourceInspectorLines.length} ▼`}
+                          </text>}
+                          <text style={{ textColor: "cyan" }} flexShrink={0}>Press 'u' to edit Skills, Tools &amp; MCP</text>
+                        </>
+                      )}
+                    </box>
+                  )}
                 </box>
               ) : (
                            <box flexDirection="column" flexGrow={1} overflow="hidden">
@@ -2156,14 +2438,14 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
         {(() => {
           const footerInnerWidth = Math.max(0, termWidth - 6)
           const compact = footerInnerWidth < 118
-           const footerRows = viewMode !== "main" ? [[], [], []] : compact ? [
-             [["SPACE", "Select"], ["A", "All"], ["S", "Match"], ["/", "Search"], ["TAB", "View"], ["1-4", "Tabs"], ["S+L", "Layout"], ["F", "Fork"]],
-             [["M", "Mod"], ["C", "Col"], ["P", "Perm"], ["G", "Del"], ["T", "Tun"], ["S+T", "Tier"], ["I", "Imp"], ["O", "Org"]],
-             [["B", "Claude"], ["S+B", "Codex"], ["R", "Rename"], ["E", "Export"], ["V", "Repair"]]
-           ] : [
-             [["SPACE", "Select"], ["A", "All"], ["S", "Same model"], ["/", "Search"], ["TAB", "View"], ["1-4", "Inspector"], ["SHIFT+L", "Layout"], ["O", "Organization"]],
-             [["M", "Model"], ["C", "Color"], ["P", "Permissions"], ["G", "Delegations"], ["T", "Tune"], ["SHIFT+T", "Tier"], ["I", "Import"], ["V", "Repair models"]],
-             [["B", "Claude bridge"], ["SHIFT+B", "Codex bridge"], ["R", "Rename"], ["E", "Export"], ["F", "Fork"]]
+            const footerRows = viewMode !== "main" ? [[], [], []] : compact ? [
+              [["SPACE", "Select"], ["A", "All"], ["S", "Match"], ["/", "Search"], ["TAB", "View"], ["1-5", "Tabs"], ["S+L", "Layout"], ["F", "Fork"]],
+              [["M", "Mod"], ["C", "Col"], ["P", "Perm"], ["G", "Del"], ["T", "Tun"], ["S+T", "Tier"], ["I", "Imp"], ["O", "Org"]],
+              [["B", "Claude"], ["S+B", "Codex"], ["R", "Rename"], ["E", "Export"], ["V", "Repair"], ["U", "Resources"]]
+            ] : [
+              [["SPACE", "Select"], ["A", "All"], ["S", "Same model"], ["/", "Search"], ["TAB", "View"], ["1-5", "Inspector"], ["SHIFT+L", "Layout"], ["O", "Organization"]],
+              [["M", "Model"], ["C", "Color"], ["P", "Permissions"], ["G", "Delegations"], ["T", "Tune"], ["SHIFT+T", "Tier"], ["I", "Import"], ["V", "Repair models"]],
+              [["B", "Claude bridge"], ["SHIFT+B", "Codex bridge"], ["R", "Rename"], ["E", "Export"], ["F", "Fork"], ["U", "Skills/Tools"]]
           ]
          return (
            <box height={5} flexShrink={0} overflow="hidden" flexDirection="column" borderStyle="single" borderColor="#2B5581" paddingLeft={1} paddingRight={1}>
@@ -2319,6 +2601,61 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
         </box>
       )}
 
+      {viewMode === "resource-manager" && resourceTargetAgent && resourceCatalog && (
+        <box
+          style={{ position: "absolute", left: "10%", top: "8%", width: "80%", height: "84%" }}
+          borderStyle="double"
+          borderColor="#9B59B6"
+          backgroundColor="#1e1e1e"
+          title={` Skills, Tools & MCP Manager: ${middleEllipsis(resourceTargetAgent.filename, 38)} `}
+          titleColor="#9B59B6"
+          padding={1}
+          flexDirection="column"
+          justifyContent="space-between"
+          overflow="hidden"
+        >
+          <box flexDirection="column" flexGrow={1} minHeight={0} overflow="hidden">
+            <text style={{ textColor: "white" }} flexShrink={0}>Toggle agent permissions; MCP server enabled state is workspace-wide.</text>
+            <box flexDirection="column" marginTop={1} flexGrow={1} minHeight={0} overflow="hidden">
+              {visibleResourceRows.map((row, index) => {
+                const rowIndex = resourceModalScrollOffset + index
+                const item = row.item
+                const isFocused = rowIndex === resourceModalFocusIndex
+                const allowed = row.kind === "skill-wildcard"
+                  ? draftSkillAll
+                  : row.kind === "skill"
+                    ? draftAllowedSkills.has(item.name)
+                    : draftPermissions[item.permissionKey]
+                const tag = row.kind === "skill-wildcard" || row.kind === "skill" ? "[SKILL]"
+                  : row.kind === "tool-family" ? "[TOOL-GRP]"
+                    : row.kind === "tool" ? "[TOOL]" : "[MCP]"
+                const status = row.kind === "mcp"
+                  ? (item as AgentMcpResourceItem).configuredInOpencode
+                    ? ` [MCP: ${draftMcpEnabled[(item as AgentMcpResourceItem).serverKey] ? "ON" : "OFF"}]`
+                    : " [Not configured]"
+                  : ""
+                return (
+                  <box key={`${item.id}-${rowIndex}`} backgroundColor={isFocused ? "#2B5581" : "transparent"} height={1} flexShrink={0} flexDirection="row">
+                    <text width={8} style={{ textColor: allowed ? "green" : "gray" }}>{allowed ? "[x]" : "[ ]"}</text>
+                    <text width={12} style={{ textColor: "magenta" }}>{tag}</text>
+                    <text flexGrow={1} wrapMode="none" overflow="hidden" style={{ textColor: isFocused ? "white" : "#E1E4E8" }} u={isFocused}>
+                      {middleEllipsis(item.name, Math.max(1, panelWidths.inspector + panelWidths.list - 42))}
+                    </text>
+                    <text style={{ textColor: row.kind === "mcp" && (item as AgentMcpResourceItem).configuredInOpencode && draftMcpEnabled[(item as AgentMcpResourceItem).serverKey] ? "green" : "gray" }}>{status}</text>
+                  </box>
+                )
+              })}
+            </box>
+          </box>
+          <box flexDirection="column" flexShrink={0} borderStyle="single" border={['top']} borderColor="#333333" paddingTop={1} overflow="hidden">
+            {resourceManagerRows.length > maxVisibleResourceRows && <text style={{ textColor: "gray" }} flexShrink={0}>
+              {`▲ ${resourceModalScrollOffset + 1}-${Math.min(resourceModalScrollOffset + maxVisibleResourceRows, resourceManagerRows.length)}/${resourceManagerRows.length} ▼`}
+            </text>}
+            <text style={{ textColor: "gray" }} wrapMode="none" overflow="hidden">Navigate: ↑/↓ | Space: Toggle Access | x: Toggle MCP Server (workspace-wide) | Enter: Save | Esc: Cancel</text>
+          </box>
+        </box>
+      )}
+
       {/* Modal - Parameter Tuning */}
       {viewMode === "parameter-tuning" && (
         <box
@@ -2340,7 +2677,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
         >
           <box flexDirection="column" gap={layout.mode === "compact" ? 0 : 1} overflow="hidden" flexShrink={0}>
             <text height={1} flexShrink={0} wrapMode="none" overflow="hidden" style={{ textColor: "white" }}>
-              Regulate execution limits, temperature, mode, and visibility:
+              Regulate execution limits, temperature, thinking effort, mode, and visibility:
             </text>
 
             {/* Steps field */}
@@ -2376,6 +2713,27 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
               <text width="40%" height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "white" }}>{tuningTemp || "0.2"}</text>
             </box>
 
+            {/* Thinking / Effort field */}
+            <box
+              flexDirection="column"
+              height={4}
+              flexShrink={0}
+              borderStyle="single"
+              borderColor={tuningFocusedField === "variant" ? "#F1C40F" : "#333333"}
+              paddingLeft={1}
+              paddingRight={1}
+            >
+              <box flexDirection="row" height={1}>
+                <text width="60%" wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: tuningFocusedField === "variant" ? "#F1C40F" : "gray" }} b>
+                  {tuningFocusedField === "variant" ? "► 3. Thinking / Effort (variant):" : "  3. Thinking / Effort:"}
+                </text>
+                <text width="40%" wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "cyan" }}>
+                  {tuningVariant || (!tuningVariantTouched && tuningTargetPaths.length > 1 ? "(unchanged)" : "(default / unset)")}
+                </text>
+              </box>
+              {tuningFocusedField === "variant" && <text height={1} wrapMode="none" overflow="hidden" style={{ textColor: "gray" }}>[Space/←/→: cycle none/minimal/low/medium/high/xhigh/max | type custom | Backspace: clear]</text>}
+            </box>
+
             {/* Mode field */}
             <box
               flexDirection="row"
@@ -2387,7 +2745,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
               paddingRight={1}
             >
               <text width="60%" wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: tuningFocusedField === "mode" ? "#F1C40F" : "gray" }} b>
-                {tuningFocusedField === "mode" ? "► 3. Mode (Press SPACE to toggle):" : "  3. Mode:"}
+                {tuningFocusedField === "mode" ? "► 4. Mode (Press SPACE to toggle):" : "  4. Mode:"}
               </text>
               <text width="40%" height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: "yellow" }}>{tuningMode.toUpperCase()}</text>
             </box>
@@ -2403,14 +2761,14 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
               paddingRight={1}
             >
               <text width="60%" wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: tuningFocusedField === "hidden" ? "#F1C40F" : "gray" }} b>
-                {tuningFocusedField === "hidden" ? "► 4. Hidden Status (Press SPACE to toggle):" : "  4. Hidden Status:"}
+                {tuningFocusedField === "hidden" ? "► 5. Hidden Status (Press SPACE to toggle):" : "  5. Hidden Status:"}
               </text>
               <text width="40%" height={1} wrapMode="none" overflow="hidden" flexShrink={0} style={{ textColor: tuningHidden ? "red" : "green" }}>{tuningHidden ? "TRUE" : "FALSE"}</text>
             </box>
           </box>
 
           <box height={2} flexShrink={0} justifyContent="space-between" borderStyle="single" border={["top"]} borderColor="#333333" paddingTop={1} overflow="hidden" flexDirection="row">
-            <text width="78%" wrapMode="none" overflow="hidden" style={{ textColor: "gray" }}>{middleEllipsis("[TAB/↑/↓] Switch Fields | [SPACE] Toggle Mode/Hidden | [ENTER] Save Params", 58)}</text>
+            <text width="78%" wrapMode="none" overflow="hidden" style={{ textColor: "gray" }}>{middleEllipsis("[TAB/↑/↓] Switch Fields | [SPACE] Variant/Toggle | [ENTER] Save", 58)}</text>
             <text width="22%" wrapMode="none" overflow="hidden" style={{ textColor: "red" }} b>[ESC] Cancel</text>
           </box>
         </box>
@@ -2453,7 +2811,9 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
                 const statusText = !diff.existsInExport
                   ? "Not in OpenCode"
                   : diff.hasDifferences
-                  ? "⚠ MODIFIED in OpenCode"
+                  ? diff.existsLocally === false
+                    ? "⚠ NEW in OpenCode (Import available)"
+                    : "⚠ MODIFIED in OpenCode (Import available)"
                   : "✓ Identical"
 
                 return (
@@ -2486,6 +2846,15 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
                 </text>
                 <text style={{ textColor: importDiffs[focusedDiffIndex].hasDifferences ? "yellow" : "green" }}>
                   {importDiffs[focusedDiffIndex].hasDifferences ? "Changes detected between repo and OpenCode." : "File matches OpenCode export exactly."}
+                </text>
+              </box>
+            )}
+            {importDiffs[focusedDiffIndex] && !importDiffs[focusedDiffIndex].filename.endsWith(".md") && (
+              <box flexDirection="column" marginTop={1} borderStyle="single" borderColor="#333333" padding={1} height={5} flexShrink={0} overflow="hidden">
+                <text style={{ textColor: "yellow" }} b>Companion Resource:</text>
+                <text style={{ textColor: "white" }}>{middleEllipsis(importDiffs[focusedDiffIndex].filename, 60)}</text>
+                <text style={{ textColor: importDiffs[focusedDiffIndex].hasDifferences ? "yellow" : "green" }}>
+                  {importDiffs[focusedDiffIndex].hasDifferences ? "Resource differs from OpenCode export." : "Resource matches OpenCode export exactly."}
                 </text>
               </box>
             )}
