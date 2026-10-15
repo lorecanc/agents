@@ -48,7 +48,8 @@ permission:
   codebase-memory-mcp_index_repository: deny
 color: "#E67E22"
 steps: 120
-hidden: false
+hidden: true
+variant: high
 ---
 
 # hybrid-pipeline-orchestrator

@@ -2,7 +2,7 @@
 description: Primary coordinator for the pipeline multi-agent workflow. Assesses
   work size, routes to the smallest effective lane, delegates to specialized
   agents, and evaluates results. Never writes code or solves problems directly.
-mode: primary
+mode: subagent
 model: opencode-go/deepseek-v4.1-flash
 temperature: 1
 permission:
@@ -47,8 +47,9 @@ permission:
   codebase-memory-mcp_manage_adr: deny
   codebase-memory-mcp_index_repository: deny
 color: "#E67E22"
-steps: 120
-hidden: false
+steps: 50
+hidden: true
+variant: high
 ---
 
 # go-pipeline-orchestrator

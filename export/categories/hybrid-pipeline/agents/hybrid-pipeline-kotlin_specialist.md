@@ -33,6 +33,7 @@ permission:
 color: "#E67E22"
 steps: 50
 hidden: true
+variant: high
 ---
 
 # `pipeline-kotlin_specialist`

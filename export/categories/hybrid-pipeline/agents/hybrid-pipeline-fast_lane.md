@@ -37,6 +37,7 @@ permission:
 color: "#E67E22"
 steps: 50
 hidden: true
+variant: high
 ---
 
 # hybrid-pipeline-fast_lane
