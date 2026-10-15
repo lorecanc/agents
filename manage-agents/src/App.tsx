@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react"
+import fs from "node:fs"
 import path from "node:path"
 import os from "node:os"
 import { useKeyboard, useTerminalDimensions } from "@opentui/react"
@@ -33,11 +34,13 @@ import {
   analyzePermissionOrder,
   fixPermissionOrder
   , sanitizeFilename,
-  getCategoryPrefixes
+  getCategoryPrefixes,
+  resolveSourceSubdir,
+  resolveCategoriesSubdir
 } from "./utils/agents.js"
 import { loadModelCatalog, suggestModels, collectInvalidModelGroups, modelDisplayValue, getModelVariants, type ModelCatalog } from "./utils/models.js"
 import { discoverAvailableCategoryCompanionItems, getCompanionLinksConfigPath, type SelectableCompanionItem, updateCategoryCompanionLinks } from "./utils/companionLinks.js"
-import { applyPipelineProfile, loadPipelineProfiles, syncPipelineProfile } from "./utils/pipelineProfiles.js"
+import { applyPipelineProfile, loadPipelineProfiles, syncPipelineProfile, loadStampedPipelineAgents } from "./utils/pipelineProfiles.js"
 import { bridgeToClaudeCode } from "./utils/bridge.js"
 import { bridgeToCodex } from "./utils/codexBridge.js"
 import { buildInferenceIndex, loadTranslationConfig, resolveModelTarget, resolveRole, saveTranslationConfig, type TranslationConfig } from "./utils/translationConfig.js"
@@ -91,6 +94,7 @@ interface ResourceManagerRow {
 
 const CATEGORY_DESCRIPTIONS: Record<string, string> = {
   wiki: "Codebase analysis and automatic project wiki page generation & updating.",
+  pipeline: "Canonical base pipeline agents (orchestrator, planner, reasoner, executor, tester, reviewer, specialists).",
   "go-pipeline": "Go pipeline agents for code review, planning, testing, and executor loops.",
   "copilot-pipeline": "Copilot pipeline agents for devtools debugging, Swift specialist tasks, and executor review loops.",
   slides: "PowerPoint slides templating, layout design, composition analysis, and page writer.",
@@ -182,7 +186,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
   // View Settings
   const [viewStyle, setViewStyle] = useState<ViewStyle>("list")
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(
-    new Set(["wiki", "go-pipeline", "copilot-pipeline", "general"])
+    new Set(["wiki", "pipeline", "go-pipeline", "copilot-pipeline", "general"])
   )
   const [searchQuery, setSearchQuery] = useState("")
   const [isSearching, setIsSearching] = useState(false)
@@ -235,7 +239,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
   // Bridge State
   const [bridgePluginName, setBridgePluginName] = useState("")
   const [bridgePipelinePrefix, setBridgePipelinePrefix] = useState("")
-  const [bridgeSourceDir, setBridgeSourceDir] = useState("general")
+  const [bridgeSourceDir, setBridgeSourceDir] = useState(() => resolveSourceSubdir(workspaceRoot))
   const [bridgeTarget, setBridgeTarget] = useState<"claude" | "codex">("claude")
   const [bridgeFocusedField, setBridgeFocusedField] = useState<"name" | "prefix" | "sourceDir">("name")
   const [translationConfig, setTranslationConfig] = useState<TranslationConfig | null>(() => {
@@ -441,7 +445,16 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
   }, [importDiffs.length, maxVisibleImportDiffs])
 
   const refreshData = () => {
-    const list = findAgentFiles(workspaceRoot, translationConfig?.sourceDir || "general")
+    const list = findAgentFiles(workspaceRoot)
+    const canonicalPaths = new Set(list.map(agent => agent.currentPath))
+    const categoriesDir = path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot))
+    if (fs.existsSync(categoriesDir)) {
+      for (const entry of fs.readdirSync(categoriesDir, { withFileTypes: true })) {
+        if (!entry.isDirectory() || !entry.name.endsWith("-pipeline")) continue
+        const stamped = loadStampedPipelineAgents(workspaceRoot, entry.name)
+        if (stamped) list.push(...stamped.agents.filter(agent => !canonicalPaths.has(agent.currentPath)))
+      }
+    }
     setAgents(list)
   }
 
@@ -508,7 +521,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
         : sourceAgents.filter((a) => a.category === (activeItems[focusedIndex]?.category || ""))
       const safePluginName = sanitizeFilename(bridgePluginName)
       const bridgeFolder = bridgeTarget === "codex" ? "codex" : "claude-code"
-      const outputDir = `${workspaceRoot}/bridges/${bridgeFolder}/${safePluginName}`
+      const outputDir = path.join(workspaceRoot, fs.existsSync(path.join(workspaceRoot, "export")) ? path.join("export", "bridges") : "bridges", bridgeFolder, safePluginName)
        const tx = mutate([path.join(workspaceRoot, ".agent-manager", "translation-config.json"), outputDir], "bridge", () => {
         saveTranslationConfig(workspaceRoot, { ...bridgeConfig, pluginName: bridgePluginName, prefix: bridgePipelinePrefix, sourceDir: bridgeSourceDir })
         return bridgeTarget === "codex"
@@ -990,7 +1003,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           setBridgeTarget("claude")
              setBridgePluginName(translationConfig?.pluginName || "decent-pipeline")
              setBridgePipelinePrefix(translationConfig?.prefix || "")
-            setBridgeSourceDir(translationConfig?.sourceDir || "general")
+             setBridgeSourceDir(translationConfig?.sourceDir || resolveSourceSubdir(workspaceRoot))
           setBridgeFocusedField("name")
           setViewMode("bridge-prompt")
         }
@@ -1001,7 +1014,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           setBridgeTarget("codex")
             setBridgePluginName(translationConfig?.pluginName || "decent-pipeline")
              setBridgePipelinePrefix(translationConfig?.prefix || "")
-            setBridgeSourceDir(translationConfig?.sourceDir || "general")
+             setBridgeSourceDir(translationConfig?.sourceDir || resolveSourceSubdir(workspaceRoot))
           setBridgeFocusedField("name")
           setViewMode("bridge-prompt")
         }
@@ -1362,7 +1375,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           try {
             const config = loadPipelineProfiles(workspaceRoot)
             const inPlace = target === forkSourceCategory
-            const paths = [path.join(workspaceRoot, "general", "agents"), path.join(workspaceRoot, ".agent-manager", "companion-links.json")]
+            const paths = [path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot), "agents"), path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot)), path.join(workspaceRoot, ".agent-manager", "companion-links.json")]
             const tx = mutate(paths, "fork", () => inPlace
               ? applyPipelineProfile(workspaceRoot, forkProfileName, target)
               : syncPipelineProfile(workspaceRoot, forkProfileName, target))
@@ -1387,7 +1400,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           const selectedPaths: string[] | undefined = selectedAgentPaths.size > 0 ? Array.from(selectedAgentPaths) : undefined
           const replacements = parseForkReplacements(forkReplaceQuery)
           const replacementCount = typeof replacements === "string" ? 1 : replacements.length
-            const tx = mutate([path.join(workspaceRoot, "general", "agents")], "fork", () => forkCategory(workspaceRoot, forkSourceCategory, forkFindQuery, replacements, selectedPaths))
+            const tx = mutate([path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot), "agents")], "fork", () => forkCategory(workspaceRoot, forkSourceCategory, forkFindQuery, replacements, selectedPaths))
             const result = tx.value
                 try { refreshData() } catch (error) { setMutationRefreshFailure(error, tx.warning); return }
           setSelectedAgentPaths(new Set())
@@ -1443,7 +1456,17 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           const exportPaths = selectedAgentPaths.size > 0
             ? selectedAgentPaths
             : exportCategory ? new Set(agents.filter(agent => agent.category === exportCategory).map(agent => agent.currentPath)) : undefined
-          const result = exportAgents(agents, exportPaths, path.join(workspaceRoot, "general"))
+          const exportAgentsList = exportPaths
+            ? agents.filter(agent => exportPaths.has(agent.currentPath))
+            : exportCategory ? agents.filter(agent => agent.category === exportCategory) : agents
+          const categoriesRoot = path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot))
+          const firstExportPath = exportAgentsList[0]?.currentPath
+          const relativeToCategories = firstExportPath ? path.relative(categoriesRoot, firstExportPath) : ""
+          const stampedCategory = relativeToCategories && !relativeToCategories.startsWith(`..${path.sep}`) && !path.isAbsolute(relativeToCategories)
+            ? relativeToCategories.split(path.sep)[0]
+            : ""
+          const resourceSourceRoot = stampedCategory ? path.join(categoriesRoot, stampedCategory) : path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot))
+          const result = exportAgents(exportAgentsList, undefined, resourceSourceRoot)
           setSelectedAgentPaths(new Set())
           setActionResultTitle("Export Complete")
           const lines = [
@@ -1711,7 +1734,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
         const allowedPaths = [
           ...(companionChanged ? [getCompanionLinksConfigPath(workspaceRoot)] : []),
           ...(resourceTargetAgent && (changes.skills || changes.permissions) ? [path.relative(workspaceRoot, resourceTargetAgent.currentPath)] : []),
-          ...(resourceTargetAgent && changes.mcpEnabled ? ["general/opencode.json"] : [])
+          ...(resourceTargetAgent && changes.mcpEnabled ? [path.join(resolveSourceSubdir(workspaceRoot), "opencode.json")] : [])
         ]
         try {
           const tx = mutate(allowedPaths, "tune", () => {
@@ -1726,8 +1749,8 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           setMutationSuccess(companionChanged && !resourceTargetAgent ? "Category Companion Links Updated" : "Resources Updated", [
             ...(resourceTargetAgent ? [`Updated skills, custom tools, and MCP permissions for:`, `  ${resourceTargetAgent.filename}`] : []),
             ...(companionChanged ? [`Updated exported companion links for category: ${resourceCategoryTarget}`] : []),
-            ...(tx.value.changedPaths.includes(path.join(workspaceRoot, "general", "opencode.json"))
-              ? ["", "general/opencode.json updated. Restart OpenCode for MCP server changes to take effect."]
+            ...(tx.value.changedPaths.includes(path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot), "opencode.json"))
+              ? ["", `${resolveSourceSubdir(workspaceRoot)}/opencode.json updated. Restart OpenCode for MCP server changes to take effect.`]
               : [])
           ], tx.warning)
           setViewMode("action-result")
@@ -1929,11 +1952,11 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
       } else if (key === "enter" || key === "return") {
         try {
             const tx = mutate([
-              path.join(workspaceRoot, "general", "agents"),
-              path.join(workspaceRoot, "general", "tools"),
-              path.join(workspaceRoot, "general", "commands"),
-              path.join(workspaceRoot, "general", "skills"),
-              path.join(workspaceRoot, "general", "plugins")
+              path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot), "agents"),
+              path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot), "tools"),
+              path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot), "commands"),
+              path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot), "skills"),
+              path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot), "plugins")
             ], "import", () => importAgents(workspaceRoot))
             const result = tx.value
            try { refreshData() } catch (error) { setMutationRefreshFailure(error, tx.warning); return }
@@ -3525,7 +3548,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
                 {`Source: ${selectedAgentPaths.size > 0 ? `${selectedAgentPaths.size} selected agents` : `all agents in focused category`}`}
               </text>
               <text flexShrink={0} style={{ textColor: "gray" }}>
-                {`Output: bridges/${bridgeTarget === "codex" ? "codex" : "claude-code"}/${bridgePluginName || "..."}/`}
+                {`Output: ${fs.existsSync(path.join(workspaceRoot, "export")) ? "export/bridges" : "bridges"}/${bridgeTarget === "codex" ? "codex" : "claude-code"}/${bridgePluginName || "..."}/`}
               </text>
             </box>
           </box>

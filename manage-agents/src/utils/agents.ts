@@ -38,6 +38,16 @@ export interface AgentInfo {
   frontmatterVersion?: "v1" | "v2" | "unknown"
 }
 
+export function resolveSourceSubdir(workspaceRoot: string): string {
+  return fs.existsSync(path.join(workspaceRoot, "src")) ? "src" : "general"
+}
+
+export function resolveCategoriesSubdir(workspaceRoot: string): string {
+  return fs.existsSync(path.join(workspaceRoot, "export")) || fs.existsSync(path.join(workspaceRoot, "src"))
+    ? path.join("export", "categories")
+    : "categories"
+}
+
 export type AgentResourceKind = "skill-wildcard" | "skill" | "tool-family" | "tool" | "mcp"
 
 export interface AgentResourceItem {
@@ -91,7 +101,7 @@ export function discoverAgentResources(
   agent: AgentInfo,
   allAgents?: AgentInfo[]
 ): AgentResourceCatalog {
-  const generalDir = path.join(workspaceRoot, "general")
+  const generalDir = path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot))
   const generalStat = resourcePathStat(generalDir)
   if (generalStat && !generalStat.isDirectory()) throw new Error(`Resource root is not a directory: ${generalDir}`)
   const permission = agent.frontmatter?.permission
@@ -251,7 +261,7 @@ export function updateAgentResourcesAndMcp(
   }
 
   const agentPath = agent.currentPath
-  const generalDir = path.join(workspaceRoot, "general")
+  const generalDir = path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot))
   const opencodePath = path.join(generalDir, "opencode.json")
   const changesAgent = !!changes.skills || hasPermissions
   let originalAgent: Buffer | undefined
@@ -675,11 +685,11 @@ function validateImportFile(filePath: string): fs.Stats | undefined {
 }
 
 function validateImportDestination(workspaceRoot: string, filePath: string): void {
-  const generalRoot = path.resolve(workspaceRoot, "general")
+  const generalRoot = path.resolve(workspaceRoot, resolveSourceSubdir(workspaceRoot))
   const resolvedPath = path.resolve(filePath)
   const relative = path.relative(generalRoot, resolvedPath)
   if (relative.startsWith(`..${path.sep}`) || relative === ".." || path.isAbsolute(relative)) {
-    throw new Error(`Refusing import destination outside general/: ${filePath}`)
+    throw new Error(`Refusing import destination outside ${path.basename(generalRoot)}/: ${filePath}`)
   }
 
   let current = generalRoot
@@ -698,9 +708,10 @@ function validateImportDirectory(directoryPath: string): void {
 }
 
 export function previewImport(workspaceRoot: string): ImportPreview {
-  const agentsDir = path.join(workspaceRoot, "general", "agents")
+  const sourceDir = path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot))
+  const agentsDir = path.join(sourceDir, "agents")
   const exportDir = getExportDestination()
-  validateImportDirectory(path.join(workspaceRoot, "general"))
+  validateImportDirectory(sourceDir)
   validateImportDestination(workspaceRoot, path.join(agentsDir, ".validation"))
   validateImportDirectory(agentsDir)
   validateImportDirectory(path.dirname(exportDir))
@@ -755,7 +766,7 @@ export function importAgents(
   const backupPath = createBackup(workspaceRoot)
   const imported: string[] = []
   const importedResources: string[] = []
-  const generalDir = path.join(workspaceRoot, "general")
+  const generalDir = path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot))
   fs.mkdirSync(generalDir, { recursive: true })
   const staging = fs.mkdtempSync(path.join(generalDir, ".import-stage-"))
   const appliedImports: Array<{ localPath: string; relativeToGeneral: string; existed: boolean; mode?: number }> = []
@@ -1131,17 +1142,20 @@ function countCategoryPrefixes(filenames: string[]): Record<string, number> {
  * Recursively find all agent markdown files in the workspace (under any folder named 'agents').
  * Also discovers agents in V2 'mode' and 'modes' directories (which represent primary agents).
  */
-export function findAgentFiles(workspaceRoot: string, sourceDir: string = "general"): AgentList {
-  if (!isWorkspaceRelativePath(sourceDir)) {
-    throw new Error(`sourceDir must stay inside workspace; received '${sourceDir}'`)
+export function findAgentFiles(workspaceRoot: string, sourceDir?: string): AgentList {
+  const resolvedSourceDir = !sourceDir || (sourceDir === "general" && !fs.existsSync(path.join(workspaceRoot, "general")) && fs.existsSync(path.join(workspaceRoot, "src")))
+    ? resolveSourceSubdir(workspaceRoot)
+    : sourceDir
+  if (!isWorkspaceRelativePath(resolvedSourceDir)) {
+    throw new Error(`sourceDir must stay inside workspace; received '${resolvedSourceDir}'`)
   }
   const resolvedRoot = path.resolve(workspaceRoot)
-  const sourceRoot = path.resolve(resolvedRoot, sourceDir)
-  if (!isPathInsideWorkspace(workspaceRoot, sourceDir)) {
-    throw new Error(`sourceDir must stay inside workspace; received '${sourceDir}'`)
+  const sourceRoot = path.resolve(resolvedRoot, resolvedSourceDir)
+  if (!isPathInsideWorkspace(workspaceRoot, resolvedSourceDir)) {
+    throw new Error(`sourceDir must stay inside workspace; received '${resolvedSourceDir}'`)
   }
   if (!fs.existsSync(sourceRoot) || !fs.lstatSync(sourceRoot).isDirectory() || fs.lstatSync(sourceRoot).isSymbolicLink()) {
-    throw new Error(`Agent source directory does not exist: ${sourceRoot} (sourceDir='${sourceDir}')`)
+    throw new Error(`Agent source directory does not exist: ${sourceRoot} (sourceDir='${resolvedSourceDir}')`)
   }
   const agents: AgentInfo[] = []
 
@@ -1197,7 +1211,7 @@ export function findAgentFiles(workspaceRoot: string, sourceDir: string = "gener
   }
 
   walk(sourceRoot)
-  if (agents.length === 0) (agents as AgentList).warnings = [`No agents found under sourceDir '${sourceDir}' (${sourceRoot})`]
+  if (agents.length === 0) (agents as AgentList).warnings = [`No agents found under sourceDir '${resolvedSourceDir}' (${sourceRoot})`]
 
   // Compute categories dynamically based on filename prefix frequency analysis
   const filenames = agents.map(a => a.filename)
@@ -1205,7 +1219,7 @@ export function findAgentFiles(workspaceRoot: string, sourceDir: string = "gener
 
   agents.forEach(agent => {
     agent.category = categoryMap[agent.filename]
-    agent.targetPath = path.join(workspaceRoot, "categories", agent.category, "agents", agent.filename)
+    agent.targetPath = path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot), agent.category, "agents", agent.filename)
   })
 
   return agents
@@ -1354,8 +1368,9 @@ function atomicWriteAgentFile(filePath: string, bytes: Buffer): void {
  */
 export function createBackup(workspaceRoot: string): string | null {
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-")
-  const backupDir = path.join(workspaceRoot, "backups", `backup_${timestamp}`, "general")
-  const generalDir = path.join(workspaceRoot, "general")
+  const sourceDir = resolveSourceSubdir(workspaceRoot)
+  const backupDir = path.join(workspaceRoot, "backups", `backup_${timestamp}`, sourceDir)
+  const generalDir = path.join(workspaceRoot, sourceDir)
 
   if (fs.existsSync(generalDir)) {
     fs.mkdirSync(backupDir, { recursive: true })
@@ -1370,7 +1385,7 @@ export function createBackup(workspaceRoot: string): string | null {
  * (separator-agnostic, so it works with POSIX and Windows paths).
  */
 export function isInGeneralAgents(p: string): boolean {
-  return /(^|[/\\])general[/\\]agents([/\\]|$)/.test(p)
+  return /(^|[/\\])(src|general)[/\\]agents([/\\]|$)/.test(p)
 }
 
 /**
@@ -1705,7 +1720,8 @@ export function forkCategory(
   selectedPaths?: string[]
 ): ForkResult {
   // Find all agents under general/agents/ belonging to sourceCategory
-  const allAgents = findAgentFiles(workspaceRoot, "general")
+  const sourceDir = resolveSourceSubdir(workspaceRoot)
+  const allAgents = findAgentFiles(workspaceRoot, sourceDir)
   let sourceAgents = allAgents.filter(
     (agent) => agent.category === sourceCategory && isInGeneralAgents(agent.currentPath)
   )
@@ -1734,7 +1750,7 @@ export function forkCategory(
     agentsByPath.set(identity, entries)
   }
   const existingTargetEntries = new Map<string, string[]>()
-  const targetDir = path.join(workspaceRoot, "general", "agents")
+  const targetDir = path.join(workspaceRoot, sourceDir, "agents")
   for (const entry of fs.readdirSync(targetDir)) {
     const entryPath = path.join(targetDir, entry)
     const identity = forkPathIdentity(entryPath)
@@ -1749,7 +1765,7 @@ export function forkCategory(
       const replacementLabel = JSON.stringify(replacement)
       // Compute target filename by replacing findStr with this replacement.
       const newFilename = sanitizeFilename(filename.split(findStr).join(replacement))
-      const targetPath = path.join(workspaceRoot, "general", "agents", newFilename)
+      const targetPath = path.join(workspaceRoot, sourceDir, "agents", newFilename)
       const resolvedTargetPath = path.resolve(targetPath)
       if (!resolvedTargetPath.startsWith(path.resolve(targetDir) + path.sep)) {
         throw new Error(`Invalid fork target path: ${newFilename}`)
@@ -1972,14 +1988,14 @@ function deriveCompanionResourcesFromAgents(sourceRoot: string, agentsList: Agen
   return discovered
 }
 
-function discoverCompanionResourcePaths(sourceRoot: string, domains: string[], manifestDirectory?: string, agentsForDerivation?: AgentInfo[]): string[] {
+export function discoverCompanionResourcePaths(sourceRoot: string, domains: string[], manifestDirectory?: string, agentsForDerivation?: AgentInfo[]): string[] {
   validateResourceRoot(sourceRoot)
   if (!fs.existsSync(sourceRoot)) return []
   const found = new Set<string>()
   const names = [...new Set(domains.filter(Boolean))]
   const matches = (name: string): boolean => names.some(domain => name === domain || name.startsWith(`${domain}-`))
 
-  const categoriesDirectory = manifestDirectory ?? (path.basename(sourceRoot) === "general"
+  const categoriesDirectory = manifestDirectory ?? (["general", "src"].includes(path.basename(sourceRoot))
     ? path.join(path.dirname(sourceRoot), ".agent-manager", "categories")
     : undefined)
   if (categoriesDirectory) {
@@ -1992,8 +2008,10 @@ function discoverCompanionResourcePaths(sourceRoot: string, domains: string[], m
       if (!Array.isArray(manifest.resources)) continue
       for (const resource of manifest.resources) {
         if (typeof resource?.source !== "string" || !["file", "directory"].includes(resource.kind)) continue
-        if (!["general/tools/", "general/commands/", "general/skills/", "general/plugins/"].some(prefix => resource.source.startsWith(prefix))) continue
-        const relative = resource.source.slice("general/".length)
+        const sourcePrefix = ["src/tools/", "src/commands/", "src/skills/", "src/plugins/", "general/tools/", "general/commands/", "general/skills/", "general/plugins/"]
+          .find(prefix => resource.source.startsWith(prefix))
+        if (!sourcePrefix) continue
+        const relative = resource.source.slice(sourcePrefix.slice(0, sourcePrefix.indexOf("/") + 1).length)
         if (relative.split(/[\\/]/).includes("..") || path.isAbsolute(relative)) throw new Error(`Invalid resource path in category manifest: ${resource.source}`)
         const source = path.resolve(sourceRoot, relative)
         if (!source.startsWith(`${path.resolve(sourceRoot)}${path.sep}`)) throw new Error(`Invalid resource path in category manifest: ${resource.source}`)
@@ -2048,7 +2066,7 @@ function discoverCompanionResourcePaths(sourceRoot: string, domains: string[], m
 }
 
 export function compareCompanionResources(workspaceRoot: string, agents?: AgentInfo[]): CompanionResourceDiff[] {
-  const generalRoot = path.join(workspaceRoot, "general")
+  const generalRoot = path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot))
   const localAgentsDir = path.join(generalRoot, "agents")
   const localAgents = agents ?? (fs.existsSync(localAgentsDir)
     ? fs.readdirSync(localAgentsDir).filter(name => name.endsWith(".md")).map(name => parseAgentFile(path.join(localAgentsDir, name), workspaceRoot)).filter((agent): agent is AgentInfo => !!agent)

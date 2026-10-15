@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "categories": {
+    "docs": {
+      "plugins": [],
+      "commands": [
+        "commands/convert-doc.md",
+        "commands/edit-doc.md",
+        "commands/new-doc.md"
+      ],
+      "skills": [
+        "skills/docs-design",
+        "skills/docs-html",
+        "skills/docx"
+      ],
+      "tools": [
+        "tools/doc_compile_theme.ts",
+        "tools/doc_convert.ts",
+        "tools/doc_create.ts",
+        "tools/doc_list.ts",
+        "tools/doc_modify.ts",
+        "tools/doc_restore.ts",
+        "tools/doc_view.ts",
+        "tools/docx"
+      ]
+    },
+    "pipeline": {
+      "plugins": [
+        "plugins/pipeline-guard.js"
+      ],
+      "commands": [
+        "commands/pipeline-bug.md",
+        "commands/pipeline-feature.md",
+        "commands/pipeline-ops.md",
+        "commands/pipeline-refactor.md",
+        "commands/pipeline-research.md"
+      ],
+      "skills": [
+        "skills/code-review-antipatterns"
+      ],
+      "tools": [
+        "tools/pipeline_commit.ts",
+        "tools/pipeline_serve.ts",
+        "tools/pipeline_smoke.ts",
+        "tools/pipeline_state.ts",
+        "tools/pipeline_verify.ts"
+      ]
+    },
+    "slides": {
+      "plugins": [],
+      "commands": [
+        "commands/fix-slide.md",
+        "commands/new-slides.md",
+        "commands/polish-slides.md"
+      ],
+      "skills": [
+        "skills/pptx",
+        "skills/slides-composition",
+        "skills/slides-design",
+        "skills/slides-html",
+        "skills/slides-template-html",
+        "skills/slides-theming"
+      ],
+      "tools": [
+        "tools/pptx",
+        "tools/slide_analyze_template.ts",
+        "tools/slide_assemble_pptx.ts",
+        "tools/slide_build_pptx.ts",
+        "tools/slide_compile_composition.ts",
+        "tools/slide_compile_theme.ts",
+        "tools/slide_create_thumbnails.ts",
+        "tools/slide_download_image.ts",
+        "tools/slide_generate_image.ts",
+        "tools/slide_screenshot.ts"
+      ]
+    }
+  }
+}

@@ -1,6 +1,6 @@
 import fs from "node:fs"
 import path from "node:path"
-import { findAgentFiles, forkCategory, saveAgentFile } from "./agents.js"
+import { discoverCompanionResourcePaths, findAgentFiles, resolveCategoriesSubdir, resolveSourceSubdir, saveAgentFile, type AgentInfo } from "./agents.js"
 import { copyCategoryCompanionLinks } from "./companionLinks.js"
 
 export const PIPELINE_ROLES = [
@@ -36,7 +36,7 @@ export interface PipelineProfilesConfig {
 
 export const DEFAULT_PIPELINE_PROFILES: PipelineProfilesConfig = {
   version: 1,
-  baseCategory: "hybrid-pipeline",
+  baseCategory: "pipeline",
   profiles: {
     hybrid: {
       description: "Mistral GLM-5.3 for orchestration/planning/reasoning + DeepSeek V4.1 Flash for execution and specialists.",
@@ -92,12 +92,11 @@ export function savePipelineProfiles(workspaceRoot: string, config: PipelineProf
   return configPath
 }
 
-export function extractPipelineRole(filenameOrName: string, categoryPrefix = "hybrid-pipeline"): string | null {
+export function extractPipelineRole(filenameOrName: string, categoryPrefix = "pipeline"): string | null {
   const filename = path.basename(filenameOrName).replace(/\.md$/i, "")
-  const prefix = `${categoryPrefix}-`
-  if (!filename.startsWith(prefix)) return null
-  const role = filename.slice(prefix.length)
-  return role || null
+  const match = filename.match(/^(?:[a-z0-9_-]+-)?pipeline-([a-z0-9_]+)$/i)
+  const role = match?.[1]?.toLocaleLowerCase("und")
+  return role && (categoryPrefix === "pipeline" || filename.startsWith(`${categoryPrefix}-`)) ? role : null
 }
 
 export function resolveProfileRoleSpec(profile: PipelineProfile, role: string): PipelineRoleModelSpec | null {
@@ -121,9 +120,14 @@ export function applyPipelineProfile(
   targetCategory?: string
 ): { updated: string[]; profileName: string; targetCategory: string } {
   const { config, profile } = getProfile(workspaceRoot, profileName)
-  const category = targetCategory || config.baseCategory
+  const category = (targetCategory || config.baseCategory).trim()
   const updated: string[] = []
-  for (const agent of findAgentFiles(workspaceRoot, "general").filter(agent => agent.category === category)) {
+  let matchingAgents = findAgentFiles(workspaceRoot).filter(agent => agent.category === category)
+  const stampedRoot = path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot), category)
+  if (!matchingAgents.length && fs.existsSync(path.join(stampedRoot, "agents"))) {
+    matchingAgents = findAgentFiles(workspaceRoot, path.join(resolveCategoriesSubdir(workspaceRoot), category))
+  }
+  for (const agent of matchingAgents) {
     const role = extractPipelineRole(agent.filename, category)
     if (!role) continue
     const spec = resolveProfileRoleSpec(profile, role)
@@ -141,20 +145,75 @@ export function syncPipelineProfile(
   workspaceRoot: string,
   profileName: string,
   targetCategory?: string
-): { synced: string[]; targetCategory: string; baseCategory: string; profileName: string; backupsPath: string | null } {
-  const { config } = getProfile(workspaceRoot, profileName)
+): { synced: string[]; targetCategory: string; outputDir: string; baseCategory: string; profileName: string; backupsPath: string | null } {
+  const { config, profile } = getProfile(workspaceRoot, profileName)
   const baseCategory = config.baseCategory
   const resolvedTarget = targetCategory
-    ? (targetCategory.endsWith("-pipeline") ? targetCategory : `${targetCategory}-pipeline`)
+    ? (targetCategory === "pipeline" || targetCategory.endsWith("-pipeline") ? targetCategory : `${targetCategory}-pipeline`)
     : `${profileName}-pipeline`
 
   if (resolvedTarget === baseCategory) {
     const applied = applyPipelineProfile(workspaceRoot, profileName, baseCategory)
-    return { synced: applied.updated, targetCategory: baseCategory, baseCategory, profileName, backupsPath: null }
+    return { synced: applied.updated, targetCategory: baseCategory, outputDir: path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot)), baseCategory, profileName, backupsPath: null }
   }
 
-  const forked = forkCategory(workspaceRoot, baseCategory, baseCategory, resolvedTarget)
-  const applied = applyPipelineProfile(workspaceRoot, profileName, resolvedTarget)
+  const baseAgents = findAgentFiles(workspaceRoot).filter(agent => agent.category === baseCategory)
+  const outputDir = path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot), resolvedTarget)
+  const agentsDir = path.join(outputDir, "agents")
+  fs.mkdirSync(agentsDir, { recursive: true })
+  for (const name of fs.readdirSync(agentsDir)) {
+    if (name.endsWith(".md")) fs.rmSync(path.join(agentsDir, name), { force: true })
+  }
+  const profilePrefix = resolvedTarget.replace(/-pipeline$/, "")
+  const synced: string[] = []
+  for (const agent of baseAgents) {
+    const role = extractPipelineRole(agent.filename, baseCategory)
+    if (!role) continue
+    const spec = resolveProfileRoleSpec(profile, role)
+    if (!spec) continue
+    const targetFilename = `${resolvedTarget}-${role}.md`
+    const targetPath = path.join(agentsDir, targetFilename)
+    const frontmatter: Record<string, any> = { ...agent.frontmatter, model: spec.model }
+    if (typeof spec.variant === "string" && spec.variant.length > 0) frontmatter.variant = spec.variant
+    else delete frontmatter.variant
+    if (frontmatter.permission?.task && typeof frontmatter.permission.task === "object" && !Array.isArray(frontmatter.permission.task)) {
+      frontmatter.permission = { ...frontmatter.permission, task: Object.fromEntries(Object.entries(frontmatter.permission.task).map(([key, value]) => [
+        key.startsWith("pipeline-") ? `${resolvedTarget}-${key.slice("pipeline-".length)}` : key, value
+      ])) }
+    }
+    const updatedBody = agent.body
+      .replace(/@pipeline-/g, `@${resolvedTarget}-`)
+      .replace(/# pipeline-/g, `# ${resolvedTarget}-`)
+      .replace(/pipeline-([a-z0-9_-]+)(?=["']?\s*:)/gi, `${resolvedTarget}-$1`)
+      .replace(/\/pipeline-/g, `/${profilePrefix}-`)
+    saveAgentFile(targetPath, frontmatter, updatedBody, agent.frontmatterVersion)
+    synced.push(targetPath)
+  }
+
+  const sourceRoot = path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot))
+  for (const rel of discoverCompanionResourcePaths(sourceRoot, [baseCategory], undefined, baseAgents)) {
+    let destinationRelative = rel
+    let content: string | undefined
+    if (rel.startsWith("commands/pipeline-")) {
+      destinationRelative = `commands/${profilePrefix}-${rel.slice("commands/pipeline-".length)}`
+      content = fs.readFileSync(path.join(sourceRoot, rel), "utf8")
+        .replace(/pipeline-orchestrator/g, `${resolvedTarget}-orchestrator`)
+        .replace(/@pipeline-/g, `@${resolvedTarget}-`)
+        .replace(/\/pipeline-/g, `/${profilePrefix}-`)
+        .replace(/Pipeline:/g, `${profilePrefix} pipeline:`)
+    }
+    const destination = path.join(outputDir, destinationRelative)
+    fs.mkdirSync(path.dirname(destination), { recursive: true })
+    if (content === undefined) fs.copyFileSync(path.join(sourceRoot, rel), destination)
+    else fs.writeFileSync(destination, content, "utf8")
+  }
   copyCategoryCompanionLinks(workspaceRoot, baseCategory, resolvedTarget)
-  return { synced: applied.updated, targetCategory: resolvedTarget, baseCategory, profileName, backupsPath: forked.backupsPath }
+  return { synced, targetCategory: resolvedTarget, outputDir, baseCategory, profileName, backupsPath: null }
+}
+
+export function loadStampedPipelineAgents(workspaceRoot: string, category: string): { agents: AgentInfo[]; resourceRoot: string } | null {
+  const resourceRoot = path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot), category)
+  if (!fs.existsSync(path.join(resourceRoot, "agents"))) return null
+  const agents = findAgentFiles(workspaceRoot, path.join(resolveCategoriesSubdir(workspaceRoot), category))
+  return agents.length ? { agents, resourceRoot } : null
 }

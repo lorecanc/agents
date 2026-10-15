@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 2,
+  "distributionVersion": "2.0.0",
+  "id": "wiki",
+  "title": "Wiki topic bundle",
+  "description": "A portable projection of the Wiki agents, command, and skills.",
+  "output": "export/categories/wiki",
+  "allowRequirements": true,
+  "resources": [
+    { "kind": "file", "source": "src/AGENTS.md", "target": "AGENTS.md", "policy": "text", "primary": true },
+    { "kind": "file", "source": "src/agents/wiki-analyzer.md", "target": "agents/wiki-analyzer.md", "policy": "text", "primary": true },
+    { "kind": "file", "source": "src/agents/wiki-indexer.md", "target": "agents/wiki-indexer.md", "policy": "text", "primary": true },
+    { "kind": "file", "source": "src/agents/wiki-orchestrator.md", "target": "agents/wiki-orchestrator.md", "policy": "text", "primary": true },
+    { "kind": "file", "source": "src/agents/wiki-updater.md", "target": "agents/wiki-updater.md", "policy": "text", "primary": true },
+    { "kind": "file", "source": "src/agents/wiki-writer.md", "target": "agents/wiki-writer.md", "policy": "text", "primary": true },
+    { "kind": "file", "source": "src/commands/wiki.md", "target": "commands/wiki.md", "policy": "text", "primary": true },
+    { "kind": "file", "source": "src/skills/wiki-conventions/SKILL.md", "target": "skills/wiki-conventions/SKILL.md", "policy": "text", "primary": true },
+    { "kind": "file", "source": "src/skills/wiki-navigate/SKILL.md", "target": "skills/wiki-navigate/SKILL.md", "policy": "text", "primary": true },
+    { "kind": "file", "source": "src/skills/wiki-templates/SKILL.md", "target": "skills/wiki-templates/SKILL.md", "policy": "text", "primary": true }
+  ],
+  "generated": [
+    { "kind": "config", "id": "opencode-local-codebase-memory-v1", "target": "opencode.json" }
+  ]
+}

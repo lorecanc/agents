@@ -295,7 +295,7 @@ function buildCodexMcpConfig(workspaceRoot: string, requiredServers: Set<string>
   config: Record<string, any> | null
   warnings: string[]
 } {
-  const sourcePath = path.join(workspaceRoot, "general", "opencode.json")
+  const sourcePath = [path.join(workspaceRoot, "src", "opencode.json"), path.join(workspaceRoot, "general", "opencode.json")].find(file => fs.existsSync(file)) || path.join(workspaceRoot, "src", "opencode.json")
   if (!fs.existsSync(sourcePath)) return { config: null, warnings: [] }
   try {
     const source = JSON.parse(fs.readFileSync(sourcePath, "utf-8")) as Record<string, any>

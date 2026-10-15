@@ -411,7 +411,7 @@ function buildClaudeMcpConfig(workspaceRoot: string, requiredServers: Set<string
   config: Record<string, any> | null
   warnings: string[]
 } {
-  const sourcePath = path.join(workspaceRoot, "general", "opencode.json")
+  const sourcePath = [path.join(workspaceRoot, "src", "opencode.json"), path.join(workspaceRoot, "general", "opencode.json")].find(file => fs.existsSync(file)) || path.join(workspaceRoot, "src", "opencode.json")
   if (!fs.existsSync(sourcePath)) return { config: null, warnings: [] }
 
   try {
@@ -463,7 +463,7 @@ function buildClaudeLspConfig(workspaceRoot: string): {
   config: Record<string, any> | null
   warnings: string[]
 } {
-  const sourcePath = path.join(workspaceRoot, "general", "opencode.json")
+  const sourcePath = [path.join(workspaceRoot, "src", "opencode.json"), path.join(workspaceRoot, "general", "opencode.json")].find(file => fs.existsSync(file)) || path.join(workspaceRoot, "src", "opencode.json")
   if (!fs.existsSync(sourcePath)) return { config: null, warnings: [] }
 
   try {

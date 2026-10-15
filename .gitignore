@@ -7,13 +7,14 @@ manage-agents/dist/
 manage-agents/*.log
 manage-agents/.agent-manager/category-artifacts/
 .agent-manager/category-artifacts/
-agents/**/node_modules/
-agents/**/dist/
+src/**/node_modules/
+src/**/dist/
 
 # Generated agent workspace artifacts
-agents/backups/
+backups/
 artifacts/categories/
-agents/.tmp/
+.tmp/
+.opencode-scratch/
 *.zip
 *.swp
 *.swo

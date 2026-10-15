@@ -1,0 +1,83 @@
+{
+  "version": 2,
+  "target": "claude",
+  "pluginName": "decent-pipeline",
+  "prefix": "pipeline-",
+  "sourceDir": "src",
+  "inference": true,
+  "defaultTier": "execution",
+  "tiers": {
+    "planning": {
+      "description": "Agents that reason, plan and review",
+      "claude": {
+        "model": "opus"
+      },
+      "codex": {
+        "model": "gpt-5.6-sol",
+        "reasoningEffort": "high"
+      }
+    },
+    "execution": {
+      "description": "Agents that execute tasks, cheaper and faster",
+      "claude": {
+        "model": "sonnet"
+      },
+      "codex": {
+        "model": "gpt-5.6-luna",
+        "reasoningEffort": "max"
+      }
+    }
+  },
+  "roles": {
+    "orchestrator": "planning",
+    "planner": "planning",
+    "reasoner": "planning",
+    "critic": "execution",
+    "code_reviewer": "execution",
+    "executor": "execution",
+    "explorer": "execution",
+    "refactorer": "execution",
+    "tester": "execution",
+    "fast_lane": "execution",
+    "go-pipeline-orchestrator": "planning",
+    "go-pipeline-planner": "planning",
+    "go-pipeline-reasoner": "planning",
+    "go-pipeline-code_reviewer": "execution",
+    "go-pipeline-critic": "execution",
+    "go-pipeline-docs_grounding": "execution",
+    "go-pipeline-executor": "execution",
+    "go-pipeline-explorer": "execution",
+    "go-pipeline-fast_lane": "execution",
+    "go-pipeline-hitl": "execution",
+    "go-pipeline-kotlin_specialist": "execution",
+    "go-pipeline-post_session": "execution",
+    "go-pipeline-refactorer": "execution",
+    "go-pipeline-researcher": "execution",
+    "go-pipeline-security_auditor": "execution",
+    "go-pipeline-swift_specialist": "execution",
+    "go-pipeline-tester": "execution",
+    "hybrid-pipeline-orchestrator": "planning",
+    "hybrid-pipeline-planner": "planning",
+    "hybrid-pipeline-reasoner": "planning",
+    "hybrid-pipeline-chrome_devtools": "execution",
+    "hybrid-pipeline-frontend_specialist": "execution",
+    "hybrid-pipeline-multimodal": "execution",
+    "pipeline-orchestrator": "planning",
+    "pipeline-planner": "planning",
+    "pipeline-reasoner": "planning",
+    "pipeline-chrome_devtools": "execution",
+    "pipeline-frontend_specialist": "execution",
+    "pipeline-multimodal": "execution",
+    "cp_nightly-pipeline-orchestrator": "planning",
+    "cp_nightly-pipeline-planner": "planning",
+    "cp_nightly-pipeline-reasoner": "planning"
+  },
+  "claude": {
+    "overrides": {}
+  },
+  "codex": {
+    "overrides": {},
+    "emitSkills": true,
+    "emitReadme": true
+  }
+}

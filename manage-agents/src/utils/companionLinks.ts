@@ -30,14 +30,14 @@ type CompanionLinksGroup = typeof GROUPS[number]
 export const DEFAULT_COMPANION_LINKS: CompanionLinksConfig = {
   version: 1,
   categories: {
-    "hybrid-pipeline": {
+    pipeline: {
       plugins: ["plugins/pipeline-guard.js"],
       commands: [
-        "commands/hybrid-bug.md",
-        "commands/hybrid-feature.md",
-        "commands/hybrid-ops.md",
-        "commands/hybrid-refactor.md",
-        "commands/hybrid-research.md"
+        "commands/pipeline-bug.md",
+        "commands/pipeline-feature.md",
+        "commands/pipeline-ops.md",
+        "commands/pipeline-refactor.md",
+        "commands/pipeline-research.md"
       ],
       skills: ["skills/code-review-antipatterns"],
       tools: [
@@ -96,6 +96,11 @@ export function getCompanionLinksConfigPath(workspaceRoot: string): string {
 
 export function resolveCompanionCategoryKey(config: CompanionLinksConfig, categoryOrDomain: string): string {
   const key = categoryOrDomain.trim().toLocaleLowerCase("und")
+  if (key === "pipeline" || key === "hybrid" || key === "hybrid-pipeline" || key.endsWith("-pipeline")) {
+    if (config.categories[key]) return key
+    if (config.categories[`${key}-pipeline`]) return `${key}-pipeline`
+    if (config.categories.pipeline) return "pipeline"
+  }
   if (config.categories[key]) return key
   const pipelineKey = `${key}-pipeline`
   if (config.categories[pipelineKey]) return pipelineKey
@@ -207,6 +212,12 @@ function categoryDomain(category: string): string {
   return key.endsWith("-pipeline") ? key.slice(0, -"-pipeline".length) : key
 }
 
+function resolveSourceRoot(workspaceRoot: string): string {
+  return fs.existsSync(path.join(workspaceRoot, "src"))
+    ? path.join(workspaceRoot, "src")
+    : path.join(workspaceRoot, "general")
+}
+
 export function copyCategoryCompanionLinks(workspaceRoot: string, sourceCategory: string, targetCategory: string): string {
   const config = loadCompanionLinks(workspaceRoot)
   const sourceKey = resolveCompanionCategoryKey(config, sourceCategory)
@@ -214,7 +225,8 @@ export function copyCategoryCompanionLinks(workspaceRoot: string, sourceCategory
   const source = normalizeCategoryLinks(config.categories[sourceKey])
   const sourceDomain = categoryDomain(sourceKey)
   const targetDomain = categoryDomain(targetKey)
-  const commandsDirectory = path.join(workspaceRoot, "general", "commands")
+  const sourceRoot = resolveSourceRoot(workspaceRoot)
+  const commandsDirectory = path.join(sourceRoot, "commands")
   let targetCommands: string[] = []
   if (fs.existsSync(commandsDirectory) && fs.statSync(commandsDirectory).isDirectory()) {
     targetCommands = fs.readdirSync(commandsDirectory)
@@ -235,7 +247,7 @@ function selectableItem(group: CompanionResourceGroup, relativePath: string, lab
 }
 
 export function discoverAvailableCategoryCompanionItems(workspaceRoot: string, category: string): SelectableCompanionItem[] {
-  const generalPath = path.join(workspaceRoot, "general")
+  const sourceRoot = resolveSourceRoot(workspaceRoot)
   const links = getCategoryCompanionLinks(workspaceRoot, category)
   const linked = {
     plugin: new Set(links.plugins),
@@ -247,25 +259,25 @@ export function discoverAvailableCategoryCompanionItems(workspaceRoot: string, c
   const entries = (directory: string): fs.Dirent[] => {
     try { return fs.readdirSync(directory, { withFileTypes: true }) } catch { return [] }
   }
-  const pluginDir = path.join(generalPath, "plugins")
+  const pluginDir = path.join(sourceRoot, "plugins")
   for (const entry of entries(pluginDir)) {
     if (!entry.isFile() || isExcludedFile(entry.name) || !/\.(js|ts|mjs)$/i.test(entry.name) || entry.name === "README.md") continue
     const relativePath = `plugins/${entry.name}`
     items.push(selectableItem("plugin", relativePath, path.basename(entry.name, path.extname(entry.name)), linked.plugin))
   }
-  const commandDir = path.join(generalPath, "commands")
+  const commandDir = path.join(sourceRoot, "commands")
   for (const entry of entries(commandDir)) {
     if (!entry.isFile() || !entry.name.endsWith(".md")) continue
     const relativePath = `commands/${entry.name}`
     items.push(selectableItem("command", relativePath, path.basename(entry.name, ".md"), linked.command))
   }
-  const skillDir = path.join(generalPath, "skills")
+  const skillDir = path.join(sourceRoot, "skills")
   for (const entry of entries(skillDir)) {
     if (!entry.isDirectory() || !fs.existsSync(path.join(skillDir, entry.name, "SKILL.md"))) continue
     const relativePath = `skills/${entry.name}`
     items.push(selectableItem("skill", relativePath, entry.name, linked.skill))
   }
-  const toolDir = path.join(generalPath, "tools")
+  const toolDir = path.join(sourceRoot, "tools")
   for (const entry of entries(toolDir)) {
     if (entry.isDirectory()) {
       const relativePath = `tools/${entry.name}`

@@ -7,7 +7,7 @@ import path from "node:path"
 import readline from "node:readline"
 import { App } from "./App.js"
 import { fetchModels, loadModelCatalog, getModelVariants } from "./utils/models.js"
-import { exportAgents, getExportDestination, analyzeAgentName, renameAgent, auditSecurityPermissions, importAgents, previewImport, updateAgentParams, sanitizeFilename, KNOWN_MODEL_VARIANTS } from "./utils/agents.js"
+import { exportAgents, getExportDestination, analyzeAgentName, renameAgent, auditSecurityPermissions, importAgents, previewImport, updateAgentParams, sanitizeFilename, KNOWN_MODEL_VARIANTS, resolveSourceSubdir, resolveCategoriesSubdir } from "./utils/agents.js"
 import {
   DEFAULT_TRANSLATION_CONFIG,
   loadTranslationConfig,
@@ -19,7 +19,7 @@ import {
 import { AUTO_COMMIT_MESSAGES, isRepositoryLocalPath, repositoryTransaction, parseAutoCommitArgs } from "./utils/repositoryTransaction.js"
 import { buildCategoryDistribution, buildAllCategoryDistributions, recoverBuildAllCategoryDistributions, checkCategoryDistribution, loadCategoryManifest, packageCategoryDistributions, parseCategoryArgs } from "./utils/categoryDistribution.js"
 import { loadUiConfig } from "./utils/uiConfig.js"
-import { loadPipelineProfiles, applyPipelineProfile, syncPipelineProfile, resolveProfileRoleSpec, PIPELINE_ROLES } from "./utils/pipelineProfiles.js"
+import { loadPipelineProfiles, applyPipelineProfile, syncPipelineProfile, resolveProfileRoleSpec, PIPELINE_ROLES, loadStampedPipelineAgents } from "./utils/pipelineProfiles.js"
 import { getCompanionLinksConfigPath } from "./utils/companionLinks.js"
 
 function repositoryMutation<T>(workspaceRoot: string, plan: string[] | { localPaths: string[]; externalPaths?: string[] }, message: string, mutation: () => T): T {
@@ -72,7 +72,7 @@ async function runCreate(agentNameArg: string | undefined, workspaceRoot: string
     : `${cleanCategory}-${cleanRole}.md`
 
   const safeFilename = sanitizeFilename(filename)
-  const agentsDir = path.join(workspaceRoot, "general", "agents")
+  const agentsDir = path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot), "agents")
   const targetPath = path.join(agentsDir, safeFilename)
   if (!path.resolve(targetPath).startsWith(path.resolve(agentsDir) + path.sep)) {
     throw new Error(`Invalid agent path: ${safeFilename}`)
@@ -132,7 +132,7 @@ Write agent instructions and prompts here.
 
   console.log("\n------------------------------------------")
   console.log(`🎉 Agent successfully created!`)
-  console.log(`  File:     general/agents/${filename}`)
+  console.log(`  File:     ${resolveSourceSubdir(workspaceRoot)}/agents/${filename}`)
   console.log(`  Family:   ${cleanFamily || "(none)"}`)
   console.log(`  Category: ${cleanCategory}`)
   console.log(`  Role:     ${cleanRole}`)
@@ -242,7 +242,7 @@ Options:
   if (!targetSpecified) target = config.target
   pluginName = pluginName || config.pluginName || DEFAULT_TRANSLATION_CONFIG.pluginName
   prefix = prefix || (category ? `${category}-` : config.prefix)
-  sourceDir = sourceDir || config.sourceDir || "general"
+  sourceDir = sourceDir || config.sourceDir || resolveSourceSubdir(workspaceRoot)
   if (!category) category = prefix.replace(/-$/, "")
   if (!prefix) prefix = `${category}-`
   if (!category) {
@@ -252,7 +252,7 @@ Options:
 
   const safePluginName = sanitizeFilename(pluginName)
   const bridgeFolder = target === "codex" ? "codex" : "claude-code"
-  const outputDir = output || path.join(workspaceRoot, "bridges", bridgeFolder, safePluginName)
+  const outputDir = output || path.join(workspaceRoot, fs.existsSync(path.join(workspaceRoot, "export")) ? path.join("export", "bridges") : "bridges", bridgeFolder, safePluginName)
 
   console.log(`\n🔄 Bridging category '${category}' to ${target} layer '${pluginName}'...`)
   console.log(`   Prefix to strip: '${prefix}'`)
@@ -354,18 +354,33 @@ Options:
     }
   }
 
-  const sourceDir = loadTranslationConfig(workspaceRoot, undefined, { persistMigration: false }).sourceDir
-  if (profile) {
-    repositoryMutation(workspaceRoot, [path.join(workspaceRoot, "general", "agents")], "pipeline", () =>
-      applyPipelineProfile(workspaceRoot, profile, category || undefined)
+  const sourceSubdir = resolveSourceSubdir(workspaceRoot)
+  let agentsToExport: ReturnType<typeof findAgentFiles>
+  let resourceSourceRoot = path.join(workspaceRoot, sourceSubdir)
+  if (profile && category === "pipeline") {
+    repositoryMutation(workspaceRoot, [path.join(workspaceRoot, sourceSubdir, "agents")], "pipeline", () =>
+      applyPipelineProfile(workspaceRoot, profile, "pipeline")
     )
-  }
-  const allAgents = findAgentFiles(workspaceRoot, sourceDir)
-  let agentsToExport = allAgents
-
-  if (category) {
-    agentsToExport = allAgents.filter(a => a.category === category)
-    if (agentsToExport.length === 0) {
+    agentsToExport = findAgentFiles(workspaceRoot, sourceSubdir).filter(agent => agent.category === "pipeline")
+  } else if (profile) {
+    const synced = repositoryMutation(workspaceRoot, [path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot)), getCompanionLinksConfigPath(workspaceRoot)], "pipeline", () =>
+      syncPipelineProfile(workspaceRoot, profile, category || undefined)
+    )
+    const stamped = loadStampedPipelineAgents(workspaceRoot, synced.targetCategory)
+    if (!stamped) throw new Error(`No stamped agents found for category '${synced.targetCategory}'.`)
+    agentsToExport = stamped.agents
+    resourceSourceRoot = stamped.resourceRoot
+  } else {
+    const allAgents = findAgentFiles(workspaceRoot, sourceSubdir)
+    agentsToExport = category ? allAgents.filter(agent => agent.category === category) : allAgents
+    if (category && agentsToExport.length === 0) {
+      const stamped = loadStampedPipelineAgents(workspaceRoot, category)
+      if (stamped) {
+        agentsToExport = stamped.agents
+        resourceSourceRoot = stamped.resourceRoot
+      }
+    }
+    if (category && agentsToExport.length === 0) {
       console.error(`Error: No agents found for category '${category}'.`)
       console.error(`Available categories: ${[...new Set(allAgents.map(a => a.category))].join(", ")}`)
       process.exit(1)
@@ -388,7 +403,7 @@ Options:
     process.exit(0)
   }
 
-  const result = exportAgents(agentsToExport, undefined, path.join(workspaceRoot, "general"))
+  const result = exportAgents(agentsToExport, undefined, resourceSourceRoot)
 
   console.log(`\n✅ Export complete!`)
   console.log(`   Exported ${result.exported.length} agents to:`)
@@ -708,21 +723,24 @@ async function runPipelineCLI(workspaceRoot: string) {
   }
 
   if (action === "apply") {
-    const result = repositoryMutation(workspaceRoot, [path.join(workspaceRoot, "general", "agents")], "pipeline", () =>
+    const result = repositoryMutation(workspaceRoot, [path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot), "agents"), path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot))], "pipeline", () =>
       applyPipelineProfile(workspaceRoot, profileName, category || undefined)
     )
     console.log(`Applied profile '${profileName}' to category '${result.targetCategory}': updated ${result.updated.length} agent files.`)
     return
   }
 
-  const result = repositoryMutation(workspaceRoot, [path.join(workspaceRoot, "general", "agents"), getCompanionLinksConfigPath(workspaceRoot)], "pipeline", () =>
+  const result = repositoryMutation(workspaceRoot, [path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot), "agents"), path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot)), getCompanionLinksConfigPath(workspaceRoot)], "pipeline", () =>
     syncPipelineProfile(workspaceRoot, profileName, category || undefined)
   )
-  console.log(`Synced profile '${profileName}' to category '${result.targetCategory}': ${result.synced.length} agents.`)
+  console.log(`Synced profile '${profileName}' to category '${result.targetCategory}': ${result.synced.length} agents at ${result.outputDir}.`)
 }
 
 async function runCategory(workspaceRoot: string) {
-  const repoRoot = path.basename(workspaceRoot) === "agents" ? path.dirname(workspaceRoot) : workspaceRoot
+  const rootCategoryConfigDir = path.join(workspaceRoot, ".agent-manager", "categories")
+  const hasRootCategoryConfig = fs.existsSync(rootCategoryConfigDir)
+  const repoRoot = !hasRootCategoryConfig && path.basename(workspaceRoot) === "agents" ? path.dirname(workspaceRoot) : workspaceRoot
+  const categoryConfigDir = hasRootCategoryConfig ? rootCategoryConfigDir : path.join(workspaceRoot, "agents", ".agent-manager", "categories")
   const args = process.argv.slice(3)
   if (args.includes("--help") || args.includes("-h")) {
     console.log("Usage: manage-agents category list|explain|status|build|check|package <id> [options]")
@@ -730,13 +748,13 @@ async function runCategory(workspaceRoot: string) {
   }
   const parsed = parseCategoryArgs(args)
   if (parsed.action === "recover") { recoverBuildAllCategoryDistributions(repoRoot); console.log("Recovered category build journal."); return }
-  if (parsed.action === "list") { const dir = path.join(workspaceRoot, ".agent-manager", "categories"); console.log(fs.existsSync(dir) ? fs.readdirSync(dir).filter(file => file.endsWith(".json")).map(file => file.slice(0, -5)).sort().join("\n") : ""); return }
-  const ids = parsed.ids?.length ? parsed.ids : parsed.id ? [parsed.id] : fs.readdirSync(path.join(workspaceRoot, ".agent-manager", "categories")).filter(file => file.endsWith(".json")).map(file => file.slice(0, -5)).sort()
+  if (parsed.action === "list") { console.log(fs.existsSync(categoryConfigDir) ? fs.readdirSync(categoryConfigDir).filter(file => file.endsWith(".json")).map(file => file.slice(0, -5)).sort().join("\n") : ""); return }
+  const ids = parsed.ids?.length ? parsed.ids : parsed.id ? [parsed.id] : fs.existsSync(categoryConfigDir) ? fs.readdirSync(categoryConfigDir).filter(file => file.endsWith(".json")).map(file => file.slice(0, -5)).sort() : []
   if (parsed.action === "explain") { const result = ids.map(id => loadCategoryManifest(repoRoot, id)); console.log(parsed.json ? JSON.stringify(result) : result.map(value => JSON.stringify(value, null, 2)).join("\n")); return }
   if (parsed.action === "package") { const result = packageCategoryDistributions(repoRoot, parsed.ids || ids, parsed.output || "", parsed.dryRun); console.log(parsed.json ? JSON.stringify(result) : `${parsed.dryRun ? "Would package" : "Packaged"} ${result.categories.join(", ")} to ${parsed.output}`); return }
   const results = parsed.action === "build" && !parsed.id
     ? buildAllCategoryDistributions(repoRoot)
-    : ids.map(id => parsed.action === "check" || parsed.action === "status" ? checkCategoryDistribution(repoRoot, id) : repositoryMutation(repoRoot, [path.join("agents", "categories", id)], `chore(agent-manager): build ${id} category`, () => buildCategoryDistribution(repoRoot, id)))
+    : ids.map(id => parsed.action === "check" || parsed.action === "status" ? checkCategoryDistribution(repoRoot, id) : repositoryMutation(repoRoot, [path.join(repoRoot, resolveCategoriesSubdir(repoRoot), id)], `chore(agent-manager): build ${id} category`, () => buildCategoryDistribution(repoRoot, id)))
   if (parsed.json) console.log(JSON.stringify(results)); else results.forEach((result, index) => console.log(result.status === "current" ? `Category ${ids[index]} is current.` : `Category ${ids[index]} is stale.\nMissing: ${result.missing.join(", ") || "none"}\nChanged: ${result.changed.join(", ") || "none"}\nExtra: ${result.extra.join(", ") || "none"}`))
   if ((parsed.action === "check" || parsed.action === "status") && results.some(result => result.status !== "current")) process.exitCode = 1
 }
@@ -755,10 +773,10 @@ async function run() {
   const workspaceCandidates = [
     workingDirectory,
     path.join(workingDirectory, "agents"),
-    path.resolve(workingDirectory, "..", "agents")
+    path.resolve(workingDirectory, "..")
   ]
   const workspaceRoot = workspaceCandidates.find((candidate) =>
-    fs.existsSync(path.join(candidate, "general", "agents"))
+    fs.existsSync(path.join(candidate, "src", "agents")) || fs.existsSync(path.join(candidate, "general", "agents"))
   ) || workingDirectory
 
   // Intercept CLI commands

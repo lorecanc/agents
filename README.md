@@ -12,27 +12,29 @@ Use this repository when you want a ready-made multi-agent workflow, a portable 
 
 ## What is here
 
-The canonical catalog is `agents/general/`: shared instructions, 116 canonical agents, commands, skills, tools, and the OpenCode configuration blueprint. Nine categories organize the catalog: `general`, `docs`, `slides`, `wiki`, `storybook`, `go-pipeline`, `copilot-pipeline`, `web`, and `data`.
+The canonical catalog lives under `src/`: agent prompts, commands, skills, tools, and the OpenCode configuration blueprint. Generated distributions live separately under `export/`.
 
 Five pipeline families—Go, Copilot, docs, slides, and wiki—cover planning, research/exploration, implementation, testing, review, security, documentation, orchestration, and post-session verification. Shared stock roles include orchestrator, planner, reasoner, researcher, explorer, executor, tester, critic, code reviewer, refactorer, security auditor, frontend specialist, Swift specialist, Kotlin specialist, multimodal, docs grounding, Chrome DevTools, HITL, fast lane, and post-session.
 
 The general catalog includes the manager-facing orchestrator, shell executor, loop verifier, and reusable document/slide workflows. Docs and slides provide HTML/A4 and PowerPoint planning, authoring, composition, and validation. Wiki provides analyzer, indexer, orchestrator, updater, and writer agents plus its command and three supporting skills.
 
-## Architecture and source of truth
+## Repository layout
 
 ```text
-agents/
-├── general/                 # canonical OpenCode catalog
-│   ├── agents/ commands/ skills/ tools/
-│   └── opencode.json
-├── categories/              # generated category distributions; never edit directly
-├── bridges/                 # generated Claude/Codex translation outputs
-├── docs/                    # OpenCode and MCP reference material
-└── .agent-manager/          # manager configuration and category manifests
-manage-agents/               # TypeScript terminal manager and TUI
+/src/                         # canonical sources
+  agents/                     # pipeline-* base plus docs-*, slides-*, wiki-* agents
+  commands/ plugins/ skills/ tools/ bench/ bin/ opencode.json
+/export/                      # generated and stamped distributions
+  categories/docs, slides, wiki
+  categories/{hybrid,go,mistral,collector,free,copilot,cp_nightly}-pipeline
+  bridges/                     # Claude Code and Codex
+/.agent-manager/               # declarative configuration
+  pipeline-profiles.json, companion-links.json, translation-config.json
+  categories/*.json
+/manage-agents/                # CLI and interactive TUI manager
 ```
 
-Edit canonical files under `general/`, manifests under `agents/.agent-manager/`, or translation settings when appropriate. Regenerate distributions and bridges with the manager; do not edit generated output. `agents/wiki-generator/` is deprecated compatibility output, not a source tree. Category distributions are deterministic and contain no nested Git repository.
+Edit canonical files under `src/` and declarations under `.agent-manager/`. Regenerate distributions and bridges with the manager; do not edit generated output. The `pipeline-*` files in `src/agents/` are the prefixless base pipeline used to stamp provider profiles. Category distributions are deterministic and contain no nested Git repository.
 
 ## Quick start
 
@@ -43,11 +45,11 @@ cd ..
 ./manage-agents.sh
 ```
 
-The launcher starts the TUI. For a portable OpenCode setup, copy `agents/general/opencode.json` to your OpenCode configuration directory as described in [`agents/README.md`](agents/README.md).
+The launcher starts the TUI. For a portable OpenCode setup, use `src/opencode.json` as the configuration blueprint.
 
 ## Install into OpenCode
 
-Copy `agents/general/opencode.json` to your OpenCode configuration location, then copy or export the desired canonical agents to `~/.config/opencode/agents/`. The manager’s `export` command creates a recovery backup. Category distributions are generated locally under `agents/categories/` from manifests in `agents/.agent-manager/categories/`; deterministic packages can be shared manually as artifacts.
+Copy `src/opencode.json` to your OpenCode configuration location, then copy or export the desired canonical agents to `~/.config/opencode/agents/`. The manager’s `export` command creates a recovery backup. Category distributions are generated under `export/categories/` from `.agent-manager/categories/` manifests; deterministic packages can be shared manually as artifacts.
 
 ## Workflow and validation
 
@@ -57,11 +59,11 @@ Canonical agent content is organized into category manifests and can be projecte
 
 Automatic repository commits are opt-in: use `--auto-commit` or `AGENT_MANAGER_AUTO_COMMIT=1`; the default is off and mutations go directly to the worktree without Git operations. `--no-auto-commit` or `AGENT_MANAGER_AUTO_COMMIT=0` explicitly disables it, and CLI flags take precedence. Enabled commits require a clean repository, then use Git’s native real index/ref locks and a literal, NUL-safe, path-limited `git commit --only`; only genuinely new paths receive `git add --intent-to-add`. Hooks, signing, and the editor are disabled for this private commit. Auto-commit is best-effort: failures never block a valid mutation, never reset or restore user work, and return a warning while preserving any index residue for manual recovery. Concurrent unrelated staging remains staged and is excluded from the commit. An edit to the same declared path during synchronous mutation may be included as the latest worktree state; stop edits when that matters or leave auto-commit off.
 
-Agent filenames follow `[{family}-]{category}-{role_with_underscores}.md`. Frontmatter category is authoritative for inference; the manager can lint and repair names. Keep source references pointed at canonical `general/` files.
+Agent filenames follow `[{family}-]{category}-{role_with_underscores}.md`. Frontmatter category is authoritative for inference; the manager can lint and repair names. Keep source references pointed at canonical `src/` files.
 
 ## Generated distributions
 
-Run `node manage-agents/manage-agents.mjs --no-auto-commit category build --all` (or use Bun) to produce all self-contained packages. `category check --all` is read-only; `category package --all --output artifacts/categories --dry-run` previews a safe artifact copy. The manifests at `agents/.agent-manager/categories/*.json` are exact v2 allowlists; `PROVENANCE.json` records stable SHA-256 hashes.
+Run `node manage-agents/manage-agents.mjs --no-auto-commit category build --all` (or use Bun) to produce all self-contained packages. `category check --all` is read-only; `category package --all --output artifacts/categories --dry-run` previews a safe artifact copy. The manifests at `.agent-manager/categories/*.json` are exact v2 allowlists; `PROVENANCE.json` records stable SHA-256 hashes.
 
 ### Command compatibility
 
