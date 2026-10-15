@@ -695,6 +695,34 @@ test("fork rejects a case-equivalent existing target without overwrite or siblin
   assert.deepEqual(backupDirectories(workspace), [])
 })
 
+test("forkCategory on pipeline preserves pipeline_* tools, pipeline.json, and pipeline-guard.js", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-fork-pipeline-"))
+  const sourcePath = path.join(root, "src", "agents", "pipeline-orchestrator.md")
+  fs.mkdirSync(path.dirname(sourcePath), { recursive: true })
+  saveAgentFile(sourcePath, {
+    description: "Pipeline orchestrator",
+    permission: {
+      pipeline_state: "allow",
+      pipeline_verify: "allow",
+      task: { "pipeline-executor": "allow" }
+    }
+  }, "Use @pipeline-executor with .opencode/pipeline.json, PIPELINE_SCRATCH, and plugins/pipeline-guard.js.")
+
+  forkCategory(root, "pipeline", "pipeline", "custom")
+
+  const forkedPath = path.join(root, "export", "categories", "custom-pipeline", "agents", "custom-pipeline-orchestrator.md")
+  assert.equal(fs.existsSync(forkedPath), true, "pipeline forks should be stamped under export/categories")
+  const forked = parseAgentFile(forkedPath, root)!
+  const permission = forked.frontmatter.permission as { [key: string]: unknown, task: Record<string, unknown> }
+  assert.match(forked.body, /@custom-pipeline-executor/)
+  assert.equal(permission.task["custom-pipeline-executor"], "allow")
+  assert.equal(permission.pipeline_state, "allow")
+  assert.equal(permission.pipeline_verify, "allow")
+  assert.match(forked.body, /\.opencode\/pipeline\.json/)
+  assert.match(forked.body, /PIPELINE_SCRATCH/)
+  assert.match(forked.body, /plugins\/pipeline-guard\.js/)
+})
+
 test("agent params set effort variants and preserve other frontmatter and body", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "agent-variant-"))
   const filePath = path.join(workspace, "general/agents/a.md")

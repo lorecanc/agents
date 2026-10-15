@@ -19,7 +19,7 @@ import {
 import { AUTO_COMMIT_MESSAGES, isRepositoryLocalPath, repositoryTransaction, parseAutoCommitArgs } from "./utils/repositoryTransaction.js"
 import { buildCategoryDistribution, buildAllCategoryDistributions, recoverBuildAllCategoryDistributions, checkCategoryDistribution, loadCategoryManifest, packageCategoryDistributions, parseCategoryArgs } from "./utils/categoryDistribution.js"
 import { loadUiConfig } from "./utils/uiConfig.js"
-import { loadPipelineProfiles, applyPipelineProfile, syncPipelineProfile, deleteStampedPipeline, resolveProfileRoleSpec, PIPELINE_ROLES, loadStampedPipelineAgents } from "./utils/pipelineProfiles.js"
+import { loadPipelineProfiles, applyPipelineProfile, syncPipelineProfile, deleteStampedPipeline, resolveProfileRoleSpec, PIPELINE_ROLES, loadStampedPipelineAgents, refreshStampedPipelinesFromSource } from "./utils/pipelineProfiles.js"
 import { getCompanionLinksConfigPath } from "./utils/companionLinks.js"
 
 function repositoryMutation<T>(workspaceRoot: string, plan: string[] | { localPaths: string[]; externalPaths?: string[] }, message: string, mutation: () => T): T {
@@ -353,6 +353,8 @@ Options:
       process.exit(0)
     }
   }
+
+  try { refreshStampedPipelinesFromSource(workspaceRoot, category || undefined) } catch {}
 
   const sourceSubdir = resolveSourceSubdir(workspaceRoot)
   let agentsToExport: ReturnType<typeof findAgentFiles>
@@ -690,7 +692,7 @@ async function runTuneCLI(workspaceRoot: string) {
 async function runPipelineCLI(workspaceRoot: string) {
   const [action, profileName, ...options] = process.argv.slice(3)
   if (!action || action === "--help" || action === "-h") {
-    console.log("Usage: manage-agents pipeline list|show <profile>|apply <profile> [--category <cat>]|sync <profile> [--target <target-pipeline>]|delete <name> [--also-installed]")
+    console.log("Usage: manage-agents pipeline list|show <profile>|apply <profile> [--category <cat>]|sync <profile> [--target <target-pipeline>]|sync --all|refresh [--target <target-pipeline>]|delete <name> [--also-installed]")
     return
   }
 
@@ -698,6 +700,20 @@ async function runPipelineCLI(workspaceRoot: string) {
     const config = loadPipelineProfiles(workspaceRoot)
     console.log(`Base category: ${config.baseCategory}`)
     for (const [name, profile] of Object.entries(config.profiles)) console.log(`${name}: ${profile.description}`)
+    return
+  }
+
+  const refreshAll = action === "refresh" || (action === "sync" && (profileName === "--all" || options.includes("--all")))
+  if (refreshAll) {
+    const refreshArgs = process.argv.slice(3)
+    let target = ""
+    for (let i = 0; i < refreshArgs.length; i++) {
+      if ((refreshArgs[i] === "--target" || refreshArgs[i] === "-t") && refreshArgs[i + 1]) target = refreshArgs[++i]
+    }
+    const result = repositoryMutation(workspaceRoot, [path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot)), getCompanionLinksConfigPath(workspaceRoot)], AUTO_COMMIT_MESSAGES.pipeline, () =>
+      refreshStampedPipelinesFromSource(workspaceRoot, target || undefined)
+    )
+    console.log(`Refreshed ${result.refreshedCategories.length} stamped pipeline(s): ${result.updatedAgents.length} agent file(s), ${result.updatedCompanions.length} companion file(s) updated.`)
     return
   }
 
@@ -765,6 +781,15 @@ async function runCategory(workspaceRoot: string) {
   const ids = parsed.ids?.length ? parsed.ids : parsed.id ? [parsed.id] : fs.existsSync(categoryConfigDir) ? fs.readdirSync(categoryConfigDir).filter(file => file.endsWith(".json")).map(file => file.slice(0, -5)).sort() : []
   if (parsed.action === "explain") { const result = ids.map(id => loadCategoryManifest(repoRoot, id)); console.log(parsed.json ? JSON.stringify(result) : result.map(value => JSON.stringify(value, null, 2)).join("\n")); return }
   if (parsed.action === "package") { const result = packageCategoryDistributions(repoRoot, parsed.ids || ids, parsed.output || "", parsed.dryRun); console.log(parsed.json ? JSON.stringify(result) : `${parsed.dryRun ? "Would package" : "Packaged"} ${result.categories.join(", ")} to ${parsed.output}`); return }
+  if (parsed.action === "check" || parsed.action === "status") {
+    for (const id of ids) {
+      if (id === "pipeline" || id.endsWith("-pipeline")) {
+        repositoryMutation(repoRoot, [path.join(repoRoot, resolveCategoriesSubdir(repoRoot)), getCompanionLinksConfigPath(repoRoot)], AUTO_COMMIT_MESSAGES.pipeline, () =>
+          refreshStampedPipelinesFromSource(repoRoot, id)
+        )
+      }
+    }
+  }
   const results = parsed.action === "build" && !parsed.id
     ? buildAllCategoryDistributions(repoRoot)
     : ids.map(id => parsed.action === "check" || parsed.action === "status" ? checkCategoryDistribution(repoRoot, id) : repositoryMutation(repoRoot, [path.join(repoRoot, resolveCategoriesSubdir(repoRoot), id)], `chore(agent-manager): build ${id} category`, () => buildCategoryDistribution(repoRoot, id)))

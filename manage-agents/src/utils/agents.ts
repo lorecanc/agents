@@ -1489,7 +1489,7 @@ export function saveAgentFile(filePath: string, frontmatter: Record<string, any>
   atomicWriteAgentFile(filePath, Buffer.from(content, "utf8"))
 }
 
-function renderAgentFile(frontmatter: Record<string, any>, body: string, originalVersion?: "v1" | "v2" | "unknown"): string {
+export function renderAgentFile(frontmatter: Record<string, any>, body: string, originalVersion?: "v1" | "v2" | "unknown"): string {
   const frontmatterToWrite = originalVersion === "v2"
     ? translateFrontmatterV1ToV2(frontmatter)
     : frontmatter
@@ -1890,12 +1890,26 @@ export function forkCategory(
   replaceStr: string | readonly string[],
   selectedPaths?: string[]
 ): ForkResult {
+  const isPipelineCategory = sourceCategory === "pipeline" || sourceCategory.endsWith("-pipeline")
   // Find all agents under general/agents/ belonging to sourceCategory
   const sourceDir = resolveSourceSubdir(workspaceRoot)
   const allAgents = findAgentFiles(workspaceRoot, sourceDir)
   let sourceAgents = allAgents.filter(
     (agent) => agent.category === sourceCategory && isInGeneralAgents(agent.currentPath)
   )
+  if (isPipelineCategory && sourceAgents.length === 0) {
+    sourceAgents = allAgents.filter(agent =>
+      isInGeneralAgents(agent.currentPath) && agent.filename.startsWith(`${sourceCategory}-`)
+    )
+  }
+  if (isPipelineCategory && sourceAgents.length === 0) {
+    const stampedSourceDir = path.join(resolveCategoriesSubdir(workspaceRoot), sourceCategory)
+    const stampedSourcePath = path.join(workspaceRoot, stampedSourceDir)
+    if (fs.existsSync(stampedSourcePath)) {
+      sourceAgents = findAgentFiles(workspaceRoot, stampedSourceDir)
+        .filter(agent => agent.category === sourceCategory || agent.filename.startsWith(`${sourceCategory}-`))
+    }
+  }
 
   // If specific files are selected, only fork those selected files
   if (selectedPaths && selectedPaths.length > 0) {
@@ -1921,22 +1935,31 @@ export function forkCategory(
     agentsByPath.set(identity, entries)
   }
   const existingTargetEntries = new Map<string, string[]>()
-  const targetDir = path.join(workspaceRoot, sourceDir, "agents")
-  for (const entry of fs.readdirSync(targetDir)) {
-    const entryPath = path.join(targetDir, entry)
-    const identity = forkPathIdentity(entryPath)
-    const entries = existingTargetEntries.get(identity) || []
-    entries.push(entryPath)
-    existingTargetEntries.set(identity, entries)
-  }
+  const loadedTargetDirs = new Set<string>()
 
   for (const agent of sourceAgents) {
     const filename = agent.filename
     for (const replacement of replacements) {
       const replacementLabel = JSON.stringify(replacement)
-      // Compute target filename by replacing findStr with this replacement.
-      const newFilename = sanitizeFilename(filename.split(findStr).join(replacement))
-      const targetPath = path.join(workspaceRoot, sourceDir, "agents", newFilename)
+      let targetCategory: string | undefined
+      let newFilename: string
+      if (isPipelineCategory) {
+        const trimmedRep = replacement.trim().replace(/-+$/, "")
+        targetCategory = trimmedRep === "pipeline" || trimmedRep.endsWith("-pipeline") ? trimmedRep : `${trimmedRep}-pipeline`
+        sanitizeFilename(targetCategory)
+        newFilename = sanitizeFilename(filename.replace(new RegExp(`^${escapeRegExp(sourceCategory)}-`), `${targetCategory}-`))
+      } else {
+        // Compute target filename by replacing findStr with this replacement.
+        newFilename = sanitizeFilename(filename.split(findStr).join(replacement))
+      }
+      const useStampedPipelineLayout = isPipelineCategory && (
+        fs.existsSync(path.join(workspaceRoot, "export", "categories")) ||
+        fs.existsSync(path.join(workspaceRoot, "src", "agents"))
+      )
+      const targetDir = useStampedPipelineLayout
+        ? path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot), targetCategory!, "agents")
+        : path.join(workspaceRoot, sourceDir, "agents")
+      const targetPath = path.join(targetDir, newFilename)
       const resolvedTargetPath = path.resolve(targetPath)
       if (!resolvedTargetPath.startsWith(path.resolve(targetDir) + path.sep)) {
         throw new Error(`Invalid fork target path: ${newFilename}`)
@@ -1950,6 +1973,18 @@ export function forkCategory(
       const targetIdentity = forkPathIdentity(targetPath)
       if (targetPaths.has(targetIdentity)) throw new Error(`Duplicate fork target (case/NFC-equivalent): ${targetPath}`)
       targetPaths.add(targetIdentity)
+      if (!loadedTargetDirs.has(targetDir)) {
+        if (fs.existsSync(targetDir)) {
+          for (const entry of fs.readdirSync(targetDir)) {
+            const entryPath = path.join(targetDir, entry)
+            const identity = forkPathIdentity(entryPath)
+            const entries = existingTargetEntries.get(identity) || []
+            entries.push(entryPath)
+            existingTargetEntries.set(identity, entries)
+          }
+        }
+        loadedTargetDirs.add(targetDir)
+      }
       const filesystemEntries = existingTargetEntries.get(targetIdentity) || []
       if (filesystemEntries.length > 1) {
         throw new Error(`Ambiguous case/NFC-equivalent existing fork targets: ${targetPath}`)
@@ -1983,27 +2018,64 @@ export function forkCategory(
       const sourceContent = fs.readFileSync(agent.currentPath, "utf-8")
       const sourceModel = Object.prototype.hasOwnProperty.call(agent.frontmatter, "model") ? agent.frontmatter.model : undefined
       const sourceHasModel = Object.prototype.hasOwnProperty.call(agent.frontmatter, "model")
-      const updatedContent = sourceContent.split(findStr).join(replacement)
       let frontmatter: Record<string, any>
-      const { yamlText, body } = extractFrontmatter(updatedContent)
-
-      if (yamlText === null) {
-        skipped.push(`${filename} [${replacementLabel}]`)
-        continue
-      }
-      try {
-        frontmatter = YAML.parse(yamlText)
-        if (!isValidFrontmatter(frontmatter)) {
+      let body: string
+      let frontmatterVersion: "v1" | "v2" | "unknown"
+      if (isPipelineCategory) {
+        frontmatter = { ...agent.frontmatter }
+        body = agent.body
+        frontmatterVersion = agent.frontmatterVersion ?? "unknown"
+        if (frontmatter.category !== undefined) frontmatter.category = targetCategory
+        const permission = frontmatter.permission
+        if (permission && typeof permission === "object" && !Array.isArray(permission)) {
+          frontmatter.permission = { ...permission }
+          const task = permission.task
+          if (task && typeof task === "object" && !Array.isArray(task)) {
+            const rewrittenTask = Object.fromEntries(Object.entries(task).map(([key, value]) => {
+              if (key.startsWith(`${sourceCategory}-`)) return [`${targetCategory}${key.slice(sourceCategory.length)}`, value]
+              if (key.startsWith("pipeline-")) return [`${targetCategory}${key.slice("pipeline".length)}`, value]
+              return [key, value]
+            }))
+            frontmatter.permission.task = Object.prototype.hasOwnProperty.call(rewrittenTask, "*")
+              ? { "*": rewrittenTask["*"], ...Object.fromEntries(Object.entries(rewrittenTask).filter(([key]) => key !== "*")) }
+              : rewrittenTask
+          }
+        }
+        const sourcePrefix = sourceCategory.replace(/-pipeline$/, "")
+        const targetPrefix = targetCategory!.replace(/-pipeline$/, "")
+        const pipelineGuardPath = "plugins/pipeline-guard.js"
+        const pipelineGuardPlaceholder = "\0PIPELINE_GUARD_PATH\0"
+        body = body
+          .replaceAll(pipelineGuardPath, pipelineGuardPlaceholder)
+          .replace(new RegExp(`@${escapeRegExp(sourceCategory)}-`, "g"), `@${targetCategory}-`)
+          .replace(/@pipeline-/g, `@${targetCategory}-`)
+          .replace(new RegExp(`# ${escapeRegExp(sourceCategory)}-`, "g"), `# ${targetCategory}-`)
+          .replace(/# pipeline-/g, `# ${targetCategory}-`)
+        if (sourceCategory !== "pipeline") {
+          body = body.replace(new RegExp(`/${escapeRegExp(sourcePrefix)}-`, "g"), `/${targetPrefix}-`)
+        }
+        body = body.replace(/\/pipeline-/g, `/${targetPrefix}-`).replaceAll(pipelineGuardPlaceholder, pipelineGuardPath)
+      } else {
+        const updatedContent = sourceContent.split(findStr).join(replacement)
+        const { yamlText, body: updatedBody } = extractFrontmatter(updatedContent)
+        body = updatedBody
+        if (yamlText === null) {
           skipped.push(`${filename} [${replacementLabel}]`)
           continue
         }
-      } catch (e) {
-        skipped.push(`${filename} [${replacementLabel}]`)
-        continue
+        try {
+          frontmatter = YAML.parse(yamlText)
+          if (!isValidFrontmatter(frontmatter)) {
+            skipped.push(`${filename} [${replacementLabel}]`)
+            continue
+          }
+        } catch (e) {
+          skipped.push(`${filename} [${replacementLabel}]`)
+          continue
+        }
+        frontmatterVersion = detectFrontmatterVersion(frontmatter)
+        if (frontmatterVersion === "v2") frontmatter = translateFrontmatterV2ToV1(frontmatter)
       }
-
-      const frontmatterVersion = detectFrontmatterVersion(frontmatter)
-      if (frontmatterVersion === "v2") frontmatter = translateFrontmatterV2ToV1(frontmatter)
 
       // Never replace a model as part of the global content substitution.
       if (!hasExistingModel && sourceHasModel) frontmatter.model = sourceModel

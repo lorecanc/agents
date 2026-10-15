@@ -44,7 +44,7 @@ import {
 } from "./utils/agents.js"
 import { loadModelCatalog, suggestModels, collectInvalidModelGroups, modelDisplayValue, getModelVariants, type ModelCatalog } from "./utils/models.js"
 import { discoverAvailableCategoryCompanionItems, getCompanionLinksConfigPath, type SelectableCompanionItem, updateCategoryCompanionLinks } from "./utils/companionLinks.js"
-import { applyPipelineProfile, loadPipelineProfiles, syncPipelineProfile, loadStampedPipelineAgents, deleteStampedPipeline } from "./utils/pipelineProfiles.js"
+import { applyPipelineProfile, loadPipelineProfiles, syncPipelineProfile, loadStampedPipelineAgents, deleteStampedPipeline, refreshStampedPipelinesFromSource, forkStampedPipeline } from "./utils/pipelineProfiles.js"
 import { bridgeToClaudeCode } from "./utils/bridge.js"
 import { bridgeToCodex } from "./utils/codexBridge.js"
 import { buildInferenceIndex, loadTranslationConfig, resolveModelTarget, resolveRole, saveTranslationConfig, type TranslationConfig } from "./utils/translationConfig.js"
@@ -445,6 +445,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
   }, [importDiffs.length, maxVisibleImportDiffs])
 
   const refreshData = () => {
+    try { refreshStampedPipelinesFromSource(workspaceRoot) } catch {}
     const list = findAgentFiles(workspaceRoot)
     const canonicalPaths = new Set(list.map(agent => agent.currentPath))
     const categoriesDir = path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot))
@@ -964,7 +965,12 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           setForkReplaceQuery("")
           setForkProfileName("")
           setForkProfileTarget("")
-          setForkFocusedField("find")
+          if (item.category === "pipeline" || item.category?.endsWith("-pipeline")) {
+            setForkFindQuery(item.category)
+            setForkFocusedField("replace")
+          } else {
+            setForkFocusedField("find")
+          }
           setViewMode("fork-prompt")
         }
       } else if (key === "b" && !e.shift) {
@@ -1384,22 +1390,29 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
       }
     } else if (viewMode === "fork-prompt") {
       // 5. Fork category prompt mode
+      const isPipelineFork = forkSourceCategory === "pipeline" || forkSourceCategory.endsWith("-pipeline")
       if (key === "escape") {
         setViewMode("main")
       } else if (key === "tab" || key === "up" || key === "down") {
         const profiles = Object.keys(loadPipelineProfiles(workspaceRoot).profiles)
-        if (forkFocusedField === "profile" || key === "up" || key === "down") {
+        if ((isPipelineFork && (key === "tab" || key === "up" || key === "down")) || forkFocusedField === "profile" || key === "up" || key === "down") {
           const current = profiles.indexOf(forkProfileName)
           const next = (current + (key === "up" ? -1 : 1) + profiles.length + 1) % (profiles.length + 1)
           const profile = next === 0 ? "" : profiles[next - 1]
           setForkProfileName(profile)
-          if (!forkProfileTarget || forkProfileTarget === `${forkProfileName}-pipeline`) setForkProfileTarget(profile ? `${profile}-pipeline` : "")
-          setForkFocusedField("profile")
+          if (isPipelineFork) {
+            setForkReplaceQuery(profile ? `${profile}-pipeline` : "")
+            setForkProfileTarget(profile ? `${profile}-pipeline` : "")
+          } else if (!forkProfileTarget || forkProfileTarget === `${forkProfileName}-pipeline`) setForkProfileTarget(profile ? `${profile}-pipeline` : "")
+          setForkFocusedField(isPipelineFork ? "replace" : "profile")
         } else {
           setForkFocusedField((prev) => prev === "find" ? "replace" : prev === "replace" ? "target" : prev === "target" ? "profile" : "find")
         }
       } else if (key === "backspace") {
-        if (forkFocusedField === "find") {
+        if (isPipelineFork) {
+          setForkReplaceQuery((prev) => prev.slice(0, -1))
+          setForkProfileTarget((prev) => prev.slice(0, -1))
+        } else if (forkFocusedField === "find") {
           setForkFindQuery((prev) => prev.slice(0, -1))
         } else if (forkFocusedField === "replace") {
           setForkReplaceQuery((prev) => prev.slice(0, -1))
@@ -1407,6 +1420,40 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           setForkProfileTarget(prev => prev.slice(0, -1))
         }
       } else if (key === "enter" || key === "return") {
+        if (isPipelineFork) {
+          const rawTargetInput = (forkReplaceQuery || forkProfileTarget || (forkProfileName ? `${forkProfileName}-pipeline` : "")).trim()
+          if (!rawTargetInput) {
+            setLayoutStatus("Enter one or more target pipeline names (e.g. deepseek or alpha, beta).")
+            return
+          }
+          try {
+            const targets = parseForkReplacements(rawTargetInput)
+            const paths = [
+              path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot), "agents"),
+              path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot)),
+              getCompanionLinksConfigPath(workspaceRoot)
+            ]
+            const tx = mutate(paths, "fork", () => forkStampedPipeline(workspaceRoot, forkSourceCategory, targets, {
+              profileName: forkProfileName || undefined,
+              selectedPaths: selectedAgentPaths.size > 0 ? Array.from(selectedAgentPaths) : undefined
+            }))
+            const result = tx.value
+            setExpandedCategories(prev => new Set([...prev, ...result.createdCategories]))
+            try { refreshData() } catch (error) { setMutationRefreshFailure(error, tx.warning); return }
+            setSelectedAgentPaths(new Set())
+            setMutationSuccess("Pipeline Stamped / Updated", [
+              `Created categories: ${result.createdCategories.length > 0 ? result.createdCategories.join(", ") : "none"}`,
+              `Copied ${result.copied.length} agents; updated ${result.updated.length} agents.`,
+              `Output directories: ${result.outputDirs.length > 0 ? result.outputDirs.join(", ") : "none"}`
+            ], tx.warning)
+            setViewMode("action-result")
+          } catch (error: any) {
+            setActionResultTitle("Error Stamping Pipeline")
+            setActionResultLines([`An error occurred:`, `  ${error.message || error}`])
+            setViewMode("action-result")
+          }
+          return
+        }
         if (forkProfileName) {
           const target = forkProfileTarget.trim() || `${forkProfileName}-pipeline`
           try {
@@ -1456,7 +1503,10 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           setViewMode("action-result")
         }
       } else if (/^[\x20-\x7E]$/.test(rawChar)) {
-        if (forkFocusedField === "find") {
+        if (isPipelineFork) {
+          setForkReplaceQuery((prev) => prev + rawChar)
+          setForkProfileTarget((prev) => prev + rawChar)
+        } else if (forkFocusedField === "find") {
           setForkFindQuery((prev) => prev + rawChar)
         } else if (forkFocusedField === "replace") {
           setForkReplaceQuery((prev) => prev + rawChar)
@@ -1490,6 +1540,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
       // 7. Export confirmation mode
       if (key === "y" || key === "enter" || key === "return") {
         try {
+          try { refreshStampedPipelinesFromSource(workspaceRoot) } catch {}
           const exportPaths = selectedAgentPaths.size > 0
             ? selectedAgentPaths
             : exportCategory ? new Set(agents.filter(agent => agent.category === exportCategory).map(agent => agent.currentPath)) : undefined
@@ -3418,25 +3469,30 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           justifyContent="space-between"
         >
           <box flexDirection="column" gap={1}>
+            {(() => {
+              const isPipelineFork = forkSourceCategory === "pipeline" || forkSourceCategory.endsWith("-pipeline")
+              return <>
             <box flexDirection="row">
               <text style={{ textColor: "white" }} b>FORK CATEGORY: </text>
               <text style={{ textColor: "yellow" }} b>{forkSourceCategory.toUpperCase()}</text>
             </box>
             <text style={{ textColor: "gray" }} marginTop={1}>
-              Copy agents and replace the find pattern in filenames and content. Plain text is one literal replacement; for multiple replacements, enter go-, kimi-, hybrid-, free-. Brackets are optional for backward compatibility.
+              {isPipelineFork
+                ? "Stamp this pipeline to one or more target pipeline categories. Names may omit the -pipeline suffix; comma-separate multiple targets."
+                : "Copy agents and replace the find pattern in filenames and content. Plain text is one literal replacement; for multiple replacements, enter go-, kimi-, hybrid-, free-. Brackets are optional for backward compatibility."}
             </text>
 
             <box flexDirection="column" borderStyle="single" borderColor={forkFocusedField === "profile" ? "cyan" : "#333333"} paddingLeft={1} paddingRight={1} marginTop={1}>
               <text style={{ textColor: forkFocusedField === "profile" ? "cyan" : "gray" }} b>Pipeline profile: {forkProfileName || "(keep current models)"}</text>
               <text style={{ textColor: "gray" }}>{forkProfileName ? loadPipelineProfiles(workspaceRoot).profiles[forkProfileName]?.description || "" : "Use Up/Down while focused to choose a declarative model profile."}</text>
             </box>
-            {forkProfileName && <box flexDirection="column" borderStyle="single" borderColor={forkFocusedField === "target" ? "cyan" : "#333333"} paddingLeft={1} paddingRight={1} marginTop={1}>
+            {forkProfileName && !isPipelineFork && <box flexDirection="column" borderStyle="single" borderColor={forkFocusedField === "target" ? "cyan" : "#333333"} paddingLeft={1} paddingRight={1} marginTop={1}>
               <text style={{ textColor: forkFocusedField === "target" ? "cyan" : "gray" }} b>Target category: {forkProfileTarget || `${forkProfileName}-pipeline`}</text>
               <text style={{ textColor: "gray" }}>Same as source applies in place; another category forks and syncs the profile.</text>
             </box>}
 
             {/* Find field */}
-            <box
+            {!isPipelineFork && <box
               flexDirection="column"
               borderStyle="single"
               borderColor={forkFocusedField === "find" ? "cyan" : "#333333"}
@@ -3450,7 +3506,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
               <text style={{ textColor: "white" }}>
                 {forkFindQuery || "[ Type pattern to search, e.g. copilot- ]"}
               </text>
-            </box>
+            </box>}
 
             {/* Replace field */}
             <box
@@ -3462,12 +3518,14 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
               marginTop={1}
             >
               <text style={{ textColor: forkFocusedField === "replace" ? "cyan" : "gray" }} b>
-                {forkFocusedField === "replace" ? "► Replace With String(s):" : "  Replace With String(s):"}
+                {forkFocusedField === "replace" ? `► ${isPipelineFork ? "Target Pipeline Name(s):" : "Replace With String(s):"}` : `  ${isPipelineFork ? "Target Pipeline Name(s):" : "Replace With String(s):"}`}
               </text>
               <text style={{ textColor: "white" }}>
-                {forkReplaceQuery || "[ e.g. go- or go-, kimi-, hybrid-, free- ]"}
+                {forkReplaceQuery || (isPipelineFork ? "[ e.g. deepseek or alpha, beta ]" : "[ e.g. go- or go-, kimi-, hybrid-, free- ]")}
               </text>
             </box>
+              </>
+            })()}
           </box>
 
           <box justifyContent="space-between" borderStyle="single" border={["top"]} borderColor="#333333" paddingTop={1}>

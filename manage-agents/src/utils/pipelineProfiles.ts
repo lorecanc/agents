@@ -1,7 +1,9 @@
 import fs from "node:fs"
 import path from "node:path"
+import YAML from "yaml"
 import { discoverCompanionResourcePaths, findAgentFiles, getExportDestination, resolveCategoriesSubdir, resolveSourceSubdir, saveAgentFile, type AgentInfo } from "./agents.js"
 import { copyCategoryCompanionLinks, getCompanionLinksConfigPath, loadCompanionLinks, saveCompanionLinks } from "./companionLinks.js"
+import { translateFrontmatterV1ToV2 } from "./v2Compat.js"
 
 export const PIPELINE_ROLES = [
   "orchestrator", "planner", "reasoner", "executor", "tester", "refactorer", "code_reviewer", "critic", "ops",
@@ -118,6 +120,406 @@ export function resolveProfileRoleSpec(profile: PipelineProfile, role: string): 
     if (roles.includes(role as never) && profile.defaults?.[group]) return profile.defaults[group]
   }
   return profile.defaults?.all ?? null
+}
+
+export function normalizePipelineCategoryName(target: string): string {
+  const trimmed = target.trim().replace(/-+$/, "")
+  const normalized = trimmed === "pipeline" || trimmed.endsWith("-pipeline") ? trimmed : `${trimmed}-pipeline`
+  if (!/^[a-z0-9_-]+$/i.test(normalized)) throw new Error(`Invalid stamped pipeline name '${target}'.`)
+  return normalized
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
+function replacePipelinePathReferences(body: string, sourceCategory: string, targetPrefix: string): string {
+  const sourcePrefix = sourceCategory.replace(/-pipeline$/, "")
+  const prefixes = sourceCategory === "pipeline" ? ["pipeline"] : [sourcePrefix, "pipeline"]
+  for (const prefix of [...new Set(prefixes)]) {
+    const escaped = escapeRegExp(prefix)
+    body = body.replace(new RegExp(`/${escaped}-`, "g"), (match, offset, whole) =>
+      whole.slice(offset + match.length).startsWith("guard.js") ? match : `/${targetPrefix}-`)
+  }
+  return body
+}
+
+export function rewritePipelineBody(body: string, resolvedTarget: string, sourceCategory = "pipeline"): string {
+  const targetPrefix = resolvedTarget.replace(/-pipeline$/, "")
+  let rewritten = body
+    .replaceAll(`@${sourceCategory}-`, `@${resolvedTarget}-`)
+    .replaceAll("@pipeline-", `@${resolvedTarget}-`)
+    .replaceAll(`# ${sourceCategory}-`, `# ${resolvedTarget}-`)
+    .replaceAll("# pipeline-", `# ${resolvedTarget}-`)
+  const categoryPattern = sourceCategory === "pipeline" ? "pipeline" : `${escapeRegExp(sourceCategory)}|pipeline`
+  rewritten = rewritten.replace(new RegExp(`(?:${categoryPattern})-([a-z0-9_]+)(?=[\"']?\\s*:)`, "gi"), (match, role: string) =>
+    /^Pipeline-Checkpoint$/i.test(match) ? match : `${resolvedTarget}-${role}`)
+  return replacePipelinePathReferences(rewritten, sourceCategory, targetPrefix)
+}
+
+export function rewritePipelineTaskPermissions(taskPerm: Record<string, any>, resolvedTarget: string, sourceCategory = "pipeline"): Record<string, any> {
+  const rewritten: Record<string, any> = {}
+  const prefixes = [...new Set([`${sourceCategory}-`, "pipeline-"])]
+  for (const [key, value] of Object.entries(taskPerm)) {
+    const prefix = prefixes.find(candidate => key.startsWith(candidate))
+    const nextKey = prefix ? `${resolvedTarget}-${key.slice(prefix.length)}` : key
+    if (nextKey === "*") continue
+    rewritten[nextKey] = value
+  }
+  if (Object.prototype.hasOwnProperty.call(taskPerm, "*")) return { "*": taskPerm["*"], ...rewritten }
+  return rewritten
+}
+
+export function rewritePipelineCommandContent(content: string, resolvedTarget: string, sourceCategory = "pipeline"): string {
+  const targetPrefix = resolvedTarget.replace(/-pipeline$/, "")
+  let rewritten = content
+    .replaceAll(`${sourceCategory}-orchestrator`, `${resolvedTarget}-orchestrator`)
+    .replaceAll("pipeline-orchestrator", `${resolvedTarget}-orchestrator`)
+    .replaceAll(`@${sourceCategory}-`, `@${resolvedTarget}-`)
+    .replaceAll("@pipeline-", `@${resolvedTarget}-`)
+  rewritten = replacePipelinePathReferences(rewritten, sourceCategory, targetPrefix)
+  return rewritten.replaceAll("Pipeline:", `${targetPrefix} pipeline:`)
+}
+
+export interface RefreshStampedPipelinesResult {
+  refreshedCategories: string[]
+  updatedAgents: string[]
+  updatedCompanions: string[]
+}
+
+function renderPipelineAgent(frontmatter: Record<string, any>, body: string, version?: AgentInfo["frontmatterVersion"]): string {
+  const frontmatterToWrite = version === "v2" ? translateFrontmatterV1ToV2(frontmatter) : frontmatter
+  const yamlText = YAML.stringify(frontmatterToWrite).trim()
+  const normalizedBody = body.replace(/^(?:[ \t]*\r?\n)+/, "")
+  return normalizedBody ? `---\n${yamlText}\n---\n\n${normalizedBody}` : `---\n${yamlText}\n---\n`
+}
+
+function keepWildcardFirst(value: Record<string, any>): Record<string, any> {
+  const normalized = Object.fromEntries(Object.entries(value).map(([key, child]) => [
+    key,
+    Array.isArray(child)
+      ? child.map(item => item && typeof item === "object" && !Array.isArray(item) ? keepWildcardFirst(item) : item)
+      : child && typeof child === "object" ? keepWildcardFirst(child) : child
+  ]))
+  if (!Object.prototype.hasOwnProperty.call(normalized, "*")) return normalized
+  const { "*": wildcard, ...rest } = normalized
+  return { "*": wildcard, ...rest }
+}
+
+export function refreshStampedPipelinesFromSource(workspaceRoot: string, targetCategory?: string): RefreshStampedPipelinesResult {
+  const emptyResult = (): RefreshStampedPipelinesResult => ({ refreshedCategories: [], updatedAgents: [], updatedCompanions: [] })
+  const config = loadPipelineProfiles(workspaceRoot)
+  const baseCategory = config.baseCategory || "pipeline"
+  const categoriesRoot = path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot))
+  if (!fs.existsSync(categoriesRoot)) return emptyResult()
+
+  let targets: string[]
+  if (targetCategory !== undefined) {
+    const normalized = normalizePipelineCategoryName(targetCategory)
+    if (normalized === baseCategory || !fs.existsSync(path.join(categoriesRoot, normalized, "agents"))) return emptyResult()
+    targets = [normalized]
+  } else {
+    targets = fs.readdirSync(categoriesRoot, { withFileTypes: true })
+      .filter(entry => entry.isDirectory() && entry.name.endsWith("-pipeline") && entry.name !== baseCategory && fs.existsSync(path.join(categoriesRoot, entry.name, "agents")))
+      .map(entry => entry.name)
+  }
+
+  const baseAgents = findAgentFiles(workspaceRoot, resolveSourceSubdir(workspaceRoot)).filter(agent => agent.category === baseCategory)
+  if (baseAgents.length === 0) return emptyResult()
+  const baseAgentsByRole = new Map<string, AgentInfo>()
+  for (const agent of baseAgents) {
+    const role = extractPipelineRole(agent.filename, baseCategory)
+    if (role) baseAgentsByRole.set(role, agent)
+  }
+
+  const result: RefreshStampedPipelinesResult = { refreshedCategories: [], updatedAgents: [], updatedCompanions: [] }
+  const sourceRoot = path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot))
+  for (const resolvedTarget of targets) {
+    const outputDir = path.join(categoriesRoot, resolvedTarget)
+    const profilePrefix = resolvedTarget.replace(/-pipeline$/, "")
+    const existingAgents = loadStampedPipelineAgents(workspaceRoot, resolvedTarget)?.agents ?? []
+    const existingByRole = new Map<string, AgentInfo>()
+    for (const existing of existingAgents) {
+      const role = extractPipelineRole(existing.filename, resolvedTarget)
+      if (role) existingByRole.set(role, existing)
+    }
+
+    for (const [role, baseAgent] of baseAgentsByRole) {
+      const existing = existingByRole.get(role)
+      const body = rewritePipelineBody(baseAgent.body, resolvedTarget, baseCategory)
+      const frontmatter: Record<string, any> = {
+        ...structuredClone(existing?.frontmatter ?? {}),
+        ...structuredClone(baseAgent.frontmatter)
+      }
+      const basePermission = frontmatter.permission && typeof frontmatter.permission === "object" && !Array.isArray(frontmatter.permission)
+        ? frontmatter.permission as Record<string, any>
+        : {}
+      if (basePermission.task && typeof basePermission.task === "object" && !Array.isArray(basePermission.task)) {
+        basePermission.task = rewritePipelineTaskPermissions(basePermission.task, resolvedTarget, baseCategory)
+      }
+      if (existing) {
+        for (const key of ["model", "temperature", "mode", "hidden", "color"]) {
+          if (Object.prototype.hasOwnProperty.call(existing.frontmatter, key)) frontmatter[key] = existing.frontmatter[key]
+        }
+        if (Object.prototype.hasOwnProperty.call(existing.frontmatter, "variant")) frontmatter.variant = existing.frontmatter.variant
+        else delete frontmatter.variant
+        const existingStepKey = Object.prototype.hasOwnProperty.call(existing.frontmatter, "steps") ? "steps"
+          : Object.prototype.hasOwnProperty.call(existing.frontmatter, "max_steps") ? "max_steps" : null
+        if (existingStepKey) {
+          delete frontmatter.steps
+          delete frontmatter.max_steps
+          frontmatter[existingStepKey] = existing.frontmatter[existingStepKey]
+        }
+        const existingPermission = existing.frontmatter.permission && typeof existing.frontmatter.permission === "object" && !Array.isArray(existing.frontmatter.permission)
+          ? existing.frontmatter.permission as Record<string, any>
+          : {}
+        const mergedPermission: Record<string, any> = { ...basePermission }
+        for (const [key, value] of Object.entries(existingPermission)) {
+          if (!Object.prototype.hasOwnProperty.call(basePermission, key)) mergedPermission[key] = value
+          else if (value && typeof value === "object" && !Array.isArray(value) && basePermission[key] && typeof basePermission[key] === "object" && !Array.isArray(basePermission[key])) {
+            mergedPermission[key] = keepWildcardFirst({ ...value, ...basePermission[key] })
+          }
+        }
+        if (basePermission.task && existingPermission.task && typeof existingPermission.task === "object" && !Array.isArray(existingPermission.task)) {
+          mergedPermission.task = rewritePipelineTaskPermissions({ ...existingPermission.task, ...basePermission.task }, resolvedTarget, baseCategory)
+        }
+        frontmatter.permission = keepWildcardFirst(mergedPermission)
+      } else {
+        const profile = config.profiles[profilePrefix]
+        const spec = profile && resolveProfileRoleSpec(profile, role)
+        if (spec) {
+          frontmatter.model = spec.model
+          if (typeof spec.variant === "string" && spec.variant.length > 0) frontmatter.variant = spec.variant
+          else delete frontmatter.variant
+        }
+      }
+
+      const targetPath = path.join(outputDir, "agents", `${resolvedTarget}-${role}.md`)
+      const rendered = renderPipelineAgent(frontmatter, body, existing?.frontmatterVersion ?? baseAgent.frontmatterVersion)
+      if (!fs.existsSync(targetPath) || fs.readFileSync(targetPath, "utf8") !== rendered) {
+        saveAgentFile(targetPath, frontmatter, body, existing?.frontmatterVersion ?? baseAgent.frontmatterVersion)
+        result.updatedAgents.push(targetPath)
+      }
+    }
+
+    const companionPaths = discoverCompanionResourcePaths(sourceRoot, [baseCategory], undefined, baseAgents)
+    if (fs.existsSync(path.join(sourceRoot, ".opencode", "pipeline.json"))) companionPaths.push(".opencode/pipeline.json")
+    for (const rel of companionPaths) {
+      const sourcePath = path.join(sourceRoot, ...rel.split("/"))
+      if (rel.startsWith("commands/pipeline-")) {
+        const destRel = `commands/${profilePrefix}-${rel.slice("commands/pipeline-".length)}`
+        const destPath = path.join(outputDir, ...destRel.split("/"))
+        const nextContent = rewritePipelineCommandContent(fs.readFileSync(sourcePath, "utf8"), resolvedTarget, baseCategory)
+        if (!fs.existsSync(destPath) || fs.readFileSync(destPath, "utf8") !== nextContent) {
+          fs.mkdirSync(path.dirname(destPath), { recursive: true })
+          fs.writeFileSync(destPath, nextContent, "utf8")
+          result.updatedCompanions.push(destPath)
+        }
+      } else {
+        const destPath = path.join(outputDir, ...rel.split("/"))
+        const srcBytes = fs.readFileSync(sourcePath)
+        if (!fs.existsSync(destPath) || !fs.readFileSync(destPath).equals(srcBytes)) {
+          fs.mkdirSync(path.dirname(destPath), { recursive: true })
+          fs.copyFileSync(sourcePath, destPath)
+          result.updatedCompanions.push(destPath)
+        }
+      }
+    }
+    result.refreshedCategories.push(resolvedTarget)
+  }
+  return result
+}
+
+export interface ForkStampedPipelineResult {
+  createdCategories: string[]
+  copied: string[]
+  updated: string[]
+  outputDirs: string[]
+}
+
+function validateForkPath(workspaceRoot: string, targetPath: string, expectDirectory: boolean): void {
+  const root = path.resolve(workspaceRoot)
+  const target = path.resolve(targetPath)
+  const relative = path.relative(root, target)
+  if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new Error(`Invalid fork destination outside workspace: ${targetPath}.`)
+  }
+
+  let current = root
+  const rootStat = fs.lstatSync(root, { throwIfNoEntry: false })
+  if (rootStat && (rootStat.isSymbolicLink() || !rootStat.isDirectory())) throw new Error(`Invalid fork destination at ${current}.`)
+  const components = relative.split(path.sep).filter(Boolean)
+  for (let index = 0; index < components.length; index++) {
+    current = path.join(current, components[index])
+    const stat = fs.lstatSync(current, { throwIfNoEntry: false })
+    if (!stat) return
+    const isLeaf = index === components.length - 1
+    if (stat.isSymbolicLink() || (isLeaf && expectDirectory ? !stat.isDirectory() : !isLeaf && !stat.isDirectory())) {
+      throw new Error(`Invalid fork destination at ${current}.`)
+    }
+    if (isLeaf && !expectDirectory && !stat.isFile()) throw new Error(`Invalid fork destination at ${current}.`)
+  }
+}
+
+export function forkStampedPipeline(
+  workspaceRoot: string,
+  sourceCategory: string,
+  targets: string | readonly string[],
+  options: { profileName?: string; selectedPaths?: string[] } = {}
+): ForkStampedPipelineResult {
+  const config = loadPipelineProfiles(workspaceRoot)
+  const baseCategory = config.baseCategory || "pipeline"
+  const rawTargets = typeof targets === "string" ? targets.split(",").map(value => value.trim()).filter(Boolean) : targets.map(value => value.trim()).filter(Boolean)
+  const resolvedTargets = rawTargets.map(normalizePipelineCategoryName)
+  const normalizedTargetKeys = new Set<string>()
+  for (const target of resolvedTargets) {
+    const key = target.toLocaleLowerCase("und")
+    if (normalizedTargetKeys.has(key)) throw new Error(`Duplicate stamped pipeline target '${target}'.`)
+    normalizedTargetKeys.add(key)
+  }
+
+  if (options.profileName && !config.profiles[options.profileName]) throw new Error(`Unknown pipeline profile '${options.profileName}'`)
+
+  let sourceAgents = sourceCategory === baseCategory
+    ? findAgentFiles(workspaceRoot, resolveSourceSubdir(workspaceRoot)).filter(agent => agent.category === baseCategory && extractPipelineRole(agent.filename, baseCategory) !== null)
+    : loadStampedPipelineAgents(workspaceRoot, sourceCategory)?.agents ?? []
+  if (options.selectedPaths && options.selectedPaths.length > 0) {
+    const selected = new Set(options.selectedPaths)
+    sourceAgents = sourceAgents.filter(agent => selected.has(agent.currentPath) || selected.has(agent.filename) || selected.has(agent.targetPath))
+  }
+  if (sourceAgents.length === 0) throw new Error(`No pipeline agents found in source category "${sourceCategory}".`)
+
+  const sourceRoot = path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot))
+  const baseAgents = findAgentFiles(workspaceRoot, resolveSourceSubdir(workspaceRoot)).filter(agent => agent.category === baseCategory && extractPipelineRole(agent.filename, baseCategory) !== null)
+  const companionPaths = discoverCompanionResourcePaths(sourceRoot, [baseCategory], undefined, baseAgents)
+  if (fs.existsSync(path.join(sourceRoot, ".opencode", "pipeline.json"))) companionPaths.push(".opencode/pipeline.json")
+  for (const resolvedTarget of resolvedTargets) {
+    if (resolvedTarget === baseCategory) throw new Error(`Refusing to fork into canonical base pipeline "${baseCategory}".`)
+    if (resolvedTarget === sourceCategory) continue
+
+    const outputDir = path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot), resolvedTarget)
+    const agentsDir = path.join(outputDir, "agents")
+    validateForkPath(workspaceRoot, outputDir, true)
+    validateForkPath(workspaceRoot, agentsDir, true)
+    for (const agent of sourceAgents) {
+      const role = extractPipelineRole(agent.filename, sourceCategory)
+      if (!role) continue
+      validateForkPath(workspaceRoot, path.join(agentsDir, `${resolvedTarget}-${role}.md`), false)
+    }
+    const targetPrefix = resolvedTarget.replace(/-pipeline$/, "")
+    for (const rel of companionPaths) {
+      const destRel = rel.startsWith("commands/pipeline-")
+        ? `commands/${targetPrefix}-${rel.slice("commands/pipeline-".length)}`
+        : rel
+      validateForkPath(workspaceRoot, path.join(outputDir, ...destRel.split("/")), false)
+    }
+  }
+
+  if (sourceCategory !== baseCategory) {
+    refreshStampedPipelinesFromSource(workspaceRoot, sourceCategory)
+    sourceAgents = loadStampedPipelineAgents(workspaceRoot, sourceCategory)?.agents ?? []
+  }
+
+  const result: ForkStampedPipelineResult = { createdCategories: [], copied: [], updated: [], outputDirs: [] }
+  for (const resolvedTarget of resolvedTargets) {
+    if (resolvedTarget === sourceCategory) {
+      if (options.profileName) result.updated.push(...applyPipelineProfile(workspaceRoot, options.profileName, sourceCategory).updated)
+      continue
+    }
+    if (resolvedTarget === baseCategory) throw new Error(`Refusing to fork into canonical base pipeline "${baseCategory}".`)
+
+    const outputDir = path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot), resolvedTarget)
+    const agentsDir = path.join(outputDir, "agents")
+    fs.mkdirSync(agentsDir, { recursive: true })
+    for (const agent of sourceAgents) {
+      const role = extractPipelineRole(agent.filename, sourceCategory)
+      if (!role) continue
+      const frontmatter: Record<string, any> = structuredClone(agent.frontmatter)
+      if (options.profileName) {
+        const profile = loadPipelineProfiles(workspaceRoot).profiles[options.profileName]
+        if (!profile) throw new Error(`Unknown pipeline profile '${options.profileName}'`)
+        const spec = resolveProfileRoleSpec(profile, role)
+        if (spec) {
+          frontmatter.model = spec.model
+          if (typeof spec.variant === "string" && spec.variant.length > 0) frontmatter.variant = spec.variant
+          else delete frontmatter.variant
+        }
+      }
+      if (frontmatter.permission?.task && typeof frontmatter.permission.task === "object" && !Array.isArray(frontmatter.permission.task)) {
+        frontmatter.permission = { ...frontmatter.permission, task: rewritePipelineTaskPermissions(frontmatter.permission.task, resolvedTarget, sourceCategory) }
+      }
+      const targetFilename = `${resolvedTarget}-${role}.md`
+      const targetPath = path.join(agentsDir, targetFilename)
+      const existing = fs.existsSync(targetPath) ? findAgentFiles(workspaceRoot, path.join(resolveCategoriesSubdir(workspaceRoot), resolvedTarget)).find(candidate => candidate.currentPath === targetPath) : undefined
+      if (existing && !options.profileName) {
+        const sourcePermission = frontmatter.permission && typeof frontmatter.permission === "object" && !Array.isArray(frontmatter.permission)
+          ? frontmatter.permission as Record<string, any>
+          : {}
+        const existingPermission = existing.frontmatter.permission && typeof existing.frontmatter.permission === "object" && !Array.isArray(existing.frontmatter.permission)
+          ? existing.frontmatter.permission as Record<string, any>
+          : {}
+        const targetOwnedFields = new Set(["model", "variant", "temperature", "steps", "max_steps", "mode", "hidden", "color"])
+        for (const [key, value] of Object.entries(existing.frontmatter)) {
+          if (key !== "permission" && (!Object.prototype.hasOwnProperty.call(agent.frontmatter, key) || targetOwnedFields.has(key))) frontmatter[key] = value
+        }
+        const normalizePermissionMap = (value: any): any => {
+          if (Array.isArray(value)) return value.map(normalizePermissionMap)
+          if (!value || typeof value !== "object") return value
+          const normalized = Object.fromEntries(Object.entries(value).map(([key, child]) => [key, normalizePermissionMap(child)]))
+          if (!Object.prototype.hasOwnProperty.call(normalized, "*")) return normalized
+          const { "*": wildcard, ...rest } = normalized
+          return { "*": wildcard, ...rest }
+        }
+        const mergePermission = (source: any, target: any): any => {
+          if (!source || typeof source !== "object" || Array.isArray(source) || !target || typeof target !== "object" || Array.isArray(target)) return normalizePermissionMap(structuredClone(target))
+          const merged = structuredClone(source)
+          for (const [key, value] of Object.entries(target)) {
+            merged[key] = Object.prototype.hasOwnProperty.call(source, key)
+              ? mergePermission(source[key], value)
+              : normalizePermissionMap(structuredClone(value))
+          }
+          return normalizePermissionMap(merged)
+        }
+        const mergedPermission = mergePermission(sourcePermission, existingPermission)
+        if (Object.keys(mergedPermission).length > 0) frontmatter.permission = mergedPermission
+      }
+      let body = rewritePipelineBody(agent.body, resolvedTarget, sourceCategory)
+      const taskPermissions = frontmatter.permission?.task
+      if (taskPermissions && typeof taskPermissions === "object" && !Array.isArray(taskPermissions)) {
+        const delegatedRoles = Object.entries(taskPermissions)
+          .filter(([name, permission]) => permission === "allow" && name !== "*")
+          .map(([name]) => name)
+        const missingReferences = delegatedRoles
+          .map(name => `@${name}`)
+          .filter(reference => !body.includes(reference))
+        if (missingReferences.length > 0) body = `${body.trimEnd()}\n\n${missingReferences.join("\n")}`
+      }
+      saveAgentFile(targetPath, frontmatter, body, agent.frontmatterVersion)
+      result.copied.push(`${agent.filename} -> ${targetFilename}`)
+    }
+
+    const targetPrefix = resolvedTarget.replace(/-pipeline$/, "")
+    const companionPaths = discoverCompanionResourcePaths(sourceRoot, [baseCategory], undefined, baseAgents)
+    if (fs.existsSync(path.join(sourceRoot, ".opencode", "pipeline.json"))) companionPaths.push(".opencode/pipeline.json")
+    for (const rel of companionPaths) {
+      const sourcePath = path.join(sourceRoot, ...rel.split("/"))
+      if (rel.startsWith("commands/pipeline-")) {
+        const destRel = `commands/${targetPrefix}-${rel.slice("commands/pipeline-".length)}`
+        const destPath = path.join(outputDir, ...destRel.split("/"))
+        const content = rewritePipelineCommandContent(fs.readFileSync(sourcePath, "utf8"), resolvedTarget, sourceCategory)
+        fs.mkdirSync(path.dirname(destPath), { recursive: true })
+        fs.writeFileSync(destPath, content, "utf8")
+      } else {
+        const destPath = path.join(outputDir, ...rel.split("/"))
+        fs.mkdirSync(path.dirname(destPath), { recursive: true })
+        fs.copyFileSync(sourcePath, destPath)
+      }
+    }
+    copyCategoryCompanionLinks(workspaceRoot, baseCategory, resolvedTarget)
+    result.createdCategories.push(resolvedTarget)
+    result.outputDirs.push(outputDir)
+  }
+  return result
 }
 
 function getProfile(workspaceRoot: string, profileName: string): { config: PipelineProfilesConfig; profile: PipelineProfile } {
