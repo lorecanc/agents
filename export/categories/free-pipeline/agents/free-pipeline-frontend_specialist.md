@@ -4,18 +4,34 @@ description: Read-only frontend advisor used BEFORE implementation. Detects the
   21st.dev) and tells the executor what to build and which visual checks apply.
   Does not edit files or validate the result in a browser.
 mode: subagent
-model: opencode/deepseek-v4.1-flash-free
+model: opencode/muse-spark-1.3-contributor-free
 temperature: 1
 permission:
   "*": deny
   external_directory:
     "*": deny
     ~/.local/share/opencode/tool-output/*: allow
+    ~/.config/opencode/skills/*: allow
+    /tmp/*: allow
+    /private/tmp/*: allow
   doom_loop: deny
   read: allow
   grep: allow
   glob: allow
+  lsp: allow
+  pipeline_state: allow
+  pipeline_verify: allow
+  skill: allow
+  read_mcp_resource: allow
+  list_mcp_resources: allow
+  list_mcp_resource_templates: allow
+  codebase-memory-mcp_*: allow
+  codebase-memory-mcp_delete_project: deny
+  codebase-memory-mcp_ingest_traces: deny
+  codebase-memory-mcp_manage_adr: deny
+  codebase-memory-mcp_index_repository: deny
   webfetch: allow
+  websearch: allow
   shadcn_*: allow
   magic_*: allow
   bash:
@@ -44,9 +60,100 @@ permission:
     head *: allow
     tail *: allow
     wc *: allow
+    find . *: allow
+    cat *: allow
+    stat *: allow
+    file *: allow
+    jq *: allow
+    yq *: allow
+    awk *: allow
+    sort *: allow
+    uniq *: allow
+    cut *: allow
+    tr *: allow
+    du *: allow
+    which *: allow
+    type *: allow
+    env: allow
+    printenv*: allow
+    uname*: allow
+    ps *: allow
+    lsof *: allow
+    git ls-tree*: allow
+    git ls-remote*: allow
+    git cat-file*: allow
+    git rev-list*: allow
+    git merge-base*: allow
+    git range-diff*: allow
+    git cherry*: allow
+    git blame*: allow
+    git grep*: allow
+    git describe*: allow
+    git shortlog*: allow
+    git for-each-ref*: allow
+    git name-rev*: allow
+    git show-ref*: allow
+    git show-branch*: allow
+    git check-ignore*: allow
+    git var*: allow
+    git verify-commit*: allow
+    git verify-tag*: allow
+    git branch -a*: allow
+    git branch -r*: allow
+    git branch -v*: allow
+    git branch --list*: allow
+    git branch --contains*: allow
+    git branch --merged*: allow
+    git branch --no-merged*: allow
+    git tag -l*: allow
+    git tag --list*: allow
+    git remote -v*: allow
+    git remote --verbose*: allow
+    git remote show*: allow
+    git remote get-url*: allow
+    git stash list*: allow
+    git stash show*: allow
+    git worktree list*: allow
+    git reflog*: allow
+    git reflog expire*: deny
+    git reflog delete*: deny
+    git config --get*: allow
+    git config --list*: allow
+    git config -l*: allow
+    git fetch*: allow
+    git fetch *--upload-pack*: deny
+    git fetch *ext::*: deny
+    node -v*: allow
+    node --version*: allow
+    npm -v*: allow
+    npm --version*: allow
+    npm ls*: allow
+    npm list*: allow
+    npm view*: allow
+    npm info*: allow
+    npm explain*: allow
+    pnpm -v*: allow
+    pnpm --version*: allow
+    pnpm ls*: allow
+    pnpm list*: allow
+    pnpm info*: allow
+    pnpm why*: allow
+    yarn -v*: allow
+    yarn --version*: allow
+    yarn info*: allow
+    yarn why*: allow
+    yarn list*: allow
+    bun -v*: allow
+    bun --version*: allow
+    bun pm ls*: allow
+    npx shadcn* view*: allow
+    npx shadcn* info*: allow
+    npx shadcn* diff*: allow
+    npx shadcn* --help*: allow
+    npx tsc --noEmit*: allow
+    tsc --noEmit*: allow
 color: "#E67E22"
 hidden: true
-variant: high
 steps: 50
 ---
 

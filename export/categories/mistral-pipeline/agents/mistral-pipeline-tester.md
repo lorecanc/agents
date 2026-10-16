@@ -9,8 +9,23 @@ permission:
   external_directory:
     "*": deny
     ~/.local/share/opencode/tool-output/*: allow
+    ~/.config/opencode/skills/*: allow
+    /tmp/*: allow
+    /private/tmp/*: allow
   doom_loop: deny
   pipeline_verify: allow
+  pipeline_state: allow
+  pipeline_smoke: allow
+  pipeline_serve: allow
+  skill: allow
+  read_mcp_resource: allow
+  list_mcp_resources: allow
+  list_mcp_resource_templates: allow
+  codebase-memory-mcp_*: allow
+  codebase-memory-mcp_delete_project: deny
+  codebase-memory-mcp_ingest_traces: deny
+  codebase-memory-mcp_manage_adr: deny
+  codebase-memory-mcp_index_repository: deny
   read: allow
   grep: allow
   glob: allow
@@ -36,9 +51,51 @@ permission:
     rm -fr ~*: deny
     rm -rf ..*: deny
     rm -fr ..*: deny
+    git ls-tree*: allow
+    git ls-remote*: allow
+    git cat-file*: allow
+    git rev-list*: allow
+    git merge-base*: allow
+    git range-diff*: allow
+    git cherry*: allow
+    git fetch*: allow
+    git fetch *--upload-pack*: deny
+    git fetch *ext::*: deny
+    git grep*: allow
+    git describe*: allow
+    git shortlog*: allow
+    git for-each-ref*: allow
+    git name-rev*: allow
+    git show-ref*: allow
+    git show-branch*: allow
+    git check-ignore*: allow
+    git var*: allow
+    git verify-commit*: allow
+    git verify-tag*: allow
+    git branch -a*: allow
+    git branch -r*: allow
+    git branch -v*: allow
+    git branch --list*: allow
+    git branch --contains*: allow
+    git branch --merged*: allow
+    git branch --no-merged*: allow
+    git tag -l*: allow
+    git tag --list*: allow
+    git remote -v*: allow
+    git remote --verbose*: allow
+    git remote show*: allow
+    git remote get-url*: allow
+    git stash list*: allow
+    git stash show*: allow
+    git worktree list*: allow
+    git reflog*: allow
+    git reflog expire*: deny
+    git reflog delete*: deny
+    git config --get*: allow
+    git config --list*: allow
+    git config -l*: allow
 color: "#E67E22"
 hidden: true
-variant: high
 steps: 50
 ---
 
@@ -88,8 +145,8 @@ You are invoked AFTER the executor writes the fix.
 
 ## Workspace hygiene (non-negotiable)
 
-- Stay inside the repository. Never read, write, or create files outside it (no `/tmp`, `/var/folders`, `~`, sibling directories), even if a tool or system hint suggests a "temporary directory". Such access is denied and wastes steps.
-- Scratch files (throwaway scripts, captured output, logs, fixtures) go in the scratch directory: `$PIPELINE_SCRATCH` if set, otherwise `.git/opencode-scratch/` (create it with `mkdir -p "$(git rev-parse --git-path opencode-scratch)"`). Run commands that create temp files with `TMPDIR` pointing there. Delete what you created before you finish. Never leave scratch files in the working tree.
+- Stay inside the repository except for permitted temporary files in `$PIPELINE_SCRATCH`, `.git/opencode-scratch/`, or `/tmp`; do not access unrelated paths.
+- Scratch files (throwaway scripts, captured output, logs, fixtures) belong in `$PIPELINE_SCRATCH` if set, otherwise `.git/opencode-scratch/` (create it with `mkdir -p "$(git rev-parse --git-path opencode-scratch)"`), or `/tmp`. Run commands that create temp files with `TMPDIR` pointing to the chosen scratch location. Delete what you created before you finish. Never leave scratch files in the working tree.
 - Do not create or switch branches, worktrees, stashes, tags, or remotes, and do not run `git add/commit/reset/clean/checkout/restore/rebase/merge/push`. These commands are denied; commits are made only by `@mistral-pipeline-post_session`. Report what you changed instead.
 - The working tree is shared with other agents. Create or edit only test files (and fixtures they need). You never change product code. If a file you must change is listed in the orchestrator's `baseline_dirty` (uncommitted changes that existed before the session), stop and report it instead of editing.
 - Never start long-running processes (dev servers, watchers) and never leave a background process running.

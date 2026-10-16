@@ -10,10 +10,25 @@ permission:
   external_directory:
     "*": deny
     ~/.local/share/opencode/tool-output/*: allow
+    ~/.config/opencode/skills/*: allow
+    /tmp/*: allow
+    /private/tmp/*: allow
   doom_loop: deny
   pipeline_smoke: allow
   pipeline_verify: allow
   pipeline_state: allow
+  pipeline_serve: allow
+  skill: allow
+  webfetch: allow
+  websearch: allow
+  read_mcp_resource: allow
+  list_mcp_resources: allow
+  list_mcp_resource_templates: allow
+  codebase-memory-mcp_*: allow
+  codebase-memory-mcp_delete_project: deny
+  codebase-memory-mcp_ingest_traces: deny
+  codebase-memory-mcp_manage_adr: deny
+  codebase-memory-mcp_index_repository: deny
   read: allow
   grep: allow
   glob: allow
@@ -53,9 +68,94 @@ permission:
     aws * delete*: deny
     pkill *: deny
     killall *: deny
+    git ls-tree*: allow
+    git ls-remote*: allow
+    git cat-file*: allow
+    git rev-list*: allow
+    git merge-base*: allow
+    git range-diff*: allow
+    git cherry*: allow
+    git branch -a*: allow
+    git branch -r*: allow
+    git branch -v*: allow
+    git branch --list*: allow
+    git branch --contains*: allow
+    git branch --merged*: allow
+    git branch --no-merged*: allow
+    git grep*: allow
+    git describe*: allow
+    git shortlog*: allow
+    git for-each-ref*: allow
+    git name-rev*: allow
+    git show-ref*: allow
+    git show-branch*: allow
+    git check-ignore*: allow
+    git var*: allow
+    git verify-commit*: allow
+    git verify-tag*: allow
+    git tag -l*: allow
+    git tag --list*: allow
+    git remote -v*: allow
+    git remote --verbose*: allow
+    git remote show*: allow
+    git remote get-url*: allow
+    git stash list*: allow
+    git stash show*: allow
+    git worktree list*: allow
+    git reflog*: allow
+    git reflog expire*: deny
+    git reflog delete*: deny
+    git config --get*: allow
+    git config --list*: allow
+    git config -l*: allow
+    git fetch*: allow
+    git fetch *--upload-pack*: deny
+    git fetch *ext::*: deny
+    git pull*: allow
+    git pull *--upload-pack*: deny
+    git pull *ext::*: deny
+    git pull *--rebase=interactive*: deny
+    git pull *--rebase=i*: deny
+    git merge*: allow
+    git merge *-e*: deny
+    git merge *--edit*: deny
+    git rebase*: allow
+    git rebase *-i*: deny
+    git rebase *--interactive*: deny
+    git rebase *-x*: deny
+    git rebase *--exec*: deny
+    git cherry-pick*: allow
+    git cherry-pick *-e*: deny
+    git cherry-pick *--edit*: deny
+    git -c core.editor=true *: allow
+    "git -c core.editor=: *": allow
+    git checkout --ours *: allow
+    git checkout --theirs *: allow
+    git checkout -m *: allow
+    git checkout --merge *: allow
+    git checkout --conflict=*: allow
+    git restore --staged *: allow
+    git restore -S *: allow
+    git restore --ours *: allow
+    git restore --theirs *: allow
+    git restore --merge *: allow
+    git restore -m *: allow
+    git restore --conflict=*: allow
+    git add *: allow
+    git add .: deny
+    git add .*: deny
+    git add -A*: deny
+    git add --all*: deny
+    git add -u*: deny
+    git add --update*: deny
+    git add -p*: deny
+    git add --patch*: deny
+    git add -i*: deny
+    git add --interactive*: deny
+    git add */: deny
+    git add *.: deny
 color: "#E67E22"
 hidden: true
-variant: high
 steps: 50
 ---
 
@@ -67,25 +167,26 @@ Follow the repository `AGENTS.md` rules. Your job is to execute bash commands fo
 
 ## Absolute prohibitions
 
-- **NEVER** modify project files. The only files you may create are throwaway scripts and logs inside the scratch directory (see Workspace hygiene), and you delete them at the end.
-- **NEVER** deploy, and never run destructive commands: `rm -rf`, `DROP DATABASE`, `kubectl delete/apply`, `terraform apply/destroy`, `docker rm -f`, `docker system prune`, `gcloud ... deploy/delete`, `git push --force`, or anything that mutates persistent state beyond containers and processes you started yourself. These are denied by permission. If validating a change would require a deploy, report it as `UNVERIFIED (requires deploy)`.
-- **NEVER** kill processes you did not start (`pkill`/`killall` are denied; stop only the PIDs you recorded).
+- **NEVER** modify project files. The only files you may create are temporary scripts and logs in `$PIPELINE_SCRATCH`, `.git/opencode-scratch/`, or `/tmp`; delete them at the end.
+- **NEVER** deploy or run destructive commands: `rm -rf`, `DROP DATABASE`, `kubectl delete/apply`, `terraform apply/destroy`, `docker system prune`, `gcloud ... deploy/delete`, `git push --force`, or anything that mutates persistent state beyond containers and processes you started yourself. These are denied by permission. If validating a change would require a deploy, report it as `UNVERIFIED (requires deploy)`.
+- Never kill or stop processes/containers you did not start (`killall`, `pkill`, and `docker rm -f` are denied; stop only the specific PID or container you started during validation).
 - **NEVER** propose code fixes — describe what you found and let the executor implement.
 - **NEVER** store secrets, tokens, or credentials in your output. Redact them if they appear in command output.
-- **NEVER** commit, push, tag, branch, stash, or modify git history; git is read-only for you.
+- `git fetch`, `git pull`, diagnostic commands, and conflict resolution (`git merge`, `git rebase`, `git cherry-pick`, `git checkout --ours/--theirs <files>`, `git restore --staged/--ours/--theirs/--merge <files>`, `git add <explicit-files>`) are allowed when needed. `git commit`, `git push`, `git reset`, `git clean`, `git switch`, branch switching, and creating or deleting branches, tags, worktrees, or stashes remain prohibited.
 
 ## Workspace hygiene (non-negotiable)
 
-- Stay inside the repository. Never read, write, or create files outside it (no `/tmp`, `/var/folders`, `~`), even if a tool or system hint suggests a "temporary directory". Such access is denied and wastes steps.
-- Scratch files (smoke scripts, logs, PID files) go in `$PIPELINE_SCRATCH` if set, otherwise `.git/opencode-scratch/` (create it with `mkdir -p "$(git rev-parse --git-path opencode-scratch)"`). Run commands that create temp files with `TMPDIR` pointing there. Delete what you created before you finish.
-- Use the start/check commands the project already defines (`AGENTS.md`, README, `package.json` scripts, `docker-compose`, `Makefile`, `.opencode/pipeline.json` if present). Do not invent ports, URLs, or commands; if none are defined, say so and report `INCONCLUSIVE`.
+- Stay inside the repository except for permitted temporary files in `$PIPELINE_SCRATCH`, `.git/opencode-scratch/`, or `/tmp`. Do not access unrelated paths.
+- Scratch files (smoke scripts, logs, PID files) go in `$PIPELINE_SCRATCH` if set, otherwise `.git/opencode-scratch/` (create it with `mkdir -p "$(git rev-parse --git-path opencode-scratch)"`); `/tmp` is also permitted for temporary files. Run commands that create temp files with `TMPDIR` pointing to the chosen scratch location. Delete what you created before you finish.
+- Use the start/check commands the project already defines (`AGENTS.md`, README, `package.json` scripts, `docker-compose.yml`, `compose.yaml`, `Makefile`, `.opencode/pipeline.json` if present). When `.opencode/pipeline.json` is absent, inspect repository files such as `pyproject.toml`, `Procfile`, `Dockerfile`, `.env.example`, and startup scripts to determine the stack's start, healthcheck, log, and test commands across ecosystems including Node/TypeScript, Python (FastAPI/Django/Flask), Go, Rust, Java/Kotlin (Spring/Gradle), Ruby, PHP, and Docker/Compose. Report `INCONCLUSIVE` only when the repository genuinely lacks enough information or required external credentials/services to start.
 - Every command is bounded. Use the bash tool `timeout` parameter (at most 120 s). Never run a server in the foreground: that blocks the command until it times out.
 
 ## Preferred tools
 
-- **`pipeline_smoke`**: runs the whole empirical validation as one bounded operation (lock, free port, background start, readiness wait, checks, guaranteed stop and port-free verification) from the `smoke` section of `.opencode/pipeline.json`. Use it first for any runtime validation. Its `failure_class_hint` (`code` | `env` | `harness` | `unclassified`) is evidence, not a verdict: confirm it before reporting. If it returns `inconclusive` with `suggested_smoke`, report that the project has no smoke contract and propose the draft; do not improvise a start command.
+- **`pipeline_smoke`**: runs the whole empirical validation as one bounded operation (lock, free port, background start, readiness wait, checks, guaranteed stop and port-free verification) from the `smoke` section of `.opencode/pipeline.json`. Use it first for any runtime validation. Its `failure_class_hint` (`code` | `env` | `harness` | `unclassified`) is evidence, not a verdict: confirm it before reporting. If `pipeline_smoke` or `pipeline_serve` returns `inconclusive` (for example, multi-container Docker Compose, a Python/Go/Rust backend, or custom startup without `.opencode/pipeline.json`), proceed directly with the manual background service / Docker Compose procedure below.
 - **`pipeline_verify`**: lint, typecheck, tests, and build with timeouts.
 - **`pipeline_state`**: what this session changed.
+- **`pipeline_serve`**: starts the configured service for runtime validation.
 - Use the manual procedure below only for diagnostics or for checks the tools cannot express.
 
 ## Running a service safely (empirical validation)

@@ -52,8 +52,10 @@ export function autodetect(top) {
     if (scripts.build) verify.build = run("build")
     const startScript = scripts.dev ? "dev" : scripts.start ? "start" : null
     if (startScript) {
+      const start = scripts[startScript]
+      const addPort = /\b(?:vite|astro)\b/.test(start) && !/(?:^|\s)--port(?:\s|=|$)/.test(start)
       smokeHint = {
-        start: `PORT=\${PORT} ${run(startScript)}`,
+        start: `PORT=\${PORT} ${run(startScript)}${addPort ? " -- --port ${PORT}" : ""}`,
         ready: { port: "${PORT}", timeout_s: 60 },
         checks: [{ name: "root responds", url: "http://127.0.0.1:${PORT}/", expect_status: 200 }],
         note: "Draft only: many dev servers ignore PORT (e.g. pass --port). Review before saving to .opencode/pipeline.json.",
@@ -108,6 +110,12 @@ export function loadContract(top) {
   }
   if (source === "none" && detectedUsed) source = "autodetect"
   else if (source === "file" && detectedUsed) source = "file+autodetect"
+  contract.autodetected_smoke = contract.smoke ? null : detected.smokeHint ? {
+    start: detected.smokeHint.start,
+    ready_url: "http://127.0.0.1:${PORT}/",
+    ready_timeout_ms: 30000,
+    checks: [{ name: "root", method: "GET", path: "/", expect_status: [200, 201, 202, 204, 301, 302, 303, 307, 308] }],
+  } : null
   return { contract, source, problems, smokeHint: contract.smoke ? null : detected.smokeHint }
 }
 
@@ -445,7 +453,8 @@ export async function waitReady(ready, { portNum, subst, readLog, isExited, time
 
 export async function runSmoke({ info, signal, owner }) {
   const { contract, source, problems, smokeHint } = loadContract(info.top)
-  if (!contract.smoke) {
+  const smoke = contract.smoke || contract.autodetected_smoke
+  if (!smoke) {
     return {
       status: "inconclusive",
       failure_class_hint: "harness",
@@ -454,10 +463,11 @@ export async function runSmoke({ info, signal, owner }) {
       suggested_smoke: smokeHint,
     }
   }
-  const smoke = contract.smoke
   const scratch = ensureScratch(info)
   const logPath = path.join(scratch, `smoke-${Date.now()}.log`)
-  const result = { status: "fail", contract_source: source, phase: "start", checks: [], cleanup: {} }
+  const detectedSmoke = !contract.smoke && contract.autodetected_smoke
+  const contractSource = detectedSmoke ? source === "file" ? "file+autodetect" : "autodetect" : source
+  const result = { status: "fail", contract_source: contractSource, phase: "start", checks: [], cleanup: {} }
 
   const body = async () => {
     let portNum
@@ -502,8 +512,9 @@ export async function runSmoke({ info, signal, owner }) {
     }
     try {
       result.phase = "ready"
-      const timeoutS = Math.min(Number(smoke.ready && smoke.ready.timeout_s) || 60, 180)
-      const ready = await waitReady(smoke.ready, { portNum, subst, readLog, isExited: () => exited, timeoutMs: timeoutS * 1000, signal })
+      const readySpec = smoke.ready || (smoke.ready_url ? { url: smoke.ready_url, timeout_s: smoke.ready_timeout_ms / 1000 } : null)
+      const timeoutS = Math.min(Number(readySpec && readySpec.timeout_s) || 60, 180)
+      const ready = await waitReady(readySpec, { portNum, subst, readLog, isExited: () => exited, timeoutMs: timeoutS * 1000, signal })
       result.ready_ms = ready.ms
       if (!ready.ok) {
         const log = readLog()
@@ -535,7 +546,8 @@ export async function runSmoke({ info, signal, owner }) {
       result.phase = "checks"
       let allPass = true
       let codeFailure = false
-      for (const spec of smoke.checks || []) {
+      for (const rawSpec of smoke.checks || []) {
+        const spec = rawSpec.path ? { ...rawSpec, url: `http://127.0.0.1:\${PORT}${rawSpec.path}` } : rawSpec
         const name = spec.name || spec.url || spec.cmd || "check"
         if (signal && signal.aborted) {
           result.checks.push({ name, status: "aborted", detail: "aborted" })

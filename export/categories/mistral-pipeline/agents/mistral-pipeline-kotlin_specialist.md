@@ -10,12 +10,27 @@ permission:
   external_directory:
     "*": deny
     ~/.local/share/opencode/tool-output/*: allow
+    ~/.config/opencode/skills/*: allow
+    /tmp/*: allow
+    /private/tmp/*: allow
   doom_loop: deny
   read: allow
   grep: allow
   glob: allow
   lsp: allow
+  pipeline_state: allow
+  pipeline_verify: allow
+  skill: allow
+  read_mcp_resource: allow
+  list_mcp_resources: allow
+  list_mcp_resource_templates: allow
+  codebase-memory-mcp_*: allow
+  codebase-memory-mcp_delete_project: deny
+  codebase-memory-mcp_ingest_traces: deny
+  codebase-memory-mcp_manage_adr: deny
+  codebase-memory-mcp_index_repository: deny
   webfetch: allow
+  websearch: allow
   google-developer-knowledge_*: allow
   bash:
     "*": deny
@@ -30,9 +45,118 @@ permission:
     java -version: allow
     gradle --version: allow
     ./gradlew --version: allow
+    find . *: allow
+    cat *: allow
+    head *: allow
+    tail *: allow
+    wc *: allow
+    stat *: allow
+    file *: allow
+    rg *: allow
+    grep *: allow
+    jq *: allow
+    yq *: allow
+    awk *: allow
+    sed -n *: allow
+    sort *: allow
+    uniq *: allow
+    cut *: allow
+    tr *: allow
+    tree *: allow
+    du *: allow
+    which *: allow
+    type *: allow
+    env: allow
+    printenv*: allow
+    uname*: allow
+    ps *: allow
+    lsof *: allow
+    git status*: allow
+    git diff*: allow
+    git log*: allow
+    git show*: allow
+    git ls-files*: allow
+    git ls-tree*: allow
+    git ls-remote*: allow
+    git cat-file*: allow
+    git rev-parse*: allow
+    git rev-list*: allow
+    git merge-base*: allow
+    git range-diff*: allow
+    git cherry*: allow
+    git blame*: allow
+    git grep*: allow
+    git describe*: allow
+    git shortlog*: allow
+    git for-each-ref*: allow
+    git name-rev*: allow
+    git show-ref*: allow
+    git show-branch*: allow
+    git check-ignore*: allow
+    git var*: allow
+    git verify-commit*: allow
+    git verify-tag*: allow
+    git branch --show-current*: allow
+    git branch -a*: allow
+    git branch -r*: allow
+    git branch -v*: allow
+    git branch --list*: allow
+    git branch --contains*: allow
+    git branch --merged*: allow
+    git branch --no-merged*: allow
+    git tag -l*: allow
+    git tag --list*: allow
+    git remote -v*: allow
+    git remote --verbose*: allow
+    git remote show*: allow
+    git remote get-url*: allow
+    git stash list*: allow
+    git stash show*: allow
+    git worktree list*: allow
+    git reflog*: allow
+    git reflog expire*: deny
+    git reflog delete*: deny
+    git config --get*: allow
+    git config --list*: allow
+    git config -l*: allow
+    git fetch*: allow
+    git fetch *--upload-pack*: deny
+    git fetch *ext::*: deny
+    ./gradlew --version*: allow
+    ./gradlew -v*: allow
+    ./gradlew tasks*: allow
+    ./gradlew projects*: allow
+    ./gradlew properties*: allow
+    ./gradlew dependencies*: allow
+    ./gradlew dependencyInsight*: allow
+    ./gradlew buildEnvironment*: allow
+    ./gradlew compile*: allow
+    ./gradlew test*: allow
+    ./gradlew check*: allow
+    ./gradlew lint*: allow
+    ./gradlew detekt*: allow
+    ./gradlew ktlintCheck*: allow
+    ./gradlew assembleDebug*: allow
+    gradle --version*: allow
+    gradle -v*: allow
+    gradle tasks*: allow
+    gradle projects*: allow
+    gradle properties*: allow
+    gradle dependencies*: allow
+    gradle compile*: allow
+    gradle test*: allow
+    gradle check*: allow
+    gradle lint*: allow
+    kotlinc -version*: allow
+    kotlin -version*: allow
+    java -version*: allow
+    java --version*: allow
+    javac -version*: allow
+    javac --version*: allow
+    adb devices*: allow
+    adb version*: allow
 color: "#E67E22"
 hidden: true
-variant: high
 steps: 50
 ---
 

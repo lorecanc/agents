@@ -294,6 +294,9 @@ export async function createPipelineGuard({ client, directory } = {}, options = 
         output.env.TMP = scratch
         output.env.TEMP = scratch
         output.env.PIPELINE_SCRATCH = scratch
+        output.env.GIT_EDITOR = ":"
+        output.env.GIT_SEQUENCE_EDITOR = ":"
+        output.env.GIT_MERGE_AUTOEDIT = "no"
         output.env.PIPELINE_SESSION = s.rootId
       } catch {
         /* fail open */

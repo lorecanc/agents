@@ -455,8 +455,11 @@ const GIT_READ = new Set([
   "status", "diff", "log", "show", "ls-files", "rev-parse", "blame", "grep", "ls-tree", "cat-file",
   "describe", "shortlog", "rev-list", "for-each-ref", "merge-base", "name-rev", "diff-tree", "diff-index",
   "show-ref", "check-ignore", "count-objects", "version", "help", "whatchanged", "ls-remote", "show-branch",
+  "range-diff", "cherry", "var", "verify-commit", "verify-tag",
 ])
-const GIT_ALWAYS_BLOCKED_CFG = /^(alias\.|core\.(hookspath|sshcommand|editor|pager|fsmonitor)|credential\.|url\.|http\.)/i
+const GIT_ALWAYS_BLOCKED_CFG = /^(alias\.|core\.(hookspath|sshcommand|editor|pager|fsmonitor)|credential\.|url\.|http\.|protocol\.)/i
+const GIT_SYNC_ROLES = new Set(["ops", "fast_lane", "executor", "refactorer"])
+const GIT_SAFE_EDITOR_CFG = /^core\.editor=(true|:|\/(?:usr\/)?bin\/true)$/i
 
 /**
  * Tokenize a shell command into segments (best effort, not a full parser).
@@ -720,17 +723,32 @@ function expandArg(arg, ctx) {
   return a
 }
 
+function isSystemTempPath(rawArg, absPath, top) {
+  if (typeof rawArg !== "string" || !path.isAbsolute(rawArg) || rawArg.trim().startsWith("~")) return false
+  if (isInside(top, path.resolve(top, rawArg))) return false
+  if (isInside(top, absPath)) return false
+  const tempRoots = ["/tmp", "/private/tmp", os.tmpdir(), realpathLoose("/tmp"), realpathLoose(os.tmpdir())]
+  return tempRoots.some((root) => {
+    const tempRoot = realpathLoose(root)
+    if (!isInside(tempRoot, absPath) || absPath === tempRoot) return false
+    if (isInside(tempRoot, top) && (isInside(absPath, top) || path.relative(tempRoot, absPath).split(path.sep)[0].startsWith("pipe-"))) return false
+    return true
+  })
+}
+
 /** Returns null if the path is acceptable (or unresolvable), else a reason string. */
 export function checkWritePath(arg, ctx) {
   if (typeof arg !== "string" || !arg) return null
   if (/^\/dev\/(null|stdout|stderr|tty|fd\/\d+)$/.test(arg)) return null
   let a = expandArg(arg, ctx)
   if (a.includes("$")) return null // unknown variable: cannot decide
+  const expanded = a
   const glob = a.search(/[*?[]/)
   if (glob >= 0) a = a.slice(0, glob) || "."
   const abs = realpathLoose(path.resolve(ctx.cwd || ctx.info.top, a))
   const scratch = ctx.scratch ? realpathLoose(ctx.scratch) : null
   if (scratch && isInside(scratch, abs)) return null
+  if (isSystemTempPath(String(arg).trim().startsWith("~") ? "" : expanded, abs, ctx.info.top)) return null
   const internals = `"${arg}" is inside the git internals. Do not modify .git; use the scratch directory for throwaway files.`
   if (isInside(ctx.info.top, abs)) {
     return isInside(path.join(ctx.info.top, ".git"), abs) ? internals : null
@@ -848,6 +866,24 @@ function segmentWritePaths(tokens) {
   return { rawPaths, subcommands, cwdChange }
 }
 
+function isGitExplicitFile(file, ctx) {
+  if (!file || file === "." || file === "./" || file === ".." || file.endsWith("/") || file.startsWith(":") || file.includes("$") || file.startsWith("~") || /[*?\[\]]/.test(file)) return false
+  if (!ctx) return true
+  if (checkWritePath(file, ctx)) return false
+  try {
+    const abs = realpathLoose(path.resolve(ctx.cwd || ctx.info.top, file))
+    if (!isInside(ctx.info.top, abs) || fs.statSync(abs).isDirectory()) return false
+  } catch {
+    // New files can be staged before they exist.
+  }
+  return true
+}
+
+function gitFileArgs(args) {
+  const separator = args.indexOf("--")
+  return separator >= 0 ? args.slice(separator + 1) : args.filter((r) => !r.startsWith("-"))
+}
+
 function checkGitCommand(args, role, ctx) {
   let i = 0
   while (i < args.length) {
@@ -858,10 +894,10 @@ function checkGitCommand(args, role, ctx) {
       i += 2
       continue
     }
-    if (a === "-c") {
-      const v = args[i + 1] || ""
-      if (GIT_ALWAYS_BLOCKED_CFG.test(v)) return `git -c ${v.split("=")[0]} is not allowed.`
-      i += 2
+    if (a === "-c" || (a.startsWith("-c") && a.length > 2)) {
+      const v = a === "-c" ? args[i + 1] || "" : a.slice(2)
+      if (GIT_ALWAYS_BLOCKED_CFG.test(v) && !GIT_SAFE_EDITOR_CFG.test(v)) return `git -c ${v.split("=")[0]} is not allowed.`
+      i += a === "-c" ? 2 : 1
       continue
     }
     if (a.startsWith("--git-dir") || a.startsWith("--work-tree") || a === "--bare") {
@@ -894,26 +930,60 @@ function checkGitCommand(args, role, ctx) {
     case "config":
       return rest.some((r) => ["--get", "--get-all", "--list", "-l", "--get-regexp"].includes(r)) ? null : deny("config (writing)")
     case "remote":
-      return rest.length === 0 || rest[0] === "-v" || rest[0] === "show" || rest[0] === "get-url" ? null : deny("remote (modifying)")
+      return rest.length === 0 || rest[0] === "-v" || rest[0] === "--verbose" || rest[0] === "show" || rest[0] === "get-url" ? null : deny("remote (modifying)")
+    case "fetch":
+      return rest.some((r) => r === "--upload-pack" || r.startsWith("--upload-pack=") || r.startsWith("ext::")) ? deny("fetch --upload-pack or ext:: transport") : null
+    case "pull":
+      if (!GIT_SYNC_ROLES.has(role)) return deny("pull")
+      return rest.some((r) => r === "--upload-pack" || r.startsWith("--upload-pack=") || r.startsWith("ext::")) ? deny("pull --upload-pack or ext:: transport")
+        : rest.some((r) => ["--rebase=interactive", "--rebase=i", "-r=interactive", "-r=i"].includes(r)) ? deny("pull --rebase=interactive") : null
+    case "merge":
+    case "cherry-pick":
+      if (!GIT_SYNC_ROLES.has(role)) return deny(sub)
+      return rest.some((r) => r === "-e" || r === "--edit") ? deny(`${sub} --edit`) : null
+    case "rebase":
+      if (!GIT_SYNC_ROLES.has(role)) return deny("rebase")
+      return rest.some((r) => r === "-i" || r === "--interactive" || r.startsWith("--interactive=") || r === "-x" || r === "--exec" || r.startsWith("--exec=") || (!r.startsWith("--") && r.startsWith("-") && (/[ix]/.test(r.slice(1).replace(/[^a-zA-Z].*$/, "")) || /^-[a-zA-Z]*x.+/.test(r)))) ? deny("rebase -i/--exec") : null
+    case "checkout": {
+      if (!GIT_SYNC_ROLES.has(role)) return deny("checkout")
+      const conflictFlags = rest.some((r) => r === "--ours" || r === "--theirs" || r === "-m" || r === "--merge" || r.startsWith("--conflict="))
+      const prohibitedFlags = rest.some((r) => ["-b", "-B", "-d", "--detach", "-f", "--force", "-p", "--patch", "-t", "--track", "--orphan"].includes(r) || (/^-[a-zA-Z]+$/.test(r) && /[bBdfpt]/.test(r)))
+      const separator = rest.indexOf("--")
+      const files = separator >= 0 ? rest.slice(separator + 1) : rest.filter((r) => !r.startsWith("-"))
+      if (!conflictFlags || prohibitedFlags || !files.length || files.some((f) => !isGitExplicitFile(f, ctx))) return deny("checkout")
+      return null
+    }
     case "stash":
       return rest[0] === "list" || rest[0] === "show" ? null : deny("stash")
     case "worktree":
       return rest[0] === "list" ? null : deny("worktree")
     case "reflog":
       return rest.length === 0 || rest[0] === "show" ? null : deny("reflog (modifying)")
-    case "add":
-    case "commit":
-    case "restore": {
-      if (role !== "post_session") return deny(sub)
-      const flags = rest.filter((r) => r.startsWith("-"))
-      if (sub === "add" && rest.some((r) => ["-A", "--all", "-u", "--update", "-p", "--patch", "-i", "--interactive", "."].includes(r))) {
-        return "git add must list explicit file paths (no -A, -u, -p, -i or '.')."
+    case "add": {
+      if (role !== "post_session" && !GIT_SYNC_ROLES.has(role)) return deny("add")
+      const files = gitFileArgs(rest)
+      if (rest.some((r) => ["-A", "--all", "--no-ignore-removal", "-u", "--update", "-p", "--patch", "-i", "--interactive"].includes(r) || (/^-[a-zA-Z]+$/.test(r) && /[Aupi]/.test(r))) || !files.length || files.some((f) => !isGitExplicitFile(f, ctx))) {
+        return "git add requires explicit file paths (no -A, -u, -p, or .)"
       }
-      if (sub === "commit" && flags.some((f) => ["--amend", "-a", "--all", "--no-verify", "-n"].includes(f) || /^-[a-zA-Z]*a[a-zA-Z]*$/.test(f))) {
+      return null
+    }
+    case "commit": {
+      if (role !== "post_session") return deny("commit")
+      const flags = rest.filter((r) => r.startsWith("-"))
+      if (flags.some((f) => ["--amend", "-a", "--all", "--no-verify", "-n"].includes(f) || /^-[a-zA-Z]*a[a-zA-Z]*$/.test(f))) {
         return "git commit must not use --amend, -a/--all or --no-verify."
       }
-      if (sub === "restore" && !flags.some((f) => f === "--staged" || f === "-S")) return "git restore is only allowed with --staged."
       return null
+    }
+    case "restore": {
+      const flags = rest.filter((r) => r.startsWith("-"))
+      const files = gitFileArgs(rest)
+      if (role === "post_session") return flags.some((f) => f === "--staged" || f === "-S") && files.length && files.every((f) => isGitExplicitFile(f, ctx)) ? null : "git restore is only allowed with --staged and explicit file paths."
+      if (GIT_SYNC_ROLES.has(role)) {
+        const conflictFlags = rest.some((r) => r === "--staged" || r === "-S" || r === "--ours" || r === "--theirs" || r === "--merge" || r === "-m" || r.startsWith("--conflict="))
+        return conflictFlags && files.length && files.every((f) => isGitExplicitFile(f, ctx)) ? null : deny("restore (working-tree discard)")
+      }
+      return deny("restore (working-tree discard)")
     }
     default:
       return deny(sub)
@@ -1047,6 +1117,7 @@ export function bashWriteTargets(command, ctx, depth = 0) {
       const expanded = expandArg(raw, { scratch: scratchPath })
       if (expanded.includes("$")) continue
       const abs = realpathLoose(path.resolve(atCwd, expanded))
+      if (isSystemTempPath(String(raw).trim().startsWith("~") ? "" : expanded, abs, info.top)) continue
       if (isInside(realpathLoose(scratchPath), abs)) continue
       if (info.gitDir && isInside(realpathLoose(info.gitDir), abs)) continue
       const rel = toRel(info, abs)

@@ -91,7 +91,7 @@ function readTail(file, n = 3000) {
   }
 }
 
-/** The contract section used to serve: `serve` if present, otherwise the `smoke` section. */
+/** The contract section used to serve: `serve`, `smoke`, or an autodetected script. */
 function serveSpec(info) {
   const { contract, problems, smokeHint } = loadContract(info.top)
   const raw = (() => {
@@ -102,7 +102,10 @@ function serveSpec(info) {
     }
   })()
   const spec = raw && raw.serve && typeof raw.serve.start === "string" ? raw.serve : contract.smoke
-  return { spec, problems, smokeHint, from: raw && raw.serve && typeof raw.serve.start === "string" ? "serve" : "smoke" }
+  if (spec) return { spec, problems, smokeHint, from: raw && raw.serve && typeof raw.serve.start === "string" ? "serve" : "smoke" }
+  const auto = contract.autodetected_smoke || (smokeHint && typeof smokeHint.start === "string" && smokeHint.start.trim() ? smokeHint : null)
+  if (auto) return { spec: auto, problems, smokeHint, from: "autodetect" }
+  return { spec: null, problems, smokeHint, from: "smoke" }
 }
 
 function describe(info, rec) {
