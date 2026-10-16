@@ -100,11 +100,14 @@ test("shell.env points temp dirs at the in-repo scratch for pipeline sessions on
 })
 
 test("tool.execute.before blocks escapes and git state changes with actionable messages", async () => {
-  const { hooks } = await setup()
+  const { hooks, info } = await setup()
   await assert.rejects(before(hooks, "ses_child", "bash", { command: "git checkout -b t1" }), /\[pipeline-guard\] Blocked: git checkout is not allowed/)
   await assert.rejects(before(hooks, "ses_child", "bash", { command: "git worktree add ../x" }), /worktree/)
-  await assert.rejects(before(hooks, "ses_child", "bash", { command: "echo x > /tmp/out.txt" }), /outside the repository/)
-  await assert.rejects(before(hooks, "ses_child", "write", { filePath: "/tmp/leak.txt", content: "x" }), /outside the repository/)
+  await assert.rejects(before(hooks, "ses_child", "bash", { command: "echo x > ~/out.txt" }), /outside the repository/)
+  await before(hooks, "ses_child", "bash", { command: "echo x > /tmp/ok.log" })
+  await hooks["tool.execute.after"]({ tool: "bash", sessionID: "ses_child", callID: "tmp-write", args: { command: "echo x > /tmp/ok.log" } }, {})
+  assert.deepEqual(readSession(info, "ses_root").files, {})
+  await assert.rejects(before(hooks, "ses_child", "write", { filePath: "/etc/leak.txt", content: "x" }), /outside the repository/)
   await assert.rejects(before(hooks, "ses_child", "edit", { filePath: ".git/hooks/pre-commit" }), /git internals/)
   await assert.rejects(before(hooks, "ses_child", "apply_patch", { patchText: "*** Begin Patch\n*** Add File: /etc/x\n*** End Patch" }), /outside the repository/)
   await before(hooks, "ses_child", "bash", { command: "git status --porcelain && npm test" })

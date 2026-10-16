@@ -42,11 +42,12 @@ Emergency switch for the plugin: `OPENCODE_PIPELINE_GUARD=off`.
   (`<git-common-dir>/opencode-scratch`, or `.opencode-scratch/` in a linked worktree, excluded from git);
   `GIT_EDITOR=:` and `GIT_MERGE_AUTOEDIT=no` keep merge, rebase and pull continuations from hanging on an
   interactive editor.
-- Blocks `bash` writes (redirections, `cp`, `mv`, `rm`, `tee`, `curl -o`, `cd` ...) outside the repo or into `.git`.
-  Reads are not restricted here.
+- Explicit `/tmp` (and `os.tmpdir()`) paths are also allowed for temporary command outputs and logs. Other
+  `bash` writes (redirections, `cp`, `mv`, `rm`, `tee`, `curl -o`, `cd` ...) outside the repo or into `.git`
+  are blocked. Reads are not restricted here.
 - Blocks `edit` / `write` / `apply_patch` outside the repo or into `.git`.
 - Git inspection and diagnostic subcommands, plus `git fetch` (without `--upload-pack`), are allowed for all
-  roles. `ops`, `fast_lane` and `executor` may also run `git pull` (without `--upload-pack`) and resolve
+  roles. `ops`, `fast_lane`, `executor` and `refactorer` may also run `git pull` (without `--upload-pack`) and resolve
   conflicts with `git merge` / `git cherry-pick` (without `-e` / `--edit`), non-interactive `git rebase`
   (without `-i` / `--interactive` / `-x` / `--exec`), `git checkout --ours|--theirs|--merge <files>`,
   `git restore --staged|-S|--ours|--theirs|--merge <files>` and `git add <explicit-files>`; these commands
@@ -68,7 +69,9 @@ Session state lives in `<git-common-dir>/opencode-pipeline/` (inside `.git`, nev
 ## Project contract: `.opencode/pipeline.json`
 
 Optional, committed in the target repository. Without it, `pipeline_verify` autodetects commands
-(npm/pnpm/yarn/bun scripts, `tsc`, go, cargo, pytest) and `pipeline_smoke` returns `inconclusive` with a draft.
+(npm/pnpm/yarn/bun scripts, `tsc`, go, cargo, pytest). If it contains no `smoke`/`serve` section,
+`pipeline_smoke` and `pipeline_serve` automatically fall back to autodetected `package.json` `dev`/`start`
+scripts when available.
 
 ```json
 {

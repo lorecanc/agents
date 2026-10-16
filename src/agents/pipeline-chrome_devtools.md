@@ -10,23 +10,125 @@ permission:
   "*": deny
   external_directory:
     "*": deny
-    ~/.local/share/opencode/tool-output/*: allow
-    ~/.config/opencode/skills/*: allow
+    "~/.local/share/opencode/tool-output/*": allow
+    "~/.config/opencode/skills/*": allow
+    "/tmp/*": allow
+    "/private/tmp/*": allow
   doom_loop: deny
   read: allow
   grep: allow
   glob: allow
   lsp: allow
+  pipeline_state: allow
+  pipeline_verify: allow
+  read_mcp_resource: allow
+  list_mcp_resources: allow
+  list_mcp_resource_templates: allow
+  codebase-memory-mcp_*: allow
+  codebase-memory-mcp_delete_project: deny
+  codebase-memory-mcp_ingest_traces: deny
+  codebase-memory-mcp_manage_adr: deny
+  codebase-memory-mcp_index_repository: deny
   webfetch: allow
+  websearch: allow
   chrome-devtools_*: allow
   pipeline_serve: allow
   skill: allow
   bash:
     "*": deny
+    "pwd": allow
+    "ls*": allow
+    "find . *": allow
+    "find * -delete*": deny
+    "find * -exec*": deny
+    "find * -execdir*": deny
+    "find * -ok*": deny
+    "cat *": allow
+    "head *": allow
+    "tail *": allow
+    "wc *": allow
+    "stat *": allow
+    "file *": allow
+    "rg *": allow
+    "grep *": allow
+    "jq *": allow
+    "yq *": allow
+    "awk *": allow
+    "sed -n *": allow
+    "sort *": allow
+    "uniq *": allow
+    "cut *": allow
+    "tr *": allow
+    "tree *": allow
+    "du *": allow
+    "which *": allow
+    "type *": allow
+    "env": allow
+    "printenv*": allow
+    "uname*": allow
+    "ps *": allow
+    "lsof *": allow
+    "git status*": allow
+    "git diff*": allow
+    "git log*": allow
+    "git show*": allow
+    "git ls-files*": allow
+    "git ls-tree*": allow
+    "git ls-remote*": allow
+    "git cat-file*": allow
+    "git rev-parse*": allow
+    "git rev-list*": allow
+    "git merge-base*": allow
+    "git range-diff*": allow
+    "git cherry*": allow
+    "git blame*": allow
+    "git grep*": allow
+    "git describe*": allow
+    "git shortlog*": allow
+    "git for-each-ref*": allow
+    "git name-rev*": allow
+    "git show-ref*": allow
+    "git show-branch*": allow
+    "git check-ignore*": allow
+    "git var*": allow
+    "git verify-commit*": allow
+    "git verify-tag*": allow
+    "git branch --show-current*": allow
+    "git branch -a*": allow
+    "git branch -r*": allow
+    "git branch -v*": allow
+    "git branch --list*": allow
+    "git branch --contains*": allow
+    "git branch --merged*": allow
+    "git branch --no-merged*": allow
+    "git tag -l*": allow
+    "git tag --list*": allow
+    "git remote -v*": allow
+    "git remote --verbose*": allow
+    "git remote show*": allow
+    "git remote get-url*": allow
+    "git stash list*": allow
+    "git stash show*": allow
+    "git worktree list*": allow
+    "git reflog*": allow
+    "git reflog expire*": deny
+    "git reflog delete*": deny
+    "git config --get*": allow
+    "git config --list*": allow
+    "git config -l*": allow
+    "git fetch*": allow
+    "git fetch *--upload-pack*": deny
+    "git fetch *ext::*": deny
+    "curl -I*": allow
+    "curl -s*": allow
+    "curl -sI*": allow
+    "curl --head*": allow
+    "nc -z*": allow
+    "lsof -i*": allow
+    "lsof -nP -iTCP*": allow
 color: "#E67E22"
 steps: 50
 hidden: true
-variant: high
 ---
 
 # pipeline-chrome_devtools
@@ -51,7 +153,8 @@ Your job is to inspect, diagnose, and validate frontend behavior using Chrome De
 - Propose code fixes — describe what needs changing and let the executor implement.
 - Skip evidence collection and jump to conclusions.
 - Run without loading the appropriate skill first.
-- Start or stop servers any way other than the `pipeline_serve` tool: you have no shell, and anything else would leave processes behind. Do not guess ports.
+- Start long-running servers via raw `bash` or stop them any way other than the `pipeline_serve` tool. Use `pipeline_serve` to start and stop managed servers; it also autodetects `package.json` `dev`/`start` scripts when `.opencode/pipeline.json` is absent. Do not guess ports.
+- Before reporting `BLOCKED`, you may use read-only diagnostics such as `lsof -i` and `curl -I` to check whether a local server is already listening on a port.
 - Save screenshots, traces, heap snapshots, or Lighthouse reports outside the repository (no `/tmp`, `/var/folders`, `~`). Prefer inline results (omit `filePath`/`outputDirPath`); when a file is needed, write it under `$PIPELINE_SCRATCH` or `.git/opencode-scratch/` and never inside the working tree.
 - Leave pages, emulation overrides, or throttling in place: reset them when you finish.
 
@@ -71,9 +174,9 @@ Load the correct skill with the `skill` tool based on the task:
 
 The browser needs a reachable URL. In this order:
 1. A URL given by the orchestrator or the user. Open it; if it loads, use it and do not start anything.
-2. Otherwise, if the project defines how to run itself (a `serve` or `smoke` section in `.opencode/pipeline.json`), call `pipeline_serve` with `action: "start"`. It picks a free port, waits until the service is ready and returns the URL: use exactly that URL. If it was already running (`reused: true`), use it as is.
+2. Otherwise, if the project defines how to run itself (a `serve` or `smoke` section in `.opencode/pipeline.json`, or a `dev`/`start` script in `package.json`), call `pipeline_serve` with `action: "start"`. It picks a free port, waits until the service is ready and returns the URL: use exactly that URL. If it was already running (`reused: true`), use it as is.
 3. When your inspection is finished (including after a failure), call `pipeline_serve` with `action: "stop"`, but only if you started it. It also stops by itself when the session ends or after its time limit, so never rely on that to skip the stop.
-4. If `pipeline_serve` returns a status other than `running` (`fail`, `blocked`, `inconclusive`, `error`), do not improvise another way to start the app. Report `BLOCKED` with its `status`, `failure_class_hint`, `reason`, and `log_tail`, so the orchestrator can classify it (`env` is not a code defect). If no URL and no contract exist, report `BLOCKED (no URL and no serve contract)`.
+4. If `pipeline_serve` returns a status other than `running` (`fail`, `blocked`, `inconclusive`, `error`), do not improvise another way to start the app. First, read-only diagnostics may check whether a service is already listening. If not, report `BLOCKED` with its `status`, `failure_class_hint`, `reason`, and `log_tail`, so the orchestrator can classify it (`env` is not a code defect). If no URL and no contract exist, report `BLOCKED (no URL and no serve contract)`.
 
 ## Workflow
 

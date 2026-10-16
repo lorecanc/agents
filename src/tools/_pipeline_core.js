@@ -458,7 +458,7 @@ const GIT_READ = new Set([
   "range-diff", "cherry", "var", "verify-commit", "verify-tag",
 ])
 const GIT_ALWAYS_BLOCKED_CFG = /^(alias\.|core\.(hookspath|sshcommand|editor|pager|fsmonitor)|credential\.|url\.|http\.|protocol\.)/i
-const GIT_SYNC_ROLES = new Set(["ops", "fast_lane", "executor"])
+const GIT_SYNC_ROLES = new Set(["ops", "fast_lane", "executor", "refactorer"])
 const GIT_SAFE_EDITOR_CFG = /^core\.editor=(true|:|\/(?:usr\/)?bin\/true)$/i
 
 /**
@@ -723,17 +723,32 @@ function expandArg(arg, ctx) {
   return a
 }
 
+function isSystemTempPath(rawArg, absPath, top) {
+  if (typeof rawArg !== "string" || !path.isAbsolute(rawArg) || rawArg.trim().startsWith("~")) return false
+  if (isInside(top, path.resolve(top, rawArg))) return false
+  if (isInside(top, absPath)) return false
+  const tempRoots = ["/tmp", "/private/tmp", os.tmpdir(), realpathLoose("/tmp"), realpathLoose(os.tmpdir())]
+  return tempRoots.some((root) => {
+    const tempRoot = realpathLoose(root)
+    if (!isInside(tempRoot, absPath) || absPath === tempRoot) return false
+    if (isInside(tempRoot, top) && (isInside(absPath, top) || path.relative(tempRoot, absPath).split(path.sep)[0].startsWith("pipe-"))) return false
+    return true
+  })
+}
+
 /** Returns null if the path is acceptable (or unresolvable), else a reason string. */
 export function checkWritePath(arg, ctx) {
   if (typeof arg !== "string" || !arg) return null
   if (/^\/dev\/(null|stdout|stderr|tty|fd\/\d+)$/.test(arg)) return null
   let a = expandArg(arg, ctx)
   if (a.includes("$")) return null // unknown variable: cannot decide
+  const expanded = a
   const glob = a.search(/[*?[]/)
   if (glob >= 0) a = a.slice(0, glob) || "."
   const abs = realpathLoose(path.resolve(ctx.cwd || ctx.info.top, a))
   const scratch = ctx.scratch ? realpathLoose(ctx.scratch) : null
   if (scratch && isInside(scratch, abs)) return null
+  if (isSystemTempPath(String(arg).trim().startsWith("~") ? "" : expanded, abs, ctx.info.top)) return null
   const internals = `"${arg}" is inside the git internals. Do not modify .git; use the scratch directory for throwaway files.`
   if (isInside(ctx.info.top, abs)) {
     return isInside(path.join(ctx.info.top, ".git"), abs) ? internals : null
@@ -856,7 +871,8 @@ function isGitExplicitFile(file, ctx) {
   if (!ctx) return true
   if (checkWritePath(file, ctx)) return false
   try {
-    if (fs.statSync(path.resolve(ctx.cwd || ctx.info.top, file)).isDirectory()) return false
+    const abs = realpathLoose(path.resolve(ctx.cwd || ctx.info.top, file))
+    if (!isInside(ctx.info.top, abs) || fs.statSync(abs).isDirectory()) return false
   } catch {
     // New files can be staged before they exist.
   }
@@ -1101,6 +1117,7 @@ export function bashWriteTargets(command, ctx, depth = 0) {
       const expanded = expandArg(raw, { scratch: scratchPath })
       if (expanded.includes("$")) continue
       const abs = realpathLoose(path.resolve(atCwd, expanded))
+      if (isSystemTempPath(String(raw).trim().startsWith("~") ? "" : expanded, abs, info.top)) continue
       if (isInside(realpathLoose(scratchPath), abs)) continue
       if (info.gitDir && isInside(realpathLoose(info.gitDir), abs)) continue
       const rel = toRel(info, abs)

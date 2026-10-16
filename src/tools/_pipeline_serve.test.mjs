@@ -95,6 +95,21 @@ test("start, status, stop: serves the page, then leaves no process, port, record
   assert.equal((await stopService({ info, callerRoot: "ses_A" })).note, "nothing was running")
 })
 
+test("startService: autodetects a package start script when no pipeline contract exists", async () => {
+  const info = mkRepo({
+    "package.json": JSON.stringify({ scripts: { start: "node server.js" } }),
+    "server.js": SERVER("autodetected"),
+  })
+  const started = await startService({ info, ownerRoot: "ses_auto" })
+  assert.equal(started.status, "running", JSON.stringify(started))
+  assert.equal(readService(info).spec, "autodetect")
+  assert.equal(await get(started.url), "autodetected")
+  const stopped = await stopService({ info, callerRoot: "ses_auto" })
+  assert.equal(stopped.status, "stopped")
+  assert.equal(stopped.process_stopped, true)
+  assert.equal(stopped.port_free, true)
+})
+
 test("start is idempotent and only the owner can stop a live service of another live session", async () => {
   const info = mkRepo({ "server.js": SERVER() }, smoke())
   const a = await startService({ info, ownerRoot: "ses_A" })

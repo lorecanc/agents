@@ -8,7 +8,10 @@ permission:
   "*": deny
   external_directory:
     "*": deny
-    ~/.local/share/opencode/tool-output/*: allow
+    "~/.local/share/opencode/tool-output/*": allow
+    "~/.config/opencode/skills/*": allow
+    "/tmp/*": allow
+    "/private/tmp/*": allow
   doom_loop: deny
   pipeline_state: allow
   pipeline_commit: allow
@@ -16,6 +19,10 @@ permission:
   grep: allow
   glob: allow
   lsp: allow
+  skill: allow
+  read_mcp_resource: allow
+  list_mcp_resources: allow
+  list_mcp_resource_templates: allow
   bash:
     "*": deny
     pwd: allow
@@ -27,7 +34,34 @@ permission:
     git log*: allow
     git show*: allow
     git ls-files*: allow
+    git ls-tree*: allow
+    git cat-file*: allow
     git rev-parse*: allow
+    git rev-list*: allow
+    git merge-base*: allow
+    git range-diff*: allow
+    git cherry*: allow
+    git blame*: allow
+    git show-ref*: allow
+    git branch -a*: allow
+    git branch -r*: allow
+    git branch -v*: allow
+    git branch --list*: allow
+    git tag -l*: allow
+    git tag --list*: allow
+    git remote -v*: allow
+    git remote --verbose*: allow
+    git remote show*: allow
+    git remote get-url*: allow
+    git stash list*: allow
+    git stash show*: allow
+    git worktree list*: allow
+    git reflog*: allow
+    git reflog expire*: deny
+    git reflog delete*: deny
+    git config --get*: allow
+    git config --list*: allow
+    git config -l*: allow
     git branch --show-current*: allow
     git add *: allow
     git add -A*: deny
@@ -53,7 +87,6 @@ permission:
 color: "#E67E22"
 steps: 50
 hidden: true
-variant: high
 ---
 
 # pipeline-post_session

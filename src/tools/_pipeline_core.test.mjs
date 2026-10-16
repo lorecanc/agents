@@ -98,9 +98,9 @@ test("checkBash: unsafe git mutations remain blocked for executor", () => {
     "git checkout -b x", "git checkout main", "git checkout a.txt", "git switch -c x", "git worktree add ../wt",
     "git stash", "git stash pop", "git reset --hard", "git clean -fd", "git push", "git commit -m x",
     "git add -A", "git add .", "git restore a.txt", "git branch new-b", "git tag v1",
-    "git diff --output=/tmp/x", "git status > /tmp/x", "git status && rm -rf /tmp/x",
+    "git diff --output=/tmp/x",
     "git -C ../elsewhere status", "git --git-dir=/x status", "git -c core.hooksPath=/x status",
-    "git status && git checkout x", "echo $(git stash)",
+    "git status && git checkout x", "git status && rm -rf ~/x", "echo $(git stash)",
   ]) {
     assert.ok(checkBash(cmd, "executor", ctx), `should block: ${cmd}`)
   }
@@ -144,7 +144,7 @@ test("checkBash: ops, fast_lane and executor may fetch, pull and resolve conflic
     "git range-diff main...HEAD", "git cherry -v main", "git var GIT_EDITOR", "git verify-commit HEAD",
     "git verify-tag v1", "git remote --verbose",
   ])
-  assertAllowed(["ops", "fast_lane", "executor"], [
+  assertAllowed(["ops", "fast_lane", "executor", "refactorer"], [
     "git pull", "git pull --ff-only", "git pull --rebase origin main",
     "git merge origin/main", "git merge --continue", "git merge --abort", "git -c core.editor=true merge --continue",
     "git rebase origin/main", "git rebase --continue", "git rebase --abort", "git rebase --skip",
@@ -197,16 +197,19 @@ test("checkBash: writes outside the repository are blocked, scratch and repo pat
   const ctx = ctxFor(dir)
   const scratch = ensureScratch(ctx.info)
   for (const cmd of [
-    "echo hi > /tmp/x.txt", "cat a.txt >> ~/notes.md", "cp a.txt /tmp/a.txt", "mv a.txt /var/folders/x/a.txt",
-    "mkdir -p /tmp/work", "rm -rf /tmp/work", "touch /etc/foo", "tee /tmp/x < a.txt", "curl -s -o /tmp/r.json http://x",
-    "wget -O /tmp/f http://x", "tar -xzf x.tgz -C /tmp", "cd /tmp && ls", "cd ../ && ls", "echo x > ../outside.txt",
-    "sed -i 's/a/b/' /etc/hosts", "dd if=a.txt of=/tmp/o", "sudo ls", "echo $(cat a.txt > /tmp/z)",
-    "mktemp /tmp/xxx", "cp a.txt .git/hooks/pre-commit", "echo x > .git/config",
+    "echo hi > /etc/x.txt", "curl https://example.com -o ~/a.html", "sed -i '' 's/a/b/' ~/x",
+    "cat a.txt >> ~/notes.md", "mv a.txt /var/folders/x/a.txt",
+    "cd ~/ && ls", "cd ../ && ls", "echo x > ../outside.txt",
+    "sed -i 's/a/b/' /etc/hosts", "sudo ls",
+    "cp a.txt .git/hooks/pre-commit", "echo x > .git/config",
   ]) {
     assert.ok(checkBash(cmd, "executor", ctx), `should block: ${cmd}`)
   }
   for (const cmd of [
-    "echo hi > out.txt", "echo hi > /dev/null", "cmd 2>&1", "cmd >&2", "cp a.txt c.txt", "mkdir -p src/new", "rm -rf dist",
+    "echo hi > out.txt", "git status > /tmp/x", "echo hi > /tmp/x.txt", "curl https://example.com -o /tmp/a.html", "sed -i '' 's/a/b/' /tmp/x",
+    "cp a.txt /tmp/a.txt", "mkdir -p /tmp/work", "rm -rf /tmp/work", "tee /tmp/x < a.txt", "curl -s -o /tmp/r.json http://x",
+    "wget -O /tmp/f http://x", "dd if=a.txt of=/tmp/o", "echo $(cat a.txt > /tmp/z)", "mktemp /tmp/xxx",
+    "echo hi > /dev/null", "cmd 2>&1", "cmd >&2", "cp a.txt c.txt", "mkdir -p src/new", "rm -rf dist",
     `echo x > ${scratch}/log.txt`, "echo x > $TMPDIR/log.txt", "echo x > $PIPELINE_SCRATCH/log.txt",
     "mktemp", "npm test", "ls /usr/bin", "cat /etc/hosts", "cp /usr/share/x ./local", "curl -s http://localhost:3000/health",
     "timeout 10 npm test", "chmod +x script.sh", "sed -i 's/a/b/' a.txt", "echo ${HOME} > out.txt",
@@ -214,6 +217,7 @@ test("checkBash: writes outside the repository are blocked, scratch and repo pat
   ]) {
     assert.equal(checkBash(cmd, "executor", ctx), null, `should allow: ${cmd}`)
   }
+  assert.deepEqual(core.bashWriteTargets("echo hi > /tmp/x.txt", ctx), [])
 })
 
 test("checkBash: unknown variables and unparseable input fail open", () => {
@@ -226,7 +230,7 @@ test("checkBash: recursively validates sh/bash/zsh -c and -lc command strings", 
   const ctx = ctxFor(mkRepo())
   const results = [
     checkBash("sh -c 'git checkout -b evil'", "executor", ctx),
-    checkBash("bash -lc 'echo x > /tmp/pwn'", "executor", ctx),
+    checkBash("bash -lc 'echo x > ~/pwn'", "executor", ctx),
     checkBash("env zsh -ec 'git stash'", "executor", ctx),
     checkBash("sh -c 'git status && echo ok > out.txt'", "executor", ctx),
   ]
@@ -315,7 +319,7 @@ test("linked worktree under .git: scratch stays inside it and nothing is flagged
   const ctx = { info, cwd: info.top, scratch }
   assert.equal(checkBash("echo x > src.txt", "executor", ctx), null)
   assert.ok(checkBash("echo x > ../../../../a.txt", "executor", ctx))
-  assert.ok(checkBash("echo x > /tmp/x", "executor", ctx))
+  assert.ok(checkBash("echo x > ~/x", "executor", ctx))
   assert.deepEqual(snapshot(info).worktrees.length, 2)
 })
 

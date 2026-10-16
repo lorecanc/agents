@@ -12,12 +12,17 @@ permission:
     "*": deny
     "~/.local/share/opencode/tool-output/*": allow
     "~/.config/opencode/skills/*": allow
+    "/tmp/*": allow
+    "/private/tmp/*": allow
   doom_loop: deny
   pipeline_state: allow
   read: allow
   grep: allow
   glob: allow
   skill: allow
+  read_mcp_resource: allow
+  list_mcp_resources: allow
+  list_mcp_resource_templates: allow
   todowrite: allow
   question: allow
   task:

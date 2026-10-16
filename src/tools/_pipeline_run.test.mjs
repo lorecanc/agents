@@ -202,6 +202,21 @@ test("runSmoke: starts, checks, stops, and leaves the port free", async () => {
   assert.deepEqual(fs.readdirSync(scratch).filter((f) => f.startsWith("smoke-")), [])
 })
 
+test("runSmoke: autodetects a package start script when no pipeline contract exists", async () => {
+  const dir = mkRepo({
+    "package.json": JSON.stringify({ scripts: { start: "node server.js" } }),
+    "server.js": `
+const http = require("http")
+http.createServer((req, res) => { res.writeHead(200); res.end("ok") }).listen(Number(process.env.PORT), "127.0.0.1")
+`,
+  })
+  const res = await runSmoke({ info: repoInfo(dir) })
+  assert.equal(res.status, "pass", JSON.stringify(res))
+  assert.equal(res.contract_source, "autodetect")
+  assert.equal(res.cleanup.process_stopped, true)
+  assert.equal(res.cleanup.port_free, true)
+})
+
 test("runSmoke: a real expectation mismatch is a code failure and the service is still stopped", async () => {
   const dir = mkRepo({ "server.js": SERVER }, smokeContract({ checks: [{ name: "teapot", url: "http://127.0.0.1:${PORT}/teapot", expect_status: 200 }] }))
   const res = await runSmoke({ info: repoInfo(dir) })
@@ -380,9 +395,9 @@ test("runSmoke: log-pattern readiness, local-only URLs, missing contract", async
   const ext = await runSmoke({ info: repoInfo(external) })
   assert.equal(ext.status, "fail")
   assert.match(ext.checks[0].detail, /only target localhost/)
-  const none = await runSmoke({ info: repoInfo(mkRepo({ "package.json": JSON.stringify({ scripts: { dev: "vite" } }) })) })
+  const none = await runSmoke({ info: repoInfo(mkRepo({ "package.json": JSON.stringify({ scripts: { build: "vite build" } }) })) })
   assert.equal(none.status, "inconclusive")
-  assert.match(none.suggested_smoke.start, /npm run dev/)
+  assert.equal(none.suggested_smoke, null)
 })
 
 test("killTree is safe on pids that are gone or invalid", async () => {
