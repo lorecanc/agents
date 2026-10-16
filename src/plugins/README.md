@@ -39,13 +39,22 @@ Emergency switch for the plugin: `OPENCODE_PIPELINE_GUARD=off`.
 ## What the plugin enforces
 
 - `shell.env`: `TMPDIR`, `TMP`, `TEMP`, `PIPELINE_SCRATCH` point to a scratch directory inside the repo
-  (`<git-common-dir>/opencode-scratch`, or `.opencode-scratch/` in a linked worktree, excluded from git).
+  (`<git-common-dir>/opencode-scratch`, or `.opencode-scratch/` in a linked worktree, excluded from git);
+  `GIT_EDITOR=:` and `GIT_MERGE_AUTOEDIT=no` keep merge, rebase and pull continuations from hanging on an
+  interactive editor.
 - Blocks `bash` writes (redirections, `cp`, `mv`, `rm`, `tee`, `curl -o`, `cd` ...) outside the repo or into `.git`.
   Reads are not restricted here.
 - Blocks `edit` / `write` / `apply_patch` outside the repo or into `.git`.
-- Blocks `git checkout|switch|branch|worktree|stash|reset|clean|rebase|merge|push|tag|commit|add` (and
-  `-C`, `--git-dir`, `-c core.hooksPath`) for every role. `post_session` may `add <explicit files>` and
-  `commit` (no `-A`, `.`, `-a`, `--amend`, `--no-verify`).
+- Git inspection and diagnostic subcommands, plus `git fetch` (without `--upload-pack`), are allowed for all
+  roles. `ops`, `fast_lane` and `executor` may also run `git pull` (without `--upload-pack`) and resolve
+  conflicts with `git merge` / `git cherry-pick` (without `-e` / `--edit`), non-interactive `git rebase`
+  (without `-i` / `--interactive` / `-x` / `--exec`), `git checkout --ours|--theirs|--merge <files>`,
+  `git restore --staged|-S|--ours|--theirs|--merge <files>` and `git add <explicit-files>`; these commands
+  also allow `-c core.editor=true|:`. `post_session` may additionally run `git commit` (without `--amend`,
+  `-a` or `--no-verify`), `git add <explicit-files>` and `git restore --staged <files>` (prefer `pipeline_commit`).
+  Destructive or workspace-escaping mutations remain blocked for every role: `push`, branch switching via
+  `checkout <branch>` / `switch`, branch/worktree/stash/tag creation or deletion, `reset`, `clean` and plain
+  working-tree `restore`.
 - Refuses edits to a file that another **live** session (same repository, other root session, busy, process
   alive, updated in the last 15 minutes) has already edited. If parent sessions cannot be resolved it does
   not guess and does not block.

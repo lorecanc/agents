@@ -24,9 +24,95 @@ permission:
     git log*: allow
     git show*: allow
     git ls-files*: allow
+    git ls-tree*: allow
+    git ls-remote*: allow
+    git cat-file*: allow
     git rev-parse*: allow
+    git rev-list*: allow
+    git merge-base*: allow
+    git range-diff*: allow
+    git cherry*: allow
     git branch --show-current*: allow
+    git branch -a*: allow
+    git branch -r*: allow
+    git branch -v*: allow
+    git branch --list*: allow
+    git branch --contains*: allow
+    git branch --merged*: allow
+    git branch --no-merged*: allow
     git blame*: allow
+    git grep*: allow
+    git describe*: allow
+    git shortlog*: allow
+    git for-each-ref*: allow
+    git name-rev*: allow
+    git show-ref*: allow
+    git show-branch*: allow
+    git check-ignore*: allow
+    git var*: allow
+    git verify-commit*: allow
+    git verify-tag*: allow
+    git tag -l*: allow
+    git tag --list*: allow
+    git remote -v*: allow
+    git remote --verbose*: allow
+    git remote show*: allow
+    git remote get-url*: allow
+    git stash list*: allow
+    git stash show*: allow
+    git worktree list*: allow
+    git reflog*: allow
+    git reflog expire*: deny
+    git reflog delete*: deny
+    git config --get*: allow
+    git config --list*: allow
+    git config -l*: allow
+    git fetch*: allow
+    git fetch *--upload-pack*: deny
+    git fetch *ext::*: deny
+    git pull*: allow
+    git pull *--upload-pack*: deny
+    git pull *ext::*: deny
+    git pull *--rebase=interactive*: deny
+    git pull *--rebase=i*: deny
+    git merge*: allow
+    git merge *-e*: deny
+    git merge *--edit*: deny
+    git rebase*: allow
+    git rebase *-i*: deny
+    git rebase *--interactive*: deny
+    git rebase *-x*: deny
+    git rebase *--exec*: deny
+    git cherry-pick*: allow
+    git cherry-pick *-e*: deny
+    git cherry-pick *--edit*: deny
+    git -c core.editor=true *: allow
+    git -c core.editor=: *: allow
+    git checkout --ours *: allow
+    git checkout --theirs *: allow
+    git checkout -m *: allow
+    git checkout --merge *: allow
+    git checkout --conflict=*: allow
+    git restore --staged *: allow
+    git restore -S *: allow
+    git restore --ours *: allow
+    git restore --theirs *: allow
+    git restore --merge *: allow
+    git restore -m *: allow
+    git restore --conflict=*: allow
+    git add *: allow
+    git add .: deny
+    git add .*: deny
+    git add -A*: deny
+    git add --all*: deny
+    git add -u*: deny
+    git add --update*: deny
+    git add -p*: deny
+    git add --patch*: deny
+    git add -i*: deny
+    git add --interactive*: deny
+    git add */: deny
+    git add *.: deny
     sudo *: deny
     rm -rf /*: deny
     rm -fr /*: deny
@@ -69,7 +155,7 @@ Before your first edit, run `git branch --show-current`, `git log -1 --format=%H
 
 - Stay inside the repository. Never read, write, or create files outside it (no `/tmp`, `/var/folders`, `~`, sibling directories), even if a tool or system hint suggests a "temporary directory". Such access is denied and wastes steps.
 - Scratch files (throwaway scripts, captured output, logs, fixtures) go in the scratch directory: `$PIPELINE_SCRATCH` if set, otherwise `.git/opencode-scratch/` (create it with `mkdir -p "$(git rev-parse --git-path opencode-scratch)"`). Run commands that create temp files with `TMPDIR` pointing there. Delete what you created before you finish. Never leave scratch files in the working tree.
-- Do not create or switch branches, worktrees, stashes, tags, or remotes, and do not run `git add/commit/reset/clean/checkout/restore/rebase/merge/push`. These commands are denied; commits are made only by `@pipeline-post_session`. Report what you changed instead.
+- Creating or switching branches, worktrees, stashes, tags, or remotes and running `git commit/reset/clean/switch/push` are denied (standalone commits are made only by `@pipeline-post_session`). `git fetch`, `git pull`, and conflict resolution (`git merge`, `git rebase`, `git cherry-pick`, `git checkout --ours/--theirs <files>`, `git restore --staged/--ours/--theirs/--merge <files>`, and `git add <explicit-files>`) are allowed when syncing or resolving conflicts.
 - The working tree is shared with other agents. Edit only the files assigned to you. If a file you must change is listed in the orchestrator's `baseline_dirty` (uncommitted changes that existed before the session), stop and report it instead of editing.
 - Never start long-running processes (dev servers, watchers) and never leave a background process running.
 - Run only the narrowest check that covers your change; do not run the full test suite unless explicitly asked.

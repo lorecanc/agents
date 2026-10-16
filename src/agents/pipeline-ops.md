@@ -28,9 +28,95 @@ permission:
     git log*: allow
     git show*: allow
     git ls-files*: allow
+    git ls-tree*: allow
+    git ls-remote*: allow
+    git cat-file*: allow
     git rev-parse*: allow
+    git rev-list*: allow
+    git merge-base*: allow
+    git range-diff*: allow
+    git cherry*: allow
     git branch --show-current*: allow
+    git branch -a*: allow
+    git branch -r*: allow
+    git branch -v*: allow
+    git branch --list*: allow
+    git branch --contains*: allow
+    git branch --merged*: allow
+    git branch --no-merged*: allow
     git blame*: allow
+    git grep*: allow
+    git describe*: allow
+    git shortlog*: allow
+    git for-each-ref*: allow
+    git name-rev*: allow
+    git show-ref*: allow
+    git show-branch*: allow
+    git check-ignore*: allow
+    git var*: allow
+    git verify-commit*: allow
+    git verify-tag*: allow
+    git tag -l*: allow
+    git tag --list*: allow
+    git remote -v*: allow
+    git remote --verbose*: allow
+    git remote show*: allow
+    git remote get-url*: allow
+    git stash list*: allow
+    git stash show*: allow
+    git worktree list*: allow
+    git reflog*: allow
+    git reflog expire*: deny
+    git reflog delete*: deny
+    git config --get*: allow
+    git config --list*: allow
+    git config -l*: allow
+    git fetch*: allow
+    git fetch *--upload-pack*: deny
+    git fetch *ext::*: deny
+    git pull*: allow
+    git pull *--upload-pack*: deny
+    git pull *ext::*: deny
+    git pull *--rebase=interactive*: deny
+    git pull *--rebase=i*: deny
+    git merge*: allow
+    git merge *-e*: deny
+    git merge *--edit*: deny
+    git rebase*: allow
+    git rebase *-i*: deny
+    git rebase *--interactive*: deny
+    git rebase *-x*: deny
+    git rebase *--exec*: deny
+    git cherry-pick*: allow
+    git cherry-pick *-e*: deny
+    git cherry-pick *--edit*: deny
+    git -c core.editor=true *: allow
+    git -c core.editor=: *: allow
+    git checkout --ours *: allow
+    git checkout --theirs *: allow
+    git checkout -m *: allow
+    git checkout --merge *: allow
+    git checkout --conflict=*: allow
+    git restore --staged *: allow
+    git restore -S *: allow
+    git restore --ours *: allow
+    git restore --theirs *: allow
+    git restore --merge *: allow
+    git restore -m *: allow
+    git restore --conflict=*: allow
+    git add *: allow
+    git add .: deny
+    git add .*: deny
+    git add -A*: deny
+    git add --all*: deny
+    git add -u*: deny
+    git add --update*: deny
+    git add -p*: deny
+    git add --patch*: deny
+    git add -i*: deny
+    git add --interactive*: deny
+    git add */: deny
+    git add *.: deny
     sudo *: deny
     rm -rf /*: deny
     rm -fr /*: deny
@@ -72,7 +158,7 @@ Follow the repository `AGENTS.md` rules. Your job is to execute bash commands fo
 - **NEVER** kill processes you did not start (`pkill`/`killall` are denied; stop only the PIDs you recorded).
 - **NEVER** propose code fixes — describe what you found and let the executor implement.
 - **NEVER** store secrets, tokens, or credentials in your output. Redact them if they appear in command output.
-- **NEVER** commit, push, tag, branch, stash, or modify git history; git is read-only for you.
+- `git fetch`, `git pull`, diagnostic commands, and conflict resolution (`git merge`, `git rebase`, `git cherry-pick`, `git checkout --ours/--theirs <files>`, `git restore --staged/--ours/--theirs/--merge <files>`, `git add <explicit-files>`) are allowed when needed. `git commit`, `git push`, `git reset`, `git clean`, `git switch`, branch switching, and creating or deleting branches, tags, worktrees, or stashes remain prohibited.
 
 ## Workspace hygiene (non-negotiable)
 

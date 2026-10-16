@@ -91,17 +91,26 @@ test("tokenize: heredoc bodies are data, ${VAR} stays one token, >&2 leaves no s
   assert.deepEqual(flat, ["cat", "echo ${HOME}/x"])
 })
 
-test("checkBash: git mutations blocked for every role but post_session", () => {
+test("checkBash: unsafe git mutations remain blocked for executor", () => {
   const dir = mkRepo()
   const ctx = ctxFor(dir)
   for (const cmd of [
-    "git checkout -b feature", "git switch main", "git worktree add ../x -b y", "git stash", "git stash pop",
-    "git reset --hard", "git clean -fd", "git rebase main", "git merge x", "git push origin main",
-    "git commit -m x", "git add a.txt", "git branch newbranch", "git branch -D x", "git tag v1",
+    "git checkout -b x", "git checkout main", "git checkout a.txt", "git switch -c x", "git worktree add ../wt",
+    "git stash", "git stash pop", "git reset --hard", "git clean -fd", "git push", "git commit -m x",
+    "git add -A", "git add .", "git restore a.txt", "git branch new-b", "git tag v1",
+    "git diff --output=/tmp/x", "git status > /tmp/x", "git status && rm -rf /tmp/x",
     "git -C ../elsewhere status", "git --git-dir=/x status", "git -c core.hooksPath=/x status",
     "git status && git checkout x", "echo $(git stash)",
   ]) {
     assert.ok(checkBash(cmd, "executor", ctx), `should block: ${cmd}`)
+  }
+  for (const role of ["tester", "explorer"]) {
+    for (const cmd of [
+      "git pull", "git rebase main", "git merge x", "git cherry-pick abc", "git checkout --ours a.txt",
+      "git restore --ours a.txt", "git add a.txt",
+    ]) {
+      assert.ok(checkBash(cmd, role, ctx), `should block for ${role}: ${cmd}`)
+    }
   }
   for (const cmd of [
     "git status --porcelain=v1 -uall", "git diff HEAD -- a.txt", "git log -1 --format=%H", "git show HEAD:a.txt",
@@ -111,6 +120,62 @@ test("checkBash: git mutations blocked for every role but post_session", () => {
   ]) {
     assert.equal(checkBash(cmd, "executor", ctx), null, `should allow: ${cmd}`)
   }
+})
+
+test("checkBash: ops, fast_lane and executor may fetch, pull and resolve conflicts while unsafe flags remain blocked", () => {
+  const ctx = ctxFor(mkRepo())
+  const assertAllowed = (roles, commands) => {
+    for (const role of roles) {
+      for (const cmd of commands) {
+        assert.equal(checkBash(cmd, role, ctx), null, `should allow for ${role}: ${cmd}`)
+      }
+    }
+  }
+  const assertBlocked = (roles, commands) => {
+    for (const role of roles) {
+      for (const cmd of commands) {
+        assert.ok(checkBash(cmd, role, ctx), `should block for ${role}: ${cmd}`)
+      }
+    }
+  }
+
+  assertAllowed(["explorer", "tester", "ops", "fast_lane", "executor"], ["git fetch", "git fetch origin main"])
+  assertAllowed(["explorer", "executor"], [
+    "git range-diff main...HEAD", "git cherry -v main", "git var GIT_EDITOR", "git verify-commit HEAD",
+    "git verify-tag v1", "git remote --verbose",
+  ])
+  assertAllowed(["ops", "fast_lane", "executor"], [
+    "git pull", "git pull --ff-only", "git pull --rebase origin main",
+    "git merge origin/main", "git merge --continue", "git merge --abort", "git -c core.editor=true merge --continue",
+    "git rebase origin/main", "git rebase --continue", "git rebase --abort", "git rebase --skip",
+    "git -c core.editor=: rebase --continue", "git rebase -Xours main",
+    "git cherry-pick abc1234", "git cherry-pick --continue", "git cherry-pick --abort",
+    "git checkout --ours a.txt", "git checkout --theirs -- src/a.txt b.txt", "git checkout -m a.txt",
+    "git checkout --conflict=diff3 a.txt",
+    "git restore --staged a.txt", "git restore -S a.txt", "git restore --ours a.txt",
+    "git restore --theirs src/a.txt", "git restore --merge a.txt",
+    "git add a.txt", "git add src/a.txt src/b.txt",
+  ])
+
+  assertBlocked(["executor", "ops"], [
+    "git fetch --upload-pack=/tmp/evil origin", "git pull --upload-pack /tmp/evil",
+    "git -c protocol.ext.allow=always fetch origin", "git -cprotocol.ext.allow=always fetch origin", "git fetch ext::/bin/sh",
+  ])
+  assertBlocked(["executor"], [
+    "git pull --rebase=interactive", "git pull --rebase=i",
+    "git rebase -i main", "git rebase --interactive main", "git rebase -x 'touch /tmp/x' main", "git rebase -xtouch main",
+    "git rebase --exec='id' main", "git rebase -ix 'id' main",
+    "git merge -e origin/main", "git merge --edit origin/main", "git cherry-pick -e abc",
+    "git -c core.editor=vim rebase --continue",
+    "git checkout --ours .", "git checkout --ours", "git checkout -b feat --ours a.txt", "git checkout -f --ours a.txt",
+    "git restore --ours .", "git restore --ours", "git restore a.txt",
+    "git add ./", "git add src/", "git add ':(top)**'", "git add '../outside.txt'",
+    "git checkout --ours ./", "git checkout --ours src/", "git checkout --ours '../outside.txt'",
+    "git restore --ours ./", "git restore --ours src/", "git restore --ours '../outside.txt'",
+    'git add "$HOME/../outside.txt"', 'git add "~/outside.txt"',
+    'git checkout --ours "$HOME/../outside.txt"', 'git restore --ours "$FOO/a.txt"',
+  ])
+  assertBlocked(["executor", "ops"], ["git add -A", "git add .", "git add -u a.txt", "git add -p a.txt"])
 })
 
 test("checkBash: post_session may add explicit files and commit, nothing broader", () => {
