@@ -4,7 +4,7 @@ description: Frontend debugging and visual validation agent. Uses Chrome
   console error detection. Called in the frontend lane before and after code
   changes. Can start the project's service itself with pipeline_serve.
 mode: subagent
-model: mistral/zai-glm-5-3
+model: mistral/mistral-large-4
 temperature: 1
 permission:
   "*": deny
@@ -128,6 +128,7 @@ permission:
     lsof -nP -iTCP*: allow
 color: "#E67E22"
 hidden: true
+variant: high
 steps: 50
 ---
 

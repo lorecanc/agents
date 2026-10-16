@@ -4,7 +4,7 @@ description: Apple/Swift specialist. Uses Cupertino MCP (363K Apple docs, HIG,
   diagnostics tools) to validate plans and code against Apple conventions. Does
   not edit files.
 mode: subagent
-model: opencode/muse-spark-1.3-contributor-free
+model: opencode/deepseek-v4.1-flash-free
 temperature: 1
 permission:
   "*": deny
@@ -151,6 +151,7 @@ permission:
   axiom_axiom_search_skills: allow
 color: "#E67E22"
 hidden: true
+variant: high
 steps: 50
 ---
 

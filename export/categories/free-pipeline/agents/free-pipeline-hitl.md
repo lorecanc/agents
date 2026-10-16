@@ -3,7 +3,7 @@ description: Human-in-the-loop checkpoint agent. Explains repository changes in
   plain Italian with the why, a visual Mermaid map, simple concrete examples,
   and essential diffs—without technical jargon. Informational and non-blocking.
 mode: subagent
-model: opencode/muse-spark-1.3-contributor-free
+model: opencode/deepseek-v4.1-flash-free
 temperature: 1
 permission:
   "*": deny
@@ -130,6 +130,7 @@ permission:
     swift --version*: allow
 color: "#E67E22"
 hidden: true
+variant: high
 steps: 50
 ---
 

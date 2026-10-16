@@ -3,7 +3,7 @@ description: Primary coordinator for the pipeline multi-agent workflow. Assesses
   work size, routes to the smallest effective lane, delegates to specialized
   agents, and evaluates results. Never writes code or solves problems directly.
 mode: primary
-model: opencode/muse-spark-1.3-contributor-free
+model: opencode/deepseek-v4.1-flash-free
 temperature: 1
 permission:
   "*": deny
@@ -53,6 +53,7 @@ permission:
   codebase-memory-mcp_index_repository: deny
 color: "#E67E22"
 hidden: false
+variant: high
 steps: 120
 ---
 
