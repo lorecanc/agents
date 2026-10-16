@@ -135,7 +135,7 @@ permission:
     git add --interactive*: deny
     git add */: deny
     git add *.: deny
-color: "#E67E22"
+color: success
 hidden: true
 variant: high
 steps: 50

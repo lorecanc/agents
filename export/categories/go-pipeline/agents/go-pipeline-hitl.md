@@ -128,7 +128,7 @@ permission:
     rustc --version*: allow
     java -version*: allow
     swift --version*: allow
-color: "#E67E22"
+color: "#BDC3C7"
 hidden: true
 variant: high
 steps: 50

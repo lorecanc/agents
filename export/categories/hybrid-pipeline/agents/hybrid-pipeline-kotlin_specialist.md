@@ -155,7 +155,7 @@ permission:
     javac --version*: allow
     adb devices*: allow
     adb version*: allow
-color: "#E67E22"
+color: "#FFD700"
 hidden: true
 variant: high
 steps: 50

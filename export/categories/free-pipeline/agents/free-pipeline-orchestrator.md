@@ -51,7 +51,7 @@ permission:
   codebase-memory-mcp_ingest_traces: deny
   codebase-memory-mcp_manage_adr: deny
   codebase-memory-mcp_index_repository: deny
-color: "#E67E22"
+color: success
 hidden: false
 variant: high
 steps: 120

@@ -9,10 +9,10 @@ permission:
   "*": deny
   external_directory:
     "*": deny
-    "~/.local/share/opencode/tool-output/*": allow
-    "~/.config/opencode/skills/*": allow
-    "/tmp/*": allow
-    "/private/tmp/*": allow
+    ~/.local/share/opencode/tool-output/*: allow
+    ~/.config/opencode/skills/*: allow
+    /tmp/*: allow
+    /private/tmp/*: allow
   doom_loop: deny
   pipeline_smoke: allow
   pipeline_verify: allow
@@ -35,126 +35,126 @@ permission:
   lsp: allow
   bash:
     "*": allow
-    "git *": deny
-    "git status*": allow
-    "git diff*": allow
-    "git diff --output*": deny
-    "git diff * --output*": deny
-    "git log*": allow
-    "git show*": allow
-    "git ls-files*": allow
-    "git ls-tree*": allow
-    "git ls-remote*": allow
-    "git cat-file*": allow
-    "git rev-parse*": allow
-    "git rev-list*": allow
-    "git merge-base*": allow
-    "git range-diff*": allow
-    "git cherry*": allow
-    "git branch --show-current*": allow
-    "git branch -a*": allow
-    "git branch -r*": allow
-    "git branch -v*": allow
-    "git branch --list*": allow
-    "git branch --contains*": allow
-    "git branch --merged*": allow
-    "git branch --no-merged*": allow
-    "git blame*": allow
-    "git grep*": allow
-    "git describe*": allow
-    "git shortlog*": allow
-    "git for-each-ref*": allow
-    "git name-rev*": allow
-    "git show-ref*": allow
-    "git show-branch*": allow
-    "git check-ignore*": allow
-    "git var*": allow
-    "git verify-commit*": allow
-    "git verify-tag*": allow
-    "git tag -l*": allow
-    "git tag --list*": allow
-    "git remote -v*": allow
-    "git remote --verbose*": allow
-    "git remote show*": allow
-    "git remote get-url*": allow
-    "git stash list*": allow
-    "git stash show*": allow
-    "git worktree list*": allow
-    "git reflog*": allow
-    "git reflog expire*": deny
-    "git reflog delete*": deny
-    "git config --get*": allow
-    "git config --list*": allow
-    "git config -l*": allow
-    "git fetch*": allow
-    "git fetch *--upload-pack*": deny
-    "git fetch *ext::*": deny
-    "git pull*": allow
-    "git pull *--upload-pack*": deny
-    "git pull *ext::*": deny
-    "git pull *--rebase=interactive*": deny
-    "git pull *--rebase=i*": deny
-    "git merge*": allow
-    "git merge *-e*": deny
-    "git merge *--edit*": deny
-    "git rebase*": allow
-    "git rebase *-i*": deny
-    "git rebase *--interactive*": deny
-    "git rebase *-x*": deny
-    "git rebase *--exec*": deny
-    "git cherry-pick*": allow
-    "git cherry-pick *-e*": deny
-    "git cherry-pick *--edit*": deny
-    "git -c core.editor=true *": allow
+    git *: deny
+    git status*: allow
+    git diff*: allow
+    git diff --output*: deny
+    git diff * --output*: deny
+    git log*: allow
+    git show*: allow
+    git ls-files*: allow
+    git ls-tree*: allow
+    git ls-remote*: allow
+    git cat-file*: allow
+    git rev-parse*: allow
+    git rev-list*: allow
+    git merge-base*: allow
+    git range-diff*: allow
+    git cherry*: allow
+    git branch --show-current*: allow
+    git branch -a*: allow
+    git branch -r*: allow
+    git branch -v*: allow
+    git branch --list*: allow
+    git branch --contains*: allow
+    git branch --merged*: allow
+    git branch --no-merged*: allow
+    git blame*: allow
+    git grep*: allow
+    git describe*: allow
+    git shortlog*: allow
+    git for-each-ref*: allow
+    git name-rev*: allow
+    git show-ref*: allow
+    git show-branch*: allow
+    git check-ignore*: allow
+    git var*: allow
+    git verify-commit*: allow
+    git verify-tag*: allow
+    git tag -l*: allow
+    git tag --list*: allow
+    git remote -v*: allow
+    git remote --verbose*: allow
+    git remote show*: allow
+    git remote get-url*: allow
+    git stash list*: allow
+    git stash show*: allow
+    git worktree list*: allow
+    git reflog*: allow
+    git reflog expire*: deny
+    git reflog delete*: deny
+    git config --get*: allow
+    git config --list*: allow
+    git config -l*: allow
+    git fetch*: allow
+    git fetch *--upload-pack*: deny
+    git fetch *ext::*: deny
+    git pull*: allow
+    git pull *--upload-pack*: deny
+    git pull *ext::*: deny
+    git pull *--rebase=interactive*: deny
+    git pull *--rebase=i*: deny
+    git merge*: allow
+    git merge *-e*: deny
+    git merge *--edit*: deny
+    git rebase*: allow
+    git rebase *-i*: deny
+    git rebase *--interactive*: deny
+    git rebase *-x*: deny
+    git rebase *--exec*: deny
+    git cherry-pick*: allow
+    git cherry-pick *-e*: deny
+    git cherry-pick *--edit*: deny
+    git -c core.editor=true *: allow
     "git -c core.editor=: *": allow
-    "git checkout --ours *": allow
-    "git checkout --theirs *": allow
-    "git checkout -m *": allow
-    "git checkout --merge *": allow
-    "git checkout --conflict=*": allow
-    "git restore --staged *": allow
-    "git restore -S *": allow
-    "git restore --ours *": allow
-    "git restore --theirs *": allow
-    "git restore --merge *": allow
-    "git restore -m *": allow
-    "git restore --conflict=*": allow
-    "git add *": allow
-    "git add .": deny
-    "git add .*": deny
-    "git add -A*": deny
-    "git add --all*": deny
-    "git add -u*": deny
-    "git add --update*": deny
-    "git add -p*": deny
-    "git add --patch*": deny
-    "git add -i*": deny
-    "git add --interactive*": deny
-    "git add */": deny
-    "git add *.": deny
-    "sudo *": deny
-    "rm -rf /*": deny
-    "rm -fr /*": deny
-    "rm -rf ~*": deny
-    "rm -fr ~*": deny
-    "rm -rf ..*": deny
-    "rm -fr ..*": deny
-    "docker rm -f*": deny
-    "docker system prune*": deny
-    "docker volume prune*": deny
-    "docker compose down -v*": deny
-    "docker-compose down -v*": deny
-    "kubectl delete*": deny
-    "kubectl apply*": deny
-    "terraform apply*": deny
-    "terraform destroy*": deny
-    "gcloud * deploy*": deny
-    "gcloud * delete*": deny
-    "firebase deploy*": deny
-    "aws * delete*": deny
-    "pkill *": deny
-    "killall *": deny
-color: "#E67E22"
+    git checkout --ours *: allow
+    git checkout --theirs *: allow
+    git checkout -m *: allow
+    git checkout --merge *: allow
+    git checkout --conflict=*: allow
+    git restore --staged *: allow
+    git restore -S *: allow
+    git restore --ours *: allow
+    git restore --theirs *: allow
+    git restore --merge *: allow
+    git restore -m *: allow
+    git restore --conflict=*: allow
+    git add *: allow
+    git add .: deny
+    git add .*: deny
+    git add -A*: deny
+    git add --all*: deny
+    git add -u*: deny
+    git add --update*: deny
+    git add -p*: deny
+    git add --patch*: deny
+    git add -i*: deny
+    git add --interactive*: deny
+    git add */: deny
+    git add *.: deny
+    sudo *: deny
+    rm -rf /*: deny
+    rm -fr /*: deny
+    rm -rf ~*: deny
+    rm -fr ~*: deny
+    rm -rf ..*: deny
+    rm -fr ..*: deny
+    docker rm -f*: deny
+    docker system prune*: deny
+    docker volume prune*: deny
+    docker compose down -v*: deny
+    docker-compose down -v*: deny
+    kubectl delete*: deny
+    kubectl apply*: deny
+    terraform apply*: deny
+    terraform destroy*: deny
+    gcloud * deploy*: deny
+    gcloud * delete*: deny
+    firebase deploy*: deny
+    aws * delete*: deny
+    pkill *: deny
+    killall *: deny
+color: "#546E7A"
 steps: 50
 hidden: true
 ---

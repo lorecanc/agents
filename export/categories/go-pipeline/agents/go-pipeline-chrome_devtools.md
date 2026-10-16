@@ -126,7 +126,7 @@ permission:
     nc -z*: allow
     lsof -i*: allow
     lsof -nP -iTCP*: allow
-color: "#E67E22"
+color: "#BDC3C7"
 hidden: true
 variant: high
 steps: 50

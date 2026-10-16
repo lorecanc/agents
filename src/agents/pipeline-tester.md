@@ -8,10 +8,10 @@ permission:
   "*": deny
   external_directory:
     "*": deny
-    "~/.local/share/opencode/tool-output/*": allow
-    "~/.config/opencode/skills/*": allow
-    "/tmp/*": allow
-    "/private/tmp/*": allow
+    ~/.local/share/opencode/tool-output/*: allow
+    ~/.config/opencode/skills/*: allow
+    /tmp/*: allow
+    /private/tmp/*: allow
   doom_loop: deny
   pipeline_verify: allow
   pipeline_state: allow
@@ -94,7 +94,7 @@ permission:
     rm -fr ~*: deny
     rm -rf ..*: deny
     rm -fr ..*: deny
-color: "#E67E22"
+color: "#546E7A"
 steps: 50
 hidden: true
 ---

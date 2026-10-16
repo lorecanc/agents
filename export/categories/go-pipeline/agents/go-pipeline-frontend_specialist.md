@@ -152,7 +152,7 @@ permission:
     npx shadcn* --help*: allow
     npx tsc --noEmit*: allow
     tsc --noEmit*: allow
-color: "#E67E22"
+color: "#BDC3C7"
 hidden: true
 variant: high
 steps: 50

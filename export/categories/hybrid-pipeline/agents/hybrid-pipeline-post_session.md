@@ -84,7 +84,7 @@ permission:
     git config --get*: allow
     git config --list*: allow
     git config -l*: allow
-color: "#E67E22"
+color: "#FFD700"
 hidden: true
 variant: high
 steps: 50

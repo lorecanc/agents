@@ -149,7 +149,7 @@ permission:
   axiom_axiom_get_agent: allow
   axiom_axiom_read_skill: allow
   axiom_axiom_search_skills: allow
-color: "#E67E22"
+color: "#FFD700"
 hidden: true
 variant: high
 steps: 50

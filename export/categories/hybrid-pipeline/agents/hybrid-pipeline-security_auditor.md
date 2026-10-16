@@ -137,7 +137,7 @@ permission:
     osv-scanner*: allow
     hadolint*: allow
     shellcheck*: allow
-color: "#E67E22"
+color: "#FFD700"
 hidden: true
 variant: high
 steps: 50

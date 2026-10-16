@@ -131,6 +131,7 @@ permission:
     swift --version*: allow
 color: "#E67E22"
 hidden: true
+variant: high
 steps: 50
 ---
 
