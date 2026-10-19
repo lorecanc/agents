@@ -153,7 +153,7 @@ permission:
     ./gradlew check*: allow
     mvn test*: allow
     swift test*: allow
-color: "#E67E22"
+color: "#FFD700"
 hidden: true
 variant: high
 steps: 50

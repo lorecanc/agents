@@ -2,7 +2,7 @@
 description: Final validation agent for complex work. Checks whether the result
   satisfies the original request without overengineering.
 mode: subagent
-model: opencode/muse-spark-1.3-contributor-free
+model: opencode/deepseek-v4.1-flash-free
 temperature: 1
 permission:
   "*": deny
@@ -153,8 +153,9 @@ permission:
     ./gradlew check*: allow
     mvn test*: allow
     swift test*: allow
-color: "#E67E22"
+color: success
 hidden: true
+variant: high
 steps: 50
 ---
 

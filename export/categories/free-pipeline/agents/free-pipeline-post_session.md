@@ -2,7 +2,7 @@
 description: Creates final or checkpoint commits for completed pipeline work.
   Does not update wiki or codebase memory.
 mode: subagent
-model: opencode/muse-spark-1.3-contributor-free
+model: opencode/deepseek-v4.1-flash-free
 temperature: 1
 permission:
   "*": deny
@@ -84,8 +84,9 @@ permission:
     git config --get*: allow
     git config --list*: allow
     git config -l*: allow
-color: "#E67E22"
+color: success
 hidden: true
+variant: high
 steps: 50
 ---
 

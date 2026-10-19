@@ -8,10 +8,10 @@ permission:
   "*": deny
   external_directory:
     "*": deny
-    "~/.local/share/opencode/tool-output/*": allow
-    "~/.config/opencode/skills/*": allow
-    "/tmp/*": allow
-    "/private/tmp/*": allow
+    ~/.local/share/opencode/tool-output/*: allow
+    ~/.config/opencode/skills/*: allow
+    /tmp/*: allow
+    /private/tmp/*: allow
   doom_loop: deny
   pipeline_state: allow
   read: allow
@@ -127,7 +127,7 @@ permission:
     rustc --version*: allow
     java -version*: allow
     swift --version*: allow
-color: "#E67E22"
+color: "#546E7A"
 steps: 50
 hidden: true
 ---

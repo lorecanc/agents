@@ -4,7 +4,7 @@ description: Apple/Swift specialist. Uses Cupertino MCP (363K Apple docs, HIG,
   diagnostics tools) to validate plans and code against Apple conventions. Does
   not edit files.
 mode: subagent
-model: mistral/zai-glm-5-3
+model: mistral/mistral-large-4
 temperature: 1
 permission:
   "*": deny
@@ -151,6 +151,7 @@ permission:
   axiom_axiom_search_skills: allow
 color: "#E67E22"
 hidden: true
+variant: high
 steps: 50
 ---
 

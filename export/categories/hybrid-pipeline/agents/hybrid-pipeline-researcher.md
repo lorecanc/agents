@@ -24,7 +24,7 @@ permission:
   list_mcp_resource_templates: allow
   webfetch: allow
   websearch: allow
-color: "#E67E22"
+color: "#FFD700"
 hidden: true
 variant: high
 steps: 50

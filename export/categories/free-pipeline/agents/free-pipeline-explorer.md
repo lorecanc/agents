@@ -2,7 +2,7 @@
 description: Fast read-only codebase explorer. Locates relevant files, patterns,
   tests, configs, and implementation context before planning or coding.
 mode: subagent
-model: opencode/muse-spark-1.3-contributor-free
+model: opencode/deepseek-v4.1-flash-free
 temperature: 1
 permission:
   "*": deny
@@ -127,8 +127,9 @@ permission:
     rustc --version*: allow
     java -version*: allow
     swift --version*: allow
-color: "#E67E22"
+color: success
 hidden: true
+variant: high
 steps: 50
 ---
 

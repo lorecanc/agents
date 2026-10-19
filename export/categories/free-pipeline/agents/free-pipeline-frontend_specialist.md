@@ -4,7 +4,7 @@ description: Read-only frontend advisor used BEFORE implementation. Detects the
   21st.dev) and tells the executor what to build and which visual checks apply.
   Does not edit files or validate the result in a browser.
 mode: subagent
-model: opencode/muse-spark-1.3-contributor-free
+model: opencode/deepseek-v4.1-flash-free
 temperature: 1
 permission:
   "*": deny
@@ -152,8 +152,9 @@ permission:
     npx shadcn* --help*: allow
     npx tsc --noEmit*: allow
     tsc --noEmit*: allow
-color: "#E67E22"
+color: success
 hidden: true
+variant: high
 steps: 50
 ---
 

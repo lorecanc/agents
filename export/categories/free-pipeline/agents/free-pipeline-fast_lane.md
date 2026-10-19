@@ -1,7 +1,7 @@
 ---
 description: Fast low-cost agent for tiny, obvious, low-risk coding tasks and quick edits.
 mode: subagent
-model: opencode/muse-spark-1.3-contributor-free
+model: opencode/deepseek-v4.1-flash-free
 temperature: 1
 permission:
   "*": deny
@@ -134,8 +134,9 @@ permission:
     git add --interactive*: deny
     git add */: deny
     git add *.: deny
-color: "#E67E22"
+color: success
 hidden: true
+variant: high
 steps: 50
 ---
 

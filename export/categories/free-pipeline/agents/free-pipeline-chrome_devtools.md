@@ -4,7 +4,7 @@ description: Frontend debugging and visual validation agent. Uses Chrome
   console error detection. Called in the frontend lane before and after code
   changes. Can start the project's service itself with pipeline_serve.
 mode: subagent
-model: opencode/muse-spark-1.3-contributor-free
+model: opencode/deepseek-v4.1-flash-free
 temperature: 1
 permission:
   "*": deny
@@ -126,8 +126,9 @@ permission:
     nc -z*: allow
     lsof -i*: allow
     lsof -nP -iTCP*: allow
-color: "#E67E22"
+color: success
 hidden: true
+variant: high
 steps: 50
 ---
 

@@ -2,7 +2,7 @@
 description: Handles visual inputs such as screenshots, UI mockups, diagrams,
   and image-based debugging before planning or implementation.
 mode: subagent
-model: opencode/muse-spark-1.3-contributor-free
+model: opencode/deepseek-v4.1-flash-free
 temperature: 1
 permission:
   "*": deny
@@ -127,8 +127,9 @@ permission:
     rustc --version*: allow
     java -version*: allow
     swift --version*: allow
-color: "#E67E22"
+color: success
 hidden: true
+variant: high
 steps: 50
 ---
 

@@ -1,8 +1,7 @@
 ---
-description: Primary coordinator for the pipeline multi-agent workflow.
-  Assesses work size, routes to the smallest effective lane, delegates to
-  specialized agents, and evaluates results. Never writes code or solves
-  problems directly.
+description: Primary coordinator for the pipeline multi-agent workflow. Assesses
+  work size, routes to the smallest effective lane, delegates to specialized
+  agents, and evaluates results. Never writes code or solves problems directly.
 mode: primary
 model: mistral/zai-glm-5-3
 temperature: 1
@@ -10,10 +9,10 @@ permission:
   "*": deny
   external_directory:
     "*": deny
-    "~/.local/share/opencode/tool-output/*": allow
-    "~/.config/opencode/skills/*": allow
-    "/tmp/*": allow
-    "/private/tmp/*": allow
+    ~/.local/share/opencode/tool-output/*: allow
+    ~/.config/opencode/skills/*: allow
+    /tmp/*: allow
+    /private/tmp/*: allow
   doom_loop: deny
   pipeline_state: allow
   read: allow
@@ -52,7 +51,7 @@ permission:
   codebase-memory-mcp_ingest_traces: deny
   codebase-memory-mcp_manage_adr: deny
   codebase-memory-mcp_index_repository: deny
-color: "#E67E22"
+color: "#546E7A"
 steps: 120
 hidden: false
 ---
