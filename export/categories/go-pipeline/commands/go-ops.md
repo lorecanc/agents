@@ -1,6 +1,6 @@
 ---
 description: go pipeline: operational diagnostics and runtime checks, no code changes
-agent: go-go-pipeline-orchestrator
+agent: go-pipeline-orchestrator
 ---
 
 Task (operations): $ARGUMENTS

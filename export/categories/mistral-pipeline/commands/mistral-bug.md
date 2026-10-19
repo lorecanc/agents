@@ -1,6 +1,6 @@
 ---
 description: mistral pipeline: fix a bug with mandatory test-first (Red then Green)
-agent: mistral-mistral-pipeline-orchestrator
+agent: mistral-pipeline-orchestrator
 ---
 
 Request (bug fix): $ARGUMENTS

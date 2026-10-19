@@ -375,6 +375,16 @@ Options:
   } else {
     const allAgents = findAgentFiles(workspaceRoot, sourceSubdir)
     agentsToExport = category ? allAgents.filter(agent => agent.category === category) : allAgents
+    if (!category) {
+      const categoriesRoot = path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot))
+      if (fs.existsSync(categoriesRoot)) {
+        for (const entry of fs.readdirSync(categoriesRoot, { withFileTypes: true })) {
+          if (!entry.isDirectory() || !entry.name.endsWith("-pipeline")) continue
+          const stamped = loadStampedPipelineAgents(workspaceRoot, entry.name)
+          if (stamped) agentsToExport.push(...stamped.agents)
+        }
+      }
+    }
     if (category && agentsToExport.length === 0) {
       const stamped = loadStampedPipelineAgents(workspaceRoot, category)
       if (stamped) {

@@ -1,6 +1,6 @@
 ---
 description: mistral pipeline: operational diagnostics and runtime checks, no code changes
-agent: mistral-mistral-pipeline-orchestrator
+agent: mistral-pipeline-orchestrator
 ---
 
 Task (operations): $ARGUMENTS

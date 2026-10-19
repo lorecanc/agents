@@ -1,6 +1,6 @@
 ---
 description: hybrid pipeline: implement a feature through the smallest effective lane
-agent: hybrid-hybrid-pipeline-orchestrator
+agent: hybrid-pipeline-orchestrator
 ---
 
 Request (feature): $ARGUMENTS

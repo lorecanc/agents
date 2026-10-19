@@ -1,6 +1,6 @@
 ---
 description: copilot pipeline: fix a bug with mandatory test-first (Red then Green)
-agent: copilot-copilot-pipeline-orchestrator
+agent: copilot-pipeline-orchestrator
 ---
 
 Request (bug fix): $ARGUMENTS

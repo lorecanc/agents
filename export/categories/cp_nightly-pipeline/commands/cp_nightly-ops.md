@@ -1,6 +1,6 @@
 ---
 description: cp_nightly pipeline: operational diagnostics and runtime checks, no code changes
-agent: cp_nightly-cp_nightly-pipeline-orchestrator
+agent: cp_nightly-pipeline-orchestrator
 ---
 
 Task (operations): $ARGUMENTS

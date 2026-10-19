@@ -1,6 +1,6 @@
 ---
 description: mistral pipeline: research only, no code changes (internal explorer in parallel with external researcher)
-agent: mistral-mistral-pipeline-orchestrator
+agent: mistral-pipeline-orchestrator
 ---
 
 Question (research only): $ARGUMENTS

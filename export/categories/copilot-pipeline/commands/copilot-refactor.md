@@ -1,6 +1,6 @@
 ---
 description: copilot pipeline: behavior-preserving refactor
-agent: copilot-copilot-pipeline-orchestrator
+agent: copilot-pipeline-orchestrator
 ---
 
 Request (refactor): $ARGUMENTS

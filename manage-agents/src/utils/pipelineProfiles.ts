@@ -129,6 +129,10 @@ export function normalizePipelineCategoryName(target: string): string {
   return normalized
 }
 
+function assertValidCategoryName(category: string, label: string): void {
+  if (!/^[a-z0-9_-]+$/i.test(category)) throw new Error(`Invalid ${label.toLocaleLowerCase("und")} '${category}'.`)
+}
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }
@@ -172,9 +176,12 @@ export function rewritePipelineTaskPermissions(taskPerm: Record<string, any>, re
 
 export function rewritePipelineCommandContent(content: string, resolvedTarget: string, sourceCategory = "pipeline"): string {
   const targetPrefix = resolvedTarget.replace(/-pipeline$/, "")
-  let rewritten = content
-    .replaceAll(`${sourceCategory}-orchestrator`, `${resolvedTarget}-orchestrator`)
-    .replaceAll("pipeline-orchestrator", `${resolvedTarget}-orchestrator`)
+  const sourceOrchestrator = `${sourceCategory}-orchestrator`
+  let rewritten = content.replaceAll(sourceOrchestrator, `${resolvedTarget}-orchestrator`)
+  if (sourceCategory !== "pipeline") {
+    rewritten = rewritten.replace(/(?<![A-Za-z0-9_-])pipeline-orchestrator/g, `${resolvedTarget}-orchestrator`)
+  }
+  rewritten = rewritten
     .replaceAll(`@${sourceCategory}-`, `@${resolvedTarget}-`)
     .replaceAll("@pipeline-", `@${resolvedTarget}-`)
   rewritten = replacePipelinePathReferences(rewritten, sourceCategory, targetPrefix)
@@ -566,6 +573,7 @@ export function syncPipelineProfile(
   const resolvedTarget = targetCategory
     ? (targetCategory === "pipeline" || targetCategory.endsWith("-pipeline") ? targetCategory : `${targetCategory}-pipeline`)
     : `${profileName}-pipeline`
+  assertValidCategoryName(resolvedTarget, "Pipeline category")
 
   if (resolvedTarget === baseCategory) {
     const applied = applyPipelineProfile(workspaceRoot, profileName, baseCategory)
@@ -573,13 +581,27 @@ export function syncPipelineProfile(
   }
 
   const baseAgents = findAgentFiles(workspaceRoot).filter(agent => agent.category === baseCategory)
+  const sourceRoot = path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot))
+  const companionPaths = discoverCompanionResourcePaths(sourceRoot, [baseCategory], undefined, baseAgents)
+  if (fs.existsSync(path.join(sourceRoot, ".opencode", "pipeline.json"))) companionPaths.push(".opencode/pipeline.json")
   const outputDir = path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot), resolvedTarget)
   const agentsDir = path.join(outputDir, "agents")
+  validateForkPath(workspaceRoot, outputDir, true)
+  validateForkPath(workspaceRoot, agentsDir, true)
+  for (const directory of ["commands", "skills", "tools", "plugins"]) {
+    validateForkPath(workspaceRoot, path.join(outputDir, directory), true)
+  }
+  const profilePrefix = resolvedTarget.replace(/-pipeline$/, "")
+  for (const rel of companionPaths) {
+    const destinationRelative = rel.startsWith("commands/pipeline-")
+      ? `commands/${profilePrefix}-${rel.slice("commands/pipeline-".length)}`
+      : rel
+    validateForkPath(workspaceRoot, path.join(outputDir, ...destinationRelative.split("/")), false)
+  }
   fs.mkdirSync(agentsDir, { recursive: true })
   for (const name of fs.readdirSync(agentsDir)) {
     if (name.endsWith(".md")) fs.rmSync(path.join(agentsDir, name), { force: true })
   }
-  const profilePrefix = resolvedTarget.replace(/-pipeline$/, "")
   const synced: string[] = []
   for (const agent of baseAgents) {
     const role = extractPipelineRole(agent.filename, baseCategory)
@@ -605,17 +627,12 @@ export function syncPipelineProfile(
     synced.push(targetPath)
   }
 
-  const sourceRoot = path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot))
-  for (const rel of discoverCompanionResourcePaths(sourceRoot, [baseCategory], undefined, baseAgents)) {
+  for (const rel of companionPaths) {
     let destinationRelative = rel
     let content: string | undefined
     if (rel.startsWith("commands/pipeline-")) {
       destinationRelative = `commands/${profilePrefix}-${rel.slice("commands/pipeline-".length)}`
-      content = fs.readFileSync(path.join(sourceRoot, rel), "utf8")
-        .replace(/pipeline-orchestrator/g, `${resolvedTarget}-orchestrator`)
-        .replace(/@pipeline-/g, `@${resolvedTarget}-`)
-        .replace(/\/pipeline-/g, `/${profilePrefix}-`)
-        .replace(/Pipeline:/g, `${profilePrefix} pipeline:`)
+      content = rewritePipelineCommandContent(fs.readFileSync(path.join(sourceRoot, rel), "utf8"), resolvedTarget, baseCategory)
     }
     const destination = path.join(outputDir, destinationRelative)
     fs.mkdirSync(path.dirname(destination), { recursive: true })

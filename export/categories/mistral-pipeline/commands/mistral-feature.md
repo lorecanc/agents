@@ -1,6 +1,6 @@
 ---
 description: mistral pipeline: implement a feature through the smallest effective lane
-agent: mistral-mistral-pipeline-orchestrator
+agent: mistral-pipeline-orchestrator
 ---
 
 Request (feature): $ARGUMENTS

@@ -1,6 +1,6 @@
 ---
 description: go pipeline: implement a feature through the smallest effective lane
-agent: go-go-pipeline-orchestrator
+agent: go-pipeline-orchestrator
 ---
 
 Request (feature): $ARGUMENTS

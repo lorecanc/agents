@@ -1,6 +1,6 @@
 ---
 description: free pipeline: research only, no code changes (internal explorer in parallel with external researcher)
-agent: free-free-pipeline-orchestrator
+agent: free-pipeline-orchestrator
 ---
 
 Question (research only): $ARGUMENTS

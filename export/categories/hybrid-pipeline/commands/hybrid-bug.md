@@ -1,6 +1,6 @@
 ---
 description: hybrid pipeline: fix a bug with mandatory test-first (Red then Green)
-agent: hybrid-hybrid-pipeline-orchestrator
+agent: hybrid-pipeline-orchestrator
 ---
 
 Request (bug fix): $ARGUMENTS

@@ -1,6 +1,6 @@
 ---
 description: cp_nightly pipeline: research only, no code changes (internal explorer in parallel with external researcher)
-agent: cp_nightly-cp_nightly-pipeline-orchestrator
+agent: cp_nightly-pipeline-orchestrator
 ---
 
 Question (research only): $ARGUMENTS

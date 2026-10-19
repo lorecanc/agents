@@ -1,6 +1,6 @@
 ---
 description: cp_nightly pipeline: fix a bug with mandatory test-first (Red then Green)
-agent: cp_nightly-cp_nightly-pipeline-orchestrator
+agent: cp_nightly-pipeline-orchestrator
 ---
 
 Request (bug fix): $ARGUMENTS

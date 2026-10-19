@@ -1,6 +1,6 @@
 ---
 description: hybrid pipeline: behavior-preserving refactor
-agent: hybrid-hybrid-pipeline-orchestrator
+agent: hybrid-pipeline-orchestrator
 ---
 
 Request (refactor): $ARGUMENTS

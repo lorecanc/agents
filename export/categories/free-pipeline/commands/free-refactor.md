@@ -1,6 +1,6 @@
 ---
 description: free pipeline: behavior-preserving refactor
-agent: free-free-pipeline-orchestrator
+agent: free-pipeline-orchestrator
 ---
 
 Request (refactor): $ARGUMENTS

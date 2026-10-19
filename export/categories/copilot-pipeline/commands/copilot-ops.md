@@ -1,6 +1,6 @@
 ---
 description: copilot pipeline: operational diagnostics and runtime checks, no code changes
-agent: copilot-copilot-pipeline-orchestrator
+agent: copilot-pipeline-orchestrator
 ---
 
 Task (operations): $ARGUMENTS

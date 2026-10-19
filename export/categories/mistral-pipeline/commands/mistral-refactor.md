@@ -1,6 +1,6 @@
 ---
 description: mistral pipeline: behavior-preserving refactor
-agent: mistral-mistral-pipeline-orchestrator
+agent: mistral-pipeline-orchestrator
 ---
 
 Request (refactor): $ARGUMENTS

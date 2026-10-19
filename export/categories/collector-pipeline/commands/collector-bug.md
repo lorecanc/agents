@@ -1,6 +1,6 @@
 ---
 description: collector pipeline: fix a bug with mandatory test-first (Red then Green)
-agent: collector-collector-pipeline-orchestrator
+agent: collector-pipeline-orchestrator
 ---
 
 Request (bug fix): $ARGUMENTS

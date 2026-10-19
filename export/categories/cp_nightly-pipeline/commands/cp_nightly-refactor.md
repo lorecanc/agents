@@ -1,6 +1,6 @@
 ---
 description: cp_nightly pipeline: behavior-preserving refactor
-agent: cp_nightly-cp_nightly-pipeline-orchestrator
+agent: cp_nightly-pipeline-orchestrator
 ---
 
 Request (refactor): $ARGUMENTS

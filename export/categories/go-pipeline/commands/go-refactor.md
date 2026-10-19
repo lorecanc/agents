@@ -1,6 +1,6 @@
 ---
 description: go pipeline: behavior-preserving refactor
-agent: go-go-pipeline-orchestrator
+agent: go-pipeline-orchestrator
 ---
 
 Request (refactor): $ARGUMENTS

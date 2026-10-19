@@ -225,6 +225,26 @@ function resourcePathStat(filePath: string): fs.Stats | undefined {
   return stat
 }
 
+function resolveWorkspaceRootFromSourceRoot(sourceRoot: string): string {
+  const resolved = path.resolve(sourceRoot)
+  const parentName = path.basename(path.dirname(resolved))
+  if (parentName === "categories") {
+    const categoriesParent = path.dirname(path.dirname(resolved))
+    return path.basename(categoriesParent) === "export" ? path.dirname(categoriesParent) : categoriesParent
+  }
+  return path.dirname(resolved)
+}
+
+function inferAgentResourceRoot(agent: AgentInfo, resourceSourceRoot: string): string {
+  const agentPath = path.resolve(agent.currentPath)
+  const parts = agentPath.split(path.sep)
+  const agentsIndex = parts.lastIndexOf("agents")
+  if (agentsIndex < 2 || agentsIndex !== parts.length - 2) return path.resolve(resourceSourceRoot)
+  const bundleRoot = path.dirname(path.dirname(agentPath))
+  if (path.basename(path.dirname(bundleRoot)) !== "categories") return path.resolve(resourceSourceRoot)
+  return bundleRoot
+}
+
 export function discoverAgentResources(
   workspaceRoot: string,
   agent: AgentInfo,
@@ -232,8 +252,9 @@ export function discoverAgentResources(
   env: NodeJS.ProcessEnv = process.env
 ): AgentResourceCatalog {
   const generalDir = path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot))
-  const generalStat = resourcePathStat(generalDir)
-  if (generalStat && !generalStat.isDirectory()) throw new Error(`Resource root is not a directory: ${generalDir}`)
+  const resourceRoot = inferAgentResourceRoot(agent, generalDir)
+  const generalStat = resourcePathStat(resourceRoot)
+  if (generalStat && !generalStat.isDirectory()) throw new Error(`Resource root is not a directory: ${resourceRoot}`)
   const permission = agent.frontmatter?.permission
   const perm = isPlainObject(permission) ? permission : {}
   const allowedValue = (value: unknown) => value === "allow" || value === true
@@ -245,7 +266,7 @@ export function discoverAgentResources(
     for (const key of Object.keys(skillPermissionObject)) if (key !== "*") skillNames.add(key)
   }
 
-  const skillRoot = path.join(generalDir, "skills")
+  const skillRoot = path.join(resourceRoot, "skills")
   const skillRootStat = resourcePathStat(skillRoot)
   if (skillRootStat && !skillRootStat.isDirectory()) throw new Error(`Skills resource root is not a directory: ${skillRoot}`)
   const diskSkillNames = new Set<string>()
@@ -278,7 +299,7 @@ export function discoverAgentResources(
   }
 
   const tools: AgentResourceItem[] = []
-  const toolRoot = path.join(generalDir, "tools")
+  const toolRoot = path.join(resourceRoot, "tools")
   const toolRootStat = resourcePathStat(toolRoot)
   if (toolRootStat && !toolRootStat.isDirectory()) throw new Error(`Tools resource root is not a directory: ${toolRoot}`)
   const toolNames = new Set<string>()
@@ -331,7 +352,7 @@ export function discoverAgentResources(
     globalOpencode = parseOpenCodeJson(opencodeRawContent, opencodePath)
   }
   const globalMcpObj = isPlainObject(globalOpencode.mcp) ? globalOpencode.mcp : {}
-  const repoOpencodePath = path.join(generalDir, "opencode.json")
+  const repoOpencodePath = path.join(resourceRoot, "opencode.json")
   const repoOpencodeStat = resourcePathStat(repoOpencodePath)
   let repoOpencode: Record<string, any> = {}
   if (repoOpencodeStat) {
@@ -371,7 +392,7 @@ export function discoverAgentResources(
 
   return {
     skills, tools, mcpServers,
-    companionFiles: discoverCompanionResourcePaths(generalDir, [agentDomain(agent.filename), agent.category], undefined, [agent]),
+    companionFiles: discoverCompanionResourcePaths(resourceRoot, [agentDomain(agent.filename), agent.category], undefined, [agent]),
     categoryCompanionItems: discoverAvailableCategoryCompanionItems(workspaceRoot, agent.category),
     opencodeRawContent, opencodeConfigPath: opencodePath, recommendedMcpServers
   }
@@ -2292,7 +2313,7 @@ export function discoverCompanionResourcePaths(sourceRoot: string, domains: stri
     }
   }
 
-  const workspaceRoot = path.dirname(sourceRoot)
+  const workspaceRoot = resolveWorkspaceRootFromSourceRoot(sourceRoot)
   for (const domain of names) {
     const links = getCategoryCompanionLinks(workspaceRoot, domain)
     for (const relative of [...links.plugins, ...links.commands, ...links.skills, ...links.tools]) {
@@ -2349,8 +2370,49 @@ export function compareCompanionResources(workspaceRoot: string, agents?: AgentI
   })
 }
 
-function copyDomainResources(sourceRoot: string, opencodeRoot: string, domains: string[], agents: AgentInfo[]): { installed: string[]; backupPath: string | null } {
-  const resources = discoverCompanionResourcePaths(sourceRoot, domains, undefined, agents).map(relative => ({ source: path.join(sourceRoot, relative), relative }))
+function copyDomainResources(sourceRoot: string, opencodeRoot: string, agents: AgentInfo[]): { installed: string[]; backupPath: string | null } {
+  const canonicalRoot = path.resolve(sourceRoot)
+  const bundles = new Map<string, { domains: Set<string>; agents: AgentInfo[] }>()
+  for (const agent of agents) {
+    const root = inferAgentResourceRoot(agent, canonicalRoot)
+    const bundle = bundles.get(root) ?? { domains: new Set<string>(), agents: [] }
+    bundle.domains.add(agentDomain(agent.filename))
+    bundle.domains.add(agent.category)
+    if (path.basename(path.dirname(root)) === "categories" && path.basename(root).endsWith("-pipeline")) {
+      bundle.domains.add("pipeline")
+    }
+    bundle.agents.push(agent)
+    bundles.set(root, bundle)
+  }
+  if (["src", "general"].includes(path.basename(canonicalRoot))) {
+    const canonicalBundle = bundles.get(canonicalRoot) ?? { domains: new Set<string>(), agents: [] }
+    for (const agent of agents) {
+      if (!canonicalBundle.agents.includes(agent)) canonicalBundle.agents.push(agent)
+      canonicalBundle.domains.add(agentDomain(agent.filename))
+      canonicalBundle.domains.add(agent.category)
+    }
+    bundles.set(canonicalRoot, canonicalBundle)
+  }
+  const roots = [...bundles.keys()].sort((a, b) => {
+    if (a === canonicalRoot) return b === canonicalRoot ? 0 : -1
+    if (b === canonicalRoot) return 1
+    return a.localeCompare(b)
+  })
+  const allDomains = [...new Set([...bundles.values()].flatMap(bundle => [...bundle.domains]))]
+  const sources = new Map<string, string>()
+  for (const root of roots) {
+    const bundle = bundles.get(root)!
+    const domains = root === canonicalRoot && bundle.agents.length > 0 ? allDomains : [...bundle.domains]
+    const agentsForDerivation = root === canonicalRoot && bundle.agents.length > 0 ? agents : bundle.agents
+    const discovered = discoverCompanionResourcePaths(root, domains, undefined, agentsForDerivation)
+    const canonicalPipelineAgent = bundle.agents.some(agent => agentDomain(agent.filename) === "pipeline")
+    for (const relative of discovered) {
+      if (root === canonicalRoot && !canonicalPipelineAgent && /^commands\/pipeline-/.test(relative)) continue
+      const normalized = relative.replace(/\\/g, "/")
+      if (!sources.has(normalized)) sources.set(normalized, path.join(root, ...normalized.split("/")))
+    }
+  }
+  const resources = [...sources].map(([relative, source]) => ({ source, relative }))
   if (resources.length === 0) return { installed: [], backupPath: null }
 
   const pending: typeof resources = []
@@ -2553,11 +2615,10 @@ export function exportAgents(
     throw error
   }
 
-  const domains = successfulAgents.flatMap(agent => [agentDomain(agent.filename), agent.category])
   let resourceResult: { installed: string[]; backupPath: string | null }
   try {
-    resourceResult = resourceSourceRoot
-      ? copyDomainResources(resourceSourceRoot, opencodeRoot, domains, successfulAgents)
+      resourceResult = resourceSourceRoot
+      ? copyDomainResources(resourceSourceRoot, opencodeRoot, successfulAgents)
       : { installed: [], backupPath: null }
   } catch (error: any) {
     const rollbackErrors: string[] = []

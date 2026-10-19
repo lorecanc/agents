@@ -1054,6 +1054,115 @@ test("manifest, linked resources and reachable dependencies export without unrel
   assert.equal(fs.existsSync(path.join(opencodeRoot, "commands", "docs-extra.md")), false, "unrelated domains must not be installed")
 })
 
+test("export across canonical and multiple stamped pipelines installs each pipeline's commands and deduplicates shared companion resources", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-multi-pipeline-export-"))
+  const workspace = path.join(root, "workspace")
+  const sourceRoot = path.join(workspace, "src")
+  const previousXdg = process.env.XDG_CONFIG_HOME
+  t.after(() => {
+    if (previousXdg === undefined) delete process.env.XDG_CONFIG_HOME
+    else process.env.XDG_CONFIG_HOME = previousXdg
+  })
+
+  const sourceFiles: Record<string, string> = {
+    "commands/pipeline-bug.md": "canonical pipeline command\n",
+    "commands/copilot-bug.md": "copilot pipeline command\n",
+    "commands/cp_nightly-bug.md": "nightly pipeline command\n",
+    "plugins/pipeline-guard.js": "canonical pipeline guard\n",
+    "skills/code-review-antipatterns/SKILL.md": "shared review skill\n",
+    "tools/pipeline_state.ts": 'import "./_pipeline_core.js";\nexport const state = true\n',
+    "tools/_pipeline_core.js": "export const core = true\n"
+  }
+  for (const [relative, contents] of Object.entries(sourceFiles)) {
+    const filePath = path.join(sourceRoot, relative)
+    fs.mkdirSync(path.dirname(filePath), { recursive: true })
+    fs.writeFileSync(filePath, contents)
+  }
+
+  const sharedLinks = {
+    plugins: ["plugins/pipeline-guard.js"],
+    skills: ["skills/code-review-antipatterns"],
+    tools: ["tools/pipeline_state.ts"]
+  }
+  updateCategoryCompanionLinks(workspace, "pipeline", {
+    ...sharedLinks,
+    commands: ["commands/pipeline-bug.md"]
+  })
+  updateCategoryCompanionLinks(workspace, "copilot-pipeline", {
+    ...sharedLinks,
+    commands: ["commands/copilot-bug.md"]
+  })
+  updateCategoryCompanionLinks(workspace, "cp_nightly-pipeline", {
+    ...sharedLinks,
+    commands: ["commands/cp_nightly-bug.md"]
+  })
+
+  const canonicalAgent = fixtureAgent(path.join(sourceRoot, "agents", "pipeline-orchestrator.md"), workspace, "test/model")
+  const copilotAgent = fixtureAgent(path.join(workspace, "export/categories/copilot-pipeline/agents/copilot-pipeline-orchestrator.md"), workspace, "test/model")
+  const nightlyAgent = fixtureAgent(path.join(workspace, "export/categories/cp_nightly-pipeline/agents/cp_nightly-pipeline-orchestrator.md"), workspace, "test/model")
+
+  const staleStampedPlugin = path.join(workspace, "export/categories/copilot-pipeline/plugins/pipeline-guard.js")
+  fs.mkdirSync(path.dirname(staleStampedPlugin), { recursive: true })
+  fs.writeFileSync(staleStampedPlugin, "stale stamped pipeline guard\n")
+
+  const sharedResources = [
+    "plugins/pipeline-guard.js",
+    "skills/code-review-antipatterns/SKILL.md",
+    "tools/pipeline_state.ts",
+    "tools/_pipeline_core.js"
+  ]
+  const cases = [
+    {
+      agents: [canonicalAgent, copilotAgent, nightlyAgent],
+      commands: ["commands/pipeline-bug.md", "commands/copilot-bug.md", "commands/cp_nightly-bug.md"],
+      absentCommands: [] as string[]
+    },
+    {
+      agents: [copilotAgent, nightlyAgent],
+      commands: ["commands/copilot-bug.md", "commands/cp_nightly-bug.md"],
+      absentCommands: ["commands/pipeline-bug.md"]
+    }
+  ]
+
+  for (const [index, scenario] of cases.entries()) {
+    const xdg = path.join(root, `xdg-${index}`)
+    const opencodeRoot = path.join(xdg, "opencode")
+    process.env.XDG_CONFIG_HOME = xdg
+
+    if (index === 1) {
+      for (const relative of sharedResources) {
+        const destination = path.join(opencodeRoot, relative)
+        fs.mkdirSync(path.dirname(destination), { recursive: true })
+        fs.writeFileSync(destination, `pre-existing ${relative}\n`)
+      }
+    }
+
+    const selected = new Set(scenario.agents.map(agent => agent.currentPath))
+    const result = exportAgents(scenario.agents, selected, sourceRoot)
+
+    for (const relative of scenario.commands) {
+      assert.equal(fs.existsSync(path.join(opencodeRoot, relative)), true, `${relative} should be installed`)
+    }
+    for (const relative of scenario.absentCommands) {
+      assert.equal(fs.existsSync(path.join(opencodeRoot, relative)), false, `${relative} should not be installed`)
+    }
+    for (const relative of sharedResources) {
+      const installedPath = path.join(opencodeRoot, relative)
+      assert.equal(fs.existsSync(installedPath), true, `${relative} should be installed`)
+      assert.ok(result.domainResources.includes(installedPath), `${relative} should be listed as an installed resource`)
+      assert.ok(result.domainResources.filter(resource => resource === installedPath).length <= 1, `${relative} must not be listed more than once`)
+    }
+    assert.equal(fs.readFileSync(path.join(opencodeRoot, "plugins/pipeline-guard.js"), "utf8"), sourceFiles["plugins/pipeline-guard.js"], "the canonical src copy wins over a stale stamped copy")
+    assert.equal(new Set(result.domainResources).size, result.domainResources.length, "domain resource paths must be deduplicated")
+
+    if (index === 1) {
+      const backups = fs.readdirSync(opencodeRoot).filter(name => name.startsWith("resource_export_backup_"))
+      assert.ok(backups.length <= 1, "overwriting shared resources should create at most one backup directory")
+      assert.equal(backups.length, 1, "pre-existing shared resources should be backed up")
+    }
+  }
+})
+
 test("agent permissions derive tool resources and trace relative helper imports", () => withTemporaryXdgConfigHome(() => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "agent-derived-resources-"))
   const agent = fixtureAgent(path.join(workspace, "general/agents/custom-agent.md"), workspace, "test/model")

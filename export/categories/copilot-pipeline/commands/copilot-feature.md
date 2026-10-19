@@ -1,6 +1,6 @@
 ---
 description: copilot pipeline: implement a feature through the smallest effective lane
-agent: copilot-copilot-pipeline-orchestrator
+agent: copilot-pipeline-orchestrator
 ---
 
 Request (feature): $ARGUMENTS

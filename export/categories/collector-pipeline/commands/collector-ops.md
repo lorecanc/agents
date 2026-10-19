@@ -1,6 +1,6 @@
 ---
 description: collector pipeline: operational diagnostics and runtime checks, no code changes
-agent: collector-collector-pipeline-orchestrator
+agent: collector-pipeline-orchestrator
 ---
 
 Task (operations): $ARGUMENTS

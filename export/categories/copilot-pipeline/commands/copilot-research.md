@@ -1,6 +1,6 @@
 ---
 description: copilot pipeline: research only, no code changes (internal explorer in parallel with external researcher)
-agent: copilot-copilot-pipeline-orchestrator
+agent: copilot-pipeline-orchestrator
 ---
 
 Question (research only): $ARGUMENTS

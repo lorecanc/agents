@@ -1,6 +1,6 @@
 ---
 description: free pipeline: fix a bug with mandatory test-first (Red then Green)
-agent: free-free-pipeline-orchestrator
+agent: free-pipeline-orchestrator
 ---
 
 Request (bug fix): $ARGUMENTS

@@ -1,6 +1,6 @@
 ---
 description: go pipeline: research only, no code changes (internal explorer in parallel with external researcher)
-agent: go-go-pipeline-orchestrator
+agent: go-pipeline-orchestrator
 ---
 
 Question (research only): $ARGUMENTS

@@ -1,6 +1,6 @@
 ---
 description: cp_nightly pipeline: implement a feature through the smallest effective lane
-agent: cp_nightly-cp_nightly-pipeline-orchestrator
+agent: cp_nightly-pipeline-orchestrator
 ---
 
 Request (feature): $ARGUMENTS

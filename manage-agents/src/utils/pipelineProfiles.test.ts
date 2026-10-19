@@ -117,6 +117,47 @@ test("sync forks base agents, applies selected profile, and copies companion lin
   assert.match(fs.readFileSync(path.join(result.outputDir, "commands/go-bug.md"), "utf8"), /go-pipeline-orchestrator/)
 })
 
+test("sync stamps command orchestrator references with exactly one profile prefix", () => {
+  for (const family of ["copilot", "cp_nightly"]) {
+    const root = workspace()
+    agent(root, "pipeline", "orchestrator")
+    const commandPath = path.join(root, "src", "commands", "pipeline-bug.md")
+    fs.mkdirSync(path.dirname(commandPath), { recursive: true })
+    fs.writeFileSync(commandPath, "---\nagent: pipeline-orchestrator\n---\n\nUse @pipeline-orchestrator.\n")
+
+    const result = syncPipelineProfile(root, family)
+    const command = fs.readFileSync(path.join(result.outputDir, "commands", `${family}-bug.md`), "utf8")
+
+    assert.match(command, new RegExp(`agent: ${family}-pipeline-orchestrator`))
+    assert.match(command, new RegExp(`@${family}-pipeline-orchestrator`))
+    assert.doesNotMatch(command, new RegExp(`${family}-${family}-pipeline-orchestrator`))
+  }
+})
+
+test("sync rejects path-traversal pipeline categories before creating output", () => {
+  const root = workspace()
+  agent(root, "pipeline", "orchestrator")
+  const outside = path.join(root, "outside-pipeline")
+
+  assert.throws(() => syncPipelineProfile(root, "copilot", "../../outside"), /Invalid pipeline category/)
+  assert.equal(fs.existsSync(outside), false)
+  assert.equal(fs.existsSync(path.join(root, "export", "categories", "outside-pipeline")), false)
+})
+
+test("sync rejects a symlinked pipeline category target before writing", () => {
+  const root = workspace()
+  agent(root, "pipeline", "orchestrator")
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "pipeline-sync-outside-"))
+  fs.writeFileSync(path.join(outside, "keep.txt"), "keep\n")
+  const target = path.join(root, "export", "categories", "linked-pipeline")
+  fs.mkdirSync(path.dirname(target), { recursive: true })
+  fs.symlinkSync(outside, target)
+
+  assert.throws(() => syncPipelineProfile(root, "copilot", "linked"), /Invalid fork destination/)
+  assert.equal(fs.readFileSync(path.join(outside, "keep.txt"), "utf8"), "keep\n")
+  assert.deepEqual(fs.readdirSync(outside), ["keep.txt"])
+})
+
 test("sync inherits default companion links and persists them when no config exists", () => {
   const root = workspace()
   agent(root, "pipeline", "orchestrator")

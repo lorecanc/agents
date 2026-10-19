@@ -1547,13 +1547,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           const exportAgentsList = exportPaths
             ? agents.filter(agent => exportPaths.has(agent.currentPath))
             : exportCategory ? agents.filter(agent => agent.category === exportCategory) : agents
-          const categoriesRoot = path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot))
-          const firstExportPath = exportAgentsList[0]?.currentPath
-          const relativeToCategories = firstExportPath ? path.relative(categoriesRoot, firstExportPath) : ""
-          const stampedCategory = relativeToCategories && !relativeToCategories.startsWith(`..${path.sep}`) && !path.isAbsolute(relativeToCategories)
-            ? relativeToCategories.split(path.sep)[0]
-            : ""
-          const resourceSourceRoot = stampedCategory ? path.join(categoriesRoot, stampedCategory) : path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot))
+          const resourceSourceRoot = path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot))
           const result = exportAgents(exportAgentsList, undefined, resourceSourceRoot)
           setSelectedAgentPaths(new Set())
           setActionResultTitle("Export Complete")
