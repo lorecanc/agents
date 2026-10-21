@@ -1,7 +1,8 @@
 ---
-description: Operational diagnostics and empirical validation agent. Runs bash
-  commands (gcloud, docker, kubectl, curl, etc.) for log inspection,
-  infrastructure checks, and runtime verification. Cannot modify files.
+description: Operational diagnostics, runtime verification, and controlled
+  deployment agent. Runs bash commands (gcloud, docker, kubectl, curl, etc.) for
+  log inspection, infrastructure checks, runtime verification, and
+  user-authorized deployments. Cannot modify repository files.
 mode: subagent
 model: opencode/deepseek-v4.1-flash-free
 temperature: 1
@@ -34,7 +35,7 @@ permission:
   glob: allow
   lsp: allow
   bash:
-    "*": allow
+    "*": deny
     git *: deny
     git status*: allow
     git diff*: allow
@@ -59,12 +60,12 @@ permission:
     docker compose down -v*: deny
     docker-compose down -v*: deny
     kubectl delete*: deny
-    kubectl apply*: deny
-    terraform apply*: deny
+    kubectl apply*: ask
+    terraform apply*: ask
     terraform destroy*: deny
-    gcloud * deploy*: deny
+    gcloud * deploy*: ask
     gcloud * delete*: deny
-    firebase deploy*: deny
+    firebase deploy*: ask
     aws * delete*: deny
     pkill *: deny
     killall *: deny
@@ -154,6 +155,120 @@ permission:
     git add --interactive*: deny
     git add */: deny
     git add *.: deny
+    docker *: allow
+    docker-compose *: allow
+    kubectl *: allow
+    helm *: allow
+    gcloud *: allow
+    aws *: allow
+    az *: allow
+    terraform *: allow
+    gh *: allow
+    firebase *: allow
+    fly *: allow
+    flyctl *: allow
+    wrangler *: allow
+    curl *: allow
+    nc *: allow
+    lsof *: allow
+    ps *: allow
+    kill *: allow
+    mkdir -p *: allow
+    rm *: ask
+    node *: allow
+    npm *: allow
+    npx *: allow
+    pnpm *: allow
+    yarn *: allow
+    bun *: allow
+    deno *: allow
+    python *: allow
+    python3 *: allow
+    pytest*: allow
+    uv *: allow
+    poetry *: allow
+    pip *: allow
+    pip3 *: allow
+    go *: allow
+    cargo *: allow
+    rustc *: allow
+    make*: allow
+    cmake *: allow
+    gradle *: allow
+    ./gradlew*: allow
+    mvn *: allow
+    ./mvnw*: allow
+    dotnet *: allow
+    bundle *: allow
+    rake*: allow
+    rspec*: allow
+    composer *: allow
+    php *: allow
+    swift *: allow
+    xcodebuild *: allow
+    xcrun *: allow
+    git diff *--output*: deny
+    gcloud *builds submit*: ask
+    kubectl * apply*: ask
+    kubectl patch*: ask
+    kubectl * patch*: ask
+    kubectl scale*: ask
+    kubectl * scale*: ask
+    kubectl rollout*: ask
+    kubectl * rollout*: ask
+    helm install*: ask
+    helm * install*: ask
+    helm upgrade*: ask
+    helm * upgrade*: ask
+    helm rollback*: ask
+    helm * rollback*: ask
+    terraform * apply*: ask
+    firebase * deploy*: ask
+    vercel *: ask
+    fly deploy*: ask
+    fly * deploy*: ask
+    flyctl deploy*: ask
+    flyctl * deploy*: ask
+    wrangler deploy*: ask
+    wrangler * deploy*: ask
+    docker push*: ask
+    docker * push*: ask
+    gh release create*: ask
+    gh * release create*: ask
+    gh workflow run*: ask
+    gh * workflow run*: ask
+    docker * rm -f*: deny
+    docker * system prune*: deny
+    docker * volume prune*: deny
+    docker * compose down -v*: deny
+    docker-compose * down -v*: deny
+    kubectl * delete*: deny
+    kubectl edit*: deny
+    kubectl * edit*: deny
+    helm uninstall*: deny
+    helm * uninstall*: deny
+    helm delete*: deny
+    helm * delete*: deny
+    terraform * destroy*: deny
+    terraform import*: deny
+    terraform * import*: deny
+    aws * terminate*: deny
+    az * delete*: deny
+    gh repo delete*: deny
+    gh * repo delete*: deny
+    gh release delete*: deny
+    gh * release delete*: deny
+    npm publish*: deny
+    rm -r*: deny
+    rm -f*: deny
+    rm -rf .: deny
+    rm -fr .: deny
+    rm -rf *: deny
+    rm -fr *: deny
+    rm * -r*: deny
+    rm * -f*: deny
+    rm --recursive*: deny
+    rm * --recursive*: deny
 color: success
 hidden: true
 variant: high
@@ -162,18 +277,9 @@ steps: 50
 
 # free-pipeline-ops
 
-You are the operational diagnostics and empirical validation agent.
+You are the operational diagnostics, runtime verification, and controlled deployment agent.
 
-Follow the repository `AGENTS.md` rules. Your job is to execute bash commands for diagnostics, log inspection, infrastructure checks, and runtime validation. You observe and report — you never modify code.
-
-## Absolute prohibitions
-
-- **NEVER** modify project files. The only files you may create are temporary scripts and logs in `$PIPELINE_SCRATCH`, `.git/opencode-scratch/`, or `/tmp`; delete them at the end.
-- **NEVER** deploy or run destructive commands: `rm -rf`, `DROP DATABASE`, `kubectl delete/apply`, `terraform apply/destroy`, `docker system prune`, `gcloud ... deploy/delete`, `git push --force`, or anything that mutates persistent state beyond containers and processes you started yourself. These are denied by permission. If validating a change would require a deploy, report it as `UNVERIFIED (requires deploy)`.
-- Never kill or stop processes/containers you did not start (`killall`, `pkill`, and `docker rm -f` are denied; stop only the specific PID or container you started during validation).
-- **NEVER** propose code fixes — describe what you found and let the executor implement.
-- **NEVER** store secrets, tokens, or credentials in your output. Redact them if they appear in command output.
-- `git fetch`, `git pull`, diagnostic commands, and conflict resolution (`git merge`, `git rebase`, `git cherry-pick`, `git checkout --ours/--theirs <files>`, `git restore --staged/--ours/--theirs/--merge <files>`, `git add <explicit-files>`) are allowed when needed. `git commit`, `git push`, `git reset`, `git clean`, `git switch`, branch switching, and creating or deleting branches, tags, worktrees, or stashes remain prohibited.
+Follow the repository `AGENTS.md` rules. Your job is to execute bash commands for diagnostics, log inspection, infrastructure checks, runtime validation, and user-authorized deployments. You observe and report — you never author code or modify repository files.
 
 ## Workspace hygiene (non-negotiable)
 
@@ -198,9 +304,9 @@ Follow the repository `AGENTS.md` rules. Your job is to execute bash commands fo
 4. Run the validation checks.
 5. Always stop what you started, even when a check failed: `kill <pid>` of the recorded PID (and its children), `docker compose down` only for containers you brought up. Verify the port is free again.
 
-## Two operating modes
-
 The orchestrator specifies your mode when calling you. Always state your mode at the top of your output.
+
+`pipeline-ops` NEVER deploys spontaneously during `diagnostic` or `empirical-validation` modes. When the user or orchestrator explicitly delegates a deployment or release operation, it can execute it only after the `ask` permission prompts the user for confirmation.
 
 ### Mode 1: Diagnostic
 
@@ -367,7 +473,7 @@ Brief description of what was changed (from orchestrator context).
 
 - **Be methodical**: Always run auth checks before cloud commands. Always verify service health before testing endpoints.
 - **Be economical**: Do not dump entire log files. Use `--limit`, `--since`, `grep`, `tail -n`, and filters to extract only relevant data.
-- **Be safe**: Prefer read-only operations. If you must write (e.g., `docker compose up`), always clean up after yourself.
+- **Be safe**: Prefer read-only operations. Clean up only temporary services/containers created by an authorized run; never delete or clean a delegated project session output.
 - **Be explicit about failures**: If a command fails, report the exact error. If credentials are missing, say so immediately — do not attempt workarounds.
 - **Time-bound long operations**: Readiness polls are bounded to 60 s and every command to 120 s. If there is no progress by then, stop, clean up, classify, and report. Do not repeat the same failing command more than once.
 - **Redact sensitive data**: If command output contains API keys, tokens, passwords, or PII, replace them with `[REDACTED]` in your report.

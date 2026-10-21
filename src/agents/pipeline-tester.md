@@ -8,10 +8,10 @@ permission:
   "*": deny
   external_directory:
     "*": deny
-    ~/.local/share/opencode/tool-output/*: allow
-    ~/.config/opencode/skills/*: allow
-    /tmp/*: allow
-    /private/tmp/*: allow
+    "~/.local/share/opencode/tool-output/*": allow
+    "~/.config/opencode/skills/*": allow
+    "/tmp/*": allow
+    "/private/tmp/*": allow
   doom_loop: deny
   pipeline_verify: allow
   pipeline_state: allow
@@ -32,69 +32,68 @@ permission:
   lsp: allow
   edit: allow
   bash:
-    "*": allow
-    git *: deny
-    git status*: allow
-    git diff*: allow
-    git diff --output*: deny
-    git diff * --output*: deny
-    git log*: allow
-    git show*: allow
-    git ls-files*: allow
-    git ls-tree*: allow
-    git ls-remote*: allow
-    git cat-file*: allow
-    git rev-parse*: allow
-    git rev-list*: allow
-    git merge-base*: allow
-    git range-diff*: allow
-    git cherry*: allow
-    git branch --show-current*: allow
-    git blame*: allow
-    git fetch*: allow
-    git fetch *--upload-pack*: deny
-    git fetch *ext::*: deny
-    git grep*: allow
-    git describe*: allow
-    git shortlog*: allow
-    git for-each-ref*: allow
-    git name-rev*: allow
-    git show-ref*: allow
-    git show-branch*: allow
-    git check-ignore*: allow
-    git var*: allow
-    git verify-commit*: allow
-    git verify-tag*: allow
-    git branch -a*: allow
-    git branch -r*: allow
-    git branch -v*: allow
-    git branch --list*: allow
-    git branch --contains*: allow
-    git branch --merged*: allow
-    git branch --no-merged*: allow
-    git tag -l*: allow
-    git tag --list*: allow
-    git remote -v*: allow
-    git remote --verbose*: allow
-    git remote show*: allow
-    git remote get-url*: allow
-    git stash list*: allow
-    git stash show*: allow
-    git worktree list*: allow
-    git reflog*: allow
-    git reflog expire*: deny
-    git reflog delete*: deny
-    git config --get*: allow
-    git config --list*: allow
-    git config -l*: allow
-    sudo *: deny
-    rm -rf /*: deny
-    rm -fr /*: deny
-    rm -rf ~*: deny
-    rm -fr ~*: deny
-    rm -rf ..*: deny
-    rm -fr ..*: deny
-color: "#546E7A"
+    "*": deny
+    "node *": allow
+    "npm *": allow
+    "npx *": allow
+    "pnpm *": allow
+    "yarn *": allow
+    "bun *": allow
+    "deno *": allow
+    "python *": allow
+    "python3 *": allow
+    "pytest*": allow
+    "uv *": allow
+    "poetry *": allow
+    "pip *": allow
+    "pip3 *": allow
+    "go *": allow
+    "cargo *": allow
+    "rustc *": allow
+    "make*": allow
+    "cmake *": allow
+    "gradle *": allow
+    "./gradlew*": allow
+    "mvn *": allow
+    "./mvnw*": allow
+    "dotnet *": allow
+    "bundle *": allow
+    "rake*": allow
+    "rspec*": allow
+    "composer *": allow
+    "php *": allow
+    "swift *": allow
+    "xcodebuild *": allow
+    "xcrun *": allow
+    "mkdir -p *": allow
+    "rm *": ask
+    "cp *": allow
+    "mv *": allow
+    "git status*": allow
+    "git diff*": allow
+    "git diff *--output*": deny
+    "git log*": allow
+    "git show*": allow
+    "git rev-parse*": allow
+    "git merge-base*": allow
+    "git branch --show-current*": allow
+    "rm -r*": deny
+    "rm -f*": deny
+    "rm -rf /*": deny
+    "rm -fr /*": deny
+    "rm -rf ~*": deny
+    "rm -fr ~*": deny
+    "rm -rf ..*": deny
+    "rm -fr ..*": deny
+    "rm -rf .": deny
+    "rm -fr .": deny
+    "rm -rf *": deny
+    "rm -fr *": deny
+    "rm * -r*": deny
+    "rm * -f*": deny
+    "rm --recursive*": deny
+    "rm * --recursive*": deny
+color: "#E67E22"
 steps: 50
 hidden: true
 ---

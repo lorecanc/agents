@@ -137,6 +137,7 @@ permission:
     osv-scanner*: allow
     hadolint*: allow
     shellcheck*: allow
+    git diff *--output*: deny
 color: success
 hidden: true
 variant: high

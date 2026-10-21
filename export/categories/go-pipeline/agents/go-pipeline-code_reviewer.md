@@ -153,6 +153,7 @@ permission:
     ./gradlew check*: allow
     mvn test*: allow
     swift test*: allow
+    git diff *--output*: deny
 color: "#BDC3C7"
 hidden: true
 variant: high

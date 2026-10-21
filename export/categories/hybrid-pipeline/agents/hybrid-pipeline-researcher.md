@@ -24,6 +24,7 @@ permission:
   list_mcp_resource_templates: allow
   webfetch: allow
   websearch: allow
+  bash: deny
 color: "#FFD700"
 hidden: true
 variant: high

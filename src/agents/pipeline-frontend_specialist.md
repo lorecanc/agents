@@ -10,10 +10,10 @@ permission:
   "*": deny
   external_directory:
     "*": deny
-    ~/.local/share/opencode/tool-output/*: allow
-    ~/.config/opencode/skills/*: allow
-    /tmp/*: allow
-    /private/tmp/*: allow
+    "~/.local/share/opencode/tool-output/*": allow
+    "~/.config/opencode/skills/*": allow
+    "/tmp/*": allow
+    "/private/tmp/*": allow
   doom_loop: deny
   read: allow
   grep: allow
@@ -34,123 +34,8 @@ permission:
   websearch: allow
   shadcn_*: allow
   magic_*: allow
-  bash:
-    "*": deny
-    pwd: allow
-    ls*: allow
-    find . *: allow
-    find * -delete*: deny
-    find * -exec*: deny
-    find * -execdir*: deny
-    find * -ok*: deny
-    cat *: allow
-    head *: allow
-    tail *: allow
-    wc *: allow
-    stat *: allow
-    file *: allow
-    rg *: allow
-    grep *: allow
-    jq *: allow
-    yq *: allow
-    awk *: allow
-    sed -n *: allow
-    sort *: allow
-    uniq *: allow
-    cut *: allow
-    tr *: allow
-    tree *: allow
-    du *: allow
-    which *: allow
-    type *: allow
-    env: allow
-    printenv*: allow
-    uname*: allow
-    ps *: allow
-    lsof *: allow
-    git status*: allow
-    git diff*: allow
-    git diff --output*: deny
-    git diff * --output*: deny
-    git log*: allow
-    git show*: allow
-    git ls-files*: allow
-    git ls-tree*: allow
-    git ls-remote*: allow
-    git cat-file*: allow
-    git rev-parse*: allow
-    git rev-list*: allow
-    git merge-base*: allow
-    git range-diff*: allow
-    git cherry*: allow
-    git blame*: allow
-    git grep*: allow
-    git describe*: allow
-    git shortlog*: allow
-    git for-each-ref*: allow
-    git name-rev*: allow
-    git show-ref*: allow
-    git show-branch*: allow
-    git check-ignore*: allow
-    git var*: allow
-    git verify-commit*: allow
-    git verify-tag*: allow
-    git branch --show-current*: allow
-    git branch -a*: allow
-    git branch -r*: allow
-    git branch -v*: allow
-    git branch --list*: allow
-    git branch --contains*: allow
-    git branch --merged*: allow
-    git branch --no-merged*: allow
-    git tag -l*: allow
-    git tag --list*: allow
-    git remote -v*: allow
-    git remote --verbose*: allow
-    git remote show*: allow
-    git remote get-url*: allow
-    git stash list*: allow
-    git stash show*: allow
-    git worktree list*: allow
-    git reflog*: allow
-    git reflog expire*: deny
-    git reflog delete*: deny
-    git config --get*: allow
-    git config --list*: allow
-    git config -l*: allow
-    git fetch*: allow
-    git fetch *--upload-pack*: deny
-    git fetch *ext::*: deny
-    node -v*: allow
-    node --version*: allow
-    npm -v*: allow
-    npm --version*: allow
-    npm ls*: allow
-    npm list*: allow
-    npm view*: allow
-    npm info*: allow
-    npm explain*: allow
-    pnpm -v*: allow
-    pnpm --version*: allow
-    pnpm ls*: allow
-    pnpm list*: allow
-    pnpm info*: allow
-    pnpm why*: allow
-    yarn -v*: allow
-    yarn --version*: allow
-    yarn info*: allow
-    yarn why*: allow
-    yarn list*: allow
-    bun -v*: allow
-    bun --version*: allow
-    bun pm ls*: allow
-    npx shadcn* view*: allow
-    npx shadcn* info*: allow
-    npx shadcn* diff*: allow
-    npx shadcn* --help*: allow
-    npx tsc --noEmit*: allow
-    tsc --noEmit*: allow
-color: "#546E7A"
+  bash: deny
+color: "#E67E22"
 steps: 50
 hidden: true
 ---

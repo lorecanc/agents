@@ -1,6 +1,6 @@
 ---
-description: Fetches and summarizes external library documentation to ground the
-  planner and executor in real APIs. Does not edit files.
+description: Fetches and summarizes external library documentation to ground
+  the planner and executor in real APIs. Does not edit files.
 mode: subagent
 model: opencode-go/deepseek-v4.1-flash
 temperature: 1
@@ -8,10 +8,10 @@ permission:
   "*": deny
   external_directory:
     "*": deny
-    ~/.local/share/opencode/tool-output/*: allow
-    ~/.config/opencode/skills/*: allow
-    /tmp/*: allow
-    /private/tmp/*: allow
+    "~/.local/share/opencode/tool-output/*": allow
+    "~/.config/opencode/skills/*": allow
+    "/tmp/*": allow
+    "/private/tmp/*": allow
   doom_loop: deny
   pipeline_state: allow
   read: allow
@@ -28,106 +28,8 @@ permission:
   codebase-memory-mcp_index_repository: deny
   webfetch: allow
   websearch: allow
-  bash:
-    "*": deny
-    pwd: allow
-    ls*: allow
-    find *: allow
-    find * -delete*: deny
-    find * -exec*: deny
-    find * -execdir*: deny
-    find * -ok*: deny
-    find * -fprint*: deny
-    cat *: allow
-    head *: allow
-    tail *: allow
-    wc *: allow
-    stat *: allow
-    file *: allow
-    rg *: allow
-    grep *: allow
-    jq *: allow
-    yq *: allow
-    awk *: allow
-    sed -n *: allow
-    sort *: allow
-    uniq *: allow
-    cut *: allow
-    tr *: allow
-    tree *: allow
-    du *: allow
-    which *: allow
-    type *: allow
-    env: allow
-    printenv*: allow
-    uname*: allow
-    ps *: allow
-    lsof *: allow
-    git status*: allow
-    git diff*: allow
-    git diff --output*: deny
-    git diff * --output*: deny
-    git log*: allow
-    git show*: allow
-    git ls-files*: allow
-    git ls-tree*: allow
-    git ls-remote*: allow
-    git cat-file*: allow
-    git rev-parse*: allow
-    git rev-list*: allow
-    git merge-base*: allow
-    git range-diff*: allow
-    git cherry*: allow
-    git branch --show-current*: allow
-    git branch -a*: allow
-    git branch -r*: allow
-    git branch -v*: allow
-    git branch --list*: allow
-    git branch --contains*: allow
-    git branch --merged*: allow
-    git branch --no-merged*: allow
-    git blame*: allow
-    git grep*: allow
-    git describe*: allow
-    git shortlog*: allow
-    git for-each-ref*: allow
-    git name-rev*: allow
-    git show-ref*: allow
-    git show-branch*: allow
-    git check-ignore*: allow
-    git var*: allow
-    git verify-commit*: allow
-    git verify-tag*: allow
-    git tag -l*: allow
-    git tag --list*: allow
-    git remote -v*: allow
-    git remote --verbose*: allow
-    git remote show*: allow
-    git remote get-url*: allow
-    git stash list*: allow
-    git stash show*: allow
-    git worktree list*: allow
-    git reflog*: allow
-    git reflog expire*: deny
-    git reflog delete*: deny
-    git config --get*: allow
-    git config --list*: allow
-    git config -l*: allow
-    git fetch*: allow
-    git fetch *--upload-pack*: deny
-    git fetch *ext::*: deny
-    node -v*: allow
-    node --version*: allow
-    npm -v*: allow
-    npm --version*: allow
-    python --version*: allow
-    python3 --version*: allow
-    go version*: allow
-    cargo --version*: allow
-    rustc --version*: allow
-    java -version*: allow
-    swift --version*: allow
-color: "#546E7A"
+  bash: deny
+color: "#E67E22"
 steps: 50
 hidden: true
 ---
@@ -146,11 +48,14 @@ Search queries and URLs leave the machine: never include repository code, secret
 - Fetch relevant pages (`webfetch`).
 - Extract: function signatures, parameters, return types, required imports, deprecation warnings, and version constraints.
 - Produce a structured grounding report for the next agent in the pipeline.
+- Public research is a separate user choice. Conduct it only after explicit authorization,
+  with bounded terms and non-private context; never submit confidential project facts or
+  source data to web search.
 
 ## Output Format
 ```markdown
 ## Libraries grounded
-- `library@version`: docs URL
+- `library@version`: documentation URL
 
 ## Confirmed APIs
 - `function(params) → return_type`: notes, required imports
@@ -159,5 +64,5 @@ Search queries and URLs leave the machine: never include repository code, secret
 - API deprecated, recommended alternative
 
 ## Unresolved
-- APIs not found in docs
+- APIs not found in the documentation
 ```

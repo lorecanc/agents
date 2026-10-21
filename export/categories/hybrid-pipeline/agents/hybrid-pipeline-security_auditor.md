@@ -2,7 +2,7 @@
 description: Security vulnerability scanner. Reviews diffs for OWASP Top 10 and
   CWE patterns. Uses CWE-search MCP for classification. Does not edit files.
 mode: subagent
-model: opencode-go/deepseek-v4.1-flash
+model: mistral/mistral-large-4
 temperature: 1
 permission:
   "*": deny
@@ -137,6 +137,7 @@ permission:
     osv-scanner*: allow
     hadolint*: allow
     shellcheck*: allow
+    git diff *--output*: deny
 color: "#FFD700"
 hidden: true
 variant: high

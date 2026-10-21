@@ -8,10 +8,10 @@ permission:
   "*": deny
   external_directory:
     "*": deny
-    ~/.local/share/opencode/tool-output/*: allow
-    ~/.config/opencode/skills/*: allow
-    /tmp/*: allow
-    /private/tmp/*: allow
+    "~/.local/share/opencode/tool-output/*": allow
+    "~/.config/opencode/skills/*": allow
+    "/tmp/*": allow
+    "/private/tmp/*": allow
   doom_loop: deny
   pipeline_state: allow
   pipeline_commit: allow
@@ -25,66 +25,36 @@ permission:
   list_mcp_resource_templates: allow
   bash:
     "*": deny
-    pwd: allow
-    ls*: allow
-    git status*: allow
-    git diff*: allow
-    git diff --output*: deny
-    git diff * --output*: deny
-    git log*: allow
-    git show*: allow
-    git ls-files*: allow
-    git ls-tree*: allow
-    git cat-file*: allow
-    git rev-parse*: allow
-    git rev-list*: allow
-    git merge-base*: allow
-    git range-diff*: allow
-    git cherry*: allow
-    git blame*: allow
-    git show-ref*: allow
-    git branch -a*: allow
-    git branch -r*: allow
-    git branch -v*: allow
-    git branch --list*: allow
-    git tag -l*: allow
-    git tag --list*: allow
-    git remote -v*: allow
-    git remote --verbose*: allow
-    git remote show*: allow
-    git remote get-url*: allow
-    git stash list*: allow
-    git stash show*: allow
-    git worktree list*: allow
-    git reflog*: allow
-    git reflog expire*: deny
-    git reflog delete*: deny
-    git config --get*: allow
-    git config --list*: allow
-    git config -l*: allow
-    git branch --show-current*: allow
-    git add *: allow
-    git add -A*: deny
-    git add --all*: deny
-    git add -u*: deny
-    git add --update*: deny
-    git add -p*: deny
-    git add --patch*: deny
-    git add -i*: deny
-    git add --interactive*: deny
-    git add .: deny
-    git add . *: deny
-    git add -- .: deny
-    git add */: deny
-    git add *.: deny
-    git restore --staged *: allow
-    git commit -m *: allow
-    git commit -a*: deny
-    git commit --all*: deny
-    git commit * --amend*: deny
-    git commit * --no-verify*: deny
-    git commit * --all*: deny
-color: "#546E7A"
+    "git status*": allow
+    "git diff*": allow
+    "git diff *--output*": deny
+    "git log*": allow
+    "git show*": allow
+    "git rev-parse*": allow
+    "git branch --show-current*": allow
+    "git restore --staged *": allow
+    "git add *": allow
+    "git add -A*": deny
+    "git add --all*": deny
+    "git add -u*": deny
+    "git add --update*": deny
+    "git add -p*": deny
+    "git add --patch*": deny
+    "git add -i*": deny
+    "git add --interactive*": deny
+    "git add .": deny
+    "git add .*": deny
+    "git add -- .": deny
+    "git add */": deny
+    "git add *.": deny
+    "git commit -m *": allow
+    "git commit -a*": deny
+    "git commit --all*": deny
+    "git commit * --amend*": deny
+    "git commit * --no-verify*": deny
+    "git commit * --all*": deny
+    "git push*": ask
+color: "#E67E22"
 steps: 50
 hidden: true
 ---

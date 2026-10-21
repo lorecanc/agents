@@ -84,6 +84,9 @@ permission:
     git config --get*: allow
     git config --list*: allow
     git config -l*: allow
+    git diff *--output*: deny
+    git add .*: deny
+    git push*: ask
 color: "#FFD700"
 hidden: true
 variant: high

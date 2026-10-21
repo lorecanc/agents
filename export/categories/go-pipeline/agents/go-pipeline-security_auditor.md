@@ -137,6 +137,7 @@ permission:
     osv-scanner*: allow
     hadolint*: allow
     shellcheck*: allow
+    git diff *--output*: deny
 color: "#BDC3C7"
 hidden: true
 variant: high

@@ -32,7 +32,7 @@ permission:
   lsp: allow
   edit: allow
   bash:
-    "*": allow
+    "*": deny
     git *: deny
     git status*: allow
     git diff*: allow
@@ -94,6 +94,53 @@ permission:
     git config --get*: allow
     git config --list*: allow
     git config -l*: allow
+    node *: allow
+    npm *: allow
+    npx *: allow
+    pnpm *: allow
+    yarn *: allow
+    bun *: allow
+    deno *: allow
+    python *: allow
+    python3 *: allow
+    pytest*: allow
+    uv *: allow
+    poetry *: allow
+    pip *: allow
+    pip3 *: allow
+    go *: allow
+    cargo *: allow
+    rustc *: allow
+    make*: allow
+    cmake *: allow
+    gradle *: allow
+    ./gradlew*: allow
+    mvn *: allow
+    ./mvnw*: allow
+    dotnet *: allow
+    bundle *: allow
+    rake*: allow
+    rspec*: allow
+    composer *: allow
+    php *: allow
+    swift *: allow
+    xcodebuild *: allow
+    xcrun *: allow
+    mkdir -p *: allow
+    rm *: ask
+    cp *: allow
+    mv *: allow
+    git diff *--output*: deny
+    rm -r*: deny
+    rm -f*: deny
+    rm -rf .: deny
+    rm -fr .: deny
+    rm -rf *: deny
+    rm -fr *: deny
+    rm * -r*: deny
+    rm * -f*: deny
+    rm --recursive*: deny
+    rm * --recursive*: deny
 color: success
 hidden: true
 variant: high

@@ -3,7 +3,7 @@ description: Chrome DevTools expert for frontend debugging, performance audits
   (LCP), memory leak analysis, and a11y testing. Loads chrome-devtools skills
   and uses DevTools MCP tools.
 mode: subagent
-model: opencode-go/deepseek-v4-flash-vision-exp
+model: opencode-go/deepseek-v4.1-flash
 permission:
   "*": deny
   skill:

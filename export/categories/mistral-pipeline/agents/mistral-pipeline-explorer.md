@@ -127,6 +127,7 @@ permission:
     rustc --version*: allow
     java -version*: allow
     swift --version*: allow
+    git diff *--output*: deny
 color: "#E67E22"
 hidden: true
 variant: high
