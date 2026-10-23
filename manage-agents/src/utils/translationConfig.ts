@@ -26,7 +26,16 @@ export interface TranslationConfig {
   defaultTier: string
   tiers: Record<string, TranslationTier>
   roles: Record<string, string>
-  claude: { overrides: Record<string, ModelTarget>; modelMap?: Record<string, string> }
+  claude: {
+    overrides: Record<string, ModelTarget>
+    modelMap?: Record<string, string>
+    emitMarketplace?: boolean
+    emitCommands?: boolean
+    emitSkills?: boolean
+    autoValidate?: boolean
+    autoRegister?: boolean
+    marketplaceName?: string
+  }
   codex: {
     overrides: Record<string, ModelTarget>
     modelMap?: Record<string, string>
@@ -64,7 +73,15 @@ export const DEFAULT_TRANSLATION_CONFIG: TranslationConfig = {
   defaultTier: "execution",
   tiers: DEFAULT_TIERS,
   roles: DEFAULT_ROLES,
-  claude: { overrides: {}, modelMap: {} },
+  claude: {
+    overrides: {},
+    modelMap: {},
+    emitMarketplace: true,
+    emitCommands: true,
+    emitSkills: true,
+    autoValidate: true,
+    autoRegister: true
+  },
   codex: { overrides: {}, modelMap: {}, emitSkills: true, emitReadme: true }
 }
 
@@ -219,6 +236,25 @@ export function validateClaudeModelName(value: string): void {
   }
 }
 
+const MARKETPLACE_NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/
+const RESERVED_MARKETPLACE_PREFIXES = ["claude-", "anthropic-", "anthropics-"]
+const RESERVED_MARKETPLACE_NAMES = ["claude", "claude-code"]
+
+export function validateMarketplaceName(name: string): void {
+  if (!MARKETPLACE_NAME_PATTERN.test(name)) {
+    throw new Error(`Invalid marketplace name "${name}". Use letters, digits, dots, underscores and hyphens, starting with a letter or digit.`)
+  }
+  const lower = name.toLowerCase()
+  if (RESERVED_MARKETPLACE_NAMES.includes(lower) || RESERVED_MARKETPLACE_PREFIXES.some(prefix => lower.startsWith(prefix))) {
+    throw new Error(`Invalid marketplace name "${name}". Names equal to "claude" or "claude-code" and names starting with "claude-", "anthropic-" or "anthropics-" are reserved.`)
+  }
+}
+
+/** Configured marketplace name, or a local one scoped to the plugin. */
+export function resolveMarketplaceName(pluginName: string, configured?: string): string {
+  return configured && configured.trim() ? configured : `${pluginName}-local`
+}
+
 export function validateTranslationConfig(config: TranslationConfig): void {
   if (Object.keys(config.tiers).length === 0) throw new Error("Translation config tiers must not be empty")
   for (const [role, tier] of Object.entries(config.roles)) if (!Object.prototype.hasOwnProperty.call(config.tiers, tier)) throw new Error(`Translation role "${role}" points to missing tier "${tier}"`)
@@ -236,6 +272,11 @@ export function validateTranslationConfig(config: TranslationConfig): void {
   }
   for (const [source, value] of Object.entries(config.codex.modelMap || {})) {
     if (typeof value !== "string" || !value.trim()) throw new Error(`Translation codex.modelMap["${source}"] must be a non-empty model name`)
+  }
+  if (config.claude.marketplaceName !== undefined) validateMarketplaceName(config.claude.marketplaceName)
+  for (const key of ["emitMarketplace", "emitCommands", "emitSkills", "autoValidate", "autoRegister"] as const) {
+    const value = config.claude[key]
+    if (value !== undefined && typeof value !== "boolean") throw new Error(`Translation claude.${key} must be a boolean`)
   }
   if (!isWorkspaceRelativePath(config.sourceDir)) {
     throw new Error(`Translation config sourceDir must stay inside workspace: ${config.sourceDir}`)

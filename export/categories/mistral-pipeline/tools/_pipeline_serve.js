@@ -16,32 +16,13 @@ import { ensureScratch, isInside, pidAlive, realpathLoose, redact, withLock } fr
 import {
   envHint, findFreePort, groupAlive, isPortFree, killTree, loadContract, parseEnvFile, portListening, runtimeEnv, waitReady,
 } from "./_pipeline_run.js"
+import { SUPERVISOR } from "./_pipeline_services.js"
 
 export const DEFAULT_TTL_S = 900
 export const MAX_TTL_S = 3600
 const SERVICE = "default"
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
-
-// $1 = owner pid, $2 = ttl seconds, the service command arrives in $PIPELINE_SERVE_CMD.
-// The service starts BEFORE the TERM trap so it does not inherit an ignored TERM.
-const SUPERVISOR = `
-OWNER="$1"; TTL="$2"
-START=$(date +%s)
-sh -c "$PIPELINE_SERVE_CMD" &
-CHILD=$!
-while :; do
-  sleep 1
-  kill -0 "$CHILD" 2>/dev/null || break
-  kill -0 "$OWNER" 2>/dev/null || break
-  [ $(( $(date +%s) - START )) -ge "$TTL" ] && break
-done
-trap '' TERM
-kill -TERM -- "-$$" 2>/dev/null
-sleep 2
-kill -KILL -- "-$$" 2>/dev/null
-exit 0
-`
 
 const serveDir = (info) => path.join(info.stateDir, "serve")
 const recordFile = (info) => path.join(serveDir(info), `${SERVICE}.json`)
@@ -229,10 +210,13 @@ export async function startService({ info, ownerRoot, ownerPid = process.pid, tt
         ...(ready.exited && !envHint(text) ? { note: "the service stopped at startup without an environment signature: read log_tail and decide between a code defect and an environment problem" } : {}),
       }
     }
+    const deps = Array.isArray(spec.services) && spec.services.length
+      ? ` The ${from} section declares services (${spec.services.join(", ")}): pipeline_serve does not start them, so they must already be reachable.`
+      : ""
     return {
       ...describe(info, rec),
       ready_ms: ready.ms,
-      note: `Stops by itself in ${ttl}s, when this opencode process ends, or on pipeline_serve stop. Always call stop when you are done.`,
+      note: `Stops by itself in ${ttl}s, when this opencode process ends, or on pipeline_serve stop. Always call stop when you are done.${deps}`,
     }
   }
   try {

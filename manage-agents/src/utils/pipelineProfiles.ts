@@ -1,7 +1,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import YAML from "yaml"
-import { discoverCompanionResourcePaths, findAgentFiles, getExportDestination, resolveCategoriesSubdir, resolveSourceSubdir, saveAgentFile, type AgentInfo } from "./agents.js"
+import { checkPipelineResources, discoverCompanionResourcePaths, findAgentFiles, getExportDestination, resolveCategoriesSubdir, resolveSourceSubdir, saveAgentFile, type AgentInfo, type PipelineResourceProblem } from "./agents.js"
 import { copyCategoryCompanionLinks, getCompanionLinksConfigPath, loadCompanionLinks, saveCompanionLinks } from "./companionLinks.js"
 import { translateFrontmatterV1ToV2 } from "./v2Compat.js"
 
@@ -201,6 +201,9 @@ function renderPipelineAgent(frontmatter: Record<string, any>, body: string, ver
   return normalizedBody ? `---\n${yamlText}\n---\n\n${normalizedBody}` : `---\n${yamlText}\n---\n`
 }
 
+/** Permission keys whose canonical value always replaces a stamped copy on refresh. */
+const BASE_OWNED_PERMISSION_KEYS = new Set(["bash", "shell"])
+
 function keepWildcardFirst(value: Record<string, any>): Record<string, any> {
   const normalized = Object.fromEntries(Object.entries(value).map(([key, child]) => [
     key,
@@ -282,6 +285,10 @@ export function refreshStampedPipelinesFromSource(workspaceRoot: string, targetC
           : {}
         const mergedPermission: Record<string, any> = { ...basePermission }
         for (const [key, value] of Object.entries(existingPermission)) {
+          // bash/shell rule lists are ordered (last match wins) and generated from
+          // .agent-manager/bash-profiles.json: the canonical list replaces the
+          // stamped one so removed or reordered rules cannot linger.
+          if (BASE_OWNED_PERMISSION_KEYS.has(key) && Object.prototype.hasOwnProperty.call(basePermission, key)) continue
           if (!Object.prototype.hasOwnProperty.call(basePermission, key)) mergedPermission[key] = value
           else if (value && typeof value === "object" && !Array.isArray(value) && basePermission[key] && typeof basePermission[key] === "object" && !Array.isArray(basePermission[key])) {
             mergedPermission[key] = keepWildcardFirst({ ...value, ...basePermission[key] })
@@ -788,4 +795,50 @@ export function deleteStampedPipeline(
     removedInstalledAgents: removedInstalledAgents.sort(),
     removedInstalledCommands: removedInstalledCommands.sort()
   }
+}
+
+export interface PipelineBundleCheck {
+  /** `pipeline` for the canonical source root, otherwise the stamped category name. */
+  category: string
+  resourceRoot: string
+  /** A stamped directory with companions but no agents: nothing installs it. */
+  orphan: boolean
+  problems: PipelineResourceProblem[]
+}
+
+/**
+ * Check that the canonical pipeline and every stamped `*-pipeline` category
+ * ship the OpenCode tools, helper modules, and guard plugin their agents rely
+ * on. Read-only. `categories` limits the stamped bundles that are checked.
+ */
+export function checkPipelineBundles(workspaceRoot: string, categories?: string[]): PipelineBundleCheck[] {
+  const config = loadPipelineProfiles(workspaceRoot)
+  const baseCategory = config.baseCategory || "pipeline"
+  const sourceRoot = path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot))
+  const baseAgents = findAgentFiles(workspaceRoot, resolveSourceSubdir(workspaceRoot)).filter(agent => agent.category === baseCategory)
+  const wanted = categories?.map(normalizePipelineCategoryName)
+  const results: PipelineBundleCheck[] = []
+  if (baseAgents.length > 0 && (!wanted || wanted.includes(baseCategory))) {
+    results.push({ category: baseCategory, resourceRoot: sourceRoot, orphan: false, problems: checkPipelineResources(sourceRoot, baseAgents) })
+  }
+  const categoriesRoot = path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot))
+  if (!fs.existsSync(categoriesRoot)) return results
+  for (const entry of fs.readdirSync(categoriesRoot, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+    if (!entry.isDirectory() || !entry.name.endsWith("-pipeline") || entry.name === baseCategory) continue
+    if (wanted && !wanted.includes(entry.name)) continue
+    const resourceRoot = path.join(categoriesRoot, entry.name)
+    const stamped = loadStampedPipelineAgents(workspaceRoot, entry.name)
+    if (!stamped) {
+      const hasCompanions = ["tools", "plugins", "commands"].some(directory => fs.existsSync(path.join(resourceRoot, directory)))
+      if (hasCompanions) results.push({ category: entry.name, resourceRoot, orphan: true, problems: [] })
+      continue
+    }
+    results.push({
+      category: entry.name,
+      resourceRoot,
+      orphan: false,
+      problems: checkPipelineResources(resourceRoot, stamped.agents, baseAgents.length > 0 ? { root: sourceRoot, agents: baseAgents } : undefined)
+    })
+  }
+  return results
 }

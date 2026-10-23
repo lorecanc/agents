@@ -14,14 +14,20 @@ import {
   normalizeTranslationConfig,
   parseKeyValueMappings,
   saveTranslationConfig,
+  validateMarketplaceName,
   type TranslationConfig,
   type TranslationTarget
 } from "./utils/translationConfig.js"
 import { AUTO_COMMIT_MESSAGES, isRepositoryLocalPath, repositoryTransaction, parseAutoCommitArgs } from "./utils/repositoryTransaction.js"
 import { buildCategoryDistribution, buildAllCategoryDistributions, recoverBuildAllCategoryDistributions, checkCategoryDistribution, loadCategoryManifest, packageCategoryDistributions, parseCategoryArgs } from "./utils/categoryDistribution.js"
 import { loadUiConfig } from "./utils/uiConfig.js"
-import { loadPipelineProfiles, applyPipelineProfile, syncPipelineProfile, deleteStampedPipeline, resolveProfileRoleSpec, PIPELINE_ROLES, loadStampedPipelineAgents, refreshStampedPipelinesFromSource } from "./utils/pipelineProfiles.js"
+import { loadPipelineProfiles, applyPipelineProfile, syncPipelineProfile, deleteStampedPipeline, resolveProfileRoleSpec, PIPELINE_ROLES, loadStampedPipelineAgents, refreshStampedPipelinesFromSource, checkPipelineBundles } from "./utils/pipelineProfiles.js"
 import { getCompanionLinksConfigPath } from "./utils/companionLinks.js"
+import { BASH_PROFILES_FILE, checkBashProfiles, syncBashProfiles } from "./utils/bashProfiles.js"
+import { claudeNextSteps } from "./utils/claudeNextSteps.js"
+import { registerPlugin, validatePlugin } from "./utils/claudePluginCli.js"
+import type { BridgeResult } from "./utils/bridge.js"
+import type { CodexBridgeResult } from "./utils/codexBridge.js"
 
 function repositoryMutation<T>(workspaceRoot: string, plan: string[] | { localPaths: string[]; externalPaths?: string[] }, message: string, mutation: () => T): T {
   const result = repositoryTransaction(workspaceRoot, plan, message, mutation)
@@ -198,6 +204,10 @@ async function runBridge(workspaceRoot: string) {
   let wizard = false
   let modelMappings: Record<string, string> = {}
   let modelFlagsGiven = false
+  let autoValidate: boolean | undefined
+  let autoRegister: boolean | undefined
+  let marketplaceName = ""
+  let marketFlagsGiven = false
 
   for (let i = 0; i < args.length; i++) {
     if ((args[i] === "--category" || args[i] === "-c") && args[i + 1]) {
@@ -221,6 +231,16 @@ async function runBridge(workspaceRoot: string) {
     } else if (args[i] === "--map-all" && args[i + 1]) {
       modelMappings = { ...modelMappings, "*": args[++i] }
       modelFlagsGiven = true
+    } else if (args[i] === "--no-validate") {
+      autoValidate = false
+      marketFlagsGiven = true
+    } else if (args[i] === "--no-register") {
+      autoRegister = false
+      marketFlagsGiven = true
+    } else if (args[i] === "--marketplace-name" && args[i + 1]) {
+      marketplaceName = args[++i]
+      validateMarketplaceName(marketplaceName)
+      marketFlagsGiven = true
     } else if (args[i] === "--config" && args[i + 1]) {
       configFile = args[++i]
     } else if (args[i] === "--wizard" || args[i] === "-w") {
@@ -240,12 +260,16 @@ Options:
   --model <src=target>    Map a source model to a target model; repeatable and accepts comma lists
                           (e.g. --model "zai-glm-5-3=opus" --model "deepseek-*=sonnet")
   --map-all <target>      Shorthand for --model "*=<target>": use one model for every source
+  --no-validate           Skip 'claude plugin validate' after a claude bridge
+  --no-register           Skip installing the generated plugin into Claude Code
+  --marketplace-name <n>  Marketplace used when registering (default: <plugin>-local)
   --wizard, -w            Configure model mappings and save them before bridging
   --help, -h              Show this help
 
 Model mappings use source=target syntax; the source may be a "*" catch-all (e.g. "*=sonnet")
 and mappings merge with the loaded config for the selected target. Provided mappings are
-persisted to the translation config, so later runs replay them without flags.
+persisted to the translation config, so later runs replay them without flags. The claude
+automation flags are persisted the same way.
 `)
       process.exit(0)
     }
@@ -257,6 +281,15 @@ persisted to the translation config, so later runs replay them without flags.
     : loaded
   if (!targetSpecified) target = config.target
   if (modelFlagsGiven) config[target].modelMap = { ...(config[target].modelMap || {}), ...modelMappings }
+  // Claude automation flags persist on the claude layer so later runs replay them.
+  if (marketFlagsGiven) {
+    config.claude = {
+      ...config.claude,
+      ...(autoValidate !== undefined ? { autoValidate } : {}),
+      ...(autoRegister !== undefined ? { autoRegister } : {}),
+      ...(marketplaceName ? { marketplaceName } : {})
+    }
+  }
   pluginName = pluginName || config.pluginName || DEFAULT_TRANSLATION_CONFIG.pluginName
   prefix = prefix || (category ? `${category}-` : config.prefix)
   sourceDir = sourceDir || config.sourceDir || resolveSourceSubdir(workspaceRoot)
@@ -287,8 +320,7 @@ persisted to the translation config, so later runs replay them without flags.
 
   console.log(`   Found ${categoryAgents.length} agents to convert.\n`)
 
-  let result: { files: string[]; warnings: string[]; pluginDir: string; preview?: Array<{ agent: string; role: string; tier: string; model: string; source: string }> }
-  let orchestratorName = "orchestrator"
+  let result: BridgeResult | CodexBridgeResult
   if (target === "codex") {
     const { bridgeToCodex } = await import("./utils/codexBridge.js")
     const bridgeConfigPath = configFile || path.join(workspaceRoot, ".agent-manager", "translation-config.json")
@@ -298,13 +330,12 @@ persisted to the translation config, so later runs replay them without flags.
       return bridgeToCodex(categoryAgents, safePluginName, prefix, outputDir, workspaceRoot, { ...config, sourceDir })
     })
     result = codexResult
-    orchestratorName = codexResult.plugin.orchestratorName || orchestratorName
   } else {
     const { bridgeToClaudeCode } = await import("./utils/bridge.js")
     const bridgeConfigPath = configFile || path.join(workspaceRoot, ".agent-manager", "translation-config.json")
     const bridgePlan = { localPaths: [bridgeConfigPath].filter(file => isRepositoryLocalPath(workspaceRoot, file)).concat(isRepositoryLocalPath(workspaceRoot, outputDir) ? [outputDir] : []), externalPaths: [bridgeConfigPath, outputDir].filter(file => !isRepositoryLocalPath(workspaceRoot, file)) }
     const claudeResult = repositoryMutation(workspaceRoot, bridgePlan, AUTO_COMMIT_MESSAGES.bridge, () => {
-      if (wizard || modelFlagsGiven) saveTranslationConfig(workspaceRoot, config, configFile || undefined)
+      if (wizard || modelFlagsGiven || marketFlagsGiven) saveTranslationConfig(workspaceRoot, config, configFile || undefined)
       return bridgeToClaudeCode(categoryAgents, safePluginName, prefix, outputDir, workspaceRoot, { ...config, sourceDir }, { category })
     })
     result = claudeResult
@@ -323,10 +354,37 @@ persisted to the translation config, so later runs replay them without flags.
     result.warnings.forEach(w => console.log(`     * ${w}`))
   }
 
-  if (target === "claude") {
+  if (target === "claude" && "pluginName" in result) {
     console.log(`\n   Validate and run locally:`)
-    console.log(`     claude plugin validate ${outputDir} --strict`)
-    console.log(`     claude --plugin-dir ${outputDir} --agent ${orchestratorName}\n`)
+    claudeNextSteps(result.pluginName, result.orchestratorName, result.pluginDir).forEach(line => console.log(line))
+    console.log()
+    // Validation and registration run after the transaction: they spawn the
+    // claude CLI and write user-level Claude config.
+    let registrationSkipped = false
+    if (config.claude.autoValidate !== false) {
+      const validation = validatePlugin(result.pluginDir)
+      console.log(`   Validation: ${validation.kind}`)
+      console.log(`     ${validation.message}`)
+      if (validation.detail) console.log(`     ${validation.detail}`)
+      if (validation.kind === "fail") {
+        registrationSkipped = true
+        console.log(`     ⚠ Registration skipped: validation failed.`)
+      } else if (validation.kind === "error") {
+        registrationSkipped = true
+        console.log(`     ⚠ Registration skipped: validation could not decide (unexpected CLI error).`)
+      }
+    }
+    if (!registrationSkipped && config.claude.autoRegister !== false) {
+      if (result.marketplaceName === null) {
+        console.log(`     ⚠ Registration skipped: no marketplace manifest is emitted (claude.emitMarketplace is off).`)
+      } else {
+        const registration = registerPlugin(result.pluginDir, result.pluginName, result.marketplaceName)
+        console.log(`   Registration: ${registration.kind}`)
+        console.log(`     ${registration.message}`)
+        if (registration.detail) console.log(`     ${registration.detail}`)
+      }
+    }
+    console.log()
   } else {
     console.log(`\n   Codex project-scoped agents:`)
     console.log(`     cd ${outputDir} && codex`)
@@ -719,7 +777,17 @@ async function runTuneCLI(workspaceRoot: string) {
 async function runPipelineCLI(workspaceRoot: string) {
   const [action, profileName, ...options] = process.argv.slice(3)
   if (!action || action === "--help" || action === "-h") {
-    console.log("Usage: manage-agents pipeline list|show <profile>|apply <profile> [--category <cat>]|sync <profile> [--target <target-pipeline>]|sync --all|refresh [--target <target-pipeline>]|delete <name> [--also-installed]")
+    console.log("Usage: manage-agents pipeline list|show <profile>|apply <profile> [--category <cat>]|sync <profile> [--target <target-pipeline>]|sync --all|refresh [--target <target-pipeline>]|sync-bash [--dry-run]|delete <name> [--also-installed]")
+    return
+  }
+
+  if (action === "sync-bash") {
+    const dryRun = process.argv.slice(4).includes("--dry-run")
+    const run = () => syncBashProfiles(workspaceRoot, { dryRun })
+    const result = dryRun ? run() : repositoryMutation(workspaceRoot, [path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot), "agents")], AUTO_COMMIT_MESSAGES.pipeline, run)
+    console.log(`${dryRun ? "Would rewrite" : "Rewrote"} ${result.changed.length} bash block(s) from ${BASH_PROFILES_FILE}; ${result.unchanged.length} already match; ${result.skipped.length} agent(s) without a bash profile left untouched.`)
+    result.changed.forEach(file => console.log(`  ${dryRun ? "~" : "*"} ${file}`))
+    if (result.changed.length > 0) console.log("Run `category build --all` to refresh stamped pipelines.")
     return
   }
 
@@ -808,20 +876,44 @@ async function runCategory(workspaceRoot: string) {
   const ids = parsed.ids?.length ? parsed.ids : parsed.id ? [parsed.id] : fs.existsSync(categoryConfigDir) ? fs.readdirSync(categoryConfigDir).filter(file => file.endsWith(".json")).map(file => file.slice(0, -5)).sort() : []
   if (parsed.action === "explain") { const result = ids.map(id => loadCategoryManifest(repoRoot, id)); console.log(parsed.json ? JSON.stringify(result) : result.map(value => JSON.stringify(value, null, 2)).join("\n")); return }
   if (parsed.action === "package") { const result = packageCategoryDistributions(repoRoot, parsed.ids || ids, parsed.output || "", parsed.dryRun); console.log(parsed.json ? JSON.stringify(result) : `${parsed.dryRun ? "Would package" : "Packaged"} ${result.categories.join(", ")} to ${parsed.output}`); return }
-  if (parsed.action === "check" || parsed.action === "status") {
-    for (const id of ids) {
-      if (id === "pipeline" || id.endsWith("-pipeline")) {
-        repositoryMutation(repoRoot, [path.join(repoRoot, resolveCategoriesSubdir(repoRoot)), getCompanionLinksConfigPath(repoRoot)], AUTO_COMMIT_MESSAGES.pipeline, () =>
-          refreshStampedPipelinesFromSource(repoRoot, id)
-        )
-      }
+  // Stamped `*-pipeline` bundles have no category manifest: `build` refreshes
+  // them from the canonical pipeline and `check` verifies their OpenCode
+  // tools/plugin. `--all` covers every stamped bundle as well as the manifests.
+  const isPipelineId = (id: string) => id === "pipeline" || id.endsWith("-pipeline")
+  const pipelineIds = ids.filter(isPipelineId)
+  const manifestIds = ids.filter(id => !isPipelineId(id))
+  const all = !parsed.id
+  const refreshPipelines = (category?: string) => repositoryMutation(repoRoot, [path.join(repoRoot, resolveCategoriesSubdir(repoRoot)), getCompanionLinksConfigPath(repoRoot)], AUTO_COMMIT_MESSAGES.pipeline, () =>
+    refreshStampedPipelinesFromSource(repoRoot, category)
+  )
+  if (parsed.action === "build") {
+    if (all) refreshPipelines()
+    else for (const id of pipelineIds) if (id !== "pipeline") refreshPipelines(id)
+  } else if (parsed.action === "check" || parsed.action === "status") {
+    for (const id of pipelineIds) if (id !== "pipeline") refreshPipelines(id)
+  }
+  const results = parsed.action === "build" && all
+    ? buildAllCategoryDistributions(repoRoot)
+    : manifestIds.map(id => parsed.action === "check" || parsed.action === "status" ? checkCategoryDistribution(repoRoot, id) : repositoryMutation(repoRoot, [path.join(repoRoot, resolveCategoriesSubdir(repoRoot), id)], `chore(agent-manager): build ${id} category`, () => buildCategoryDistribution(repoRoot, id)))
+  const resultIds = parsed.action === "build" && all ? ids : manifestIds
+  const pipelineChecks = all || pipelineIds.length > 0 ? checkPipelineBundles(repoRoot, all ? undefined : pipelineIds) : []
+  if (parsed.json) console.log(JSON.stringify(pipelineChecks.length ? { categories: results, pipelines: pipelineChecks } : results))
+  else {
+    results.forEach((result, index) => console.log(result.status === "current" ? `Category ${resultIds[index]} is current.` : `Category ${resultIds[index]} is stale.\nMissing: ${result.missing.join(", ") || "none"}\nChanged: ${result.changed.join(", ") || "none"}\nExtra: ${result.extra.join(", ") || "none"}`))
+    for (const check of pipelineChecks) {
+      if (check.orphan) console.log(`Pipeline ${check.category}: warning, companions without agents (not installable; refresh or delete it).`)
+      else if (check.problems.length === 0) console.log(`Pipeline ${check.category} ships its OpenCode tools and plugin.`)
+      else console.log(`Pipeline ${check.category} is incomplete:\n${check.problems.map(problem => `  - [${problem.kind}] ${problem.detail}`).join("\n")}`)
     }
   }
-  const results = parsed.action === "build" && !parsed.id
-    ? buildAllCategoryDistributions(repoRoot)
-    : ids.map(id => parsed.action === "check" || parsed.action === "status" ? checkCategoryDistribution(repoRoot, id) : repositoryMutation(repoRoot, [path.join(repoRoot, resolveCategoriesSubdir(repoRoot), id)], `chore(agent-manager): build ${id} category`, () => buildCategoryDistribution(repoRoot, id)))
-  if (parsed.json) console.log(JSON.stringify(results)); else results.forEach((result, index) => console.log(result.status === "current" ? `Category ${ids[index]} is current.` : `Category ${ids[index]} is stale.\nMissing: ${result.missing.join(", ") || "none"}\nChanged: ${result.changed.join(", ") || "none"}\nExtra: ${result.extra.join(", ") || "none"}`))
-  if ((parsed.action === "check" || parsed.action === "status") && results.some(result => result.status !== "current")) process.exitCode = 1
+  const bashDrifts = all || pipelineIds.length > 0
+    ? checkBashProfiles(repoRoot).filter(drift => all || pipelineIds.some(id => id === "pipeline" ? drift.file.startsWith(`${resolveSourceSubdir(repoRoot)}/`) : drift.file.includes(`/${id}/`)))
+    : []
+  if (!parsed.json) for (const drift of bashDrifts) console.log(`Bash allowlist drift in ${drift.file} (role ${drift.role}, ${drift.problem}); fix with \`pipeline sync-bash\` then \`category build --all\`:\n${drift.diff.map(line => `    ${line}`).join("\n")}`)
+  else if (bashDrifts.length) console.log(JSON.stringify({ bashDrifts }))
+  const pipelineFailed = pipelineChecks.some(check => check.problems.length > 0) || bashDrifts.length > 0
+  if ((parsed.action === "check" || parsed.action === "status") && (results.some(result => result.status !== "current") || pipelineFailed)) process.exitCode = 1
+  if (parsed.action === "build" && pipelineFailed) process.exitCode = 1
 }
 function runTopicExport(workspaceRoot: string) {
   console.error("Warning: topic-export is deprecated; use category build/check wiki.")

@@ -405,3 +405,79 @@ test("killTree is safe on pids that are gone or invalid", async () => {
   await killTree(0)
   await killTree(2 ** 22 + 99)
 })
+
+// ------------------------------------------- targeted / filter / workspace
+
+test("autodetect: targeted and filter commands for vitest, jest, pytest (venv aware), go, cargo", () => {
+  const vit = autodetect(mkRepo({ "package.json": JSON.stringify({ devDependencies: { vitest: "1" } }) }))
+  assert.equal(vit.verify.test_targeted, "npx --no-install vitest run {files}")
+  assert.equal(vit.verify.test_filter, "npx --no-install vitest run {files} -t {filter}")
+  const jest = autodetect(mkRepo({ "package.json": JSON.stringify({ devDependencies: { jest: "29" } }), "pnpm-lock.yaml": "" }))
+  assert.equal(jest.verify.test_targeted, "pnpm exec jest {files}")
+  assert.equal(jest.verify.test_filter, "pnpm exec jest {files} -t {filter}")
+  const py = autodetect(mkRepo({ "pyproject.toml": "" }))
+  assert.equal(py.verify.test_targeted, "python3 -m pytest -q {files}")
+  assert.equal(py.verify.test_filter, "python3 -m pytest -q {files} -k {filter}")
+  const venv = autodetect(mkRepo({ "pytest.ini": "", ".venv/bin/python": "" }))
+  assert.equal(venv.verify.test_fast, ".venv/bin/python -m pytest -q -x")
+  const mixed = autodetect(mkRepo({ "package.json": JSON.stringify({ scripts: { build: "vite build" } }), "pyproject.toml": "" }))
+  assert.equal(mixed.verify.test_targeted, "python3 -m pytest -q {files}")
+  const go = autodetect(mkRepo({ "go.mod": "module x" }))
+  assert.equal(go.verify.test_targeted, "go test {packages}")
+  assert.equal(go.verify.test_filter, "go test {packages} -run {filter}")
+  const cargo = autodetect(mkRepo({ "Cargo.toml": "[package]" }))
+  assert.equal(cargo.verify.test_targeted, undefined)
+  assert.equal(cargo.verify.test_filter, "cargo test {filter}")
+})
+
+test("runVerify filter: test_filter is the default check, the filter is quoted, {packages} groups dirs", async () => {
+  const dir = mkRepo({}, { verify: { test_filter: "printf '%s|' {files} -k {filter}", test_targeted: "printf '%s|' {packages}" } })
+  const info = repoInfo(dir)
+  const evil = `login and not "x"; touch pwned`
+  const res = await runVerify({ info, filter: evil, files: ["tests/test_a.py"] })
+  assert.equal(res.status, "pass", JSON.stringify(res))
+  assert.equal(res.results[0].check, "test_filter")
+  assert.equal(res.filter, evil)
+  assert.match(res.results[0].output_tail, /tests\/test_a\.py\|-k\|login and not "x"; touch pwned\|/)
+  assert.ok(!fs.existsSync(path.join(dir, "pwned")))
+  const pk = await runVerify({ info, files: ["pkg/a/x.go", "pkg/a/y.go", "main.go"] })
+  assert.equal(pk.results[0].check, "test_targeted")
+  assert.match(pk.results[0].output_tail, /^\.\/pkg\/a\|\.\|$/m)
+  const noFilter = await runVerify({ info, checks: ["test_filter"] })
+  assert.equal(noFilter.results[0].status, "skipped")
+  const multi = await runVerify({ info, filter: "a\nb" })
+  assert.equal(multi.status, "error")
+  const badContract = loadContract(mkRepo({}, { verify: { test_filter: "pytest -k name" } }))
+  assert.ok(badContract.problems.some((p) => p.includes("must contain {filter}")))
+  assert.equal(badContract.contract.verify.test_filter, undefined)
+})
+
+test("runVerify workspace: cwd is the subdirectory, contract or autodetect per workspace, files become workspace-relative", async () => {
+  const dir = mkRepo(
+    { "backend/pyproject.toml": "", "backend/tests/test_x.py": "", "frontend/src/a.ts": "", "frontend/package.json": JSON.stringify({ devDependencies: { vitest: "1" } }) },
+    { verify: { lint: "echo top-level" }, workspaces: { backend: { verify: { test_targeted: "pwd; echo FILES:{files}", lint: "pwd" } } } },
+  )
+  const info = repoInfo(dir)
+  const res = await runVerify({ info, workspace: "backend", checks: ["test_targeted"], files: ["backend/tests/test_x.py", "frontend/src/a.ts"] })
+  assert.equal(res.status, "pass", JSON.stringify(res))
+  assert.equal(res.workspace, "backend")
+  assert.match(res.results[0].output_tail, new RegExp(`${path.join(dir, "backend")}\\n`))
+  assert.match(res.results[0].output_tail, /FILES:tests\/test_x\.py\n/)
+  assert.deepEqual(res.rejected_files, ["frontend/src/a.ts"])
+  // No workspace entry: autodetect inside the subdirectory, never the top-level verify commands.
+  const { contract } = loadContract(dir, { workspace: "frontend" })
+  assert.equal(contract.verify.test_targeted, "npx --no-install vitest run {files}")
+  assert.equal(contract.verify.lint, undefined)
+  const pyWs = loadContract(dir, { workspace: "backend" })
+  assert.equal(pyWs.contract.verify.test_filter, "python3 -m pytest -q {files} -k {filter}")
+  for (const bad of ["../", "/etc", "missing", ".git"]) {
+    const r = await runVerify({ info, workspace: bad, checks: ["lint"] })
+    assert.equal(r.status, "error", bad)
+    assert.equal(r.failure_class_hint, "harness")
+  }
+  const outside = mkTmp("pipe-run-outside-")
+  fs.symlinkSync(outside, path.join(dir, "link"))
+  assert.match((await runVerify({ info, workspace: "link", checks: ["lint"] })).reason, /outside the repository/)
+  const root = await runVerify({ info, workspace: ".", checks: ["lint"] })
+  assert.match(root.results[0].output_tail, /top-level/)
+})

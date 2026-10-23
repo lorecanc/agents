@@ -90,10 +90,6 @@
       "hash": "1ca388db209578a6e98768a2ecefc6d7aa84f851fed78bc36985370606788208"
     },
     {
-      "target": "tools/pptx/ooxml/.DS_Store",
-      "hash": "c976afa6ce822ed0130da9f6ba3d329854720cd8ca939761ba3af6b7de821f80"
-    },
-    {
       "target": "tools/pptx/ooxml/schemas/ISO-IEC29500-4_2016/dml-chart.xsd",
       "hash": "41b93bd8857cc68b1e43be2806a872d736a9bdd6566900062d8fdb57d7bbb354"
     },

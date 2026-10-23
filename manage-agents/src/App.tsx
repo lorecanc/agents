@@ -48,6 +48,8 @@ import { applyPipelineProfile, loadPipelineProfiles, syncPipelineProfile, loadSt
 import { bridgeToClaudeCode } from "./utils/bridge.js"
 import { bridgeToCodex } from "./utils/codexBridge.js"
 import { buildInferenceIndex, loadTranslationConfig, resolveModelTarget, resolveRole, saveTranslationConfig, validateClaudeModelName, type TranslationConfig } from "./utils/translationConfig.js"
+import { claudeNextSteps } from "./utils/claudeNextSteps.js"
+import { registerPlugin, validatePlugin } from "./utils/claudePluginCli.js"
 import { AUTO_COMMIT_MESSAGES, autoCommitEnabled, repositoryTransaction, type TransactionWarning } from "./utils/repositoryTransaction.js"
 import { adjustListShare, calculateLayout, calculateListColumnBudget, calculatePanelWidths, resetListShare } from "./utils/layout.js"
 import { loadUiConfig, saveUiConfig } from "./utils/uiConfig.js"
@@ -551,7 +553,31 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
         const counts = result.preview.reduce<Record<string, number>>((acc, item) => { acc[item.source] = (acc[item.source] || 0) + 1; return acc }, {})
         lines.push(``, `Preview summary: ${Object.entries(counts).map(([source, count]) => `${count} by ${source}`).join(", ")}`, ...result.preview.map(item => `  ${item.agent} → ${item.role} → ${item.tier} → ${item.model} → ${item.source}`))
       }
-      lines.push(``, ...(bridgeTarget === "codex" ? [`Codex project-scoped agents:`, `  cd ${result.pluginDir} && codex`, ``, `Plugin manifest:`, `  ${result.pluginDir}/.codex-plugin/plugin.json`] : [`Validate and run locally:`, `  claude plugin validate ${result.pluginDir} --strict`, `  claude --plugin-dir ${result.pluginDir} --agent orchestrator`]))
+      lines.push(``, ...(bridgeTarget === "codex" || !("pluginName" in result) ? [`Codex project-scoped agents:`, `  cd ${result.pluginDir} && codex`, ``, `Plugin manifest:`, `  ${result.pluginDir}/.codex-plugin/plugin.json`] : [`Validate and run locally:`, ...claudeNextSteps(result.pluginName, result.orchestratorName, result.pluginDir)]))
+      if (bridgeTarget === "claude" && "pluginName" in result) {
+        let registrationSkipped = false
+        if (bridgeConfig.claude.autoValidate !== false) {
+          const validation = validatePlugin(result.pluginDir)
+          lines.push(``, `Validation: ${validation.kind}`, `  ${validation.message}`)
+          if (validation.detail) lines.push(`  ${validation.detail}`)
+          if (validation.kind === "fail") {
+            registrationSkipped = true
+            lines.push(`  ⚠ Registration skipped: validation failed.`)
+          } else if (validation.kind === "error") {
+            registrationSkipped = true
+            lines.push(`  ⚠ Registration skipped: validation could not decide (unexpected CLI error).`)
+          }
+        }
+        if (bridgeConfig.claude.autoRegister !== false && !registrationSkipped) {
+          if (result.marketplaceName === null) {
+            lines.push(``, `Registration skipped: no marketplace manifest is emitted (claude.emitMarketplace is off).`)
+          } else {
+            const registration = registerPlugin(result.pluginDir, result.pluginName, result.marketplaceName)
+            lines.push(``, `Registration: ${registration.kind}`, `  ${registration.message}`)
+            if (registration.detail) lines.push(`  ${registration.detail}`)
+          }
+        }
+      }
        try { refreshData() } catch (error) { setMutationRefreshFailure(error, tx.warning); setViewMode("action-result"); return }
        setMutationSuccess(`Bridge to ${bridgeTarget === "codex" ? "Codex" : "Claude Code"} Complete`, lines, tx.warning)
       setViewMode("action-result")

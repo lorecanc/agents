@@ -2,11 +2,11 @@
 
 This directory is a generated translation layer from the canonical source agents. Source agents are unchanged.
 
-> **Generated output.** Do not edit this directory directly. Change canonical agents or `agents/.agent-manager/translation-config.json`, then regenerate with the manager.
+> **Generated output.** Do not edit this directory directly. Change canonical agents or `.agent-manager/translation-config.json`, then regenerate with the manager.
 
 ## Source and configuration
 
-Agent prompts are discovered under `agents/general/`. Translation roles, tiers, model overrides, prefix, and output options come from `agents/.agent-manager/translation-config.json`; MCP declarations come from `agents/general/opencode.json`.
+Agent prompts are discovered under `src/`. Translation roles, tiers, model overrides, prefix, and output options come from `.agent-manager/translation-config.json`; MCP declarations come from `src/opencode.json` (legacy fallback `general/opencode.json`).
 
 ## Contents
 
@@ -18,12 +18,15 @@ Agent prompts are discovered under `agents/general/`. Translation roles, tiers, 
 
 Note: custom prompts in `~/.codex/prompts` are deprecated; prefer skills such as the ones generated here.
 
+OpenCode tool names in prompts are translated where Codex has an equivalent (`todowrite` → `update_plan`). Prompts that rely on OpenCode-only tools (`pipeline_*`) start with a runtime note saying they are unavailable here and that the documented fallbacks apply.
+
 ## MCP setup
 
 `npx` servers are fetched on first use. Binary servers must already be available on `PATH`.
 
 - `chrome-devtools`: runs as `npx -y chrome-devtools-mcp@latest` (Node.js, npm, and network required).
 - `codebase-memory-mcp`: install `codebase-memory-mcp` and verify with `command -v codebase-memory-mcp`; see https://github.com/DeusData/codebase-memory-mcp#quick-start.
+- `XcodeBuildMCP`: runs as `npx -y xcodebuildmcp@latest mcp` (Node.js, npm, and network required).
 - `shadcn`: runs as `npx -y shadcn@latest mcp` (Node.js, npm, and network required).
 - `magic`: runs as `npx -y @21st-dev/magic@latest` (Node.js, npm, and network required); set `TWENTYFIRST_API_KEY`.
 - `cupertino`: install `cupertino` and verify with `command -v cupertino`; see https://aleahim.com/blog/cupertino-09-release/.
@@ -31,5 +34,92 @@ Note: custom prompts in `~/.codex/prompts` are deprecated; prefer skills such as
 - `cwe-search`: runs as `npx -y cwe-search-mcp@latest` (Node.js, npm, and network required).
 
 Verify the resulting connections from Codex before invoking MCP-dependent agents.
+
+## Per-agent bash allowlists (not enforced)
+
+Codex agent files set only `sandbox_mode`: agents whose OpenCode `bash` or `edit` permission allows anything get `workspace-write`, the others `read-only`. Codex has no per-agent command allowlist; command rules are global. The source rules are listed here for review.
+
+<details><summary>code-reviewer (10 rules)</summary>
+
+- allow: `cd *`, `git status*`, `git diff*`, `git log*`, `git show*`, `git blame*`, `git rev-parse*`, `git merge-base*`, `git branch --show-current*`
+- deny: `git diff *--output*`
+
+</details>
+
+<details><summary>critic (10 rules)</summary>
+
+- allow: `cd *`, `git status*`, `git diff*`, `git log*`, `git show*`, `git blame*`, `git rev-parse*`, `git merge-base*`, `git branch --show-current*`
+- deny: `git diff *--output*`
+
+</details>
+
+<details><summary>executor (93 rules)</summary>
+
+- allow: `cd *`, `node *`, `npm *`, `npx *`, `pnpm *`, `yarn *`, `bun *`, `deno *`, `python *`, `python3 *`, `pytest*`, `uv *`, `poetry *`, `pip *`, `pip3 *`, `go *`, `cargo *`, `rustc *`, `make*`, `cmake *`, `gradle *`, `./gradlew*`, `mvn *`, `./mvnw*`, `dotnet *`, `bundle *`, `rake*`, `rspec*`, `composer *`, `php *`, `swift *`, `xcodebuild *`, `xcrun *`, `mkdir -p *`, `cp *`, `mv *`, `git status*`, `git diff*`, `git log*`, `git show*`, `git rev-parse*`, `git merge-base*`, `git branch --show-current*`, `git fetch*`, `git pull*`, `git merge*`, `git rebase*`, `git cherry-pick*`, `git checkout --ours *`, `git checkout --theirs *`, `git restore --staged *`, `git restore --ours *`, `git restore --theirs *`, `git restore --merge *`, `git add *`
+- ask: `rm *`
+- deny: `git diff *--output*`, `git fetch *--upload-pack*`, `git fetch *ext::*`, `git pull *--upload-pack*`, `git pull *ext::*`, `git rebase *-i*`, `git rebase *--interactive*`, `git rebase *-x*`, `git rebase *--exec*`, `git add .`, `git add ./`, `git add -A*`, `git add --all*`, `git add -u*`, `git add --update*`, `npm publish*`, `pnpm publish*`, `yarn publish*`, `bun publish*`, `cargo publish*`, `twine upload*`, `rm -r*`, `rm -f*`, `rm -rf /*`, `rm -fr /*`, `rm -rf ~*`, `rm -fr ~*`, `rm -rf ..*`, `rm -fr ..*`, `rm -rf .`, `rm -fr .`, `rm -rf *`, `rm -fr *`, `rm * -r*`, `rm * -f*`, `rm --recursive*`, `rm * --recursive*`
+
+</details>
+
+<details><summary>explorer (10 rules)</summary>
+
+- allow: `cd *`, `git status*`, `git diff*`, `git log*`, `git show*`, `git blame*`, `git rev-parse*`, `git merge-base*`, `git branch --show-current*`
+- deny: `git diff *--output*`
+
+</details>
+
+<details><summary>fast-lane (93 rules)</summary>
+
+- allow: `cd *`, `node *`, `npm *`, `npx *`, `pnpm *`, `yarn *`, `bun *`, `deno *`, `python *`, `python3 *`, `pytest*`, `uv *`, `poetry *`, `pip *`, `pip3 *`, `go *`, `cargo *`, `rustc *`, `make*`, `cmake *`, `gradle *`, `./gradlew*`, `mvn *`, `./mvnw*`, `dotnet *`, `bundle *`, `rake*`, `rspec*`, `composer *`, `php *`, `swift *`, `xcodebuild *`, `xcrun *`, `mkdir -p *`, `cp *`, `mv *`, `git status*`, `git diff*`, `git log*`, `git show*`, `git rev-parse*`, `git merge-base*`, `git branch --show-current*`, `git fetch*`, `git pull*`, `git merge*`, `git rebase*`, `git cherry-pick*`, `git checkout --ours *`, `git checkout --theirs *`, `git restore --staged *`, `git restore --ours *`, `git restore --theirs *`, `git restore --merge *`, `git add *`
+- ask: `rm *`
+- deny: `git diff *--output*`, `git fetch *--upload-pack*`, `git fetch *ext::*`, `git pull *--upload-pack*`, `git pull *ext::*`, `git rebase *-i*`, `git rebase *--interactive*`, `git rebase *-x*`, `git rebase *--exec*`, `git add .`, `git add ./`, `git add -A*`, `git add --all*`, `git add -u*`, `git add --update*`, `npm publish*`, `pnpm publish*`, `yarn publish*`, `bun publish*`, `cargo publish*`, `twine upload*`, `rm -r*`, `rm -f*`, `rm -rf /*`, `rm -fr /*`, `rm -rf ~*`, `rm -fr ~*`, `rm -rf ..*`, `rm -fr ..*`, `rm -rf .`, `rm -fr .`, `rm -rf *`, `rm -fr *`, `rm * -r*`, `rm * -f*`, `rm --recursive*`, `rm * --recursive*`
+
+</details>
+
+<details><summary>hitl (10 rules)</summary>
+
+- allow: `cd *`, `git status*`, `git diff*`, `git log*`, `git show*`, `git blame*`, `git rev-parse*`, `git merge-base*`, `git branch --show-current*`
+- deny: `git diff *--output*`
+
+</details>
+
+<details><summary>ops (176 rules)</summary>
+
+- allow: `cd *`, `docker *`, `docker-compose *`, `kubectl *`, `helm *`, `gcloud *`, `aws *`, `az *`, `terraform *`, `gh *`, `firebase *`, `fly *`, `flyctl *`, `wrangler *`, `curl *`, `nc *`, `lsof *`, `ps *`, `kill *`, `ls *`, `cat *`, `head *`, `tail *`, `cat *.env.example*`, `cat *.env.sample*`, `which *`, `command -v *`, `whoami`, `uname*`, `test *`, `sleep *`, `ss *`, `netstat *`, `pg_isready*`, `mkdir -p *`, `node *`, `npm *`, `npx *`, `pnpm *`, `yarn *`, `bun *`, `deno *`, `python *`, `python3 *`, `pytest*`, `uv *`, `poetry *`, `pip *`, `pip3 *`, `go *`, `cargo *`, `rustc *`, `make*`, `cmake *`, `gradle *`, `./gradlew*`, `mvn *`, `./mvnw*`, `dotnet *`, `bundle *`, `rake*`, `rspec*`, `composer *`, `php *`, `swift *`, `xcodebuild *`, `xcrun *`, `git status*`, `git diff*`, `git log*`, `git show*`, `git rev-parse*`, `git merge-base*`, `git branch --show-current*`, `git fetch*`, `git pull*`, `git merge*`, `git rebase*`, `git cherry-pick*`
+- ask: `psql *`, `mysql *`, `mongosh *`, `redis-cli *`, `rm *`, `gcloud * deploy*`, `gcloud *builds submit*`, `kubectl apply*`, `kubectl * apply*`, `kubectl patch*`, `kubectl * patch*`, `kubectl scale*`, `kubectl * scale*`, `kubectl rollout*`, `kubectl * rollout*`, `helm install*`, `helm * install*`, `helm upgrade*`, `helm * upgrade*`, `helm rollback*`, `helm * rollback*`, `terraform apply*`, `terraform * apply*`, `firebase deploy*`, `firebase * deploy*`, `vercel *`, `fly deploy*`, `fly * deploy*`, `flyctl deploy*`, `flyctl * deploy*`, `wrangler deploy*`, `wrangler * deploy*`, `docker push*`, `docker * push*`, `gh release create*`, `gh * release create*`, `gh workflow run*`, `gh * workflow run*`
+- deny: `cat *.env*`, `head *.env*`, `tail *.env*`, `git diff *--output*`, `git fetch *--upload-pack*`, `git fetch *ext::*`, `git pull *--upload-pack*`, `git pull *ext::*`, `git rebase *-i*`, `git rebase *--interactive*`, `git rebase *-x*`, `git rebase *--exec*`, `docker rm -f*`, `docker * rm -f*`, `docker system prune*`, `docker * system prune*`, `docker volume prune*`, `docker * volume prune*`, `docker compose down -v*`, `docker * compose down -v*`, `docker-compose down -v*`, `docker-compose * down -v*`, `kubectl delete*`, `kubectl * delete*`, `kubectl edit*`, `kubectl * edit*`, `helm uninstall*`, `helm * uninstall*`, `helm delete*`, `helm * delete*`, `terraform destroy*`, `terraform * destroy*`, `terraform import*`, `terraform * import*`, `gcloud * delete*`, `aws * delete*`, `aws * terminate*`, `az * delete*`, `gh repo delete*`, `gh * repo delete*`, `gh release delete*`, `gh * release delete*`, `npm publish*`, `rm -r*`, `rm -f*`, `rm -rf /*`, `rm -fr /*`, `rm -rf ~*`, `rm -fr ~*`, `rm -rf ..*`, `rm -fr ..*`, `rm -rf .`, `rm -fr .`, `rm -rf *`, `rm -fr *`, `rm * -r*`, `rm * -f*`, `rm --recursive*`, `rm * --recursive*`
+
+</details>
+
+<details><summary>post-session (30 rules)</summary>
+
+- allow: `cd *`, `git status*`, `git diff*`, `git log*`, `git show*`, `git rev-parse*`, `git branch --show-current*`, `git restore --staged *`, `git add *`, `git commit -m *`
+- ask: `git push*`
+- deny: `git diff *--output*`, `git add -A*`, `git add --all*`, `git add -u*`, `git add --update*`, `git add -p*`, `git add --patch*`, `git add -i*`, `git add --interactive*`, `git add .`, `git add ./`, `git add -- .`, `git add */`, `git add *.`, `git commit -a*`, `git commit --all*`, `git commit * --amend*`, `git commit * --no-verify*`, `git commit * --all*`
+
+</details>
+
+<details><summary>refactorer (93 rules)</summary>
+
+- allow: `cd *`, `node *`, `npm *`, `npx *`, `pnpm *`, `yarn *`, `bun *`, `deno *`, `python *`, `python3 *`, `pytest*`, `uv *`, `poetry *`, `pip *`, `pip3 *`, `go *`, `cargo *`, `rustc *`, `make*`, `cmake *`, `gradle *`, `./gradlew*`, `mvn *`, `./mvnw*`, `dotnet *`, `bundle *`, `rake*`, `rspec*`, `composer *`, `php *`, `swift *`, `xcodebuild *`, `xcrun *`, `mkdir -p *`, `cp *`, `mv *`, `git status*`, `git diff*`, `git log*`, `git show*`, `git rev-parse*`, `git merge-base*`, `git branch --show-current*`, `git fetch*`, `git pull*`, `git merge*`, `git rebase*`, `git cherry-pick*`, `git checkout --ours *`, `git checkout --theirs *`, `git restore --staged *`, `git restore --ours *`, `git restore --theirs *`, `git restore --merge *`, `git add *`
+- ask: `rm *`
+- deny: `git diff *--output*`, `git fetch *--upload-pack*`, `git fetch *ext::*`, `git pull *--upload-pack*`, `git pull *ext::*`, `git rebase *-i*`, `git rebase *--interactive*`, `git rebase *-x*`, `git rebase *--exec*`, `git add .`, `git add ./`, `git add -A*`, `git add --all*`, `git add -u*`, `git add --update*`, `npm publish*`, `pnpm publish*`, `yarn publish*`, `bun publish*`, `cargo publish*`, `twine upload*`, `rm -r*`, `rm -f*`, `rm -rf /*`, `rm -fr /*`, `rm -rf ~*`, `rm -fr ~*`, `rm -rf ..*`, `rm -fr ..*`, `rm -rf .`, `rm -fr .`, `rm -rf *`, `rm -fr *`, `rm * -r*`, `rm * -f*`, `rm --recursive*`, `rm * --recursive*`
+
+</details>
+
+<details><summary>security-auditor (24 rules)</summary>
+
+- allow: `cd *`, `git status*`, `git diff*`, `git log*`, `git show*`, `git blame*`, `git rev-parse*`, `git merge-base*`, `git branch --show-current*`, `npm audit*`, `pnpm audit*`, `yarn audit*`, `bun audit*`, `pip-audit*`, `cargo audit*`, `govulncheck*`, `gosec*`, `semgrep*`, `trivy*`, `bandit*`, `osv-scanner*`, `hadolint*`, `shellcheck*`
+- deny: `git diff *--output*`
+
+</details>
+
+<details><summary>tester (61 rules)</summary>
+
+- allow: `cd *`, `node *`, `npm *`, `npx *`, `pnpm *`, `yarn *`, `bun *`, `deno *`, `python *`, `python3 *`, `pytest*`, `uv *`, `poetry *`, `pip *`, `pip3 *`, `go *`, `cargo *`, `rustc *`, `make*`, `cmake *`, `gradle *`, `./gradlew*`, `mvn *`, `./mvnw*`, `dotnet *`, `bundle *`, `rake*`, `rspec*`, `composer *`, `php *`, `swift *`, `xcodebuild *`, `xcrun *`, `mkdir -p *`, `cp *`, `mv *`, `git status*`, `git diff*`, `git log*`, `git show*`, `git rev-parse*`, `git merge-base*`, `git branch --show-current*`
+- ask: `rm *`
+- deny: `git diff *--output*`, `rm -r*`, `rm -f*`, `rm -rf /*`, `rm -fr /*`, `rm -rf ~*`, `rm -fr ~*`, `rm -rf ..*`, `rm -fr ..*`, `rm -rf .`, `rm -fr .`, `rm -rf *`, `rm -fr *`, `rm * -r*`, `rm * -f*`, `rm --recursive*`, `rm * --recursive*`
+
+</details>
 
 Primary agent: @orchestrator

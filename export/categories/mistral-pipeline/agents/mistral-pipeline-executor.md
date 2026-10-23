@@ -31,110 +31,7 @@ permission:
   edit: allow
   bash:
     "*": deny
-    git *: deny
-    git status*: allow
-    git diff*: allow
-    git diff --output*: deny
-    git diff * --output*: deny
-    git log*: allow
-    git show*: allow
-    git ls-files*: allow
-    git rev-parse*: allow
-    git branch --show-current*: allow
-    git blame*: allow
-    sudo *: deny
-    rm -rf /*: deny
-    rm -fr /*: deny
-    rm -rf ~*: deny
-    rm -fr ~*: deny
-    rm -rf ..*: deny
-    rm -fr ..*: deny
-    git ls-tree*: allow
-    git ls-remote*: allow
-    git cat-file*: allow
-    git rev-list*: allow
-    git merge-base*: allow
-    git range-diff*: allow
-    git cherry*: allow
-    git branch -a*: allow
-    git branch -r*: allow
-    git branch -v*: allow
-    git branch --list*: allow
-    git branch --contains*: allow
-    git branch --merged*: allow
-    git branch --no-merged*: allow
-    git grep*: allow
-    git describe*: allow
-    git shortlog*: allow
-    git for-each-ref*: allow
-    git name-rev*: allow
-    git show-ref*: allow
-    git show-branch*: allow
-    git check-ignore*: allow
-    git var*: allow
-    git verify-commit*: allow
-    git verify-tag*: allow
-    git tag -l*: allow
-    git tag --list*: allow
-    git remote -v*: allow
-    git remote --verbose*: allow
-    git remote show*: allow
-    git remote get-url*: allow
-    git stash list*: allow
-    git stash show*: allow
-    git worktree list*: allow
-    git reflog*: allow
-    git reflog expire*: deny
-    git reflog delete*: deny
-    git config --get*: allow
-    git config --list*: allow
-    git config -l*: allow
-    git fetch*: allow
-    git fetch *--upload-pack*: deny
-    git fetch *ext::*: deny
-    git pull*: allow
-    git pull *--upload-pack*: deny
-    git pull *ext::*: deny
-    git pull *--rebase=interactive*: deny
-    git pull *--rebase=i*: deny
-    git merge*: allow
-    git merge *-e*: deny
-    git merge *--edit*: deny
-    git rebase*: allow
-    git rebase *-i*: deny
-    git rebase *--interactive*: deny
-    git rebase *-x*: deny
-    git rebase *--exec*: deny
-    git cherry-pick*: allow
-    git cherry-pick *-e*: deny
-    git cherry-pick *--edit*: deny
-    git -c core.editor=true *: allow
-    "git -c core.editor=: *": allow
-    git checkout --ours *: allow
-    git checkout --theirs *: allow
-    git checkout -m *: allow
-    git checkout --merge *: allow
-    git checkout --conflict=*: allow
-    git restore --staged *: allow
-    git restore -S *: allow
-    git restore --ours *: allow
-    git restore --theirs *: allow
-    git restore --merge *: allow
-    git restore -m *: allow
-    git restore --conflict=*: allow
-    git add *: allow
-    git add .: deny
-    git add .*: deny
-    git add -A*: deny
-    git add --all*: deny
-    git add -u*: deny
-    git add --update*: deny
-    git add -p*: deny
-    git add --patch*: deny
-    git add -i*: deny
-    git add --interactive*: deny
-    git add */: deny
-    git add *.: deny
+    cd *: allow
     node *: allow
     npm *: allow
     npx *: allow
@@ -171,7 +68,40 @@ permission:
     rm *: ask
     cp *: allow
     mv *: allow
+    git status*: allow
+    git diff*: allow
     git diff *--output*: deny
+    git log*: allow
+    git show*: allow
+    git rev-parse*: allow
+    git merge-base*: allow
+    git branch --show-current*: allow
+    git fetch*: allow
+    git fetch *--upload-pack*: deny
+    git fetch *ext::*: deny
+    git pull*: allow
+    git pull *--upload-pack*: deny
+    git pull *ext::*: deny
+    git merge*: allow
+    git rebase*: allow
+    git rebase *-i*: deny
+    git rebase *--interactive*: deny
+    git rebase *-x*: deny
+    git rebase *--exec*: deny
+    git cherry-pick*: allow
+    git checkout --ours *: allow
+    git checkout --theirs *: allow
+    git restore --staged *: allow
+    git restore --ours *: allow
+    git restore --theirs *: allow
+    git restore --merge *: allow
+    git add *: allow
+    git add .: deny
+    git add ./: deny
+    git add -A*: deny
+    git add --all*: deny
+    git add -u*: deny
+    git add --update*: deny
     npm publish*: deny
     pnpm publish*: deny
     yarn publish*: deny
@@ -180,6 +110,12 @@ permission:
     twine upload*: deny
     rm -r*: deny
     rm -f*: deny
+    rm -rf /*: deny
+    rm -fr /*: deny
+    rm -rf ~*: deny
+    rm -fr ~*: deny
+    rm -rf ..*: deny
+    rm -fr ..*: deny
     rm -rf .: deny
     rm -fr .: deny
     rm -rf *: deny
@@ -199,6 +135,31 @@ steps: 50
 You are the focused implementation agent.
 
 Follow the repository `AGENTS.md` rules. Apply the requested change using the smallest safe diff.
+
+## Report header (mandatory, first lines of every reply)
+
+Start every reply with this block, before anything else:
+
+```text
+STATUS: complete | partial | blocked
+BLOCKED_BY: none | permission: <exact command or tool call that was rejected> | env: <missing service, tool or credential> | tool-missing: <tool name>
+REMAINING_SCOPE: none | <what is left, specific enough for a resumed session to continue>
+```
+
+- `partial`: you ran out of step budget before finishing. When you are close to it (about 80% of your steps), stop exploring and write the report: what is done in the body, what is left in `REMAINING_SCOPE`. The orchestrator resumes this same session to continue, so do not repeat finished work then.
+- `blocked`: you could not do the core of the task. For `permission`, quote the exact command and the error text; never write a generic "shell denied". For `tool-missing`, name the tool your instructions mention that is not in your toolset, and use the documented fallback.
+- Keep the whole report in one language and in plain markdown. If a passage of your own output looks garbled or truncated, rewrite it before returning.
+
+## Shell rules (how bash permissions work here)
+
+Every bash command is checked against this agent's allowlist, each part of a compound command separately, and the pipeline guard blocks writes outside the repository. To avoid needless rejections:
+
+- One command per call. Avoid `&&`, `;`, `|` and subshells unless every part is a command you are allowed to run.
+- Set the directory with the bash tool's `workdir` parameter instead of `cd dir && ...`.
+- Do not prefix commands with variable assignments (`VAR=value cmd`). For checks that need a subdirectory, env or services (for example a database), use `pipeline_verify` (`workspace`, `filter`, `with_services`) when you have it.
+- Quote paths, especially ones starting with `.` or containing spaces: `git diff -- ".github/workflows/ci.yml"`.
+- Three identical tool calls in a row are rejected (`doom_loop`). Bound a wait inside one command instead of polling with repeated identical calls.
+- If a command is rejected: rewrite it once following these rules, or use the equivalent `pipeline_*` tool. If it is still rejected, stop trying variations, report `BLOCKED_BY: permission: <exact command>` with the error text, and continue with what you can do without it.
 
 ## Execution rules
 - Follow planner/reasoner output exactly unless it is clearly wrong.

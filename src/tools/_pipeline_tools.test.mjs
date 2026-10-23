@@ -26,7 +26,7 @@ registerHooks({
   },
 })
 
-const { repoInfo, writeSession, snapshot } = await import("./_pipeline_core.js")
+const { repoInfo, writeSession, snapshot, appendActivity } = await import("./_pipeline_core.js")
 const loadTool = async (name) => (await import(`./${name}.ts`)).default
 
 function mkRepo(contract = null) {
@@ -196,4 +196,41 @@ test("pipeline_serve: no contract is inconclusive; not a repository is an error"
   assert.equal(res.status, "inconclusive")
   const notRepo = mkTmp("pipe-none-")
   assert.equal((await call("pipeline_serve", { action: "start" }, ctx(notRepo))).error, "not a git repository")
+})
+
+test("pipeline_state exposes recorded activity next to the unchanged fields", async () => {
+  const dir = mkRepo()
+  const without = await call("pipeline_state", {}, ctx(dir))
+  assert.deepEqual(without.activity.available, false)
+  const info = registerRoot(dir)
+  const empty = await call("pipeline_state", {}, ctx(dir))
+  assert.equal(empty.activity.available, false)
+  assert.equal(empty.activity.events, 0)
+  const ev = (e) => appendActivity(info, "ses_root", e)
+  ev({ type: "tool", sessionId: "ses_a", agent: "x-pipeline-executor", tool: "bash", ok: true, command: "npm test" })
+  ev({ type: "tool", sessionId: "ses_a", agent: "x-pipeline-executor", tool: "bash", ok: false, denied: true, command: "docker ps", error: "The user rejected permission" })
+  ev({ type: "guard_block", sessionId: "ses_b", agent: "x-pipeline-ops", tool: "bash", command: "git push", reason: "git push is not allowed" })
+  ev({ type: "steps", sessionId: "ses_a", agent: "x-pipeline-executor", tool_calls: 2, llm_calls: 3 })
+  const state = await call("pipeline_state", {}, ctx(dir))
+  for (const k of ["degraded", "base_commit", "branch", "baseline_dirty", "changed", "untracked_files_need_full_read", "anomalies", "other_active_sessions", "scratch_dir", "how_to_diff"]) assert.ok(k in state, k)
+  const a = state.activity
+  assert.equal(a.available, true)
+  assert.match(a.log_file, /opencode-pipeline[\\/]logs[\\/]ses_root\.jsonl$/)
+  assert.deepEqual(a.per_agent["x-pipeline-executor"], { tool_calls: 2, errors: 1, denied: 1, guard_blocks: 0, sessions: 1 })
+  assert.deepEqual(a.per_agent["x-pipeline-ops"], { tool_calls: 1, errors: 0, denied: 0, guard_blocks: 1, sessions: 1 })
+  assert.deepEqual(a.denied.map((d) => [d.agent, d.command, d.reason]), [["x-pipeline-executor", "docker ps", "The user rejected permission"]])
+  assert.deepEqual(a.guard_blocks.map((b) => b.command), ["git push"])
+  assert.deepEqual(a.errors, { total: 1, by_tool: { bash: 1 } })
+  assert.deepEqual(a.subagents.find((s) => s.session === "ses_a"), { session: "ses_a", agent: "x-pipeline-executor", tool_calls: 2, llm_calls: 3 })
+})
+
+test("pipeline_env tool returns the environment report as JSON", async () => {
+  const dir = mkRepo({ verify: { test_fast: "npm test" } })
+  const out = await call("pipeline_env", {}, ctx(dir))
+  assert.equal(out.contract.exists, true)
+  assert.deepEqual(out.contract.verify_defined, ["test_fast"])
+  assert.ok(out.binaries && out.docker && out.pipeline && out.verification_outlook)
+  assert.ok(out.pipeline.tools_present.includes("pipeline_env"))
+  const sub = await call("pipeline_env", { workspace: "missing-dir" }, ctx(dir))
+  assert.match(sub.workspace.error, /does not exist/)
 })

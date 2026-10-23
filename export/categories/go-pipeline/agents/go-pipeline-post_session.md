@@ -25,17 +25,15 @@ permission:
   list_mcp_resource_templates: allow
   bash:
     "*": deny
-    pwd: allow
-    ls*: allow
+    cd *: allow
     git status*: allow
     git diff*: allow
-    git diff --output*: deny
-    git diff * --output*: deny
+    git diff *--output*: deny
     git log*: allow
     git show*: allow
-    git ls-files*: allow
     git rev-parse*: allow
     git branch --show-current*: allow
+    git restore --staged *: allow
     git add *: allow
     git add -A*: deny
     git add --all*: deny
@@ -46,46 +44,16 @@ permission:
     git add -i*: deny
     git add --interactive*: deny
     git add .: deny
-    git add . *: deny
+    git add ./: deny
     git add -- .: deny
     git add */: deny
     git add *.: deny
-    git restore --staged *: allow
     git commit -m *: allow
     git commit -a*: deny
     git commit --all*: deny
     git commit * --amend*: deny
     git commit * --no-verify*: deny
     git commit * --all*: deny
-    git ls-tree*: allow
-    git cat-file*: allow
-    git rev-list*: allow
-    git merge-base*: allow
-    git range-diff*: allow
-    git cherry*: allow
-    git blame*: allow
-    git show-ref*: allow
-    git branch -a*: allow
-    git branch -r*: allow
-    git branch -v*: allow
-    git branch --list*: allow
-    git tag -l*: allow
-    git tag --list*: allow
-    git remote -v*: allow
-    git remote --verbose*: allow
-    git remote show*: allow
-    git remote get-url*: allow
-    git stash list*: allow
-    git stash show*: allow
-    git worktree list*: allow
-    git reflog*: allow
-    git reflog expire*: deny
-    git reflog delete*: deny
-    git config --get*: allow
-    git config --list*: allow
-    git config -l*: allow
-    git diff *--output*: deny
-    git add .*: deny
     git push*: ask
 color: "#BDC3C7"
 hidden: true
@@ -105,6 +73,31 @@ You support two modes:
 2. `checkpoint`
 
 You do not decide the mode yourself. The caller must specify whether this is a final commit or a checkpoint commit.
+
+## Report header (mandatory, first lines of every reply)
+
+Start every reply with this block, before anything else:
+
+```text
+STATUS: complete | partial | blocked
+BLOCKED_BY: none | permission: <exact command or tool call that was rejected> | env: <missing service, tool or credential> | tool-missing: <tool name>
+REMAINING_SCOPE: none | <what is left, specific enough for a resumed session to continue>
+```
+
+- `partial`: you ran out of step budget before finishing. When you are close to it (about 80% of your steps), stop exploring and write the report: what is done in the body, what is left in `REMAINING_SCOPE`. The orchestrator resumes this same session to continue, so do not repeat finished work then.
+- `blocked`: you could not do the core of the task. For `permission`, quote the exact command and the error text; never write a generic "shell denied". For `tool-missing`, name the tool your instructions mention that is not in your toolset, and use the documented fallback.
+- Keep the whole report in one language and in plain markdown. If a passage of your own output looks garbled or truncated, rewrite it before returning.
+
+## Shell rules (how bash permissions work here)
+
+Every bash command is checked against this agent's allowlist, each part of a compound command separately, and the pipeline guard blocks writes outside the repository. To avoid needless rejections:
+
+- One command per call. Avoid `&&`, `;`, `|` and subshells unless every part is a command you are allowed to run.
+- Set the directory with the bash tool's `workdir` parameter instead of `cd dir && ...`.
+- Do not prefix commands with variable assignments (`VAR=value cmd`). For checks that need a subdirectory, env or services (for example a database), use `pipeline_verify` (`workspace`, `filter`, `with_services`) when you have it.
+- Quote paths, especially ones starting with `.` or containing spaces: `git diff -- ".github/workflows/ci.yml"`.
+- Three identical tool calls in a row are rejected (`doom_loop`). Bound a wait inside one command instead of polling with repeated identical calls.
+- If a command is rejected: rewrite it once following these rules, or use the equivalent `pipeline_*` tool. If it is still rejected, stop trying variations, report `BLOCKED_BY: permission: <exact command>` with the error text, and continue with what you can do without it.
 
 ## Hard boundaries
 
@@ -157,7 +150,7 @@ Applies to both modes.
 2. Compute the **commit set**: files in `expected files` that are actually changed (modified, deleted, or untracked). Every other changed file is **excluded** and must never be staged.
 3. If a file in the commit set is also in `baseline_dirty`, its diff mixes pre-existing and session changes and cannot be split safely: exclude it and report it as `CONFLICT`.
 4. If anything outside the commit set is already staged, unstage it with `git restore --staged <path>`. This touches the index only, never the working tree.
-5. Stage the commit set **one explicit file path at a time** (`git add <path>`). Never stage directories, `.`, `-A`, `--all`, `-u`, `-p`, or `-i`: these are denied.
+5. Stage the commit set **one explicit file path at a time**, quoted (`git add "<path>"`, e.g. `git add ".github/workflows/ci.yml"`). Never stage directories, `.`, `-A`, `--all`, `-u`, `-p`, or `-i`: these are denied.
 6. Verify `git diff --staged --name-only` equals the commit set. If it does not, unstage the extras and re-verify; if it still differs, abort and report.
 7. If `mode: final` and `validation status: failed`, do not commit; report why.
 8. Commit with `git commit -m "<message>"` (add the trailer with a second `-m`). Do not use `--no-verify`, `--amend`, or `-a`. If a hook fails, report the failure; do not bypass it.

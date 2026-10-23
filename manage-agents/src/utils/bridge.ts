@@ -1,13 +1,14 @@
 import fs from "node:fs"
 import path from "node:path"
 import YAML from "yaml"
-import { escapeRegExp, normalizeAgentBody } from "./agents.js"
+import { escapeRegExp, extractFrontmatter, normalizeAgentBody } from "./agents.js"
 import type { AgentInfo } from "./agents.js"
-import { buildInferenceIndex, DEFAULT_TRANSLATION_CONFIG, resolveModelTarget, authorName, unusedModelMapKeys } from "./translationConfig.js"
+import { buildInferenceIndex, DEFAULT_TRANSLATION_CONFIG, resolveMarketplaceName, resolveModelTarget, authorName, unusedModelMapKeys, validateMarketplaceName } from "./translationConfig.js"
 import type { TranslationConfig } from "./translationConfig.js"
 import { getCategoryCompanionLinks } from "./companionLinks.js"
 import { assertInsideRealWorkspace, realpathThroughExistingAncestor } from "./pathValidation.js"
 import { translatePermissionsV2ToV1 } from "./v2Compat.js"
+import { adaptToolReferences, collectBashAllowlist, isOpenCodeCustomToolKey, renderBashAllowlistSection, type BashAllowlist } from "./bridgeToolReferences.js"
 
 type ResolvedModelTarget = ReturnType<typeof resolveModelTarget>
 type ResolvedTargets = Map<string, ResolvedModelTarget>
@@ -41,7 +42,7 @@ function promotesAsk(value: unknown): boolean {
 }
 
 function isMcpPermissionKey(key: string): boolean {
-  return key.includes("_") && !KNOWN_PERMISSION_KEYS.has(key)
+  return key.includes("_") && !KNOWN_PERMISSION_KEYS.has(key) && !isOpenCodeCustomToolKey(key)
 }
 
 const markdownCode = (value: string) => {
@@ -81,6 +82,12 @@ export interface BridgeResult {
   pluginDir: string
   files: string[]
   warnings: string[]
+  /** Effective plugin name written to plugin.json, normalized for Claude Code. */
+  pluginName: string
+  /** Effective marketplace name written to marketplace.json, null when no marketplace is emitted. */
+  marketplaceName: string | null
+  /** Generated plugin orchestrator name (`mode: primary`), null when the bridge has none. */
+  orchestratorName: string | null
   preview?: AgentTranslationPreview[]
 }
 
@@ -385,7 +392,7 @@ function collectWarnings(frontmatter: Record<string, any>, enabledMcpServers?: S
 
   // Custom tools and built-in permissions have no plugin-agent equivalent.
   for (const key of Object.keys(perms)) {
-    const droppedBuiltin = DROPPED_PERMISSION_KEYS.includes(key)
+    const droppedBuiltin = DROPPED_PERMISSION_KEYS.includes(key) || isOpenCodeCustomToolKey(key)
     const droppedCustomTool = !KNOWN_PERMISSION_KEYS.has(key) && !key.includes("_") &&
       (perms[key] === "allow" || perms[key] === true)
     if (droppedBuiltin || droppedCustomTool) {
@@ -515,10 +522,14 @@ function buildClaudeMcpConfig(workspaceRoot: string, requiredServers: Set<string
   try {
     const source = JSON.parse(fs.readFileSync(sourcePath, "utf-8")) as Record<string, any>
     const servers: Record<string, any> = {}
+    const warnings: string[] = []
     for (const [name, value] of Object.entries(source.mcp || {})) {
       if (!value || typeof value !== "object") continue
       const server = value as Record<string, any>
-      if (server.enabled === false && !requiredServers.has(name)) continue
+      if (server.enabled === false) {
+        if (!requiredServers.has(name)) continue
+        warnings.push(`[mcp] disabled server '${name}' in ${sourcePath} is required by translated agents; emitted so its tools resolve`)
+      }
       const commandParts = Array.isArray(server.command)
         ? server.command.map(String)
         : typeof server.command === "string" ? server.command.trim().split(/\s+/) : []
@@ -546,8 +557,8 @@ function buildClaudeMcpConfig(workspaceRoot: string, requiredServers: Set<string
     }
 
     return Object.keys(servers).length > 0
-      ? { config: { mcpServers: servers }, warnings: [] }
-      : { config: null, warnings: [] }
+      ? { config: { mcpServers: servers }, warnings }
+      : { config: null, warnings }
   } catch (error: any) {
     return {
       config: null,
@@ -639,16 +650,37 @@ function renderMcpSetup(
 interface OpenCodeCompanions {
   plugins: string[]
   tools: string[]
+  commands: string[]
+  skills: string[]
+}
+
+/** Companion roots, in resolution order: `src/` wins over the legacy `general/`. */
+function companionRoots(workspaceRoot: string): string[] {
+  return [path.join(workspaceRoot, "src"), path.join(workspaceRoot, "general"), workspaceRoot]
+}
+
+function resolveCompanionSourcePath(workspaceRoot: string, relative: string): string | null {
+  for (const root of companionRoots(workspaceRoot)) {
+    const candidate = path.join(root, relative)
+    if (!fs.existsSync(candidate)) continue
+    if (fs.lstatSync(candidate).isSymbolicLink()) {
+      throw new Error(`Companion source must not be a symlink: ${candidate}`)
+    }
+    assertInsideRealWorkspace(workspaceRoot, fs.realpathSync(candidate), candidate)
+    return candidate
+  }
+  return null
 }
 
 /** Linked companion paths are workspace-relative but live under the source root. */
 function resolveOpenCodeCompanions(workspaceRoot: string, category: string): OpenCodeCompanions {
   const links = getCategoryCompanionLinks(workspaceRoot, category)
-  const roots = [path.join(workspaceRoot, "src"), path.join(workspaceRoot, "general"), workspaceRoot]
-  const exists = (relative: string) => roots.some(root => fs.existsSync(path.join(root, relative)))
+  const exists = (relative: string) => companionRoots(workspaceRoot).some(root => fs.existsSync(path.join(root, relative)))
   return {
     plugins: links.plugins.filter(exists),
-    tools: links.tools.filter(exists)
+    tools: links.tools.filter(exists),
+    commands: links.commands.filter(exists),
+    skills: links.skills.filter(exists)
   }
 }
 
@@ -672,6 +704,140 @@ function renderCompanionSection(companions: OpenCodeCompanions | undefined): str
     "Custom OpenCode tools have no per-agent Claude Code equivalent; expose their behavior through a Claude Code MCP server if agents need it.",
     ""
   ]
+}
+
+/** Read a command's `description` line directly: command frontmatter values may contain `: `. */
+function commandDescription(yamlText: string | null): string {
+  if (!yamlText) return ""
+  for (const line of yamlText.split(/\r?\n/)) {
+    const match = line.match(/^description:\s*(.*)$/)
+    if (!match) continue
+    const value = match[1].trim()
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      return value.slice(1, -1)
+    }
+    return value
+  }
+  return ""
+}
+
+/** Rewrite OpenCode command placeholders and `!` substitutions into skill instructions. */
+function rewriteCommandBody(
+  body: string,
+  pluginName: string,
+  orchestratorName: string | null,
+  commandNames: ReadonlySet<string> = new Set()
+): { body: string; substitutions: number } {
+  const delegation = orchestratorName
+    ? `Delegate this task to the ${pluginName}:${orchestratorName} subagent (the plugin orchestrator), passing the brief below unchanged.`
+    : `Complete this task with the ${pluginName} plugin agents, passing the brief below unchanged.`
+  let substitutions = 0
+  const rewritten = body
+    .replace(/!`([^`\n]+)`/g, (_match, command: string) => {
+      substitutions += 1
+      return `\n\n\`\`\`bash\n${command.trim()}\n\`\`\`\n\n`
+    })
+    .replace(/\$ARGUMENTS/g, () => "$request")
+  // Sibling command names are only resolvable in Claude Code with the plugin scope.
+  const scopedNames = [...commandNames].filter(name => name.startsWith("pipeline-")).sort((a, b) => b.length - a.length)
+  const scoped = scopedNames.length === 0
+    ? rewritten
+    : rewritten.replace(
+      new RegExp(`(^|[^\\w/-])/(${scopedNames.map(escapeRegExp).join("|")})(?![\\w-])`, "g"),
+      (_match, prefix: string, command: string) => `${prefix}/${pluginName}:${command}`
+    )
+  return { body: `${delegation}\n\n${normalizeAgentBody(scoped).trimEnd()}\n`, substitutions }
+}
+
+/** Translate one OpenCode command file into `skills/<command>/SKILL.md`. */
+function writeCommandSkill(
+  sourcePath: string,
+  skillsDir: string,
+  pluginName: string,
+  orchestratorName: string | null,
+  commandNames: ReadonlySet<string>
+): { name: string; file: string; warning: string } {
+  const name = path.basename(sourcePath).replace(/\.md$/i, "")
+  const raw = fs.readFileSync(sourcePath, "utf-8")
+  const { yamlText, body } = extractFrontmatter(raw)
+  const description = commandDescription(yamlText)
+  const rewritten = rewriteCommandBody(body, pluginName, orchestratorName, commandNames)
+  const frontmatter = YAML.stringify({
+    description: description || `Run the ${name} pipeline command.`,
+    "disable-model-invocation": true,
+    arguments: "request"
+  }).trim()
+  const skillDir = path.join(skillsDir, name)
+  // A planted `skills/<name>` link must be unlinked, never written through.
+  if (fs.existsSync(skillDir) && fs.lstatSync(skillDir).isSymbolicLink()) {
+    throw new Error(`Invalid plugin output path outside workspace: ${skillDir}`)
+  }
+  fs.rmSync(skillDir, { recursive: true, force: true })
+  fs.mkdirSync(skillDir, { recursive: true })
+  const file = `skills/${name}/SKILL.md`
+  fs.writeFileSync(path.join(skillDir, "SKILL.md"), `---\n${frontmatter}\n---\n\n${rewritten.body}`, "utf-8")
+  return { name, file, warning: `converted ${rewritten.substitutions} !-substitution(s) to inline instructions` }
+}
+
+/** Fail closed on any link in a source tree: cpSync preserves links and rewrites would follow them. */
+function assertNoSymlinksInTree(dir: string): void {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const entryPath = path.join(dir, entry.name)
+    if (entry.isSymbolicLink()) throw new Error(`Companion source must not be a symlink: ${entryPath}`)
+    if (entry.isDirectory()) assertNoSymlinksInTree(entryPath)
+  }
+}
+
+/** Copy a companion skill directory, dropping the source `name` frontmatter key. */
+function copyCompanionSkill(sourceDir: string, skillsDir: string, warnings: string[]): string[] {
+  if (!fs.statSync(sourceDir).isDirectory()) return []
+  const name = path.basename(sourceDir)
+  const targetDir = path.join(skillsDir, name)
+  // Validate the whole tree before copying so no partial copy escapes.
+  assertNoSymlinksInTree(sourceDir)
+  fs.rmSync(targetDir, { recursive: true, force: true })
+  fs.cpSync(sourceDir, targetDir, { recursive: true })
+  const skillPath = path.join(targetDir, "SKILL.md")
+  if (fs.existsSync(skillPath)) {
+    // Guards the rewrite below directly, even though the source tree is link-free.
+    if (fs.lstatSync(skillPath).isSymbolicLink()) throw new Error(`Companion source must not be a symlink: ${skillPath}`)
+    const { yamlText, body } = extractFrontmatter(fs.readFileSync(skillPath, "utf-8"))
+    if (yamlText) {
+      try {
+        const parsed = YAML.parse(yamlText) as Record<string, any> | null
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          // The directory name is the plugin skill name; the source key is redundant.
+          delete parsed.name
+          const yamlStr = YAML.stringify(parsed).trim()
+          fs.writeFileSync(skillPath, `---\n${yamlStr}\n---\n\n${normalizeAgentBody(body)}`, "utf-8")
+        }
+      } catch {
+        // Malformed source frontmatter must not block the rest of the bridge.
+        warnings.push(`Malformed frontmatter in copied companion skill 'skills/${name}/SKILL.md'; left unchanged`)
+      }
+    }
+  }
+  return [`skills/${name}/SKILL.md`]
+}
+
+/** Delete generated artifacts that this run no longer emits. */
+function pruneStaleArtifacts(
+  pluginDir: string,
+  directory: "agents" | "skills",
+  expected: ReadonlySet<string>,
+  warnings: string[]
+): void {
+  const dir = path.join(pluginDir, directory)
+  if (!fs.existsSync(dir)) return
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (expected.has(entry.name)) continue
+    if (directory === "agents" && !entry.name.endsWith(".md")) continue
+    const target = path.join(dir, entry.name)
+    // Fail closed if a planted link would make the deletion escape the plugin.
+    assertInsideRealWorkspace(pluginDir, realpathThroughExistingAncestor(target), target)
+    fs.rmSync(target, { recursive: true, force: true })
+    warnings.push(`Pruned stale generated artifact '${directory}/${entry.name}'`)
+  }
 }
 
 /**
@@ -736,6 +902,11 @@ export function convertAgent(
   // Rewrite body references
   let body = rewriteBodyReferences(agent.body, prefix, names, warnings, pluginName)
 
+  // Translate OpenCode tool names and flag OpenCode-only tools near the top.
+  body = adaptToolReferences(body, "claude", agent.frontmatter, {
+    mcpServers: requiredMcpServers.filter(server => body.includes(`${server}_`))
+  }).body
+
   // Append MCP notes if needed
   body = appendMcpNotes(body, requiredMcpServers)
 
@@ -795,6 +966,14 @@ export function buildClaudeCodePlugin(
  */
 export interface ClaudeCodeWriteOptions {
   companions?: OpenCodeCompanions
+  /** Per-agent OpenCode bash rules documented (not enforced) in the README. */
+  bashAllowlists?: BashAllowlist[]
+  emitMarketplace?: boolean
+  emitCommands?: boolean
+  emitSkills?: boolean
+  autoValidate?: boolean
+  autoRegister?: boolean
+  marketplaceName?: string
 }
 
 export function writeClaudeCodePlugin(
@@ -815,6 +994,20 @@ export function writeClaudeCodePlugin(
 
   const files: string[] = []
   const allWarnings: string[] = plugin.warnings ? [...plugin.warnings] : []
+  const emitMarketplace = options.emitMarketplace !== false
+  const emitCommands = options.emitCommands !== false
+  const emitSkills = options.emitSkills !== false
+  const marketplaceName = resolveMarketplaceName(plugin.pluginName, options.marketplaceName)
+  if (emitMarketplace) {
+    // The manifest must be acceptable to Claude Code; fail before writing anything.
+    try {
+      validateMarketplaceName(marketplaceName)
+    } catch (error) {
+      throw new Error(
+        `Cannot emit Claude marketplace '${marketplaceName}': ${(error as Error).message} Set claude.marketplaceName in the translation config to a non-reserved name.`
+      )
+    }
+  }
 
   // Create directory structure
   const agentsDir = path.join(resolvedOutputDir, "agents")
@@ -829,10 +1022,11 @@ export function writeClaudeCodePlugin(
   assertInsideRealWorkspace(workspaceRoot, fs.realpathSync(pluginMetaDir), outputDir)
 
   // Write plugin.json
+  const pluginDescription = `Pipeline agents bridged from OpenCode (${plugin.pluginName})`
   const pluginJson = {
     name: plugin.pluginName,
     version: "1.0.0",
-    description: `Pipeline agents bridged from OpenCode (${plugin.pluginName})`,
+    description: pluginDescription,
     author: {
       name: authorName()
     }
@@ -840,6 +1034,30 @@ export function writeClaudeCodePlugin(
   const pluginJsonPath = path.join(pluginMetaDir, "plugin.json")
   fs.writeFileSync(pluginJsonPath, JSON.stringify(pluginJson, null, 2), "utf-8")
   files.push(".claude-plugin/plugin.json")
+
+  // The validator probes the default icon path; copy the shared asset when present.
+  const iconSource = path.join(workspaceRoot, "manage-agents", "assets", "plugin-icon.png")
+  if (fs.existsSync(iconSource)) {
+    fs.copyFileSync(iconSource, path.join(pluginMetaDir, "icon.png"))
+    files.push(".claude-plugin/icon.png")
+  }
+
+  // A local marketplace lets `claude plugin install` resolve this plugin in place.
+  const marketplacePath = path.join(pluginMetaDir, "marketplace.json")
+  if (emitMarketplace) {
+    const marketplace = {
+      name: marketplaceName,
+      description: `Local marketplace: ${pluginDescription}`,
+      owner: { name: pluginJson.author.name },
+      plugins: [{ name: plugin.pluginName, source: "." }]
+    }
+    fs.writeFileSync(marketplacePath, `${JSON.stringify(marketplace, null, 2)}\n`, "utf-8")
+    files.push(".claude-plugin/marketplace.json")
+  } else if (fs.existsSync(marketplacePath)) {
+    assertInsideRealWorkspace(resolvedOutputDir, realpathThroughExistingAncestor(marketplacePath), marketplacePath)
+    fs.rmSync(marketplacePath, { force: true })
+    allWarnings.push("Pruned stale generated artifact '.claude-plugin/marketplace.json'")
+  }
 
   // MCP servers are plugin-root configuration in Claude Code. Keep this
   // alongside the generated agents so their MCP notes resolve at runtime.
@@ -874,6 +1092,66 @@ export function writeClaudeCodePlugin(
     files.push(`agents/${agent.filename}`)
   }
 
+  const skillsDir = path.join(resolvedOutputDir, "skills")
+  const hasSkillSources = (emitCommands && (options.companions?.commands.length || 0) > 0) ||
+    (emitSkills && (options.companions?.skills.length || 0) > 0)
+  if (hasSkillSources) {
+    // Post-creation gate, like the output/agents/.claude-plugin dirs above.
+    fs.mkdirSync(skillsDir, { recursive: true })
+    assertInsideRealWorkspace(workspaceRoot, fs.realpathSync(skillsDir), skillsDir)
+  }
+  const expectedSkills = new Set<string>()
+  const commandNames = new Set((options.companions?.commands || []).map(command => path.basename(command).replace(/\.md$/i, "")))
+  if (emitCommands) {
+    for (const command of options.companions?.commands || []) {
+      const sourcePath = resolveCompanionSourcePath(workspaceRoot, command)
+      if (!sourcePath) continue
+      const skill = writeCommandSkill(sourcePath, skillsDir, plugin.pluginName, plugin.orchestratorName, commandNames)
+      expectedSkills.add(skill.name)
+      files.push(skill.file)
+      allWarnings.push(skill.warning)
+    }
+  }
+  if (emitSkills) {
+    for (const skill of options.companions?.skills || []) {
+      const sourceDir = resolveCompanionSourcePath(workspaceRoot, skill)
+      if (!sourceDir) continue
+      files.push(...copyCompanionSkill(sourceDir, skillsDir, allWarnings))
+      expectedSkills.add(path.basename(sourceDir))
+    }
+  }
+
+  // Mirror pruning: anything the current config no longer emits is stale.
+  pruneStaleArtifacts(resolvedOutputDir, "agents", new Set(plugin.agents.map(agent => agent.filename)), allWarnings)
+  pruneStaleArtifacts(resolvedOutputDir, "skills", expectedSkills, allWarnings)
+
+  const marketplaceReadmeLines: string[] = []
+  if (emitMarketplace) {
+    marketplaceReadmeLines.push(
+      "## Marketplace and registration",
+      "",
+      `This directory is a local marketplace named \`${marketplaceName}\` that publishes the \`${plugin.pluginName}\` plugin from \`.\`.`,
+      ""
+    )
+    if (options.autoValidate !== false) {
+      marketplaceReadmeLines.push("The manager runs `claude plugin validate --strict` after each regeneration.", "")
+    }
+    if (options.autoRegister !== false) {
+      marketplaceReadmeLines.push("The manager adds the marketplace and installs the plugin automatically.", "")
+    }
+    marketplaceReadmeLines.push(
+      "Manual fallback:",
+      "",
+      "```bash",
+      `claude plugin marketplace add '${relativePluginPath}'`,
+      `claude plugin install ${plugin.pluginName}@${marketplaceName}`,
+      "```",
+      "",
+      "After regeneration no update command is needed: local marketplaces load in place, and the refreshed plugin is available in the next session or after `/reload-plugins`.",
+      ""
+    )
+  }
+
   // Write README.md
   const readmeLines = [
     `# ${plugin.pluginName}`,
@@ -891,7 +1169,9 @@ export function writeClaudeCodePlugin(
     "## Generated contents",
     "",
     "- `.claude-plugin/plugin.json` — plugin metadata.",
+    ...(emitMarketplace ? ["- `.claude-plugin/marketplace.json` — local marketplace manifest used by `claude plugin install`."] : []),
     "- `agents/` — translated prompts with normalized names and rewritten delegation references.",
+    ...(expectedSkills.size > 0 ? ["- `skills/` — plugin skills translated from linked OpenCode commands and copied companion skills."] : []),
     "- `.mcp.json` and `.lsp.json` — translated runtime configurations, when present.",
     "- `README.md` — this generated inventory and setup guide.",
     "",
@@ -900,15 +1180,17 @@ export function writeClaudeCodePlugin(
     "## Local validation and testing",
     "",
     "```bash",
-    `claude plugin validate ${relativePluginPath} --strict`,
-    `claude --plugin-dir ${relativePluginPath}`,
+    `claude plugin validate '${relativePluginPath}' --strict`,
+    `claude --plugin-dir '${relativePluginPath}'`,
     "```",
     "",
     "Generated runtime layers:",
     "",
     "- `.mcp.json` mirrors enabled OpenCode MCP declarations plus servers explicitly required by translated agents.",
     "- `.lsp.json` mirrors enabled OpenCode LSP declarations.",
+    "- `.lsp.json` documents the project LSP setup and is not read by `claude plugin validate`.",
     "- Agent-to-agent references are rewritten to Claude's canonical lowercase-hyphen names.",
+    "- OpenCode tool names in prompts are translated (`todowrite` → `TodoWrite`, `question` → `AskUserQuestion`, Task tool → `Agent`, ...). Prompts that rely on OpenCode-only tools (`pipeline_*`) start with a runtime note saying they are unavailable here and that the documented fallbacks apply.",
     "",
     "## Model connection",
     "",
@@ -916,6 +1198,16 @@ export function writeClaudeCodePlugin(
     "",
     ...renderMcpSetup(mcpResult.config, plugin.mcpRequirements),
     ...renderCompanionSection(options.companions),
+    ...renderBashAllowlistSection("claude", options.bashAllowlists ?? []),
+    ...(expectedSkills.size > 0 ? [
+      "## Pipeline skills",
+      "",
+      "Invoke a generated skill with its plugin-scoped name:",
+      "",
+      ...[...expectedSkills].map(name => `- \`/${plugin.pluginName}:${name}\``),
+      ""
+    ] : []),
+    ...marketplaceReadmeLines,
     "## Usage",
     "",
   ]
@@ -924,7 +1216,7 @@ export function writeClaudeCodePlugin(
       "Launch the orchestrator:",
       "",
       "```bash",
-      `claude --plugin-dir ${relativePluginPath} --agent ${plugin.pluginName}:${plugin.orchestratorName}`,
+      `claude --plugin-dir '${relativePluginPath}' --agent ${plugin.pluginName}:${plugin.orchestratorName}`,
       "```",
       ""
     )
@@ -942,7 +1234,10 @@ export function writeClaudeCodePlugin(
   return {
     pluginDir: resolvedOutputDir,
     files,
-    warnings: allWarnings
+    warnings: allWarnings,
+    pluginName: plugin.pluginName,
+    marketplaceName: emitMarketplace ? marketplaceName : null,
+    orchestratorName: plugin.orchestratorName
   }
 }
 
@@ -995,7 +1290,19 @@ export function bridgeToClaudeCode(
   for (const key of unusedModelMapKeys(agents, config, "claude")) {
     allWarnings.push(`[model-map] entry "${key}" matches no source agent model in this bridge`)
   }
-  const result = writeClaudeCodePlugin(plugin, outputDir, workspaceRoot, config.sourceDir, { companions })
+  const bashAllowlists = agents
+    .map((agent, index) => collectBashAllowlist(plugin.agents[index]?.name ?? agent.filename, agent.frontmatter))
+    .filter((allowlist): allowlist is BashAllowlist => allowlist !== null)
+  const result = writeClaudeCodePlugin(plugin, outputDir, workspaceRoot, config.sourceDir, {
+    companions,
+    bashAllowlists,
+    emitMarketplace: config.claude.emitMarketplace,
+    emitCommands: config.claude.emitCommands,
+    emitSkills: config.claude.emitSkills,
+    autoValidate: config.claude.autoValidate,
+    autoRegister: config.claude.autoRegister,
+    marketplaceName: config.claude.marketplaceName
+  })
   result.warnings.push(...allWarnings)
   result.preview = agents.map(agent => {
     const resolved = resolvedTargets.get(agent.filename)!

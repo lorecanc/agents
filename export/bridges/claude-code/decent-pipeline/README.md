@@ -13,7 +13,9 @@ Agent definitions are discovered under `src/`; model tiers, roles, overrides, an
 ## Generated contents
 
 - `.claude-plugin/plugin.json` — plugin metadata.
+- `.claude-plugin/marketplace.json` — local marketplace manifest used by `claude plugin install`.
 - `agents/` — translated prompts with normalized names and rewritten delegation references.
+- `skills/` — plugin skills translated from linked OpenCode commands and copied companion skills.
 - `.mcp.json` and `.lsp.json` — translated runtime configurations, when present.
 - `README.md` — this generated inventory and setup guide.
 
@@ -22,15 +24,17 @@ The agent list below is derived from the input passed to the bridge, not maintai
 ## Local validation and testing
 
 ```bash
-claude plugin validate ./export/bridges/claude-code/decent-pipeline --strict
-claude --plugin-dir ./export/bridges/claude-code/decent-pipeline
+claude plugin validate './export/bridges/claude-code/decent-pipeline' --strict
+claude --plugin-dir './export/bridges/claude-code/decent-pipeline'
 ```
 
 Generated runtime layers:
 
 - `.mcp.json` mirrors enabled OpenCode MCP declarations plus servers explicitly required by translated agents.
 - `.lsp.json` mirrors enabled OpenCode LSP declarations.
+- `.lsp.json` documents the project LSP setup and is not read by `claude plugin validate`.
 - Agent-to-agent references are rewritten to Claude's canonical lowercase-hyphen names.
+- OpenCode tool names in prompts are translated (`todowrite` → `TodoWrite`, `question` → `AskUserQuestion`, Task tool → `Agent`, ...). Prompts that rely on OpenCode-only tools (`pipeline_*`) start with a runtime note saying they are unavailable here and that the documented fallbacks apply.
 
 ## Model connection
 
@@ -73,12 +77,127 @@ These OpenCode companions are linked by the category but are not transpiled by t
 
 Custom OpenCode tools have no per-agent Claude Code equivalent; expose their behavior through a Claude Code MCP server if agents need it.
 
+## Per-agent bash allowlists (not enforced)
+
+Claude Code plugin agents only accept a `tools:` list: the bridge emits `Bash` for every agent whose OpenCode `bash` permission allows anything. Per-command allow/ask/deny rules exist only in Claude Code settings (`permissions.allow` / `permissions.deny`, for example `Bash(git diff *)`), which apply to the whole session and cannot be shipped per agent by a plugin. The source rules are listed here so they can be reviewed or copied into project settings.
+
+<details><summary>code-reviewer (10 rules)</summary>
+
+- allow: `cd *`, `git status*`, `git diff*`, `git log*`, `git show*`, `git blame*`, `git rev-parse*`, `git merge-base*`, `git branch --show-current*`
+- deny: `git diff *--output*`
+
+</details>
+
+<details><summary>critic (10 rules)</summary>
+
+- allow: `cd *`, `git status*`, `git diff*`, `git log*`, `git show*`, `git blame*`, `git rev-parse*`, `git merge-base*`, `git branch --show-current*`
+- deny: `git diff *--output*`
+
+</details>
+
+<details><summary>executor (93 rules)</summary>
+
+- allow: `cd *`, `node *`, `npm *`, `npx *`, `pnpm *`, `yarn *`, `bun *`, `deno *`, `python *`, `python3 *`, `pytest*`, `uv *`, `poetry *`, `pip *`, `pip3 *`, `go *`, `cargo *`, `rustc *`, `make*`, `cmake *`, `gradle *`, `./gradlew*`, `mvn *`, `./mvnw*`, `dotnet *`, `bundle *`, `rake*`, `rspec*`, `composer *`, `php *`, `swift *`, `xcodebuild *`, `xcrun *`, `mkdir -p *`, `cp *`, `mv *`, `git status*`, `git diff*`, `git log*`, `git show*`, `git rev-parse*`, `git merge-base*`, `git branch --show-current*`, `git fetch*`, `git pull*`, `git merge*`, `git rebase*`, `git cherry-pick*`, `git checkout --ours *`, `git checkout --theirs *`, `git restore --staged *`, `git restore --ours *`, `git restore --theirs *`, `git restore --merge *`, `git add *`
+- ask: `rm *`
+- deny: `git diff *--output*`, `git fetch *--upload-pack*`, `git fetch *ext::*`, `git pull *--upload-pack*`, `git pull *ext::*`, `git rebase *-i*`, `git rebase *--interactive*`, `git rebase *-x*`, `git rebase *--exec*`, `git add .`, `git add ./`, `git add -A*`, `git add --all*`, `git add -u*`, `git add --update*`, `npm publish*`, `pnpm publish*`, `yarn publish*`, `bun publish*`, `cargo publish*`, `twine upload*`, `rm -r*`, `rm -f*`, `rm -rf /*`, `rm -fr /*`, `rm -rf ~*`, `rm -fr ~*`, `rm -rf ..*`, `rm -fr ..*`, `rm -rf .`, `rm -fr .`, `rm -rf *`, `rm -fr *`, `rm * -r*`, `rm * -f*`, `rm --recursive*`, `rm * --recursive*`
+
+</details>
+
+<details><summary>explorer (10 rules)</summary>
+
+- allow: `cd *`, `git status*`, `git diff*`, `git log*`, `git show*`, `git blame*`, `git rev-parse*`, `git merge-base*`, `git branch --show-current*`
+- deny: `git diff *--output*`
+
+</details>
+
+<details><summary>fast-lane (93 rules)</summary>
+
+- allow: `cd *`, `node *`, `npm *`, `npx *`, `pnpm *`, `yarn *`, `bun *`, `deno *`, `python *`, `python3 *`, `pytest*`, `uv *`, `poetry *`, `pip *`, `pip3 *`, `go *`, `cargo *`, `rustc *`, `make*`, `cmake *`, `gradle *`, `./gradlew*`, `mvn *`, `./mvnw*`, `dotnet *`, `bundle *`, `rake*`, `rspec*`, `composer *`, `php *`, `swift *`, `xcodebuild *`, `xcrun *`, `mkdir -p *`, `cp *`, `mv *`, `git status*`, `git diff*`, `git log*`, `git show*`, `git rev-parse*`, `git merge-base*`, `git branch --show-current*`, `git fetch*`, `git pull*`, `git merge*`, `git rebase*`, `git cherry-pick*`, `git checkout --ours *`, `git checkout --theirs *`, `git restore --staged *`, `git restore --ours *`, `git restore --theirs *`, `git restore --merge *`, `git add *`
+- ask: `rm *`
+- deny: `git diff *--output*`, `git fetch *--upload-pack*`, `git fetch *ext::*`, `git pull *--upload-pack*`, `git pull *ext::*`, `git rebase *-i*`, `git rebase *--interactive*`, `git rebase *-x*`, `git rebase *--exec*`, `git add .`, `git add ./`, `git add -A*`, `git add --all*`, `git add -u*`, `git add --update*`, `npm publish*`, `pnpm publish*`, `yarn publish*`, `bun publish*`, `cargo publish*`, `twine upload*`, `rm -r*`, `rm -f*`, `rm -rf /*`, `rm -fr /*`, `rm -rf ~*`, `rm -fr ~*`, `rm -rf ..*`, `rm -fr ..*`, `rm -rf .`, `rm -fr .`, `rm -rf *`, `rm -fr *`, `rm * -r*`, `rm * -f*`, `rm --recursive*`, `rm * --recursive*`
+
+</details>
+
+<details><summary>hitl (10 rules)</summary>
+
+- allow: `cd *`, `git status*`, `git diff*`, `git log*`, `git show*`, `git blame*`, `git rev-parse*`, `git merge-base*`, `git branch --show-current*`
+- deny: `git diff *--output*`
+
+</details>
+
+<details><summary>ops (176 rules)</summary>
+
+- allow: `cd *`, `docker *`, `docker-compose *`, `kubectl *`, `helm *`, `gcloud *`, `aws *`, `az *`, `terraform *`, `gh *`, `firebase *`, `fly *`, `flyctl *`, `wrangler *`, `curl *`, `nc *`, `lsof *`, `ps *`, `kill *`, `ls *`, `cat *`, `head *`, `tail *`, `cat *.env.example*`, `cat *.env.sample*`, `which *`, `command -v *`, `whoami`, `uname*`, `test *`, `sleep *`, `ss *`, `netstat *`, `pg_isready*`, `mkdir -p *`, `node *`, `npm *`, `npx *`, `pnpm *`, `yarn *`, `bun *`, `deno *`, `python *`, `python3 *`, `pytest*`, `uv *`, `poetry *`, `pip *`, `pip3 *`, `go *`, `cargo *`, `rustc *`, `make*`, `cmake *`, `gradle *`, `./gradlew*`, `mvn *`, `./mvnw*`, `dotnet *`, `bundle *`, `rake*`, `rspec*`, `composer *`, `php *`, `swift *`, `xcodebuild *`, `xcrun *`, `git status*`, `git diff*`, `git log*`, `git show*`, `git rev-parse*`, `git merge-base*`, `git branch --show-current*`, `git fetch*`, `git pull*`, `git merge*`, `git rebase*`, `git cherry-pick*`
+- ask: `psql *`, `mysql *`, `mongosh *`, `redis-cli *`, `rm *`, `gcloud * deploy*`, `gcloud *builds submit*`, `kubectl apply*`, `kubectl * apply*`, `kubectl patch*`, `kubectl * patch*`, `kubectl scale*`, `kubectl * scale*`, `kubectl rollout*`, `kubectl * rollout*`, `helm install*`, `helm * install*`, `helm upgrade*`, `helm * upgrade*`, `helm rollback*`, `helm * rollback*`, `terraform apply*`, `terraform * apply*`, `firebase deploy*`, `firebase * deploy*`, `vercel *`, `fly deploy*`, `fly * deploy*`, `flyctl deploy*`, `flyctl * deploy*`, `wrangler deploy*`, `wrangler * deploy*`, `docker push*`, `docker * push*`, `gh release create*`, `gh * release create*`, `gh workflow run*`, `gh * workflow run*`
+- deny: `cat *.env*`, `head *.env*`, `tail *.env*`, `git diff *--output*`, `git fetch *--upload-pack*`, `git fetch *ext::*`, `git pull *--upload-pack*`, `git pull *ext::*`, `git rebase *-i*`, `git rebase *--interactive*`, `git rebase *-x*`, `git rebase *--exec*`, `docker rm -f*`, `docker * rm -f*`, `docker system prune*`, `docker * system prune*`, `docker volume prune*`, `docker * volume prune*`, `docker compose down -v*`, `docker * compose down -v*`, `docker-compose down -v*`, `docker-compose * down -v*`, `kubectl delete*`, `kubectl * delete*`, `kubectl edit*`, `kubectl * edit*`, `helm uninstall*`, `helm * uninstall*`, `helm delete*`, `helm * delete*`, `terraform destroy*`, `terraform * destroy*`, `terraform import*`, `terraform * import*`, `gcloud * delete*`, `aws * delete*`, `aws * terminate*`, `az * delete*`, `gh repo delete*`, `gh * repo delete*`, `gh release delete*`, `gh * release delete*`, `npm publish*`, `rm -r*`, `rm -f*`, `rm -rf /*`, `rm -fr /*`, `rm -rf ~*`, `rm -fr ~*`, `rm -rf ..*`, `rm -fr ..*`, `rm -rf .`, `rm -fr .`, `rm -rf *`, `rm -fr *`, `rm * -r*`, `rm * -f*`, `rm --recursive*`, `rm * --recursive*`
+
+</details>
+
+<details><summary>post-session (30 rules)</summary>
+
+- allow: `cd *`, `git status*`, `git diff*`, `git log*`, `git show*`, `git rev-parse*`, `git branch --show-current*`, `git restore --staged *`, `git add *`, `git commit -m *`
+- ask: `git push*`
+- deny: `git diff *--output*`, `git add -A*`, `git add --all*`, `git add -u*`, `git add --update*`, `git add -p*`, `git add --patch*`, `git add -i*`, `git add --interactive*`, `git add .`, `git add ./`, `git add -- .`, `git add */`, `git add *.`, `git commit -a*`, `git commit --all*`, `git commit * --amend*`, `git commit * --no-verify*`, `git commit * --all*`
+
+</details>
+
+<details><summary>refactorer (93 rules)</summary>
+
+- allow: `cd *`, `node *`, `npm *`, `npx *`, `pnpm *`, `yarn *`, `bun *`, `deno *`, `python *`, `python3 *`, `pytest*`, `uv *`, `poetry *`, `pip *`, `pip3 *`, `go *`, `cargo *`, `rustc *`, `make*`, `cmake *`, `gradle *`, `./gradlew*`, `mvn *`, `./mvnw*`, `dotnet *`, `bundle *`, `rake*`, `rspec*`, `composer *`, `php *`, `swift *`, `xcodebuild *`, `xcrun *`, `mkdir -p *`, `cp *`, `mv *`, `git status*`, `git diff*`, `git log*`, `git show*`, `git rev-parse*`, `git merge-base*`, `git branch --show-current*`, `git fetch*`, `git pull*`, `git merge*`, `git rebase*`, `git cherry-pick*`, `git checkout --ours *`, `git checkout --theirs *`, `git restore --staged *`, `git restore --ours *`, `git restore --theirs *`, `git restore --merge *`, `git add *`
+- ask: `rm *`
+- deny: `git diff *--output*`, `git fetch *--upload-pack*`, `git fetch *ext::*`, `git pull *--upload-pack*`, `git pull *ext::*`, `git rebase *-i*`, `git rebase *--interactive*`, `git rebase *-x*`, `git rebase *--exec*`, `git add .`, `git add ./`, `git add -A*`, `git add --all*`, `git add -u*`, `git add --update*`, `npm publish*`, `pnpm publish*`, `yarn publish*`, `bun publish*`, `cargo publish*`, `twine upload*`, `rm -r*`, `rm -f*`, `rm -rf /*`, `rm -fr /*`, `rm -rf ~*`, `rm -fr ~*`, `rm -rf ..*`, `rm -fr ..*`, `rm -rf .`, `rm -fr .`, `rm -rf *`, `rm -fr *`, `rm * -r*`, `rm * -f*`, `rm --recursive*`, `rm * --recursive*`
+
+</details>
+
+<details><summary>security-auditor (24 rules)</summary>
+
+- allow: `cd *`, `git status*`, `git diff*`, `git log*`, `git show*`, `git blame*`, `git rev-parse*`, `git merge-base*`, `git branch --show-current*`, `npm audit*`, `pnpm audit*`, `yarn audit*`, `bun audit*`, `pip-audit*`, `cargo audit*`, `govulncheck*`, `gosec*`, `semgrep*`, `trivy*`, `bandit*`, `osv-scanner*`, `hadolint*`, `shellcheck*`
+- deny: `git diff *--output*`
+
+</details>
+
+<details><summary>tester (61 rules)</summary>
+
+- allow: `cd *`, `node *`, `npm *`, `npx *`, `pnpm *`, `yarn *`, `bun *`, `deno *`, `python *`, `python3 *`, `pytest*`, `uv *`, `poetry *`, `pip *`, `pip3 *`, `go *`, `cargo *`, `rustc *`, `make*`, `cmake *`, `gradle *`, `./gradlew*`, `mvn *`, `./mvnw*`, `dotnet *`, `bundle *`, `rake*`, `rspec*`, `composer *`, `php *`, `swift *`, `xcodebuild *`, `xcrun *`, `mkdir -p *`, `cp *`, `mv *`, `git status*`, `git diff*`, `git log*`, `git show*`, `git rev-parse*`, `git merge-base*`, `git branch --show-current*`
+- ask: `rm *`
+- deny: `git diff *--output*`, `rm -r*`, `rm -f*`, `rm -rf /*`, `rm -fr /*`, `rm -rf ~*`, `rm -fr ~*`, `rm -rf ..*`, `rm -fr ..*`, `rm -rf .`, `rm -fr .`, `rm -rf *`, `rm -fr *`, `rm * -r*`, `rm * -f*`, `rm --recursive*`, `rm * --recursive*`
+
+</details>
+
+## Pipeline skills
+
+Invoke a generated skill with its plugin-scoped name:
+
+- `/decent-pipeline:pipeline-bug`
+- `/decent-pipeline:pipeline-feature`
+- `/decent-pipeline:pipeline-ops`
+- `/decent-pipeline:pipeline-refactor`
+- `/decent-pipeline:pipeline-research`
+- `/decent-pipeline:code-review-antipatterns`
+
+## Marketplace and registration
+
+This directory is a local marketplace named `decent-pipeline-local` that publishes the `decent-pipeline` plugin from `.`.
+
+The manager runs `claude plugin validate --strict` after each regeneration.
+
+The manager adds the marketplace and installs the plugin automatically.
+
+Manual fallback:
+
+```bash
+claude plugin marketplace add './export/bridges/claude-code/decent-pipeline'
+claude plugin install decent-pipeline@decent-pipeline-local
+```
+
+After regeneration no update command is needed: local marketplaces load in place, and the refreshed plugin is available in the next session or after `/reload-plugins`.
+
 ## Usage
 
 Launch the orchestrator:
 
 ```bash
-claude --plugin-dir ./export/bridges/claude-code/decent-pipeline --agent decent-pipeline:orchestrator
+claude --plugin-dir './export/bridges/claude-code/decent-pipeline' --agent decent-pipeline:orchestrator
 ```
 
 ## Agents

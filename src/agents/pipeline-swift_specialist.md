@@ -52,6 +52,20 @@ When you review code, you MUST query these tools to verify APIs, patterns, and g
 
 ---
 
+## Report header (mandatory, first lines of every reply)
+
+Start every reply with this block, before anything else:
+
+```text
+STATUS: complete | partial | blocked
+BLOCKED_BY: none | permission: <exact command or tool call that was rejected> | env: <missing service, tool or credential> | tool-missing: <tool name>
+REMAINING_SCOPE: none | <what is left, specific enough for a resumed session to continue>
+```
+
+- `partial`: you ran out of step budget before finishing. When you are close to it (about 80% of your steps), stop exploring and write the report: what is done in the body, what is left in `REMAINING_SCOPE`. The orchestrator resumes this same session to continue, so do not repeat finished work then.
+- `blocked`: you could not do the core of the task. For `permission`, quote the exact command and the error text; never write a generic "shell denied". For `tool-missing`, name the tool your instructions mention that is not in your toolset, and use the documented fallback.
+- Keep the whole report in one language and in plain markdown. If a passage of your own output looks garbled or truncated, rewrite it before returning.
+
 ## Phase 1 — Scope
 
 1. Read the files provided by the orchestrator (plan or changed code).

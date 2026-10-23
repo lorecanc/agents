@@ -4,7 +4,7 @@ import { MAX_TTL_S, serviceStatus, startService, stopService } from "./_pipeline
 
 export default tool({
   description:
-    "Run the project's local service (dev server) for a short, controlled time so a browser can inspect it. `start` picks a free port, starts the service from the `serve` (or `smoke`) section of `.opencode/pipeline.json`, waits until it is ready and returns its localhost URL. The service ALWAYS ends: on `stop`, when the owning session goes idle, when opencode exits (even if killed), or at the time limit. Call `stop` as soon as you are done. Returns a failure-class hint (`env` | `harness` | `unclassified`) when it cannot start. Never kills processes it did not start. Use this instead of starting servers by hand.",
+    "Run the project's local service (dev server) for a short, controlled time so a browser can inspect it. `start` picks a free port, starts the service from the `serve` (or `smoke`) section of `.opencode/pipeline.json`, waits until it is ready and returns its localhost URL. The service ALWAYS ends: on `stop`, when the owning session goes idle, when opencode exits (even if killed), or at the time limit. Call `stop` as soon as you are done. Returns a failure-class hint (`env` | `harness` | `unclassified`) when it cannot start. Never kills processes it did not start. Does not start contract `services` (use pipeline_verify / pipeline_smoke for those). Use this instead of starting servers by hand.",
   args: {
     action: tool.schema.enum(["start", "status", "stop"]).describe("start: run the service and return its URL; status: is it still running; stop: end it."),
     ttl_s: tool.schema.number().optional().describe(`Maximum lifetime in seconds for start (default 900, at most ${MAX_TTL_S}).`),

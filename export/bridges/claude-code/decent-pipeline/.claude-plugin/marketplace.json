@@ -1,0 +1,13 @@
+{
+  "name": "decent-pipeline-local",
+  "description": "Local marketplace: Pipeline agents bridged from OpenCode (decent-pipeline)",
+  "owner": {
+    "name": "Lorenzo Cancellara"
+  },
+  "plugins": [
+    {
+      "name": "decent-pipeline",
+      "source": "."
+    }
+  ]
+}

@@ -49,7 +49,7 @@ The launcher starts the TUI. For a portable OpenCode setup, use `src/opencode.js
 
 ## Install into OpenCode
 
-Copy `src/opencode.json` to your OpenCode configuration location, then copy or export the desired canonical agents to `~/.config/opencode/agents/`. The manager’s `export` command creates a recovery backup. Category distributions are generated under `export/categories/` from `.agent-manager/categories/` manifests; deterministic packages can be shared manually as artifacts.
+Copy `src/opencode.json` to your OpenCode configuration location, then install agents with `node manage-agents/manage-agents.mjs export --category pipeline` (or `--all`, or a stamped `--category go-pipeline`). Export writes agents to `~/.config/opencode/agents/` (with an `agents_backup/`) and their companion resources under the same relative paths: for pipeline agents that is `plugins/pipeline-guard.js` plus every `tools/pipeline_*.ts` and the helper modules they import, keeping `plugins/` and `tools/` siblings. Replaced resources are backed up in `resource_export_backup_*`. Do not copy agents by hand without their tools: prompts expect `pipeline_state`, `pipeline_commit`, and the guard plugin. Category distributions are generated under `export/categories/` from `.agent-manager/categories/` manifests (stamped `*-pipeline` bundles are refreshed by `category build --all` and verified by `category check --all`); deterministic packages can be shared manually as artifacts.
 
 ## Workflow and validation
 

@@ -13,6 +13,9 @@
 //                          pipeline_serve, compares git state with the baseline and warns if
 //                          branches, worktrees or stashes appeared
 //   session.compacting     keeps the session baseline and touched files in the compacted context
+//   activity log           appends tool calls (ok / error / denied), guard blocks, permission events and
+//                          per-session step counts to <git-common-dir>/opencode-pipeline/logs/<rootId>.jsonl
+//                          (read back by pipeline_state as `activity`)
 //
 // Fail-open: anything unexpected (unparseable command, no git repo, SDK differences) lets the call
 // through. Permissions in the agent files remain the primary control; this is defense in depth.
@@ -21,7 +24,7 @@
 import path from "node:path"
 
 import {
-  FILE_WRITE_TOOLS, bashWriteTargets, checkBash, checkWritePath, conflictingClaims, editTargets, ensureScratch, gitAnomalies,
+  FILE_WRITE_TOOLS, appendActivity, bashWriteTargets, clipText, isDenialText, checkBash, checkWritePath, conflictingClaims, editTargets, ensureScratch, gitAnomalies,
   isPipelineAgent, readSession, removeStaleSessions, repoInfo, roleOf, scratchDir, snapshot, toRel, writeSession,
 } from "../tools/_pipeline_core.js"
 import { stopServicesOwnedBy } from "../tools/_pipeline_serve.js"
@@ -57,6 +60,12 @@ export async function createPipelineGuard({ client, directory } = {}, options = 
   const roots = new Map()
   const infos = new Map()
   const lastWrite = new Map()
+  /** sessionId -> { llm, tools, flushedLlm, flushedTools } (per-session step counters) */
+  const steps = new Map()
+  /** callIDs already logged (by the after hook or as a guard block), so error events are not doubled */
+  const loggedCalls = new Set()
+  /** permission request id -> { permission, pattern, callId } (to complete the reply event) */
+  const permissionAsks = new Map()
 
   const infoFor = (cwd) => {
     const dir = cwd || directory
@@ -192,6 +201,92 @@ export async function createPipelineGuard({ client, directory } = {}, options = 
 
   const rootRec = (s) => (s ? roots.get(s.rootId) : null)
 
+  // ------------------------------------------------------------ activity log (never throws)
+
+  function record(sessionId, event) {
+    try {
+      const s = sessions.get(sessionId)
+      if (!s || !s.pipeline || !s.rootId) return
+      const info = infoFor(s.directory || directory)
+      if (!info) return
+      appendActivity(info, s.rootId, { ...event, sessionId, agent: s.agent })
+    } catch {
+      /* logging must never interfere */
+    }
+  }
+
+  function markLogged(callID) {
+    if (!callID) return
+    if (loggedCalls.size > 5000) loggedCalls.clear()
+    loggedCalls.add(callID)
+  }
+
+  function counter(sessionId) {
+    let c = steps.get(sessionId)
+    if (!c) {
+      c = { llm: 0, tools: 0, flushedLlm: 0, flushedTools: 0 }
+      steps.set(sessionId, c)
+    }
+    return c
+  }
+
+  function flushSteps(sessionId) {
+    const c = steps.get(sessionId)
+    if (!c || (c.llm === c.flushedLlm && c.tools === c.flushedTools)) return
+    c.flushedLlm = c.llm
+    c.flushedTools = c.tools
+    record(sessionId, { type: "steps", llm_calls: c.llm, tool_calls: c.tools })
+  }
+
+  const callSubject = (tool, args) => {
+    if (!args || typeof args !== "object") return undefined
+    if (tool === "bash") return clipText(args.command)
+    const p = args.filePath || args.file_path || args.path
+    return typeof p === "string" ? clipText(p, 200) : undefined
+  }
+
+  function onPermissionEvent(type, props) {
+    const sessionId = props.sessionID || props.sessionId || (props.info && props.info.sessionID)
+    const s = sessionId ? sessions.get(sessionId) : null
+    if (!s || !s.pipeline) return
+    const id = props.id || props.permissionID || props.permissionId || props.requestID || props.requestId || null
+    const toolRef = props.tool && typeof props.tool === "object" ? props.tool : null
+    const rawPattern = props.patterns ?? props.pattern
+    const pattern = Array.isArray(rawPattern) ? rawPattern.join(" | ") : rawPattern
+    const replied = /replied|reply|responded/.test(type)
+    let detail = {
+      permission: props.permission || (typeof props.type === "string" ? props.type : null) || (typeof props.tool === "string" ? props.tool : null),
+      pattern: pattern === undefined || pattern === null ? null : clipText(pattern),
+      callId: props.callID || props.callId || (toolRef && (toolRef.callID || toolRef.callId)) || null,
+    }
+    if (replied) {
+      const ask = id ? permissionAsks.get(id) : null
+      if (ask) detail = { permission: detail.permission || ask.permission, pattern: detail.pattern || ask.pattern, callId: detail.callId || ask.callId }
+      if (id) permissionAsks.delete(id)
+    } else if (id) {
+      if (permissionAsks.size > 500) permissionAsks.clear()
+      permissionAsks.set(id, detail)
+    }
+    const decisionRaw = replied ? (props.response ?? props.reply ?? props.decision ?? props.answer ?? "unknown") : null
+    const decision = decisionRaw === null ? null : typeof decisionRaw === "string" ? decisionRaw : clipText(JSON.stringify(decisionRaw), 60)
+    record(sessionId, { type: "permission", event: type, id, ...detail, decision })
+  }
+
+  function onPartUpdated(props) {
+    const part = props.part
+    if (!part || part.type !== "tool" || !part.state || part.state.status !== "error") return
+    if (part.callID && loggedCalls.has(part.callID)) return
+    const s = sessions.get(part.sessionID)
+    if (!s || !s.pipeline) return
+    markLogged(part.callID)
+    const error = clipText(part.state.error)
+    record(part.sessionID, {
+      type: "tool", tool: part.tool, callId: part.callID || null, ok: false, error,
+      ...(callSubject(part.tool, part.state.input) !== undefined ? { command: callSubject(part.tool, part.state.input) } : {}),
+      ...(isDenialText(part.state.error) ? { denied: true } : {}),
+    })
+  }
+
   function touchBusy(s) {
     const rec = rootRec(s)
     if (!rec) return
@@ -240,6 +335,7 @@ export async function createPipelineGuard({ client, directory } = {}, options = 
   }
 
   onProcessExit(() => {
+    for (const id of steps.keys()) flushSteps(id)
     for (const rec of roots.values()) {
       if (rec.pid !== process.pid) continue
       const info = infoFor(rec.cwd)
@@ -251,7 +347,9 @@ export async function createPipelineGuard({ client, directory } = {}, options = 
     "chat.params": async (input) => {
       try {
         await register(input.sessionID, input.agent)
-        touchBusy(sessions.get(input.sessionID))
+        const s = sessions.get(input.sessionID)
+        if (s && s.pipeline && !INTERNAL_AGENTS.has(input.agent)) counter(input.sessionID).llm++
+        touchBusy(s)
       } catch (e) {
         log("warn", `chat.params: ${e.message}`)
       }
@@ -308,6 +406,7 @@ export async function createPipelineGuard({ client, directory } = {}, options = 
       try {
         s = sessions.get(input.sessionID)
         if (!s || !s.pipeline) return
+        counter(input.sessionID).tools++
         touchBusy(s)
         const ctx = ctxFor(s)
         if (!ctx) return
@@ -348,12 +447,37 @@ export async function createPipelineGuard({ client, directory } = {}, options = 
           }
         }
       } catch (e) {
-        if (e instanceof GuardBlock) throw e
+        if (e instanceof GuardBlock) {
+          markLogged(input.callID)
+          const subject = callSubject(input.tool, output && output.args)
+          record(input.sessionID, {
+            type: "guard_block", tool: input.tool, callId: input.callID || null,
+            ...(subject !== undefined ? { command: subject } : {}),
+            reason: clipText(e.message.replace(/^\[pipeline-guard\] Blocked: /, ""), 400),
+          })
+          throw e
+        }
         log("warn", `tool.execute.before: ${e.message}`)
       }
     },
 
-    "tool.execute.after": async (input) => {
+    "tool.execute.after": async (input, output) => {
+      try {
+        const s = sessions.get(input.sessionID)
+        if (s && s.pipeline && !(input.callID && loggedCalls.has(input.callID))) {
+          markLogged(input.callID)
+          const subject = callSubject(input.tool, input.args)
+          const meta = output && output.metadata && typeof output.metadata === "object" ? output.metadata : {}
+          const exit = Number.isInteger(meta.exit) ? meta.exit : Number.isInteger(meta.exitCode) ? meta.exitCode : undefined
+          record(input.sessionID, {
+            type: "tool", tool: input.tool, callId: input.callID || null, ok: true,
+            ...(subject !== undefined ? { command: subject } : {}),
+            ...(exit !== undefined ? { exit } : {}),
+          })
+        }
+      } catch {
+        /* logging is fail-open */
+      }
       try {
         const s = sessions.get(input.sessionID)
         if (!s || !s.pipeline || (!FILE_WRITE_TOOLS.has(input.tool) && input.tool !== "bash")) return
@@ -386,6 +510,21 @@ export async function createPipelineGuard({ client, directory } = {}, options = 
         const type = event.type
         const props = event.properties || {}
         const id = props.sessionID || props.sessionId
+        if (typeof type === "string" && type.startsWith("permission.")) {
+          onPermissionEvent(type, props)
+          return
+        }
+        if (type === "message.part.updated") {
+          onPartUpdated(props)
+          return
+        }
+        if (type === "session.error" && id) {
+          const err = props.error
+          const text = err && (err.data && err.data.message ? err.data.message : err.message || err.name)
+          record(id, { type: "session_error", error: clipText(text || JSON.stringify(err ?? null)) })
+        }
+        const idle = (type === "session.idle" && id) || (type === "session.status" && id && props.status && props.status.type === "idle")
+        if (idle) flushSteps(id)
         if (type === "session.idle" && id) await onIdle(id)
         else if (type === "session.status" && id && props.status && props.status.type === "idle") await onIdle(id)
         else if (type === "session.status" && id && props.status && props.status.type === "busy") {

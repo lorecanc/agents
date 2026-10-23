@@ -78,8 +78,8 @@ test("bridge emits manifest, Codex agents, skills and translated links", () => {
   assert.match(orchestratorToml, /@fast-lane/)
   assert.ok(fs.existsSync(path.join(output, "skills", "orchestrator", "SKILL.md")))
   assert.match(fs.readFileSync(path.join(output, "README.md"), "utf8"), /Source and configuration/)
-  assert.match(fs.readFileSync(path.join(output, "README.md"), "utf8"), /agents\/general\//)
-  assert.match(fs.readFileSync(path.join(output, "README.md"), "utf8"), /agents\/general\/opencode\.json/)
+  assert.match(fs.readFileSync(path.join(output, "README.md"), "utf8"), /`general\/`/)
+  assert.match(fs.readFileSync(path.join(output, "README.md"), "utf8"), /`src\/opencode\.json`/)
   assert.match(fs.readFileSync(path.join(output, "README.md"), "utf8"), /Do not edit this directory directly/)
 })
 
@@ -97,7 +97,7 @@ test("Codex README uses the configured source directory", () => {
   const output = path.join(workspace, "bridges", "codex")
   bridgeToCodex([agent("docs-orchestrator.md", "any", { mode: "primary" }, "")], "docs", "docs-", output, workspace, { ...DEFAULT_TRANSLATION_CONFIG, sourceDir: "custom-agents" })
   const readme = fs.readFileSync(path.join(output, "README.md"), "utf8")
-  assert.match(readme, /`agents\/custom-agents\/`/)
+  assert.match(readme, /`custom-agents\/`/)
   assert.doesNotMatch(readme, /agents\/general\/agents\//)
 })
 
@@ -288,4 +288,39 @@ test("writeCodexPlugin refuses a symlinked output pointing outside the workspace
     /outside workspace/i
   )
   assert.equal(fs.readdirSync(outside).length, 0)
+})
+
+test("Codex bridge translates OpenCode tool names and flags OpenCode-only tools once", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "codex-bridge-tools-"))
+  const output = path.join(workspace, "bridges", "codex")
+  const body = "# Orchestrator\n\nUse `todowrite` to track work. Call `pipeline_state` if it is available; otherwise use the fallback.\nAsk the user (use `question`) and launch two Task calls in one turn.\nRun pipeline_env before smoke tests."
+  const orchestrator = agent("pipeline-orchestrator.md", "any", { mode: "primary", permission: { pipeline_state: "allow", pipeline_commit: "deny", todowrite: "allow", bash: { "*": "deny", "git status*": "allow", "rm *": "ask" } } }, body)
+  const result = bridgeToCodex([orchestrator], "decent-pipeline", "pipeline-", output, workspace)
+  const instructions = result.plugin.agents[0].developerInstructions
+  assert.match(instructions, /^# Orchestrator\n\n> \*\*Runtime note \(OpenCode bridge\)\.\*\*/)
+  assert.match(instructions, /not available\*\* in this environment: `pipeline_env`, `pipeline_state`\./)
+  assert.doesNotMatch(instructions, /pipeline_commit/)
+  assert.match(instructions, /Use `update_plan` to track work/)
+  assert.match(instructions, /`question`: ask the user directly/)
+  assert.match(instructions, /`task`: delegate to the Codex subagents/)
+  assert.equal(instructions.match(/Runtime note \(OpenCode bridge\)/g)?.length, 1)
+  const readme = fs.readFileSync(path.join(output, "README.md"), "utf8")
+  assert.match(readme, /## Per-agent bash allowlists \(not enforced\)/)
+  assert.match(readme, /- allow: `git status\*`/)
+  assert.match(readme, /- ask: `rm \*`/)
+})
+
+test("Codex bridge never treats pipeline tool or built-in permission keys as MCP servers", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "codex-bridge-mcp-keys-"))
+  fs.mkdirSync(path.join(workspace, "src"), { recursive: true })
+  fs.writeFileSync(path.join(workspace, "src", "opencode.json"), JSON.stringify({ mcp: {
+    pipeline: { command: ["fake-pipeline"], enabled: false },
+    external: { command: ["fake-external"], enabled: false },
+    "cwe-search": { command: ["cwe"], enabled: false }
+  } }))
+  const output = path.join(workspace, "bridges", "codex")
+  const auditor = agent("pipeline-security_auditor.md", "any", { permission: { pipeline_env: "allow", external_directory: { "*": "deny" }, "cwe-search_*": "allow" } }, "Tools are prefixed: `cwe-search_get_cwe_weakness`.")
+  bridgeToCodex([auditor], "decent-pipeline", "pipeline-", output, workspace)
+  const mcp = JSON.parse(fs.readFileSync(path.join(output, ".mcp.json"), "utf8")).mcpServers
+  assert.deepEqual(Object.keys(mcp), ["cwe-search"])
 })

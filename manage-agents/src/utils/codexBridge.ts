@@ -5,6 +5,31 @@ import { buildInferenceIndex, DEFAULT_TRANSLATION_CONFIG, resolveModelTarget, au
 import type { TranslationConfig } from "./translationConfig.js"
 import { assertInsideRealWorkspace, realpathThroughExistingAncestor } from "./pathValidation.js"
 import { translatePermissionsV2ToV1 } from "./v2Compat.js"
+import { adaptToolReferences, collectBashAllowlist, isOpenCodeCustomToolKey, renderBashAllowlistSection, type BashAllowlist } from "./bridgeToolReferences.js"
+
+/** OpenCode permission keys that contain an underscore but do not name an MCP server. */
+const NON_MCP_PERMISSION_KEYS = new Set([
+  "external_directory", "doom_loop", "read_mcp_resource", "list_mcp_resources", "list_mcp_resource_templates"
+])
+
+function isMcpPermissionKey(key: string): boolean {
+  return key.includes("_") && !NON_MCP_PERMISSION_KEYS.has(key) && !isOpenCodeCustomToolKey(key)
+}
+
+function agentPermissions(agent: AgentInfo): Record<string, any> {
+  return agent.frontmatter.permissions
+    ? translatePermissionsV2ToV1(agent.frontmatter.permissions)
+    : agent.frontmatter.permission || {}
+}
+
+function agentMcpServers(agent: AgentInfo): string[] {
+  const servers = new Set<string>()
+  for (const [key, value] of Object.entries(agentPermissions(agent))) {
+    if (!isMcpPermissionKey(key)) continue
+    if (value === true || value === "allow" || (typeof value === "object" && value !== null)) servers.add(key.replace(/_.*$/, ""))
+  }
+  return [...servers]
+}
 
 type ResolvedModelTarget = ReturnType<typeof resolveModelTarget>
 type ResolvedTargets = Map<string, ResolvedModelTarget>
@@ -197,7 +222,11 @@ export function convertCodexAgent(
   const name = normalizeCodexAgentName(agent.filename, prefix)
   const target = (resolvedTargets.get(agent.filename) || resolveTargets([agent], config).get(agent.filename)!).model
   const delegated = translateAllowedSubagents(agent, aliases, warnings)
-  const rewritten = rewriteReferences(agent.body.trim(), aliases, agent.filename, warnings)
+  const referenced = rewriteReferences(agent.body.trim(), aliases, agent.filename, warnings)
+  // Translate OpenCode tool names and flag OpenCode-only tools near the top.
+  const rewritten = adaptToolReferences(referenced, "codex", agent.frontmatter, {
+    mcpServers: agentMcpServers(agent).filter(server => referenced.includes(`${server}_`))
+  }).body
   return {
     name,
     filename: `${name}.toml`,
@@ -272,23 +301,7 @@ function renderManifest(plugin: CodexPlugin, emitSkills: boolean, emitMcp: boole
 }
 
 function requiredMcpServers(agents: AgentInfo[]): Set<string> {
-  const servers = new Set<string>()
-  for (const agent of agents) {
-    // Normalize permissions to V1 format for internal use
-    const permissions = agent.frontmatter.permissions
-      ? translatePermissionsV2ToV1(agent.frontmatter.permissions)
-      : agent.frontmatter.permission || {}
-    for (const [key, value] of Object.entries(permissions)) {
-      if (!key.includes("_") || [
-        "read", "write", "edit", "execute", "bash",
-        "question", "task", "grep", "glob", "lsp", "webfetch"
-      ].includes(key)) continue
-      if (value === true || value === "allow" || (typeof value === "object" && value !== null)) {
-        servers.add(key.replace(/_.*$/, ""))
-      }
-    }
-  }
-  return servers
+  return new Set(agents.flatMap(agentMcpServers))
 }
 
 function buildCodexMcpConfig(workspaceRoot: string, requiredServers: Set<string> = new Set()): {
@@ -366,17 +379,17 @@ function renderCodexMcpSetup(config: Record<string, any> | null): string[] {
   return lines
 }
 
-function renderReadme(plugin: CodexPlugin, warnings: string[], mcpConfig: Record<string, any> | null, sourceDir: string): string {
+function renderReadme(plugin: CodexPlugin, warnings: string[], mcpConfig: Record<string, any> | null, sourceDir: string, bashAllowlists: BashAllowlist[] = []): string {
   const lines = [
     `# ${plugin.pluginName}`,
     "",
     "This directory is a generated translation layer from the canonical source agents. Source agents are unchanged.",
     "",
-    "> **Generated output.** Do not edit this directory directly. Change canonical agents or `agents/.agent-manager/translation-config.json`, then regenerate with the manager.",
+    "> **Generated output.** Do not edit this directory directly. Change canonical agents or `.agent-manager/translation-config.json`, then regenerate with the manager.",
     "",
     "## Source and configuration",
     "",
-    `Agent prompts are discovered under ${markdownCode(`agents/${sourceDir}/`)}. Translation roles, tiers, model overrides, prefix, and output options come from ${markdownCode("agents/.agent-manager/translation-config.json")}; MCP declarations come from ${markdownCode("agents/general/opencode.json")}.`,
+    `Agent prompts are discovered under ${markdownCode(`${sourceDir}/`)}. Translation roles, tiers, model overrides, prefix, and output options come from ${markdownCode(".agent-manager/translation-config.json")}; MCP declarations come from ${markdownCode("src/opencode.json")} (legacy fallback ${markdownCode("general/opencode.json")}).`,
     "",
     "## Contents",
     "",
@@ -388,7 +401,10 @@ function renderReadme(plugin: CodexPlugin, warnings: string[], mcpConfig: Record
     "",
     "Note: custom prompts in `~/.codex/prompts` are deprecated; prefer skills such as the ones generated here.",
     "",
+    "OpenCode tool names in prompts are translated where Codex has an equivalent (`todowrite` → `update_plan`). Prompts that rely on OpenCode-only tools (`pipeline_*`) start with a runtime note saying they are unavailable here and that the documented fallbacks apply.",
+    "",
     ...renderCodexMcpSetup(mcpConfig),
+    ...renderBashAllowlistSection("codex", bashAllowlists),
     `Primary agent: ${plugin.orchestratorName ? `@${plugin.orchestratorName}` : "(none detected)"}`,
     ""
   ]
@@ -478,7 +494,10 @@ export function writeCodexPlugin(
 
   if (config.codex.emitReadme !== false) {
     const readmePath = path.join(pluginDir, "README.md")
-    fs.writeFileSync(readmePath, renderReadme(plugin, warnings, mcpResult.config, config.sourceDir))
+    const bashAllowlists = agents
+      .map((agent, index) => collectBashAllowlist(translatedAgents[index]?.name ?? agent.filename, agent.frontmatter))
+      .filter((allowlist): allowlist is BashAllowlist => allowlist !== null)
+    fs.writeFileSync(readmePath, renderReadme(plugin, warnings, mcpResult.config, config.sourceDir, bashAllowlists))
     files.push(readmePath)
   }
 

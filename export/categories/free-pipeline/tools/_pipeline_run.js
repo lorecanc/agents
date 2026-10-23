@@ -12,9 +12,10 @@ import path from "node:path"
 import { spawn } from "node:child_process"
 
 import { ensureScratch, isInside, realpathLoose, redact, toRel, withLock } from "./_pipeline_core.js"
+import { serviceProblem, withServices } from "./_pipeline_services.js"
 
-export const CHECKS = ["lint", "typecheck", "test_targeted", "test_fast", "test_full", "build"]
-export const DEFAULT_TIMEOUT_S = { lint: 120, typecheck: 180, test_targeted: 180, test_fast: 300, test_full: 900, build: 600 }
+export const CHECKS = ["lint", "typecheck", "test_targeted", "test_filter", "test_fast", "test_full", "build"]
+export const DEFAULT_TIMEOUT_S = { lint: 120, typecheck: 180, test_targeted: 180, test_filter: 180, test_fast: 300, test_full: 900, build: 600 }
 export const CONTRACT_PATH = ".opencode/pipeline.json"
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -36,6 +37,26 @@ function detectPackageManager(top) {
   return "npm"
 }
 
+/** Command prefix that runs a locally installed package binary without installing anything. */
+function pmExec(pm) {
+  return pm === "pnpm" ? "pnpm exec" : pm === "yarn" ? "yarn exec" : pm === "bun" ? "bunx" : "npx --no-install"
+}
+
+const PY_MARKERS = ["pyproject.toml", "pytest.ini", "setup.cfg", "tox.ini", "conftest.py"]
+
+/** Python interpreter for pytest: the project's virtualenv when there is one. */
+function pythonFor(top) {
+  for (const rel of [".venv/bin/python", "venv/bin/python"]) if (fs.existsSync(path.join(top, rel))) return rel
+  return "python3"
+}
+
+function setPytest(verify, top) {
+  const py = pythonFor(top)
+  verify.test_fast ??= `${py} -m pytest -q -x`
+  verify.test_targeted ??= `${py} -m pytest -q {files}`
+  verify.test_filter ??= `${py} -m pytest -q {files} -k {filter}`
+}
+
 /** Best-effort detection of verify commands. Never used to start services. */
 export function autodetect(top) {
   const verify = {}
@@ -45,11 +66,21 @@ export function autodetect(top) {
     const pm = detectPackageManager(top)
     const run = (name) => (pm === "npm" ? `npm run ${name}` : `${pm} run ${name}`)
     const scripts = pkg.scripts || {}
+    const deps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) }
     if (scripts.lint) verify.lint = run("lint")
     if (scripts.typecheck) verify.typecheck = run("typecheck")
     else if (fs.existsSync(path.join(top, "tsconfig.json"))) verify.typecheck = "npx --no-install tsc --noEmit"
     if (scripts.test && !/no test specified/.test(scripts.test)) verify.test_fast = pm === "npm" ? "npm test --silent" : `${pm} test`
+    if (deps.vitest) {
+      verify.test_targeted = `${pmExec(pm)} vitest run {files}`
+      verify.test_filter = `${pmExec(pm)} vitest run {files} -t {filter}`
+    } else if (deps.jest) {
+      verify.test_targeted = `${pmExec(pm)} jest {files}`
+      verify.test_filter = `${pmExec(pm)} jest {files} -t {filter}`
+    }
     if (scripts.build) verify.build = run("build")
+    // A Python project with a package.json only for frontend tooling.
+    if (!verify.test_fast && !verify.test_targeted && PY_MARKERS.some((f) => fs.existsSync(path.join(top, f)))) setPytest(verify, top)
     const startScript = scripts.dev ? "dev" : scripts.start ? "start" : null
     if (startScript) {
       const start = scripts[startScript]
@@ -64,40 +95,85 @@ export function autodetect(top) {
   } else if (fs.existsSync(path.join(top, "go.mod"))) {
     verify.typecheck = "go vet ./..."
     verify.test_fast = "go test ./..."
+    verify.test_targeted = "go test {packages}"
+    verify.test_filter = "go test {packages} -run {filter}"
     verify.build = "go build ./..."
   } else if (fs.existsSync(path.join(top, "Cargo.toml"))) {
     verify.typecheck = "cargo check"
     verify.test_fast = "cargo test"
+    verify.test_filter = "cargo test {filter}"
     verify.build = "cargo build"
-  } else if (["pyproject.toml", "pytest.ini", "setup.cfg", "tox.ini"].some((f) => fs.existsSync(path.join(top, f))) || fs.existsSync(path.join(top, "tests"))) {
-    verify.test_fast = "python3 -m pytest -q -x"
+  } else if (PY_MARKERS.some((f) => fs.existsSync(path.join(top, f))) || fs.existsSync(path.join(top, "tests"))) {
+    setPytest(verify, top)
   }
   return { verify, smokeHint }
 }
 
-export function loadContract(top) {
+const normWs = (k) => String(k).replace(/^\.\//, "").replace(/\/+$/, "")
+
+function parseVerify(rawVerify, prefix, contract, problems) {
+  for (const k of CHECKS) {
+    const v = rawVerify && rawVerify[k]
+    if (v === undefined || v === null) continue
+    if (typeof v !== "string" || !v.trim()) problems.push(`${prefix}verify.${k} must be a non-empty string`)
+    else if (k === "test_filter" && !v.includes("{filter}")) problems.push(`${prefix}verify.test_filter must contain {filter}`)
+    else contract.verify[k] = v
+  }
+}
+
+function parseServices(rawServices, prefix, cwd, contract, problems) {
+  if (rawServices === undefined || rawServices === null) return
+  if (typeof rawServices !== "object" || Array.isArray(rawServices)) {
+    problems.push(`${prefix}services must be an object of named services`)
+    return
+  }
+  for (const [name, spec] of Object.entries(rawServices)) {
+    const problem = serviceProblem(name, spec)
+    if (problem) problems.push(prefix + problem)
+    else contract.services[name] = { ...spec, _cwd: cwd }
+  }
+}
+
+/**
+ * Load `.opencode/pipeline.json`, filling verify gaps by autodetection.
+ * workspace: repo-relative subdirectory (already validated). Its verify/timeouts/services come from
+ * `workspaces.<workspace>` and autodetection inside that directory; top-level services stay available.
+ */
+export function loadContract(top, { workspace = null } = {}) {
   const file = path.join(top, CONTRACT_PATH)
+  const dir = workspace ? path.join(top, workspace) : top
   const problems = []
   const raw = fs.existsSync(file) ? readJson(file) : null
   if (fs.existsSync(file) && !raw) problems.push(`${CONTRACT_PATH} is not valid JSON`)
-  const detected = autodetect(top)
-  const contract = { version: 1, setup: null, verify: {}, smoke: null, timeouts: {} }
+  const detected = autodetect(dir)
+  const contract = { version: 1, setup: null, verify: {}, smoke: null, timeouts: {}, services: {}, workspace }
   let source = "none"
   if (raw && typeof raw === "object") {
-    source = "file"
     if (typeof raw.setup === "string") contract.setup = raw.setup
-    for (const k of CHECKS) {
-      const v = raw.verify && raw.verify[k]
-      if (v === undefined || v === null) continue
-      if (typeof v === "string" && v.trim()) contract.verify[k] = v
-      else problems.push(`verify.${k} must be a non-empty string`)
+    parseServices(raw.services, "", top, contract, problems)
+    if (raw.timeouts && typeof raw.timeouts === "object") {
+      for (const [k, v] of Object.entries(raw.timeouts)) if (Number.isFinite(v) && v > 0) contract.timeouts[k] = v
+    }
+    if (workspace) {
+      const wsMap = raw.workspaces && typeof raw.workspaces === "object" ? raw.workspaces : {}
+      const key = Object.keys(wsMap).find((k) => normWs(k) === workspace)
+      const ws = key !== undefined ? wsMap[key] : null
+      if (ws && typeof ws === "object") {
+        source = "file"
+        const prefix = `workspaces.${key}.`
+        parseVerify(ws.verify, prefix, contract, problems)
+        parseServices(ws.services, prefix, dir, contract, problems)
+        if (ws.timeouts && typeof ws.timeouts === "object") {
+          for (const [k, v] of Object.entries(ws.timeouts)) if (Number.isFinite(v) && v > 0) contract.timeouts[k] = v
+        }
+      } else if (ws !== null) problems.push(`workspaces.${key} must be an object`)
+    } else {
+      source = "file"
+      parseVerify(raw.verify, "", contract, problems)
     }
     if (raw.smoke) {
       if (typeof raw.smoke === "object" && typeof raw.smoke.start === "string" && raw.smoke.start.trim()) contract.smoke = raw.smoke
       else problems.push("smoke.start must be a non-empty string")
-    }
-    if (raw.timeouts && typeof raw.timeouts === "object") {
-      for (const [k, v] of Object.entries(raw.timeouts)) if (Number.isFinite(v) && v > 0) contract.timeouts[k] = v
     }
   }
   // Fill verify gaps from autodetect only for checks the file does not define.
@@ -294,7 +370,7 @@ export function envHint(output) {
   return typeof output === "string" && ENV_PATTERNS.some((re) => re.test(output))
 }
 
-function shQuote(s) {
+export function shQuote(s) {
   return `'${String(s).replace(/'/g, `'\\''`)}'`
 }
 
@@ -302,19 +378,77 @@ const tail = (s, n) => redact(s.length > n ? "…" + s.slice(-n) : s)
 
 // --------------------------------------------------------------- verify
 
-export async function runVerify({ info, checks, files = [], stopOnFail = true, timeoutScale = 1, signal, owner }) {
-  const { contract, source, problems } = loadContract(info.top)
-  const env = runtimeEnv(info)
+/**
+ * Validate a repo-relative workspace directory. Returns { rel } (null rel = repository root) or { error }.
+ */
+export function resolveWorkspace(info, workspace) {
+  if (workspace === undefined || workspace === null || workspace === "") return { rel: null }
+  if (typeof workspace !== "string") return { error: "workspace must be a repo-relative directory path" }
+  const abs = realpathLoose(path.resolve(info.top, workspace))
+  if (!isInside(info.top, abs)) return { error: `workspace ${workspace} is outside the repository` }
+  const rel = path.relative(info.top, abs).split(path.sep).join("/")
+  if (rel === ".git" || rel.startsWith(".git/")) return { error: "workspace may not point into .git" }
+  let isDir = false
+  try {
+    isDir = fs.statSync(abs).isDirectory()
+  } catch {
+    /* missing */
+  }
+  if (!isDir) return { error: `workspace ${workspace} is not an existing directory` }
+  return { rel: rel || null }
+}
+
+/** Unique `./dir` package paths of the given (cwd-relative) files, for go-style runners. */
+function packagesOf(files) {
+  const dirs = [...new Set(files.map((f) => path.posix.dirname(f)))]
+  return dirs.map((d) => (d === "." ? "." : `./${d}`))
+}
+
+const MAX_FILTER_LEN = 500
+
+/**
+ * checks: names from CHECKS (default: test_filter when filter is given, else test_targeted when files are
+ * given, else test_fast). filter: test name / expression for test_filter. workspace: repo-relative subdir
+ * used as cwd. withServices: contract service names started before the checks and always stopped after.
+ */
+export async function runVerify({
+  info, checks, files = [], filter, workspace, withServices: serviceNames = [], stopOnFail = true, timeoutScale = 1, signal, owner, serviceOptions,
+}) {
+  const ws = resolveWorkspace(info, workspace)
+  if (ws.error) return { status: "error", failure_class_hint: "harness", reason: ws.error, results: [] }
+  const cwd = ws.rel ? path.join(info.top, ws.rel) : info.top
+  const { contract, source, problems } = loadContract(info.top, { workspace: ws.rel })
+  if (filter !== undefined && filter !== null && (typeof filter !== "string" || !filter.trim() || filter.length > MAX_FILTER_LEN || /[\n\r\0]/.test(filter))) {
+    return { status: "error", failure_class_hint: "harness", reason: `filter must be a single-line, non-empty string of at most ${MAX_FILTER_LEN} characters`, results: [] }
+  }
+  const hasFilter = typeof filter === "string" && filter.trim() !== ""
+  if (!Array.isArray(checks) || !checks.length) checks = hasFilter ? ["test_filter"] : files.length ? ["test_targeted"] : ["test_fast"]
+  const names = Array.isArray(serviceNames) ? serviceNames : []
+  const unknown = names.filter((n) => !Object.prototype.hasOwnProperty.call(contract.services, n))
+  if (unknown.length) {
+    return {
+      status: "error",
+      failure_class_hint: "harness",
+      reason: `unknown service(s) ${unknown.join(", ")}; defined: ${Object.keys(contract.services).join(", ") || "none"} (add them to services in ${CONTRACT_PATH})`,
+      contract_problems: problems,
+      results: [],
+    }
+  }
   const results = []
   const rels = []
   const rejected = []
   for (const f of files) {
     const rel = toRel(info, f)
-    if (rel) rels.push(rel)
+    if (!rel) rejected.push(f)
+    else if (!ws.rel) rels.push(rel)
+    else if (rel.startsWith(ws.rel + "/")) rels.push(rel.slice(ws.rel.length + 1))
     else rejected.push(f)
   }
+  let totalS = 0
+  for (const c of checks) totalS += (contract.timeouts[c] || DEFAULT_TIMEOUT_S[c] || 0) * timeoutScale
   let stopped = false
-  const run = async () => {
+  const runChecks = async (serviceEnv) => {
+    const env = runtimeEnv(info, serviceEnv)
     for (const check of checks) {
       if (!CHECKS.includes(check)) {
         results.push({ check, status: "error", reason: `unknown check; valid: ${CHECKS.join(", ")}` })
@@ -326,18 +460,28 @@ export async function runVerify({ info, checks, files = [], stopOnFail = true, t
       }
       let cmd = contract.verify[check]
       if (!cmd) {
-        results.push({ check, status: "skipped", reason: `no command defined (add verify.${check} to ${CONTRACT_PATH})` })
+        const where = ws.rel ? `workspaces.${ws.rel}.verify.${check}` : `verify.${check}`
+        results.push({ check, status: "skipped", reason: `no command defined (add ${where} to ${CONTRACT_PATH})` })
         continue
       }
-      if (check === "test_targeted") {
-        if (!rels.length && cmd.includes("{files}")) {
-          results.push({ check, status: "skipped", reason: "no files given for the targeted command" })
+      if (check === "test_targeted" && !rels.length && /\{(files|packages)\}/.test(cmd)) {
+        results.push({ check, status: "skipped", reason: "no files given for the targeted command" })
+        continue
+      }
+      if (check === "test_filter") {
+        if (!hasFilter) {
+          results.push({ check, status: "skipped", reason: "no filter given" })
           continue
         }
-        cmd = cmd.replaceAll("{files}", rels.map(shQuote).join(" "))
+        cmd = cmd.replaceAll("{filter}", shQuote(filter))
+      }
+      if (check === "test_targeted" || check === "test_filter") {
+        cmd = cmd
+          .replaceAll("{files}", rels.map(shQuote).join(" "))
+          .replaceAll("{packages}", rels.length ? packagesOf(rels).map(shQuote).join(" ") : "./...")
       }
       const timeoutS = (contract.timeouts[check] || DEFAULT_TIMEOUT_S[check]) * timeoutScale
-      const r = await runCommand(cmd, { cwd: info.top, env, timeoutMs: timeoutS * 1000, signal })
+      const r = await runCommand(cmd, { cwd, env, timeoutMs: timeoutS * 1000, signal })
       const status = r.aborted ? "aborted" : r.timedOut ? "timeout" : r.exitCode === 0 ? "pass" : "fail"
       const res = {
         check,
@@ -357,22 +501,48 @@ export async function runVerify({ info, checks, files = [], stopOnFail = true, t
       if (status !== "pass" && stopOnFail) stopped = true
     }
   }
+  let svc = null
+  const run = async () => {
+    if (!names.length) return runChecks({})
+    svc = await withServices(
+      { info, defs: contract.services, names, cwd, signal, ttlS: totalS + 600, probe: serviceOptions },
+      (serviceEnv) => runChecks(serviceEnv),
+    )
+  }
+  const base = {
+    contract_source: source,
+    contract_problems: problems,
+    ...(ws.rel ? { workspace: ws.rel } : {}),
+    ...(hasFilter ? { filter } : {}),
+    rejected_files: rejected,
+  }
   try {
     await withLock(info, "verify", run, { owner: owner || "verify", timeoutMs: 10 * 60 * 1000 })
   } catch (e) {
     if (e.code === "LOCK_TIMEOUT") {
-      return { status: "error", failure_class_hint: "harness", reason: e.message, contract_source: source, results }
+      return { status: "error", failure_class_hint: "harness", reason: e.message, ...base, results }
     }
     throw e
+  }
+  if (svc && !svc.ok) {
+    const f = svc.failed
+    return {
+      status: f.status === "aborted" ? "aborted" : "blocked",
+      phase: "services",
+      failure_class_hint: f.failure_class_hint || "harness",
+      reason: `service ${f.name} could not be started: ${f.reason || f.status}`,
+      ...base,
+      services: svc.services,
+      results: checks.map((check) => ({ check, status: "not_run", reason: "a required service did not start" })),
+    }
   }
   const bad = results.some((r) => ["fail", "timeout", "error", "aborted"].includes(r.status))
   const ran = results.some((r) => r.status === "pass")
   const skipped = results.some((r) => ["skipped", "not_run"].includes(r.status))
   return {
     status: bad ? "fail" : ran ? (skipped ? "partial" : "pass") : "inconclusive",
-    contract_source: source,
-    contract_problems: problems,
-    rejected_files: rejected,
+    ...base,
+    ...(svc ? { services: svc.services } : {}),
     results,
   }
 }
@@ -451,7 +621,7 @@ export async function waitReady(ready, { portNum, subst, readLog, isExited, time
   return { ok: false, reason: `not ready after ${Math.round(timeoutMs / 1000)}s`, timeout: true, ms: Date.now() - t0 }
 }
 
-export async function runSmoke({ info, signal, owner }) {
+export async function runSmoke({ info, signal, owner, serviceOptions }) {
   const { contract, source, problems, smokeHint } = loadContract(info.top)
   const smoke = contract.smoke || contract.autodetected_smoke
   if (!smoke) {
@@ -469,7 +639,19 @@ export async function runSmoke({ info, signal, owner }) {
   const contractSource = detectedSmoke ? source === "file" ? "file+autodetect" : "autodetect" : source
   const result = { status: "fail", contract_source: contractSource, phase: "start", checks: [], cleanup: {} }
 
-  const body = async () => {
+  const serviceNames = smoke.services === undefined ? [] : smoke.services
+  if (!Array.isArray(serviceNames) || serviceNames.some((n) => typeof n !== "string")) {
+    return { ...result, status: "error", failure_class_hint: "harness", reason: "smoke.services must be an array of service names" }
+  }
+  const unknown = serviceNames.filter((n) => !Object.prototype.hasOwnProperty.call(contract.services, n))
+  if (unknown.length) {
+    return {
+      ...result, status: "error", failure_class_hint: "harness", contract_problems: problems,
+      reason: `unknown service(s) ${unknown.join(", ")} in smoke.services; defined: ${Object.keys(contract.services).join(", ") || "none"}`,
+    }
+  }
+
+  const body = async (serviceEnv = {}) => {
     let portNum
     if (Number.isInteger(smoke.port)) {
       portNum = smoke.port
@@ -489,7 +671,7 @@ export async function runSmoke({ info, signal, owner }) {
     }
     const extra = {}
     for (const [k, v] of Object.entries(smoke.env || {})) extra[k] = subst(v)
-    const env = runtimeEnv(info, { ...fileEnv, ...extra, PORT: String(portNum) })
+    const env = runtimeEnv(info, { ...fileEnv, ...serviceEnv, ...extra, PORT: String(portNum) })
 
     const fd = fs.openSync(logPath, "a")
     let exited = false
@@ -625,8 +807,25 @@ export async function runSmoke({ info, signal, owner }) {
     }
   }
 
+  const withDeps = async () => {
+    if (!serviceNames.length) return body()
+    const svc = await withServices({ info, defs: contract.services, names: serviceNames, cwd: info.top, signal, ttlS: 900, probe: serviceOptions }, body)
+    if (!svc.ok) {
+      const f = svc.failed
+      return {
+        ...result,
+        status: f.status === "aborted" ? "aborted" : "blocked",
+        phase: "services",
+        failure_class_hint: f.failure_class_hint || "harness",
+        reason: `service ${f.name} could not be started: ${f.reason || f.status}`,
+        services: svc.services,
+      }
+    }
+    return { ...svc.value, services: svc.services }
+  }
+
   try {
-    return await withLock(info, "smoke", body, { owner: owner || "smoke", timeoutMs: 3 * 60 * 1000 })
+    return await withLock(info, "smoke", withDeps, { owner: owner || "smoke", timeoutMs: 3 * 60 * 1000 })
   } catch (e) {
     if (e.code === "LOCK_TIMEOUT") return { ...result, status: "blocked", failure_class_hint: "harness", reason: `another session is running a smoke test (${e.message})` }
     return { ...result, status: "error", failure_class_hint: "harness", reason: e.message }

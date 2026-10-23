@@ -10,13 +10,16 @@ import {
   buildInferenceIndex,
   loadTranslationConfig,
   normalizeAgentName,
+  normalizeTranslationConfig,
   parseCodexExactMappings,
   parseKeyValueMappings,
+  resolveMarketplaceName,
   resolveModelTarget,
   resolveRole,
   saveTranslationConfig,
   unusedModelMapKeys,
   validateClaudeModelName,
+  validateMarketplaceName,
   validateTranslationConfig
 } from "./translationConfig.js"
 
@@ -173,6 +176,101 @@ test("loading v2 is idempotent", () => {
   const loaded = loadTranslationConfig(workspace)
   assert.deepEqual(loaded, DEFAULT_TRANSLATION_CONFIG)
   assert.equal(fs.readFileSync(filePath, "utf8"), before)
+})
+
+test("claude marketplace emission and automation defaults are enabled when absent", () => {
+  assert.equal(DEFAULT_TRANSLATION_CONFIG.claude.emitMarketplace, true)
+  assert.equal(DEFAULT_TRANSLATION_CONFIG.claude.emitCommands, true)
+  assert.equal(DEFAULT_TRANSLATION_CONFIG.claude.emitSkills, true)
+  assert.equal(DEFAULT_TRANSLATION_CONFIG.claude.autoValidate, true)
+  assert.equal(DEFAULT_TRANSLATION_CONFIG.claude.autoRegister, true)
+  assert.equal(DEFAULT_TRANSLATION_CONFIG.claude.marketplaceName, undefined)
+
+  const legacy = structuredClone(DEFAULT_TRANSLATION_CONFIG) as any
+  for (const key of ["emitMarketplace", "emitCommands", "emitSkills", "autoValidate", "autoRegister"]) delete legacy.claude[key]
+  const normalized = normalizeTranslationConfig(legacy)
+  assert.equal(normalized.claude.emitMarketplace, true)
+  assert.equal(normalized.claude.emitCommands, true)
+  assert.equal(normalized.claude.emitSkills, true)
+  assert.equal(normalized.claude.autoValidate, true)
+  assert.equal(normalized.claude.autoRegister, true)
+  assert.equal(normalized.claude.marketplaceName, undefined)
+})
+
+test("a v2 config without claude marketplace fields loads unchanged with defaults applied", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "translation-config-"))
+  try {
+    const filePath = path.join(workspace, "config.json")
+    const written = {
+      version: 2,
+      target: "claude",
+      pluginName: "legacy-plugin",
+      prefix: "copilot-pipeline-",
+      sourceDir: "general",
+      inference: false,
+      defaultTier: "execution",
+      tiers: DEFAULT_TRANSLATION_CONFIG.tiers,
+      roles: DEFAULT_TRANSLATION_CONFIG.roles,
+      claude: { overrides: {}, modelMap: {} },
+      codex: { overrides: {}, emitSkills: false }
+    }
+    fs.writeFileSync(filePath, JSON.stringify(written))
+    const loaded = loadTranslationConfig(workspace, filePath)
+    assert.equal(loaded.version, 2)
+    assert.equal(loaded.pluginName, "legacy-plugin")
+    assert.equal(loaded.inference, false)
+    assert.equal(loaded.codex.emitSkills, false)
+    assert.equal(loaded.claude.emitMarketplace, true)
+    assert.equal(loaded.claude.emitCommands, true)
+    assert.equal(loaded.claude.emitSkills, true)
+    assert.equal(loaded.claude.autoValidate, true)
+    assert.equal(loaded.claude.autoRegister, true)
+    assert.equal(loaded.claude.marketplaceName, undefined)
+    assert.equal(JSON.parse(fs.readFileSync(filePath, "utf8")).version, 2)
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true })
+  }
+})
+
+test("resolveMarketplaceName prefers the configured name and derives a plugin-local default", () => {
+  assert.equal(resolveMarketplaceName("decent-pipeline"), "decent-pipeline-local")
+  assert.equal(resolveMarketplaceName("decent-pipeline", "acme-tools"), "acme-tools")
+  assert.equal(resolveMarketplaceName("decent-pipeline", ""), "decent-pipeline-local")
+  assert.equal(resolveMarketplaceName("decent-pipeline", "   "), "decent-pipeline-local")
+})
+
+test("validateMarketplaceName accepts safe names and rejects invalid or reserved ones", () => {
+  for (const name of ["acme", "Acme.Tools", "acme_tools-1", "0plug", "claudetools"]) {
+    assert.doesNotThrow(() => validateMarketplaceName(name))
+  }
+  for (const name of ["", " ", "acme tools", "..", "-acme", ".acme", "_acme", "acme/tools"]) {
+    assert.throws(() => validateMarketplaceName(name), /Invalid marketplace name/)
+  }
+  for (const name of ["claude", "CLAUDE", "claude-code", "Claude-Code", "claude-local", "anthropic-tools", "Anthropics-Tools"]) {
+    assert.throws(() => validateMarketplaceName(name), /reserved/)
+  }
+})
+
+test("validateTranslationConfig validates claude.marketplaceName when present", () => {
+  assert.doesNotThrow(() => validateTranslationConfig(structuredClone(DEFAULT_TRANSLATION_CONFIG)))
+  const valid = structuredClone(DEFAULT_TRANSLATION_CONFIG)
+  valid.claude.marketplaceName = "acme-tools"
+  assert.doesNotThrow(() => validateTranslationConfig(valid))
+  const invalid = structuredClone(DEFAULT_TRANSLATION_CONFIG)
+  invalid.claude.marketplaceName = "claude-local"
+  assert.throws(() => validateTranslationConfig(invalid), /marketplace name/)
+})
+
+test("validateTranslationConfig rejects non-boolean claude automation flags", () => {
+  const invalid = structuredClone(DEFAULT_TRANSLATION_CONFIG) as any
+  invalid.claude.autoRegister = "false"
+  assert.throws(() => validateTranslationConfig(invalid), /claude\.autoRegister must be a boolean/)
+
+  for (const key of ["emitMarketplace", "emitCommands", "emitSkills", "autoValidate", "autoRegister"]) {
+    const flagged = structuredClone(DEFAULT_TRANSLATION_CONFIG) as any
+    flagged.claude[key] = 1
+    assert.throws(() => validateTranslationConfig(flagged), new RegExp(`claude\\.${key} must be a boolean`))
+  }
 })
 
 test("modelMap round-trips through save and load and materializes when absent", () => {

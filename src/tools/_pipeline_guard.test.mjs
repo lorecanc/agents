@@ -7,7 +7,7 @@ import { execFileSync } from "node:child_process"
 import { mkTmp } from "./_pipeline_testutil.mjs"
 
 import guardModule, { createPipelineGuard } from "../plugins/pipeline-guard.js"
-import { repoInfo, readSession, scratchDir } from "./_pipeline_core.js"
+import { activityLogPath, readActivity, repoInfo, readSession, scratchDir, summarizeActivity } from "./_pipeline_core.js"
 
 function mkRepo() {
   const dir = mkTmp("pipe-guard-")
@@ -270,4 +270,83 @@ test("idle of the root session stops the service it started with pipeline_serve"
   await hooks.event({ event: { type: "session.idle", properties: { sessionID: "ses_root" } } })
   assert.equal(readService(info), null)
   await assert.rejects(fetch(started.url, { signal: AbortSignal.timeout(1500) }), "the service must be stopped when the root goes idle")
+})
+
+test("activity log: tool calls, guard blocks, denials and permission events are recorded per root", async () => {
+  const { hooks, info } = await setup()
+  const after = (sessionID, tool, args, callID, output = {}) => hooks["tool.execute.after"]({ tool, sessionID, callID, args }, output)
+  // ok bash call with a secret: redacted and truncated
+  const longCmd = `curl -H "Authorization: Bearer abcdefghijklmnop1234" http://localhost/${"x".repeat(400)}`
+  await before(hooks, "ses_child", "bash", { command: longCmd })
+  await after("ses_child", "bash", { command: longCmd }, "call_ok", { metadata: { exit: 0 } })
+  await before(hooks, "ses_child", "read", { filePath: "a.txt" })
+  await after("ses_child", "read", { filePath: "a.txt" }, "call_read")
+  // guard block
+  await assert.rejects(hooks["tool.execute.before"]({ tool: "bash", sessionID: "ses_child", callID: "call_blk" }, { args: { command: "git push origin main" } }), /Blocked/)
+  // the same call later surfaces as an errored tool part: not logged twice
+  const partEvent = (callID, tool, input, error) => hooks.event({ event: { type: "message.part.updated", properties: { part: { type: "tool", sessionID: "ses_child", callID, tool, state: { status: "error", input, error } } } } })
+  await partEvent("call_blk", "bash", { command: "git push origin main" }, "[pipeline-guard] Blocked: git push")
+  // permission denial surfacing as a tool error (no after hook runs for it)
+  await before(hooks, "ses_child", "bash", { command: "psql -c 'select 1'" })
+  await partEvent("call_den", "bash", { command: "psql -c 'select 1'" }, "The user rejected permission to use this specific tool call.")
+  // a plain error is not a denial
+  await partEvent("call_err", "read", { filePath: "nope.txt" }, "File not found: nope.txt")
+  // permission events (shape varies by opencode version)
+  await hooks.event({ event: { type: "permission.asked", properties: { id: "per_1", sessionID: "ses_child", permission: "bash", patterns: ["docker ps"], tool: { messageID: "m", callID: "call_perm" } } } })
+  await hooks.event({ event: { type: "permission.replied", properties: { sessionID: "ses_child", requestID: "per_1", reply: "reject" } } })
+  await hooks.event({ event: { type: "permission.updated", properties: { id: "per_2", sessionID: "ses_child", type: "edit", pattern: "src/x.ts" } } })
+  await hooks.event({ event: { type: "permission.replied", properties: { sessionID: "ses_child", permissionID: "per_2", response: "once" } } })
+  await hooks.event({ event: { type: "permission.asked", properties: { sessionID: "ses_unknown", permission: "bash" } } }) // not a pipeline session
+  await hooks.event({ event: { type: "permission.replied" } }) // malformed: ignored
+  // steps are flushed when the child goes idle
+  await hooks["chat.params"]({ sessionID: "ses_child", agent: EXEC })
+  await hooks.event({ event: { type: "session.idle", properties: { sessionID: "ses_child" } } })
+
+  const events = readActivity(info, "ses_root")
+  assert.ok(fs.existsSync(activityLogPath(info, "ses_root")))
+  assert.ok(activityLogPath(info, "ses_root").startsWith(info.stateDir))
+  const tools = events.filter((e) => e.type === "tool")
+  assert.deepEqual(tools.map((e) => [e.callId, e.ok, Boolean(e.denied)]), [["call_ok", true, false], ["call_read", true, false], ["call_den", false, true], ["call_err", false, false]])
+  const ok = tools[0]
+  assert.equal(ok.agent, EXEC)
+  assert.equal(ok.sessionId, "ses_child")
+  assert.equal(ok.exit, 0)
+  assert.ok(ok.command.length <= 303, "bash command truncated")
+  assert.ok(!ok.command.includes("abcdefghijklmnop1234"), "bash command redacted")
+  assert.equal(tools[1].command, "a.txt")
+  assert.equal(tools[2].command, "psql -c 'select 1'")
+  const blocks = events.filter((e) => e.type === "guard_block")
+  assert.equal(blocks.length, 1)
+  assert.equal(blocks[0].command, "git push origin main")
+  assert.match(blocks[0].reason, /push/)
+  assert.doesNotMatch(blocks[0].reason, /^\[pipeline-guard\]/)
+  const perms = events.filter((e) => e.type === "permission")
+  assert.deepEqual(perms.map((e) => [e.event, e.permission, e.pattern, e.decision]), [
+    ["permission.asked", "bash", "docker ps", null],
+    ["permission.replied", "bash", "docker ps", "reject"],
+    ["permission.updated", "edit", "src/x.ts", null],
+    ["permission.replied", "edit", "src/x.ts", "once"],
+  ])
+  const steps = events.filter((e) => e.type === "steps")
+  assert.deepEqual(steps.map((e) => [e.sessionId, e.agent, e.tool_calls, e.llm_calls]), [["ses_child", EXEC, 4, 2]])
+
+  const sum = summarizeActivity(events)
+  assert.equal(sum.per_agent[EXEC].tool_calls, 5) // 4 tool events + 1 guard block
+  assert.equal(sum.per_agent[EXEC].errors, 2)
+  assert.equal(sum.per_agent[EXEC].denied, 2) // tool-error denial + rejected permission
+  assert.equal(sum.per_agent[EXEC].guard_blocks, 1)
+  assert.deepEqual(sum.denied.map((d) => [d.source, d.command]), [["tool_error", "psql -c 'select 1'"], ["permission", "docker ps"]])
+  assert.deepEqual(sum.subagents, [{ session: "ses_child", agent: EXEC, tool_calls: 5, llm_calls: 2 }])
+  assert.deepEqual(sum.permissions, { asked: 2, replied: { reject: 1, once: 1 } })
+})
+
+test("activity logging failures never block a tool call", async () => {
+  const { hooks, info } = await setup()
+  // make the logs path unusable: a file where the directory should be
+  fs.mkdirSync(info.stateDir, { recursive: true })
+  fs.writeFileSync(path.join(info.stateDir, "logs"), "not a dir")
+  await before(hooks, "ses_child", "bash", { command: "ls" })
+  await hooks["tool.execute.after"]({ tool: "bash", sessionID: "ses_child", callID: "c1", args: { command: "ls" } }, {})
+  await assert.rejects(before(hooks, "ses_child", "bash", { command: "git checkout -b x" }), /Blocked/)
+  assert.deepEqual(readActivity(info, "ses_root"), [])
 })

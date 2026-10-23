@@ -18,6 +18,7 @@ permission:
   pipeline_smoke: allow
   pipeline_verify: allow
   pipeline_state: allow
+  pipeline_env: allow
   pipeline_serve: allow
   skill: allow
   webfetch: allow
@@ -36,125 +37,7 @@ permission:
   lsp: allow
   bash:
     "*": deny
-    git *: deny
-    git status*: allow
-    git diff*: allow
-    git diff --output*: deny
-    git diff * --output*: deny
-    git log*: allow
-    git show*: allow
-    git ls-files*: allow
-    git rev-parse*: allow
-    git branch --show-current*: allow
-    git blame*: allow
-    sudo *: deny
-    rm -rf /*: deny
-    rm -fr /*: deny
-    rm -rf ~*: deny
-    rm -fr ~*: deny
-    rm -rf ..*: deny
-    rm -fr ..*: deny
-    docker rm -f*: deny
-    docker system prune*: deny
-    docker volume prune*: deny
-    docker compose down -v*: deny
-    docker-compose down -v*: deny
-    kubectl delete*: deny
-    kubectl apply*: ask
-    terraform apply*: ask
-    terraform destroy*: deny
-    gcloud * deploy*: ask
-    gcloud * delete*: deny
-    firebase deploy*: ask
-    aws * delete*: deny
-    pkill *: deny
-    killall *: deny
-    git ls-tree*: allow
-    git ls-remote*: allow
-    git cat-file*: allow
-    git rev-list*: allow
-    git merge-base*: allow
-    git range-diff*: allow
-    git cherry*: allow
-    git branch -a*: allow
-    git branch -r*: allow
-    git branch -v*: allow
-    git branch --list*: allow
-    git branch --contains*: allow
-    git branch --merged*: allow
-    git branch --no-merged*: allow
-    git grep*: allow
-    git describe*: allow
-    git shortlog*: allow
-    git for-each-ref*: allow
-    git name-rev*: allow
-    git show-ref*: allow
-    git show-branch*: allow
-    git check-ignore*: allow
-    git var*: allow
-    git verify-commit*: allow
-    git verify-tag*: allow
-    git tag -l*: allow
-    git tag --list*: allow
-    git remote -v*: allow
-    git remote --verbose*: allow
-    git remote show*: allow
-    git remote get-url*: allow
-    git stash list*: allow
-    git stash show*: allow
-    git worktree list*: allow
-    git reflog*: allow
-    git reflog expire*: deny
-    git reflog delete*: deny
-    git config --get*: allow
-    git config --list*: allow
-    git config -l*: allow
-    git fetch*: allow
-    git fetch *--upload-pack*: deny
-    git fetch *ext::*: deny
-    git pull*: allow
-    git pull *--upload-pack*: deny
-    git pull *ext::*: deny
-    git pull *--rebase=interactive*: deny
-    git pull *--rebase=i*: deny
-    git merge*: allow
-    git merge *-e*: deny
-    git merge *--edit*: deny
-    git rebase*: allow
-    git rebase *-i*: deny
-    git rebase *--interactive*: deny
-    git rebase *-x*: deny
-    git rebase *--exec*: deny
-    git cherry-pick*: allow
-    git cherry-pick *-e*: deny
-    git cherry-pick *--edit*: deny
-    git -c core.editor=true *: allow
-    "git -c core.editor=: *": allow
-    git checkout --ours *: allow
-    git checkout --theirs *: allow
-    git checkout -m *: allow
-    git checkout --merge *: allow
-    git checkout --conflict=*: allow
-    git restore --staged *: allow
-    git restore -S *: allow
-    git restore --ours *: allow
-    git restore --theirs *: allow
-    git restore --merge *: allow
-    git restore -m *: allow
-    git restore --conflict=*: allow
-    git add *: allow
-    git add .: deny
-    git add .*: deny
-    git add -A*: deny
-    git add --all*: deny
-    git add -u*: deny
-    git add --update*: deny
-    git add -p*: deny
-    git add --patch*: deny
-    git add -i*: deny
-    git add --interactive*: deny
-    git add */: deny
-    git add *.: deny
+    cd *: allow
     docker *: allow
     docker-compose *: allow
     kubectl *: allow
@@ -173,6 +56,28 @@ permission:
     lsof *: allow
     ps *: allow
     kill *: allow
+    ls *: allow
+    cat *: allow
+    head *: allow
+    tail *: allow
+    cat *.env*: deny
+    head *.env*: deny
+    tail *.env*: deny
+    cat *.env.example*: allow
+    cat *.env.sample*: allow
+    which *: allow
+    command -v *: allow
+    whoami: allow
+    uname*: allow
+    test *: allow
+    sleep *: allow
+    ss *: allow
+    netstat *: allow
+    pg_isready*: allow
+    psql *: ask
+    mysql *: ask
+    mongosh *: ask
+    redis-cli *: ask
     mkdir -p *: allow
     rm *: ask
     node *: allow
@@ -207,8 +112,30 @@ permission:
     swift *: allow
     xcodebuild *: allow
     xcrun *: allow
+    git status*: allow
+    git diff*: allow
     git diff *--output*: deny
+    git log*: allow
+    git show*: allow
+    git rev-parse*: allow
+    git merge-base*: allow
+    git branch --show-current*: allow
+    git fetch*: allow
+    git fetch *--upload-pack*: deny
+    git fetch *ext::*: deny
+    git pull*: allow
+    git pull *--upload-pack*: deny
+    git pull *ext::*: deny
+    git merge*: allow
+    git rebase*: allow
+    git rebase *-i*: deny
+    git rebase *--interactive*: deny
+    git rebase *-x*: deny
+    git rebase *--exec*: deny
+    git cherry-pick*: allow
+    gcloud * deploy*: ask
     gcloud *builds submit*: ask
+    kubectl apply*: ask
     kubectl * apply*: ask
     kubectl patch*: ask
     kubectl * patch*: ask
@@ -222,7 +149,9 @@ permission:
     helm * upgrade*: ask
     helm rollback*: ask
     helm * rollback*: ask
+    terraform apply*: ask
     terraform * apply*: ask
+    firebase deploy*: ask
     firebase * deploy*: ask
     vercel *: ask
     fly deploy*: ask
@@ -237,11 +166,17 @@ permission:
     gh * release create*: ask
     gh workflow run*: ask
     gh * workflow run*: ask
+    docker rm -f*: deny
     docker * rm -f*: deny
+    docker system prune*: deny
     docker * system prune*: deny
+    docker volume prune*: deny
     docker * volume prune*: deny
+    docker compose down -v*: deny
     docker * compose down -v*: deny
+    docker-compose down -v*: deny
     docker-compose * down -v*: deny
+    kubectl delete*: deny
     kubectl * delete*: deny
     kubectl edit*: deny
     kubectl * edit*: deny
@@ -249,9 +184,12 @@ permission:
     helm * uninstall*: deny
     helm delete*: deny
     helm * delete*: deny
+    terraform destroy*: deny
     terraform * destroy*: deny
     terraform import*: deny
     terraform * import*: deny
+    gcloud * delete*: deny
+    aws * delete*: deny
     aws * terminate*: deny
     az * delete*: deny
     gh repo delete*: deny
@@ -261,6 +199,12 @@ permission:
     npm publish*: deny
     rm -r*: deny
     rm -f*: deny
+    rm -rf /*: deny
+    rm -fr /*: deny
+    rm -rf ~*: deny
+    rm -fr ~*: deny
+    rm -rf ..*: deny
+    rm -fr ..*: deny
     rm -rf .: deny
     rm -fr .: deny
     rm -rf *: deny
@@ -281,6 +225,31 @@ You are the operational diagnostics, runtime verification, and controlled deploy
 
 Follow the repository `AGENTS.md` rules. Your job is to execute bash commands for diagnostics, log inspection, infrastructure checks, runtime validation, and user-authorized deployments. You observe and report — you never author code or modify repository files.
 
+## Report header (mandatory, first lines of every reply)
+
+Start every reply with this block, before anything else:
+
+```text
+STATUS: complete | partial | blocked
+BLOCKED_BY: none | permission: <exact command or tool call that was rejected> | env: <missing service, tool or credential> | tool-missing: <tool name>
+REMAINING_SCOPE: none | <what is left, specific enough for a resumed session to continue>
+```
+
+- `partial`: you ran out of step budget before finishing. When you are close to it (about 80% of your steps), stop exploring and write the report: what is done in the body, what is left in `REMAINING_SCOPE`. The orchestrator resumes this same session to continue, so do not repeat finished work then.
+- `blocked`: you could not do the core of the task. For `permission`, quote the exact command and the error text; never write a generic "shell denied". For `tool-missing`, name the tool your instructions mention that is not in your toolset, and use the documented fallback.
+- Keep the whole report in one language and in plain markdown. If a passage of your own output looks garbled or truncated, rewrite it before returning.
+
+## Shell rules (how bash permissions work here)
+
+Every bash command is checked against this agent's allowlist, each part of a compound command separately, and the pipeline guard blocks writes outside the repository. To avoid needless rejections:
+
+- One command per call. Avoid `&&`, `;`, `|` and subshells unless every part is a command you are allowed to run.
+- Set the directory with the bash tool's `workdir` parameter instead of `cd dir && ...`.
+- Do not prefix commands with variable assignments (`VAR=value cmd`). For checks that need a subdirectory, env or services (for example a database), use `pipeline_verify` (`workspace`, `filter`, `with_services`) when you have it.
+- Quote paths, especially ones starting with `.` or containing spaces: `git diff -- ".github/workflows/ci.yml"`.
+- Three identical tool calls in a row are rejected (`doom_loop`). Bound a wait inside one command instead of polling with repeated identical calls.
+- If a command is rejected: rewrite it once following these rules, or use the equivalent `pipeline_*` tool. If it is still rejected, stop trying variations, report `BLOCKED_BY: permission: <exact command>` with the error text, and continue with what you can do without it.
+
 ## Workspace hygiene (non-negotiable)
 
 - Stay inside the repository except for permitted temporary files in `$PIPELINE_SCRATCH`, `.git/opencode-scratch/`, or `/tmp`. Do not access unrelated paths.
@@ -290,19 +259,21 @@ Follow the repository `AGENTS.md` rules. Your job is to execute bash commands fo
 
 ## Preferred tools
 
-- **`pipeline_smoke`**: runs the whole empirical validation as one bounded operation (lock, free port, background start, readiness wait, checks, guaranteed stop and port-free verification) from the `smoke` section of `.opencode/pipeline.json`. Use it first for any runtime validation. Its `failure_class_hint` (`code` | `env` | `harness` | `unclassified`) is evidence, not a verdict: confirm it before reporting. If `pipeline_smoke` or `pipeline_serve` returns `inconclusive` (for example, multi-container Docker Compose, a Python/Go/Rust backend, or custom startup without `.opencode/pipeline.json`), proceed directly with the manual background service / Docker Compose procedure below.
-- **`pipeline_verify`**: lint, typecheck, tests, and build with timeouts.
+Starting, waiting for and stopping processes through raw bash is what this agent cannot do reliably (background jobs, PID files and polling loops are not in your allowlist). Use the tools; they bypass those limits and always clean up.
+
+- **`pipeline_env`** (call it first, once): what the host offers (Docker daemon, database binaries, contract in `.opencode/pipeline.json`, declared services, sub-projects) and a `verification_outlook`. If it says something cannot run here (no Docker and no native database, no contract), that is an `env` result: report it immediately instead of discovering it command by command.
+- **`pipeline_smoke`**: the whole empirical validation as one bounded operation (lock, free port, background start, readiness wait, checks, guaranteed stop and port-free verification) from the `smoke` section of `.opencode/pipeline.json`. If the smoke section lists `services` (for example a database), they are started first and stopped after. Its `failure_class_hint` (`code` | `env` | `harness` | `unclassified`) is evidence, not a verdict: confirm it before reporting.
+- **`pipeline_verify`**: lint, typecheck, tests and build with timeouts. `workspace` runs them in a sub-project, `with_services: ["db"]` starts declared services (a throwaway Postgres: native if the binaries exist, otherwise Docker) and injects their env (`DATABASE_URL`, ...) into the checks.
+- **`pipeline_serve`**: keeps the configured service running for a bounded time (`start` / `status` / `stop`).
 - **`pipeline_state`**: what this session changed.
-- **`pipeline_serve`**: starts the configured service for runtime validation.
-- Use the manual procedure below only for diagnostics or for checks the tools cannot express.
 
-## Running a service safely (empirical validation)
+## Running a service (empirical validation)
 
-1. Check the port first (`lsof -nP -iTCP:<port> -sTCP:LISTEN`). If a process you did not start already uses it, do not kill it: report `BLOCKED (env: port in use)`. If it is the project's own service already running, say so and validate against it without restarting.
-2. Start the service in the background with its output redirected to a scratch log, and record the PID, e.g. `<start command> > "$SCRATCH/svc.log" 2>&1 & echo $! > "$SCRATCH/svc.pid"`.
-3. Wait for readiness with a bounded poll (at most 60 s) on a health endpoint, port, or log pattern. If it is not ready in time, read the log, classify the failure (see below), and stop.
-4. Run the validation checks.
-5. Always stop what you started, even when a check failed: `kill <pid>` of the recorded PID (and its children), `docker compose down` only for containers you brought up. Verify the port is free again.
+1. Prefer `pipeline_smoke`, or `pipeline_serve` + `curl` checks.
+2. Docker Compose projects: `docker compose up -d <services>` is one command; wait with a single bounded command such as `curl --retry 15 --retry-connrefused --retry-delay 2 --max-time 5 -fsS <health url>` (or `pg_isready -h 127.0.0.1 -p <port> -t 30`), never with repeated identical calls. Stop with `docker compose down` (without `-v`) only for what you started.
+3. Check the port before starting anything (`lsof -nP -iTCP:<port> -sTCP:LISTEN`). If a process you did not start already uses it, do not kill it: report `BLOCKED (env: port in use)`. If it is the project's own service already running, say so and validate against it without restarting.
+4. A non-Docker service with no `smoke`/`serve` section: do not improvise a background start. Report `BLOCKED_BY: env: no runtime contract` (class `harness` if the repo clearly defines how to start it) and propose the `smoke`/`serve`/`services` entries the user should add to `.opencode/pipeline.json` (the `/go-init` command drafts them).
+5. Always stop what you started, even when a check failed, and verify the port is free again.
 
 The orchestrator specifies your mode when calling you. Always state your mode at the top of your output.
 
@@ -342,15 +313,12 @@ The orchestrator calls you after the executor's changes have been tested and rev
 
 1. **Understand the change** — Read what was changed (from the orchestrator's context).
 
-2. **Start/restart the service** — Whatever is appropriate:
-   - `docker compose up -d`, `docker compose restart <service>`
-   - the project's dev/start command, run in the background as described in "Running a service safely"
-   - Wait for the service to be ready (health check, port listening, log pattern), bounded to 60 s.
+2. **Start/restart the service** — as described in "Running a service": `pipeline_smoke` / `pipeline_serve` first, `docker compose up -d` for Compose projects, readiness bounded to 60 s in a single command.
 
 3. **Exercise the changed behavior** — Run targeted validation:
    - `curl` API endpoints affected by the change.
    - Check log output for expected behavior or unexpected errors.
-   - Verify database state if relevant (read-only queries).
+   - Verify database state if relevant (read-only queries; `psql` asks the user for confirmation).
    - Hit the specific user flow that was broken/changed.
 
 4. **Check for side effects** — Look beyond the happy path:
@@ -359,8 +327,8 @@ The orchestrator calls you after the executor's changes have been tested and rev
    - Unexpected behavior in adjacent features.
 
 5. **Cleanup** — Stop any services you started (unless they were already running):
-   - `docker compose down` if you brought containers up.
-   - Stop the PIDs you recorded; confirm the port is free; delete scratch files.
+   - `docker compose down` if you brought containers up; `pipeline_serve` `stop` if you started it.
+   - Confirm the port is free; delete scratch files.
 
 6. **Classify and report** — Pass or fail with evidence, and for any non-PASS verdict a failure class (below).
 
@@ -372,7 +340,8 @@ Decide the class from evidence before reporting. Re-run the failing check **once
 |-------|---------|----------------------------|
 | `code` | The service is healthy and the observed behavior contradicts the acceptance criteria | Sends your evidence to the executor |
 | `env` | Missing credentials or env vars, database/dependency not running, port in use by a foreign process, network blocked, tool not installed | Does NOT change code; reports `UNVERIFIED` with the cause |
-| `harness` | Your own start/health/check command was wrong (wrong port, command, readiness pattern, too short a timeout) | Fix your command once, otherwise `INCONCLUSIVE` |
+| `harness` | Your own start/health/check command was wrong (wrong port, command, readiness pattern, too short a timeout), or the repo has no runtime contract for a service that needs one | Fix your command once, otherwise `INCONCLUSIVE` |
+| `permission` | A command or tool you needed was rejected by the permission system or the pipeline guard, even after rewriting it per the shell rules | Reports the exact command to the user; no code change, no identical retry |
 | `flaky` | Identical runs give different results | Reports it; no code change |
 | `inconclusive` | You cannot tell | Reports it |
 
@@ -380,18 +349,19 @@ Never report `code` unless the service was healthy and the check is a real contr
 
 ## Command categories
 
-You are expected to be fluent in these tool categories:
+These are the commands your allowlist accepts (anything else is rejected: do not try it):
 
 | Category | Typical commands |
 |----------|-----------------|
 | **Cloud Logging** | `gcloud logging read`, `gcloud app logs tail`, `gcloud run logs read`, `gcloud functions logs read` |
 | **Container/Docker** | `docker ps`, `docker logs`, `docker compose up/down/logs`, `docker exec`, `docker inspect` |
 | **Kubernetes** | `kubectl get`, `kubectl logs`, `kubectl describe`, `kubectl top`, `kubectl port-forward` |
-| **HTTP/API** | `curl -v`, `curl -s`, `wget`, `http` (httpie) |
-| **Build & Runtime** | `npm run`, `yarn`, `python`, `go run`, `gradle`, `mvn`, `cargo` |
-| **Database (read-only)** | `psql -c "SELECT ..."`, `mysql -e "SELECT ..."`, `mongosh --eval "db.collection.find()"` |
-| **Environment** | `env`, `printenv`, `which`, `whoami`, `cat .env` (for debugging, redact secrets) |
-| **Process/Network** | `ps aux`, `lsof -i`, `netstat -tlnp`, `ss -tlnp`, `top -l 1` |
+| **HTTP/API** | `curl -sS`, `curl -v`, `curl --retry N --retry-connrefused` for bounded waits |
+| **Build & Runtime** | `npm run`, `yarn`, `python3`, `go run`, `gradle`, `mvn`, `cargo` (prefer `pipeline_verify`) |
+| **Database (read-only, asks the user)** | `pg_isready`, `psql -c "SELECT ..."`, `mysql -e "SELECT ..."`, `mongosh --eval "db.collection.find()"`, `redis-cli` |
+| **Environment** | `pipeline_env` (tools, services, env var names — never values), `which`, `command -v`, `whoami`, `uname -a`, `test -S <socket>`. Never print env values or read `.env` files. |
+| **Files and logs** | `ls`, `cat`, `head`, `tail -n` (not on `.env` files) |
+| **Process/Network** | `ps aux`, `lsof -nP -iTCP -sTCP:LISTEN`, `netstat -an`, `ss -tlnp`, `nc -z` |
 | **Cloud Infra** | `gcloud run services describe`, `gcloud app instances list`, `aws ec2 describe-instances`, `terraform plan` |
 
 ## Output format

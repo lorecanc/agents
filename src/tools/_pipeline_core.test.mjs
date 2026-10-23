@@ -486,3 +486,42 @@ test("toRel rejects paths outside the repository", () => {
   assert.equal(toRel(info, "../x"), null)
   assert.equal(toRel(info, "/etc/hosts"), null)
 })
+
+// ------------------------------------------------------- activity log
+
+test("activity log: append, size cap with truncation marker, denial detection", () => {
+  const info = repoInfo(mkRepo())
+  const { appendActivity, readActivity, activityLogPath, isDenialText, clipText } = core
+  assert.equal(appendActivity(info, "ses_r", { type: "tool", tool: "bash", ok: true }), true)
+  assert.equal(readActivity(info, "ses_r").length, 1)
+  for (let i = 0; i < 200; i++) appendActivity(info, "ses_r", { type: "tool", tool: "bash", ok: true, command: "x".repeat(100), i }, { maxBytes: 4000 })
+  assert.ok(fs.statSync(activityLogPath(info, "ses_r")).size <= 4200)
+  const events = readActivity(info, "ses_r")
+  assert.equal(events[0].type, "truncated")
+  assert.equal(events.filter((e) => e.type === "truncated").length, 1)
+  assert.equal(events[0].dropped + events.length - 1, 201)
+  assert.equal(events.at(-1).i, 199)
+  assert.equal(appendActivity(null, "ses_r", {}), false)
+  assert.equal(appendActivity(info, "../escape", {}), false)
+  assert.equal(isDenialText("The user rejected permission to use this specific tool call."), true)
+  assert.equal(isDenialText("The user has specified a rule which prevents you from using this specific tool call."), true)
+  assert.equal(isDenialText("File not found"), false)
+  assert.equal(clipText("password=hunter22 " + "y".repeat(500)).startsWith("password=[REDACTED]"), true)
+  assert.ok(clipText("z".repeat(500)).length <= 303)
+})
+
+test("removeStaleSessions also removes the activity logs of stale roots and old orphan logs", () => {
+  const info = repoInfo(mkRepo())
+  const { appendActivity, activityLogPath, removeStaleSessions } = core
+  const old = Date.now() - 30 * 24 * 3600 * 1000
+  writeSession(info, { sessionId: "ses_stale", rootId: "ses_stale", pid: 999999, updatedAt: old })
+  writeSession(info, { sessionId: "ses_live", rootId: "ses_live", pid: process.pid, updatedAt: Date.now() })
+  for (const id of ["ses_stale", "ses_live", "ses_orphan_old", "ses_orphan_new"]) appendActivity(info, id, { type: "tool" })
+  fs.utimesSync(activityLogPath(info, "ses_orphan_old"), old / 1000, old / 1000)
+  removeStaleSessions(info)
+  assert.equal(readSession(info, "ses_stale"), null)
+  assert.equal(fs.existsSync(activityLogPath(info, "ses_stale")), false)
+  assert.equal(fs.existsSync(activityLogPath(info, "ses_live")), true)
+  assert.equal(fs.existsSync(activityLogPath(info, "ses_orphan_old")), false)
+  assert.equal(fs.existsSync(activityLogPath(info, "ses_orphan_new")), true)
+})

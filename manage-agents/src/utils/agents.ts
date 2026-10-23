@@ -2258,6 +2258,11 @@ export function discoverCompanionResourcePaths(sourceRoot: string, domains: stri
   const found = new Set<string>()
   const names = [...new Set(domains.filter(Boolean))]
   const matches = (name: string): boolean => names.some(domain => name === domain || name.startsWith(`${domain}-`))
+  // OpenCode custom tools of a domain use the `<domain>_<name>.ts` convention
+  // (for example `tools/pipeline_state.ts`). Ship every such tool with the
+  // domain so new tools travel without being listed anywhere; their relative
+  // helper imports are traced below.
+  const matchesToolFamily = (filename: string): boolean => /\.ts$/i.test(filename) && names.some(domain => filename.startsWith(`${domain}_`))
 
   const categoriesDirectory = manifestDirectory ?? (["general", "src"].includes(path.basename(sourceRoot))
     ? path.join(path.dirname(sourceRoot), ".agent-manager", "categories")
@@ -2309,7 +2314,7 @@ export function discoverCompanionResourcePaths(sourceRoot: string, domains: stri
         continue
       }
       if (entryStat.isDirectory() && matches(entry.name)) for (const file of walkFiles(sourceRoot, path.join(root, entry.name))) found.add(file)
-      else if (entryStat.isFile() && matches(path.parse(entry.name).name) && !isExcludedCompanionFile(path.join(root, entry.name))) found.add(path.join(root, entry.name))
+      else if (entryStat.isFile() && (matches(path.parse(entry.name).name) || (root === "tools" && matchesToolFamily(entry.name))) && !isExcludedCompanionFile(path.join(root, entry.name))) found.add(path.join(root, entry.name))
     }
   }
 
@@ -2327,6 +2332,87 @@ export function discoverCompanionResourcePaths(sourceRoot: string, domains: stri
   if (agentsForDerivation) for (const resource of deriveCompanionResourcesFromAgents(sourceRoot, agentsForDerivation)) found.add(resource)
   for (const dependency of traceRelativeToolDependencies(sourceRoot, found)) found.add(dependency)
   return [...found].sort((a, b) => a.localeCompare(b))
+}
+
+export interface PipelineResourceProblem {
+  kind: "missing-tool" | "missing-dependency" | "missing-companion" | "stale-companion"
+  path: string
+  detail: string
+}
+
+const PIPELINE_TOOL_KEY = /^pipeline_[a-z0-9_]+$/i
+const RELATIVE_IMPORT = /(?:from|import)\s*\(\s*["'](\.[^"']+)["']\s*\)|(?:from|import)\s+["'](\.[^"']+)["']/g
+
+/** Relative imports of a tools/ or plugins/ module that do not resolve to a regular file in the same root. */
+function unresolvedRelativeImports(resourceRoot: string, relative: string): string[] {
+  const source = fs.readFileSync(path.join(resourceRoot, ...relative.split("/")), "utf8")
+  const missing: string[] = []
+  for (const match of source.matchAll(RELATIVE_IMPORT)) {
+    const reference = match[1] || match[2]
+    const candidate = path.posix.normalize(path.posix.join(path.posix.dirname(relative), reference))
+    const candidates = reference.endsWith(".js") ? [candidate, `${candidate.slice(0, -3)}.ts`] : [candidate]
+    if (!candidates.some(file => safeRelativeStat(resourceRoot, file)?.isFile())) missing.push(candidate)
+  }
+  return missing
+}
+
+/**
+ * Verify that a pipeline bundle (the canonical source root or a stamped
+ * `*-pipeline` category) ships every OpenCode tool its agents permit, every
+ * helper module those tools and the guard plugin import, and — when a
+ * canonical root is given — byte-identical copies of the canonical pipeline
+ * tools and plugins.
+ */
+export function checkPipelineResources(
+  resourceRoot: string,
+  agents: AgentInfo[],
+  canonical?: { root: string; agents: AgentInfo[] }
+): PipelineResourceProblem[] {
+  validateResourceRoot(resourceRoot)
+  const problems: PipelineResourceProblem[] = []
+  const seen = new Set<string>()
+  const add = (problem: PipelineResourceProblem) => {
+    const key = `${problem.kind}\0${problem.path}\0${problem.detail}`
+    if (!seen.has(key)) { seen.add(key); problems.push(problem) }
+  }
+
+  for (const agent of agents) {
+    const permission = agent.frontmatter?.permission
+    if (!permission || typeof permission !== "object" || Array.isArray(permission)) continue
+    for (const [key, value] of Object.entries(permission)) {
+      if (!PIPELINE_TOOL_KEY.test(key) || value === "deny" || value === false) continue
+      const relative = `tools/${key}.ts`
+      if (!safeRelativeStat(resourceRoot, relative)?.isFile()) {
+        add({ kind: "missing-tool", path: relative, detail: `${agent.filename} permits '${key}' but ${relative} is not shipped` })
+      }
+    }
+  }
+
+  for (const root of ["tools", "plugins"]) {
+    const stat = safeRelativeStat(resourceRoot, root)
+    if (!stat?.isDirectory()) continue
+    for (const entry of fs.readdirSync(path.join(resourceRoot, root), { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const relative = `${root}/${entry.name}`
+      if (!entry.isFile() || !/pipeline/i.test(entry.name) || !/\.(?:ts|js|mjs)$/i.test(entry.name) || isExcludedCompanionFile(relative)) continue
+      for (const missing of unresolvedRelativeImports(resourceRoot, relative)) {
+        add({ kind: "missing-dependency", path: missing, detail: `${relative} imports ${missing}, which is not shipped` })
+      }
+    }
+  }
+
+  if (canonical && path.resolve(canonical.root) !== path.resolve(resourceRoot)) {
+    const expected = discoverCompanionResourcePaths(canonical.root, ["pipeline"], undefined, canonical.agents)
+      .map(relative => relative.replace(/\\/g, "/"))
+      .filter(relative => /^(?:tools|plugins)\//.test(relative))
+    for (const relative of expected) {
+      const local = safeRelativeStat(resourceRoot, relative)
+      if (!local?.isFile()) add({ kind: "missing-companion", path: relative, detail: `${relative} is shipped by the canonical pipeline but missing here` })
+      else if (!fs.readFileSync(path.join(resourceRoot, ...relative.split("/"))).equals(fs.readFileSync(path.join(canonical.root, ...relative.split("/"))))) {
+        add({ kind: "stale-companion", path: relative, detail: `${relative} differs from the canonical copy` })
+      }
+    }
+  }
+  return problems
 }
 
 export function compareCompanionResources(workspaceRoot: string, agents?: AgentInfo[]): CompanionResourceDiff[] {

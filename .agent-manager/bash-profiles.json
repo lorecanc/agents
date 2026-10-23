@@ -1,0 +1,368 @@
+{
+  "version": 1,
+  "description": "Single source of truth for pipeline agents' permission.bash blocks. Each role expands to the concatenation of its profiles, in order (OpenCode: last matching rule wins). Apply with: node manage-agents/manage-agents.mjs pipeline sync-bash",
+  "profiles": {
+    "base-deny": {
+      "description": "Deny everything not listed; allow changing directory.",
+      "rules": [
+        ["*", "deny"],
+        ["cd *", "allow"]
+      ]
+    },
+    "build-tools": {
+      "description": "Language runtimes, package managers, build and test runners.",
+      "rules": [
+        ["node *", "allow"],
+        ["npm *", "allow"],
+        ["npx *", "allow"],
+        ["pnpm *", "allow"],
+        ["yarn *", "allow"],
+        ["bun *", "allow"],
+        ["deno *", "allow"],
+        ["python *", "allow"],
+        ["python3 *", "allow"],
+        ["pytest*", "allow"],
+        ["uv *", "allow"],
+        ["poetry *", "allow"],
+        ["pip *", "allow"],
+        ["pip3 *", "allow"],
+        ["go *", "allow"],
+        ["cargo *", "allow"],
+        ["rustc *", "allow"],
+        ["make*", "allow"],
+        ["cmake *", "allow"],
+        ["gradle *", "allow"],
+        ["./gradlew*", "allow"],
+        ["mvn *", "allow"],
+        ["./mvnw*", "allow"],
+        ["dotnet *", "allow"],
+        ["bundle *", "allow"],
+        ["rake*", "allow"],
+        ["rspec*", "allow"],
+        ["composer *", "allow"],
+        ["php *", "allow"],
+        ["swift *", "allow"],
+        ["xcodebuild *", "allow"],
+        ["xcrun *", "allow"]
+      ]
+    },
+    "fs-basic": {
+      "description": "Create directories; single-file rm asks (rm-guard denies recursive/forced forms).",
+      "rules": [
+        ["mkdir -p *", "allow"],
+        ["rm *", "ask"]
+      ]
+    },
+    "fs-move": {
+      "description": "Copy and move files.",
+      "rules": [
+        ["cp *", "allow"],
+        ["mv *", "allow"]
+      ]
+    },
+    "git-read": {
+      "description": "Working-tree inspection; diff --output (writes a file) is denied.",
+      "rules": [
+        ["git status*", "allow"],
+        ["git diff*", "allow"],
+        ["git diff *--output*", "deny"],
+        ["git log*", "allow"],
+        ["git show*", "allow"]
+      ]
+    },
+    "git-blame": {
+      "description": "Line history.",
+      "rules": [
+        ["git blame*", "allow"]
+      ]
+    },
+    "git-rev-parse": {
+      "description": "Resolve refs and repository paths.",
+      "rules": [
+        ["git rev-parse*", "allow"]
+      ]
+    },
+    "git-merge-base": {
+      "description": "Common ancestor lookup.",
+      "rules": [
+        ["git merge-base*", "allow"]
+      ]
+    },
+    "git-branch-name": {
+      "description": "Current branch name only.",
+      "rules": [
+        ["git branch --show-current*", "allow"]
+      ]
+    },
+    "git-sync": {
+      "description": "fetch/pull/merge/rebase/cherry-pick without remote-helper injection or interactive/exec rebase.",
+      "rules": [
+        ["git fetch*", "allow"],
+        ["git fetch *--upload-pack*", "deny"],
+        ["git fetch *ext::*", "deny"],
+        ["git pull*", "allow"],
+        ["git pull *--upload-pack*", "deny"],
+        ["git pull *ext::*", "deny"],
+        ["git merge*", "allow"],
+        ["git rebase*", "allow"],
+        ["git rebase *-i*", "deny"],
+        ["git rebase *--interactive*", "deny"],
+        ["git rebase *-x*", "deny"],
+        ["git rebase *--exec*", "deny"],
+        ["git cherry-pick*", "allow"]
+      ]
+    },
+    "git-resolve-checkout": {
+      "description": "Pick a side of a conflict with checkout.",
+      "rules": [
+        ["git checkout --ours *", "allow"],
+        ["git checkout --theirs *", "allow"]
+      ]
+    },
+    "git-unstage": {
+      "description": "Unstage files.",
+      "rules": [
+        ["git restore --staged *", "allow"]
+      ]
+    },
+    "git-resolve-restore": {
+      "description": "Pick a side of a conflict with restore.",
+      "rules": [
+        ["git restore --ours *", "allow"],
+        ["git restore --theirs *", "allow"],
+        ["git restore --merge *", "allow"]
+      ]
+    },
+    "git-stage": {
+      "description": "Stage explicit paths only; bulk staging is denied.",
+      "rules": [
+        ["git add *", "allow"],
+        ["git add .", "deny"],
+        ["git add ./", "deny"],
+        ["git add -A*", "deny"],
+        ["git add --all*", "deny"],
+        ["git add -u*", "deny"],
+        ["git add --update*", "deny"]
+      ]
+    },
+    "publish-guard": {
+      "description": "Never publish packages.",
+      "rules": [
+        ["npm publish*", "deny"],
+        ["pnpm publish*", "deny"],
+        ["yarn publish*", "deny"],
+        ["bun publish*", "deny"],
+        ["cargo publish*", "deny"],
+        ["twine upload*", "deny"]
+      ]
+    },
+    "rm-guard": {
+      "description": "Deny recursive or forced rm in every spelling.",
+      "rules": [
+        ["rm -r*", "deny"],
+        ["rm -f*", "deny"],
+        ["rm -rf /*", "deny"],
+        ["rm -fr /*", "deny"],
+        ["rm -rf ~*", "deny"],
+        ["rm -fr ~*", "deny"],
+        ["rm -rf ..*", "deny"],
+        ["rm -fr ..*", "deny"],
+        ["rm -rf .", "deny"],
+        ["rm -fr .", "deny"],
+        ["rm -rf *", "deny"],
+        ["rm -fr *", "deny"],
+        ["rm * -r*", "deny"],
+        ["rm * -f*", "deny"],
+        ["rm --recursive*", "deny"],
+        ["rm * --recursive*", "deny"]
+      ]
+    },
+    "ops-cloud": {
+      "description": "Container, cluster, and cloud CLIs (mutations are narrowed by ops-deploy and ops-guard).",
+      "rules": [
+        ["docker *", "allow"],
+        ["docker-compose *", "allow"],
+        ["kubectl *", "allow"],
+        ["helm *", "allow"],
+        ["gcloud *", "allow"],
+        ["aws *", "allow"],
+        ["az *", "allow"],
+        ["terraform *", "allow"],
+        ["gh *", "allow"],
+        ["firebase *", "allow"],
+        ["fly *", "allow"],
+        ["flyctl *", "allow"],
+        ["wrangler *", "allow"]
+      ]
+    },
+    "ops-diag": {
+      "description": "Read-only diagnostics; secrets files are denied; database shells ask.",
+      "rules": [
+        ["curl *", "allow"],
+        ["nc *", "allow"],
+        ["lsof *", "allow"],
+        ["ps *", "allow"],
+        ["kill *", "allow"],
+        ["ls *", "allow"],
+        ["cat *", "allow"],
+        ["head *", "allow"],
+        ["tail *", "allow"],
+        ["cat *.env*", "deny"],
+        ["head *.env*", "deny"],
+        ["tail *.env*", "deny"],
+        ["cat *.env.example*", "allow"],
+        ["cat *.env.sample*", "allow"],
+        ["which *", "allow"],
+        ["command -v *", "allow"],
+        ["whoami", "allow"],
+        ["uname*", "allow"],
+        ["test *", "allow"],
+        ["sleep *", "allow"],
+        ["ss *", "allow"],
+        ["netstat *", "allow"],
+        ["pg_isready*", "allow"],
+        ["psql *", "ask"],
+        ["mysql *", "ask"],
+        ["mongosh *", "ask"],
+        ["redis-cli *", "ask"]
+      ]
+    },
+    "ops-deploy": {
+      "description": "Deployments and releases require confirmation.",
+      "rules": [
+        ["gcloud * deploy*", "ask"],
+        ["gcloud *builds submit*", "ask"],
+        ["kubectl apply*", "ask"],
+        ["kubectl * apply*", "ask"],
+        ["kubectl patch*", "ask"],
+        ["kubectl * patch*", "ask"],
+        ["kubectl scale*", "ask"],
+        ["kubectl * scale*", "ask"],
+        ["kubectl rollout*", "ask"],
+        ["kubectl * rollout*", "ask"],
+        ["helm install*", "ask"],
+        ["helm * install*", "ask"],
+        ["helm upgrade*", "ask"],
+        ["helm * upgrade*", "ask"],
+        ["helm rollback*", "ask"],
+        ["helm * rollback*", "ask"],
+        ["terraform apply*", "ask"],
+        ["terraform * apply*", "ask"],
+        ["firebase deploy*", "ask"],
+        ["firebase * deploy*", "ask"],
+        ["vercel *", "ask"],
+        ["fly deploy*", "ask"],
+        ["fly * deploy*", "ask"],
+        ["flyctl deploy*", "ask"],
+        ["flyctl * deploy*", "ask"],
+        ["wrangler deploy*", "ask"],
+        ["wrangler * deploy*", "ask"],
+        ["docker push*", "ask"],
+        ["docker * push*", "ask"],
+        ["gh release create*", "ask"],
+        ["gh * release create*", "ask"],
+        ["gh workflow run*", "ask"],
+        ["gh * workflow run*", "ask"]
+      ]
+    },
+    "ops-guard": {
+      "description": "Destructive infrastructure commands and publishing are denied.",
+      "rules": [
+        ["docker rm -f*", "deny"],
+        ["docker * rm -f*", "deny"],
+        ["docker system prune*", "deny"],
+        ["docker * system prune*", "deny"],
+        ["docker volume prune*", "deny"],
+        ["docker * volume prune*", "deny"],
+        ["docker compose down -v*", "deny"],
+        ["docker * compose down -v*", "deny"],
+        ["docker-compose down -v*", "deny"],
+        ["docker-compose * down -v*", "deny"],
+        ["kubectl delete*", "deny"],
+        ["kubectl * delete*", "deny"],
+        ["kubectl edit*", "deny"],
+        ["kubectl * edit*", "deny"],
+        ["helm uninstall*", "deny"],
+        ["helm * uninstall*", "deny"],
+        ["helm delete*", "deny"],
+        ["helm * delete*", "deny"],
+        ["terraform destroy*", "deny"],
+        ["terraform * destroy*", "deny"],
+        ["terraform import*", "deny"],
+        ["terraform * import*", "deny"],
+        ["gcloud * delete*", "deny"],
+        ["aws * delete*", "deny"],
+        ["aws * terminate*", "deny"],
+        ["az * delete*", "deny"],
+        ["gh repo delete*", "deny"],
+        ["gh * repo delete*", "deny"],
+        ["gh release delete*", "deny"],
+        ["gh * release delete*", "deny"],
+        ["npm publish*", "deny"]
+      ]
+    },
+    "audit-tools": {
+      "description": "Dependency and static security scanners.",
+      "rules": [
+        ["npm audit*", "allow"],
+        ["pnpm audit*", "allow"],
+        ["yarn audit*", "allow"],
+        ["bun audit*", "allow"],
+        ["pip-audit*", "allow"],
+        ["cargo audit*", "allow"],
+        ["govulncheck*", "allow"],
+        ["gosec*", "allow"],
+        ["semgrep*", "allow"],
+        ["trivy*", "allow"],
+        ["bandit*", "allow"],
+        ["osv-scanner*", "allow"],
+        ["hadolint*", "allow"],
+        ["shellcheck*", "allow"]
+      ]
+    },
+    "post-session-stage": {
+      "description": "Stage explicit paths only; bulk, patch, and interactive staging are denied.",
+      "rules": [
+        ["git add *", "allow"],
+        ["git add -A*", "deny"],
+        ["git add --all*", "deny"],
+        ["git add -u*", "deny"],
+        ["git add --update*", "deny"],
+        ["git add -p*", "deny"],
+        ["git add --patch*", "deny"],
+        ["git add -i*", "deny"],
+        ["git add --interactive*", "deny"],
+        ["git add .", "deny"],
+        ["git add ./", "deny"],
+        ["git add -- .", "deny"],
+        ["git add */", "deny"],
+        ["git add *.", "deny"]
+      ]
+    },
+    "post-session-commit": {
+      "description": "Commit with a message; amend/all/no-verify are denied; push asks.",
+      "rules": [
+        ["git commit -m *", "allow"],
+        ["git commit -a*", "deny"],
+        ["git commit --all*", "deny"],
+        ["git commit * --amend*", "deny"],
+        ["git commit * --no-verify*", "deny"],
+        ["git commit * --all*", "deny"],
+        ["git push*", "ask"]
+      ]
+    }
+  },
+  "roles": {
+    "explorer": ["base-deny", "git-read", "git-blame", "git-rev-parse", "git-merge-base", "git-branch-name"],
+    "code_reviewer": ["base-deny", "git-read", "git-blame", "git-rev-parse", "git-merge-base", "git-branch-name"],
+    "critic": ["base-deny", "git-read", "git-blame", "git-rev-parse", "git-merge-base", "git-branch-name"],
+    "hitl": ["base-deny", "git-read", "git-blame", "git-rev-parse", "git-merge-base", "git-branch-name"],
+    "security_auditor": ["base-deny", "git-read", "git-blame", "git-rev-parse", "git-merge-base", "git-branch-name", "audit-tools"],
+    "executor": ["base-deny", "build-tools", "fs-basic", "fs-move", "git-read", "git-rev-parse", "git-merge-base", "git-branch-name", "git-sync", "git-resolve-checkout", "git-unstage", "git-resolve-restore", "git-stage", "publish-guard", "rm-guard"],
+    "fast_lane": ["base-deny", "build-tools", "fs-basic", "fs-move", "git-read", "git-rev-parse", "git-merge-base", "git-branch-name", "git-sync", "git-resolve-checkout", "git-unstage", "git-resolve-restore", "git-stage", "publish-guard", "rm-guard"],
+    "refactorer": ["base-deny", "build-tools", "fs-basic", "fs-move", "git-read", "git-rev-parse", "git-merge-base", "git-branch-name", "git-sync", "git-resolve-checkout", "git-unstage", "git-resolve-restore", "git-stage", "publish-guard", "rm-guard"],
+    "tester": ["base-deny", "build-tools", "fs-basic", "fs-move", "git-read", "git-rev-parse", "git-merge-base", "git-branch-name", "rm-guard"],
+    "ops": ["base-deny", "ops-cloud", "ops-diag", "fs-basic", "build-tools", "git-read", "git-rev-parse", "git-merge-base", "git-branch-name", "git-sync", "ops-deploy", "ops-guard", "rm-guard"],
+    "post_session": ["base-deny", "git-read", "git-rev-parse", "git-branch-name", "git-unstage", "post-session-stage", "post-session-commit"]
+  }
+}

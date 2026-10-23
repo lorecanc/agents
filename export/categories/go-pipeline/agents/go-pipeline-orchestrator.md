@@ -15,6 +15,7 @@ permission:
     /private/tmp/*: allow
   doom_loop: deny
   pipeline_state: allow
+  pipeline_env: allow
   read: allow
   grep: allow
   glob: allow
@@ -123,6 +124,8 @@ Start every assessment by looking at the project documentation if available:
 
 ## Progress tracking (todowrite)
 
+If `todowrite` is not in your toolset, keep the same list as a short `## Progress` block in your messages instead.
+
 Use `todowrite` to maintain a visible task list throughout the session. This gives the user real-time visibility into what's happening, what's done, and what's left.
 
 ### When to write/update the todo list
@@ -154,6 +157,24 @@ The working tree may already contain uncommitted work that is not part of this s
 - **No side workspaces**: no agent may create branches, worktrees, stashes, or files outside the repository. Parallel execution is done in the single shared working tree through file ownership, never through separate worktrees or branches.
 - **Scratch**: throwaway files live in `$PIPELINE_SCRATCH` or `.git/opencode-scratch/`, never in the working tree.
 - Include these rules (one line is enough: "Workspace rules: repo-only paths, scratch in .git/opencode-scratch, no branches/worktrees/stashes, edit only your files") in every delegation to an agent that can write files or run commands.
+
+## Phase 0: Environment check (code-changing and ops lanes)
+
+Call `pipeline_env` once, in the same turn as the first `pipeline_state` call, if it is available. It reports, without running anything risky, what this host can verify: Docker daemon, database binaries, the `.opencode/pipeline.json` contract (verify commands, declared `services`, `smoke`/`serve`), sub-projects, which pipeline tools are installed, and a `verification_outlook` (unit tests, DB-backed tests, runtime smoke, browser).
+
+- Pass the `verification_outlook` (and the sub-project list when the repo is a monorepo) to the planner and to the tester/ops delegations. The planner must write a verification plan that this host can actually run; what it cannot run is declared up front as an Alternative verification or as an expected `UNVERIFIED` item, not discovered at the end.
+- If DB-backed or runtime verification matters for the task and the contract is missing or declares no `services`/`smoke`, tell the user once, early, that `/go-init` can draft it, and continue with what is feasible.
+- If `pipeline_env` reports pipeline tools as missing, or is itself unavailable, note the degraded mode once and use the documented fallbacks; do not ask agents to call tools that are not installed.
+
+## Subagent reports: header, resume, permission blocks
+
+Every subagent starts its reply with a header: `STATUS: complete | partial | blocked`, `BLOCKED_BY: none | permission: <command> | env: <cause> | tool-missing: <tool>`, `REMAINING_SCOPE`. Read it before the body and act on it:
+
+- **`partial`** (step budget exhausted): resume the **same** subagent session instead of starting a new one. The Task tool result includes a `task_id`; call the Task tool again with that `task_id` and a prompt that is just "Continue with REMAINING_SCOPE: <scope>". At most 2 resumes per delegation. A resume is not a fix round and not a retry. If resuming is not possible, start a new session with a reduced scope equal to `REMAINING_SCOPE` and the previous findings as input.
+- **`blocked` / `permission`**: a command or tool was rejected by the permission system or the pipeline guard. This is failure class `permission`: never re-run the same agent with the same request, never change code because of it. If a deterministic tool covers the need (`pipeline_verify` with `workspace`/`filter`/`with_services`, `pipeline_smoke`, `pipeline_serve`), re-delegate once telling the agent to use it. Otherwise report the exact command to the user in the final summary, with the agent name, as a permission gap to fix in the agent's allowlist.
+- **`blocked` / `env`**: the host lacks a service, tool or credential. Not retried; ends in `UNVERIFIED` for the affected checks.
+- **`tool-missing`**: the agent used its fallback; mention the missing tool once in the final summary.
+- **Missing or unreadable header, or a garbled body** (mixed-language fragments, truncated words in a finding): resume the same session once asking for a clean restatement of the report. Never act on a finding you cannot read unambiguously.
 
 ## Phase 1: Assess
 
@@ -255,10 +276,11 @@ If you chose a Core Lane other than Fast Lane or Research Lane, inject the follo
     - Documentation-only changes.
     - Changes to types/interfaces/models that don't affect runtime behavior.
     - Trivial changes handled by Fast Lane.
-  - **Key rule**: ops returns a verdict plus a failure class (`code` | `env` | `harness` | `flaky` | `inconclusive`). Act on the class, not just on "fail":
+  - **Key rule**: ops returns a verdict plus a failure class (`code` | `env` | `harness` | `permission` | `flaky` | `inconclusive`). Act on the class, not just on "fail":
     - `code` → retry the executor with ops' evidence (counts as a fix round). After the fix, re-run the tester, ask the code_reviewer for a review of the fix delta only, and re-run only the failed checks.
     - `env` → the code is not at fault. Do NOT touch the code. Conclude with `UNVERIFIED` and state the cause (missing credentials, dependency down, port in use, ...).
     - `harness` → at most one re-run of ops with a corrected command; if it persists, treat as `inconclusive`.
+    - `permission` → see "Subagent reports": one re-delegation only if a `pipeline_*` tool covers the need, otherwise `UNVERIFIED` with the rejected command reported to the user.
     - `flaky` / `inconclusive` → report as `UNVERIFIED` with the details; no code change.
 - **HITL Modifier** (always, unless Fast Lane or Research Lane):
   - Append `@go-pipeline-hitl` as the **last agent before `@go-pipeline-post_session`**.
@@ -385,9 +407,11 @@ State the **verification status** explicitly, never implied:
 
 - **VERIFIED**: the checks that matter for this change ran and passed (tests, and runtime validation where it applies).
 - **PARTIALLY VERIFIED**: some checks passed; list which were not run and why.
-- **UNVERIFIED**: no meaningful check completed. Give the cause (`env`, `harness`, `flaky`, no automated test, requires deploy, ...) and what a human must provide or run.
+- **UNVERIFIED**: no meaningful check completed. Give the cause (`env`, `harness`, `permission`, `flaky`, no automated test, requires deploy, ...) and what a human must provide or run.
 
 Never present an `UNVERIFIED` or `PARTIALLY VERIFIED` result as done and working.
+
+**Pipeline friction** (only when there was any): call `pipeline_state` and, from its `activity` field, list in a short `## Pipeline friction` section the rejected commands (`activity.denied`: agent, command, reason), guard blocks, and subagents that ran out of steps, plus any `tool-missing` reported by agents. Quote the recorded data; do not reconstruct it from memory. This is what the pipeline maintainers use to fix allowlists and budgets.
 
 Update the todo list one final time: mark all completed tasks as done, and explicitly flag any tasks that were not completed with a reason.
 
@@ -408,7 +432,7 @@ assessment: your Phase 1 assessment (Size/Risk/Clarity/Type)
 
 The HITL agent will generate the educational explanation report (Why / Intuition, Visual Mermaid Map, Concrete Examples & Essential Diffs, Practical Things to Keep in Mind).
 
-When `@go-pipeline-hitl` returns, you **MUST print the entire explanation report directly into your main chat output** so the programmer can read it on the main chat at the end of the session. Print it exactly **once**: do not summarize it, and do not repeat it again in the final `Result` section (refer to it instead).
+When `@go-pipeline-hitl` returns, you **MUST print the entire explanation report directly into your main chat output** so the programmer can read it on the main chat at the end of the session (without its `STATUS`/`BLOCKED_BY`/`REMAINING_SCOPE` header lines). Print it exactly **once**: do not summarize it, and do not repeat it again in the final `Result` section (refer to it instead).
 
 Once you have outputted the report, continue directly to Step 6.2 (Post-session Checkpoint).
 
@@ -455,6 +479,7 @@ and include:
 - No unlimited review/fix loops.
 - Maximum **2 fix rounds** per task: a fix round is one executor re-run triggered by a `code` failure from the tester, the code reviewer, or ops. After that, stop and report to the user what was attempted and why it failed.
 - Maximum **1 re-run** of an ops/smoke check for `harness`, `env`, or `flaky` outcomes. These never trigger a fix round; they end in `UNVERIFIED`.
+- `permission` outcomes are never retried as-is (at most one re-delegation that switches to a `pipeline_*` tool). Resuming a `partial` session (at most 2 per delegation) is not a retry.
 - Never call the same agent with an identical request twice in a row (the `doom_loop` guard denies identical repeated tool calls anyway). If a retry would be identical, change the input or stop.
 - Verification failures that are not `code` failures never justify changing code.
 - If uncertainty remains after retries, report it clearly. Do NOT invent facts or force a solution.

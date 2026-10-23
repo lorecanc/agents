@@ -17,7 +17,7 @@ Manage Agents è lo strumento da terminale del repository per consultare e modif
 
 ## Avvio rapido
 
-Requisiti: **Node.js 26.4.0 o superiore** oppure **Bun 1.3.0 o superiore**; Bun è consigliato. Per creare agenti o selezionare/riparare modelli, serve anche il comando `opencode` disponibile nel `PATH`: `opencode models` deve poter restituire un catalogo di modelli. Questo requisito è distinto dall’avvio del manager/TUI, che può partire anche se il catalogo non è disponibile. Da una shell, entra nella directory del manager, installa le dipendenze e avvia la TUI:
+Requisiti: **Node.js 26.4.0 o superiore** oppure **Bun 1.3.0 o superiore**; Bun è consigliato. Per creare agenti o selezionare/riparare modelli, serve anche il comando `opencode` disponibile nel `PATH`: `opencode models` deve poter restituire un catalogo di modelli. Questo requisito è distinto dall’avvio del manager/TUI, che può partire anche se il catalogo non è disponibile. Per la validazione e la registrazione automatica dei bridge Claude serve la CLI `claude` nel `PATH`; se manca, il bridge genera comunque l’output e segnala le due operazioni come saltate. Da una shell, entra nella directory del manager, installa le dipendenze e avvia la TUI:
 
 ```bash
 cd manage-agents
@@ -180,8 +180,13 @@ Opzioni disponibili:
 | `--config <percorso>` | Percorso del file di configurazione del bridge, per default `.agent-manager/translation-config.json`. |
 | `--model <sorgente>=<destinazione>` | Associazione ripetibile tra modello sorgente e modello di destinazione. Accetta liste separate da virgola, per esempio `--model "zai-glm-5-3=opus,glm-5-3=haiku"`, e la chiave `"*"` come catch-all. I valori forniti vengono salvati nella configurazione e riusati dalle esecuzioni successive. |
 | `--map-all <destinazione>` | Scorciatoia per `--model "*=<destinazione>"`: tutti i modelli mappano su un solo modello. La struttura multi-agente della categoria resta quella originale. |
+| `--no-register` | Salta la registrazione automatica del plugin in Claude Code e salva `claude.autoRegister: false`. |
+| `--no-validate` | Salta la validazione automatica dopo la generazione e salva `claude.autoValidate: false`. |
+| `--marketplace-name <nome>` | Nome del marketplace locale, salvato in `claude.marketplaceName`. Senza opzione si usa `<nome-plugin>-local`. I nomi riservati (`claude`, `claude-code` e i prefissi `claude-`/`anthropic-`) vengono rifiutati. |
 | `--wizard`, `-w` | Chiede target, nome, prefisso, directory sorgente e modelli per i tier; salva la configurazione prima della generazione. |
 | `--help`, `-h` | Mostra le opzioni di `bridge`. |
+
+Le opzioni esplicite `--no-validate`, `--no-register` e `--marketplace-name` vengono salvate nella configurazione di traduzione, come `--model` e `--map-all`: le esecuzioni successive le riusano anche senza flag. Per riattivare una funzione disattivata non esiste un flag: modifica `claude` in `.agent-manager/translation-config.json`.
 
 Altri esempi:
 
@@ -189,11 +194,33 @@ Altri esempi:
 node manage-agents/manage-agents.mjs bridge -c copilot-pipeline -t codex -n mio-layer -p copilot-pipeline- -s general
 node manage-agents/manage-agents.mjs bridge --category wiki --output artifacts/wiki-claude --target claude
 node manage-agents/manage-agents.mjs bridge -c copilot-pipeline -t claude --model "zai-glm-5-3=opus" --model "glm-5-3=haiku"
+node manage-agents/manage-agents.mjs bridge -c copilot-pipeline -t claude --marketplace-name acme-tools
 node manage-agents/manage-agents.mjs bridge -c copilot-pipeline -t codex --map-all gpt-5.6-luna
 node manage-agents/manage-agents.mjs bridge --category copilot-pipeline --wizard
 ```
 
-Un output personalizzato deve restare dentro il workspace: il bridge verifica il percorso e rifiuta quelli esterni. Scegli un percorso deliberatamente e controlla prima se esiste già. Il wizard salva le impostazioni, ma il bridge scrive anche gli artefatti. Controlla in output la lista dei file e gli eventuali avvisi di traduzione. Per Claude il manager suggerisce `claude plugin validate <percorso> --strict`; per Codex indica gli agenti scoped e il manifest del plugin.
+Un output personalizzato deve restare dentro il workspace: il bridge verifica il percorso e rifiuta quelli esterni. Scegli un percorso deliberatamente e controlla prima se esiste già. Il wizard salva le impostazioni, ma il bridge scrive anche gli artefatti. Controlla in output la lista dei file, gli avvisi di traduzione e l’esito di validazione e registrazione. Per Claude il manager esegue `claude plugin validate <percorso> --strict` e, se la validazione passa e il marketplace è emesso, registra il plugin in Claude Code; entrambi i passaggi sono attivi per impostazione predefinita. Per Codex indica gli agenti scoped e il manifest del plugin.
+
+#### Marketplace, skill e registrazione automatica
+
+Dopo la generazione di un bridge Claude il manager completa l’output da solo. Il bridge emette `.claude-plugin/marketplace.json`, un marketplace locale che pubblica il plugin dalla directory stessa: `{ "name": "<marketplace>", "owner": { "name": "<autore>" }, "plugins": [{ "name": "<plugin>", "source": "." }] }`. Accanto agli agenti crea `skills/<nome>/SKILL.md` per ogni comando pipeline collegato (`src/commands/pipeline-*.md`): conserva la `description`, imposta `disable-model-invocation: true` e `arguments: request`, sostituisce `$ARGUMENTS` con `$request`, converte le righe `` !`comando` `` in blocchi di codice bash e affida il lavoro all’orchestratore del plugin. Le skill companion, per esempio `code-review-antipatterns`, vengono copiate in `skills/`.
+
+Ogni esecuzione elimina gli artefatti generati che non appartengono al set corrente (agenti e skill non previsti, `marketplace.json` quando l’emissione è disattivata) e segnala ogni file rimosso con un avviso. Un server MCP disabilitato che viene comunque emesso perché gli agenti tradotti ne richiedono i tool produce un altro avviso.
+
+Le impostazioni stanno in `claude` dentro `.agent-manager/translation-config.json`. Le cinque opzioni booleane sono facoltative e valgono `true` per impostazione predefinita; `marketplaceName` è una stringa facoltativa.
+
+| Campo | Effetto |
+|---|---|
+| `emitMarketplace` | Emette `.claude-plugin/marketplace.json`. |
+| `emitCommands` | Traduce i comandi pipeline in `skills/<nome>/SKILL.md`. |
+| `emitSkills` | Copia le skill companion in `skills/`. |
+| `autoValidate` | Esegue `claude plugin validate <directory> --strict` dopo la generazione. |
+| `autoRegister` | Aggiunge il marketplace e installa il plugin in Claude Code. |
+| `marketplaceName` | Nome del marketplace; senza valore si usa `<nome-plugin>-local`. Il primo carattere deve essere una lettera o una cifra; i successivi possono essere lettere, cifre, punti, trattini bassi e trattini. Nomi uguali a `claude` o `claude-code` e prefissi `claude-`, `anthropic-` e `anthropics-` sono riservati e vengono rifiutati. |
+
+La validazione e la registrazione avvengono dopo la transazione del repository. Con `autoValidate` attivo il manager esegue `claude plugin validate <directory> --strict`: exit 0 significa validazione superata, 1 fallimento, 2 errore imprevisto della CLI. Un fallimento o un esito non decidibile (exit 2) bloccano la registrazione. Con `autoRegister` attivo esegue poi `claude plugin marketplace add <directory>` e `claude plugin install <plugin>@<marketplace>`, entrambi a scope utente, idempotenti e senza richieste di conferma per le sorgenti locali. Se `claude.emitMarketplace` è disattivato la registrazione viene saltata, perché non c’è alcun manifest del marketplace da aggiungere. Se `claude` non è nel `PATH`, entrambi i passaggi vengono saltati con un avviso e la generazione resta valida.
+
+La registrazione avviene una volta. I marketplace locali si caricano sul posto, quindi dopo una rigenerazione non serve alcun comando di update: il plugin aggiornato è disponibile alla sessione successiva o dopo `/reload-plugins`. Richiama gli agenti con `claude --plugin-dir <directory> --agent <plugin>:<nome>` oppure con `@agent-<plugin>:<nome>`; le skill con `/<plugin>:<skill>`. Il file `.lsp.json` documenta la configurazione LSP del progetto e non viene letto da `claude plugin validate`.
 
 #### Modelli di destinazione
 
@@ -360,6 +387,8 @@ node manage-agents/manage-agents.mjs bridge --category copilot-pipeline --target
 
 Esamina l’elenco di file, preview e warning. Se devi cambiare il modello di alcuni agenti, usa `--model <sorgente>=<destinazione>`; per usarne uno solo per tutti, `--map-all <destinazione>`. Entrambe le opzioni salvano il mapping, quindi le esecuzioni successive lo riusano anche senza flag. Per tier, ruoli e altri override, ripeti con `--wizard` dopo aver verificato che la configurazione salvata sia quella voluta.
 
+Al termine il manager valida l’output con `claude plugin validate <percorso> --strict` e registra il plugin con `claude plugin marketplace add` e `claude plugin install`: la registrazione avviene solo se la validazione passa e se il marketplace è emesso, quindi viene saltata anche quando la validazione non decide (exit 2) o `claude.emitMarketplace` è disattivato. La registrazione si esegue una volta sola: dopo ogni rigenerazione il plugin locale è già aggiornato, senza comandi di update. Avvia l’orchestratore con `claude --plugin-dir <percorso> --agent <nome-plugin>:<orchestratore>`. Se vuoi esaminare l’output prima di toccare Claude Code, usa `--no-validate --no-register`; i comandi manuali restano nel README generato. Queste due opzioni però vengono salvate: per riabilitare i passaggi automatici modifica `claude` nel JSON.
+
 ### Riprendere il controllo dopo una build generale interrotta
 
 **Directory corrente: radice del repository.** Non cancellare journal o directory temporanee manualmente senza averne prima capito lo stato. Esamina il journal indicato dall’errore, quindi chiedi al manager di recuperare:
@@ -379,7 +408,7 @@ La fonte canonica è `src/`: modifica lì gli agenti e, quando necessario, i man
 
 - `agents/categories/`: distribuzioni create dai manifest; la build ricrea/sostituisce la directory della categoria.
 - `export/bridges/claude-code/` e `export/bridges/codex/`: bridge generati; un `--output` può scegliere un altro percorso. In un workspace senza `export/` la destinazione predefinita è `bridges/claude-code/<nome>` o `bridges/codex/<nome>`.
-- `.agent-manager/translation-config.json`: impostazioni persistenti del bridge, comprese destinazione, prefisso, directory sorgente, tier, mapping per ruolo, override e le mappe `claude.modelMap` e `codex.modelMap`.
+- `.agent-manager/translation-config.json`: impostazioni persistenti del bridge, comprese destinazione, prefisso, directory sorgente, tier, mapping per ruolo, override e le mappe `claude.modelMap` e `codex.modelMap`. Per `claude` contiene anche `emitMarketplace`, `emitCommands`, `emitSkills`, `autoValidate`, `autoRegister` e `marketplaceName`.
 - `agents/.agent-manager/ui-config.json`: proporzione di lista e inspector della TUI.
 - `agents/.agent-manager/category-control/`: controllo e journal delle operazioni di generazione/recupero; non rimuovere file mentre un’operazione è in corso.
 
@@ -408,7 +437,7 @@ Sono validi valori tra `0.60` e `0.75`. In alternativa, `AGENT_MANAGER_UI_CONFIG
 
 ### Auto-commit Git
 
-Per impostazione predefinita l’auto-commit è **disattivato**. `--auto-commit` e `AGENT_MANAGER_AUTO_COMMIT=1` abilitano il tentativo solo per le mutazioni che il codice collega esplicitamente a una transazione Git: non rendono committente ogni operazione che scrive file. Tra le operazioni collegate ci sono creazione, import, rinomina e tuning da CLI, build di una singola categoria e le mutazioni transazionali della TUI (per esempio modifica agenti e generazione bridge). Per queste il tentativo è best-effort, subordinato ai controlli e alle condizioni Git descritti sotto.
+Per impostazione predefinita l’auto-commit è **disattivato**. `--auto-commit` e `AGENT_MANAGER_AUTO_COMMIT=1` abilitano il tentativo solo per le mutazioni che il codice collega esplicitamente a una transazione Git: non rendono committente ogni operazione che scrive file. Tra le operazioni collegate ci sono creazione, import, rinomina e tuning da CLI, build di una singola categoria e le mutazioni transazionali della TUI (per esempio modifica agenti e generazione bridge). Per i bridge Claude, validazione e registrazione avvengono dopo la chiusura della transazione. Per queste il tentativo è best-effort, subordinato ai controlli e alle condizioni Git descritti sotto.
 
 Restano fuori da quella transazione e non ricevono auto-commit, anche se accettano le opzioni globali: export CLI e TUI, `category package`, `category recover`, `category build --all` e il salvataggio del layout TUI. Le modifiche di queste operazioni restano nel worktree o nei percorsi di destinazione senza un’azione Git automatica. Puoi attivare l’auto-commit per le operazioni supportate, ad esempio:
 
@@ -433,6 +462,7 @@ Con auto-commit attivo il manager richiede, tra gli altri controlli, un worktree
 | Auto-commit non parte | L’auto-commit è opt-in. Per usarlo, configura `git config user.name` e `git config user.email`, assicurati che il worktree sia pulito, che esista un branch e che non sia in corso un’altra operazione Git. |
 | Auto-commit mostra un warning | La modifica può essere già stata applicata ma non committata. Segui le istruzioni di recupero nell’avviso, poi controlla manualmente `git status` e l’index. Non presumere che il warning abbia annullato il lavoro. |
 | Lock manager già presente | Controlla prima che nessun manager sia ancora in esecuzione; rimuovi un lock stale solo dopo aver verificato che non ci siano processi attivi. Per un journal di build, usa `category recover` solo come indicato sopra. |
+| Validazione o registrazione saltata | Controlla che la CLI `claude` sia nel `PATH`: senza di essa il bridge salva comunque l’output e segnala entrambe le operazioni come saltate. Con `autoValidate` attivo, una validazione fallita (exit 1) o un esito non decidibile (exit 2) bloccano la registrazione: correggi gli avvisi del bridge e rigenera. La registrazione viene saltata anche quando `claude.emitMarketplace` è disattivato, perché manca il manifest del marketplace. Per riabilitare i passaggi dopo un `--no-validate` o un `--no-register`, modifica `claude` nel JSON. |
 | Rifiuto di un percorso o di un symlink | Usa directory regolari, senza symlink nei percorsi gestiti, e mantieni l’output dei pacchetti in un percorso relativo sicuro non sovrapposto a sorgenti, output gestiti o Git. |
 | `category package` rifiuta la distribuzione | Esegui prima `category check <id>`; se risulta stale, controlla le sorgenti e rigenera con `category build <id>`, quindi riprova. |
 
