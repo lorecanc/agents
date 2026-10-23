@@ -8,7 +8,7 @@ Author: Lorenzo Cancellara.
 
 ## Source and configuration
 
-Agent definitions are discovered under `agents/general/`; model tiers, roles, overrides, and bridge options come from `agents/.agent-manager/translation-config.json`. MCP and LSP declarations are read from `agents/general/opencode.json`.
+Agent definitions are discovered under `src/`; model tiers, roles, overrides, and bridge options come from `.agent-manager/translation-config.json`. MCP and LSP declarations are read from `src/opencode.json`, falling back to the legacy `general/opencode.json` when it is absent.
 
 ## Generated contents
 
@@ -22,8 +22,8 @@ The agent list below is derived from the input passed to the bridge, not maintai
 ## Local validation and testing
 
 ```bash
-claude plugin validate ./bridges/claude-code/decent-pipeline --strict
-claude --plugin-dir ./bridges/claude-code/decent-pipeline
+claude plugin validate ./export/bridges/claude-code/decent-pipeline --strict
+claude --plugin-dir ./export/bridges/claude-code/decent-pipeline
 ```
 
 Generated runtime layers:
@@ -32,14 +32,19 @@ Generated runtime layers:
 - `.lsp.json` mirrors enabled OpenCode LSP declarations.
 - Agent-to-agent references are rewritten to Claude's canonical lowercase-hyphen names.
 
+## Model connection
+
+The bridge emits Claude family aliases (`sonnet`, `opus`, `haiku`, `fable`, `inherit`) unless a full `claude-*` model ID was pinned in `claude.modelMap`, a tier's `claude.model`, or a per-agent `claude.overrides` entry. Aliases resolve per connection mode: subscription OAuth via `/login` needs no extra configuration, while API key, Bedrock, and Vertex connections resolve aliases according to the provider configuration. `fable` requires Claude Code CLI v2.1.257 or newer.
+
 ## MCP setup
 
 These servers are declared by the generated plugin. `npx` entries are fetched on first use; binary entries must already be available on `PATH`.
 
 | Server | Required by | Setup |
 |---|---|---|
-| `chrome-devtools` | `chrome-devtools`, `frontend-specialist` | Automatic via `npx -y chrome-devtools-mcp@latest`; requires Node.js, npm, and network access. |
-| `codebase-memory-mcp` | `code-reviewer`, `critic`, `explorer`, `orchestrator`, `planner`, `reasoner`, `researcher` | Install `codebase-memory-mcp` and verify it with `command -v codebase-memory-mcp`. [Installation guide](https://github.com/DeusData/codebase-memory-mcp#quick-start). |
+| `chrome-devtools` | `chrome-devtools` | Automatic via `npx -y chrome-devtools-mcp@latest`; requires Node.js, npm, and network access. |
+| `codebase-memory-mcp` | `chrome-devtools`, `code-reviewer`, `critic`, `docs-grounding`, `executor`, `explorer`, `fast-lane`, `frontend-specialist`, `hitl`, `kotlin-specialist`, `multimodal`, `ops`, `orchestrator`, `planner`, `reasoner`, `refactorer`, `security-auditor`, `swift-specialist`, `tester` | Install `codebase-memory-mcp` and verify it with `command -v codebase-memory-mcp`. [Installation guide](https://github.com/DeusData/codebase-memory-mcp#quick-start). |
+| `XcodeBuildMCP` | `swift-specialist` | Automatic via `npx -y xcodebuildmcp@latest mcp`; requires Node.js, npm, and network access. |
 | `shadcn` | `frontend-specialist` | Automatic via `npx -y shadcn@latest mcp`; requires Node.js, npm, and network access. |
 | `magic` | `frontend-specialist` | Automatic via `npx -y @21st-dev/magic@latest`; requires Node.js, npm, and network access. Required environment: `TWENTYFIRST_API_KEY`. |
 | `cupertino` | `swift-specialist` | Install `cupertino` and verify it with `command -v cupertino`. [Installation guide](https://aleahim.com/blog/cupertino-09-release/). |
@@ -48,33 +53,54 @@ These servers are declared by the generated plugin. `npx` entries are fetched on
 
 After setup, launch Claude Code and use `/mcp` to verify that every required server is connected.
 
+## OpenCode plugins and tools
+
+These OpenCode companions are linked by the category but are not transpiled by the bridge:
+
+- Plugin: `plugins/pipeline-guard.js`
+- Tool: `tools/pipeline_commit.ts`
+- Tool: `tools/pipeline_serve.ts`
+- Tool: `tools/pipeline_smoke.ts`
+- Tool: `tools/pipeline_state.ts`
+- Tool: `tools/pipeline_verify.ts`
+
+| OpenCode plugin hook | Claude Code equivalent |
+|---|---|
+| `tool.execute.before` | `PreToolUse` |
+| `tool.execute.after` | `PostToolUse` |
+| `session.idle` | `Stop` |
+| `permission.asked` | `PermissionRequest` |
+
+Custom OpenCode tools have no per-agent Claude Code equivalent; expose their behavior through a Claude Code MCP server if agents need it.
+
 ## Usage
 
 Launch the orchestrator:
 
 ```bash
-claude --plugin-dir ./bridges/claude-code/decent-pipeline --agent decent-pipeline:orchestrator
+claude --plugin-dir ./export/bridges/claude-code/decent-pipeline --agent decent-pipeline:orchestrator
 ```
 
 ## Agents
 
-- **chrome-devtools**: Frontend debugging and visual validation agent. Uses Chrome DevTools for performance audits, a11y testing, layout verification, and console error detection. Called in the frontend lane before and after code changes.
+- **chrome-devtools**: Frontend debugging and visual validation agent. Uses Chrome DevTools for performance audits, a11y testing, layout verification, and console error detection. Called in the frontend lane before and after code changes. Can start the project's service itself with pipeline_serve.
 - **code-reviewer**: Reviews code changes for correctness, simplicity, maintainability, regressions, and security. Does not implement by default.
 - **critic**: Final validation agent for complex work. Checks whether the result satisfies the original request without overengineering.
 - **docs-grounding**: Fetches and summarizes external library documentation to ground the planner and executor in real APIs. Does not edit files.
 - **executor**: Focused implementation agent. Applies small, plan-driven code changes without expanding scope.
 - **explorer**: Fast read-only codebase explorer. Locates relevant files, patterns, tests, configs, and implementation context before planning or coding.
 - **fast-lane**: Fast low-cost agent for tiny, obvious, low-risk coding tasks and quick edits.
-- **frontend-specialist**: Frontend specialist with access to shadcn/ui registry, 21st.dev component library, and Chrome DevTools. Recommends and installs components, validates design, and guides UI implementation.
-- **hitl**: Human-in-the-loop checkpoint agent. Generates Literate Diff Reports and interactive comprehension quizzes to ensure the developer understands all changes before proceeding. Speed regulator for the pipeline.
+- **frontend-specialist**: Read-only frontend advisor used BEFORE implementation. Detects the repository's UI conventions, finds reusable components (existing, shadcn/ui, 21st.dev) and tells the executor what to build and which visual checks apply. Does not edit files or validate the result in a browser.
+- **hitl**: Human-in-the-loop checkpoint agent. Explains repository changes in plain Italian with the why, a visual Mermaid map, simple concrete examples, and essential diffs—without technical jargon. Informational and non-blocking.
 - **kotlin-specialist**: Kotlin/Android specialist. Uses Google Developer Knowledge MCP (developer.android.com docs, Jetpack guides, API reference) to validate plans and code against Android conventions and API correctness. Does not edit files.
 - **multimodal**: Handles visual inputs such as screenshots, UI mockups, diagrams, and image-based debugging before planning or implementation.
-- **orchestrator**: Primary coordinator for the copilot-pipeline multi-agent workflow. Assesses work size, routes to the smallest effective lane, delegates to specialized agents, and evaluates results. Never writes code or solves problems directly.
+- **ops**: Operational diagnostics, runtime verification, and controlled deployment agent. Runs bash commands (gcloud, docker, kubectl, curl, etc.) for log inspection, infrastructure checks, runtime verification, and user-authorized deployments. Cannot modify repository files.
+- **orchestrator**: Primary coordinator for the pipeline multi-agent workflow. Assesses work size, routes to the smallest effective lane, delegates to specialized agents, and evaluates results. Never writes code or solves problems directly.
 - **planner**: Creates minimal implementation plans after repository context is available. Does not edit files.
 - **post-session**: Creates final or checkpoint commits for completed pipeline work. Does not update wiki or codebase memory.
 - **reasoner**: Deep reasoning agent for complex bugs, algorithms, architecture, performance, security, concurrency, and root-cause analysis.
 - **refactorer**: Performs behavior-preserving simplification and cleanup. No new features, no speculative architecture.
-- **researcher**: Fast research agent for local docs, dependency usage, APIs, examples, and technical context. Prefers concise evidence-based synthesis.
+- **researcher**: External research agent. Looks outside the repository (web, registries, changelogs, advisories) for best practices, alternatives, known issues and migration guides, and returns sourced findings. Does not explore the repo; that is the explorer's job.
 - **security-auditor**: Security vulnerability scanner. Reviews diffs for OWASP Top 10 and CWE patterns. Uses CWE-search MCP for classification. Does not edit files.
 - **swift-specialist**: Apple/Swift specialist. Uses Cupertino MCP (363K Apple docs, HIG, Swift Evolution, symbol search) and Axiom MCP (264 iOS skills, 41 agents, diagnostics tools) to validate plans and code against Apple conventions. Does not edit files.
 - **tester**: Designs, writes, and evaluates tests for changed behavior. Focuses on minimal meaningful coverage and regression prevention.

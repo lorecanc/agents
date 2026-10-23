@@ -122,6 +122,92 @@ test("role targets can be overridden without changing source agents", () => {
   assert.ok(!fs.existsSync(path.join(output, "README.md")))
 })
 
+test("codex.modelMap maps the source model into the emitted TOML without a reasoning effort", () => {
+  const config: TranslationConfig = {
+    ...DEFAULT_TRANSLATION_CONFIG,
+    codex: {
+      ...DEFAULT_TRANSLATION_CONFIG.codex,
+      modelMap: { "deepseek-v4.1-flash": "gpt-5.6-luna" },
+      emitSkills: false,
+      emitReadme: false
+    }
+  }
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "codex-bridge-model-map-"))
+  const output = path.join(workspace, "bridges", "codex")
+  const result = bridgeToCodex(
+    [agent("executor.md", "deepseek/deepseek-v4.1-flash", {}, "")],
+    "mapped", "", output, workspace, config
+  )
+
+  assert.equal(result.preview[0].source, "model-map")
+  assert.equal(result.plugin.agents[0].model, "gpt-5.6-luna")
+  assert.equal(result.plugin.agents[0].modelReasoningEffort, undefined)
+  const toml = fs.readFileSync(path.join(output, ".codex", "agents", "executor.toml"), "utf8")
+  assert.match(toml, /model = "gpt-5\.6-luna"/)
+  assert.doesNotMatch(toml, /model_reasoning_effort/)
+  assert.ok(!result.warnings.some(warning => warning.startsWith("[model-map]")))
+})
+
+test("codex.modelMap catch-all applies to unmapped models and specific keys win", () => {
+  const config: TranslationConfig = {
+    ...DEFAULT_TRANSLATION_CONFIG,
+    codex: {
+      ...DEFAULT_TRANSLATION_CONFIG.codex,
+      modelMap: { "*": "gpt-5.6-sol", "deepseek-v4.1-flash": "gpt-5.6-luna" },
+      emitSkills: false,
+      emitReadme: false
+    }
+  }
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "codex-bridge-model-map-catch-all-"))
+  const output = path.join(workspace, "bridges", "codex")
+  const result = bridgeToCodex([
+    agent("planner.md", "unknown/model-x", {}, ""),
+    agent("executor.md", "deepseek-v4.1-flash", {}, "")
+  ], "mapped", "", output, workspace, config)
+
+  assert.equal(result.plugin.agents[0].model, "gpt-5.6-sol")
+  assert.equal(result.plugin.agents[1].model, "gpt-5.6-luna")
+  assert.deepEqual(result.preview.map(entry => entry.source), ["model-map", "model-map"])
+})
+
+test("codex.modelMap dead keys are reported as translation warnings", () => {
+  const config: TranslationConfig = {
+    ...DEFAULT_TRANSLATION_CONFIG,
+    codex: {
+      ...DEFAULT_TRANSLATION_CONFIG.codex,
+      modelMap: { "missing-model": "gpt-5.6-luna" },
+      emitSkills: false
+    }
+  }
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "codex-bridge-model-map-dead-"))
+  const output = path.join(workspace, "bridges", "codex")
+  const result = bridgeToCodex(
+    [agent("orchestrator.md", "deepseek-v4.1-flash", { mode: "primary" }, "")],
+    "mapped", "", output, workspace, config
+  )
+
+  const expected = '[model-map] entry "missing-model" matches no source agent model'
+  assert.ok(result.warnings.includes(expected))
+  assert.match(fs.readFileSync(path.join(output, "README.md"), "utf8"), /\[model-map\] entry "missing-model" matches no source agent model/)
+})
+
+test("permissions.shell and permissions.bash produce the same sandbox decision", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "codex-bridge-shell-"))
+  const output = path.join(workspace, "bridges", "codex")
+  const result = bridgeToCodex([
+    agent("bash-agent.md", "any", { permission: { bash: "allow" } }, ""),
+    agent("shell-agent.md", "any", { permission: { shell: "allow" } }, ""),
+    agent("denied-shell-agent.md", "any", { permission: { shell: "deny" } }, "")
+  ], "sandbox", "", output, workspace, {
+    ...DEFAULT_TRANSLATION_CONFIG,
+    codex: { ...DEFAULT_TRANSLATION_CONFIG.codex, emitSkills: false, emitReadme: false }
+  })
+
+  assert.equal(result.plugin.agents[0].sandboxMode, "workspace-write")
+  assert.equal(result.plugin.agents[1].sandboxMode, result.plugin.agents[0].sandboxMode)
+  assert.equal(result.plugin.agents[2].sandboxMode, "read-only")
+})
+
 test("Codex plugin mirrors enabled MCP servers in a valid companion layer", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "codex-bridge-mcp-"))
   fs.mkdirSync(path.join(workspace, "general"), { recursive: true })

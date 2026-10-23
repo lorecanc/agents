@@ -1,7 +1,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import type { AgentInfo } from "./agents.js"
-import { buildInferenceIndex, DEFAULT_TRANSLATION_CONFIG, resolveModelTarget, authorName } from "./translationConfig.js"
+import { buildInferenceIndex, DEFAULT_TRANSLATION_CONFIG, resolveModelTarget, authorName, unusedModelMapKeys } from "./translationConfig.js"
 import type { TranslationConfig } from "./translationConfig.js"
 import { assertInsideRealWorkspace, realpathThroughExistingAncestor } from "./pathValidation.js"
 import { translatePermissionsV2ToV1 } from "./v2Compat.js"
@@ -59,7 +59,7 @@ export interface CodexBridgeResult {
   files: string[]
   warnings: string[]
   plugin: CodexPlugin
-  preview: Array<{ agent: string; role: string; tier: string; model: string; source: "override" | "role" | "inferred" | "default"; inferredFrom?: string }>
+  preview: Array<{ agent: string; role: string; tier: string; model: string; source: "override" | "model-map" | "role" | "inferred" | "default"; inferredFrom?: string }>
 }
 
 function normalizeName(value: string): string {
@@ -100,7 +100,7 @@ function resolveSandboxMode(agent: AgentInfo): "read-only" | "workspace-write" {
     ? translatePermissionsV2ToV1(agent.frontmatter.permissions)
     : agent.frontmatter.permission || {}
   return permissionAllows(permissions.write) || permissionAllows(permissions.edit) ||
-    permissionAllows(permissions.bash) || permissionAllows(permissions.execute)
+    permissionAllows(permissions.bash) || permissionAllows(permissions.shell) || permissionAllows(permissions.execute)
     ? "workspace-write"
     : "read-only"
 }
@@ -419,6 +419,9 @@ export function writeCodexPlugin(
     throw new Error("writeCodexPlugin requires a workspaceRoot")
   }
   const warnings: string[] = []
+  for (const key of unusedModelMapKeys(agents, config, "codex")) {
+    warnings.push(`[model-map] entry "${key}" matches no source agent model`)
+  }
   const normalizedPluginName = pluginNameValue(pluginName)
   const aliases = buildAgentAliasMap(agents, prefix)
   const translatedAgents = agents.map(agent => convertCodexAgent(agent, prefix, aliases, config, warnings, agents, resolvedTargets))

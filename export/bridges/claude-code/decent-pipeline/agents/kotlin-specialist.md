@@ -4,11 +4,14 @@ description: Kotlin/Android specialist. Uses Google Developer Knowledge MCP
   (developer.android.com docs, Jetpack guides, API reference) to validate plans
   and code against Android conventions and API correctness. Does not edit files.
 model: sonnet
-tools: Read, Grep, Glob, Bash, WebFetch, mcp__google-developer-knowledge__*,
+tools: Read, Grep, Glob, WebFetch, WebSearch, Skill, LSP,
+  mcp__codebase-memory-mcp__*,
+  mcp__plugin_decent-pipeline_codebase-memory-mcp__*,
+  mcp__google-developer-knowledge__*,
   mcp__plugin_decent-pipeline_google-developer-knowledge__*
 ---
 
-# `copilot-pipeline-kotlin_specialist`
+# `pipeline-kotlin_specialist`
 
 You are a Kotlin/Android specialist inside a multi-agent coding pipeline.
 You validate plans and code against Android conventions, Jetpack/AndroidX API correctness, and Kotlin best practices.
@@ -214,4 +217,5 @@ For each API verified, report:
 ## MCP Tools (from OpenCode bridge)
 
 This agent requires the following MCP servers:
+- `codebase-memory-mcp/*`
 - `google-developer-knowledge/*`

@@ -47,7 +47,7 @@ import { discoverAvailableCategoryCompanionItems, getCompanionLinksConfigPath, t
 import { applyPipelineProfile, loadPipelineProfiles, syncPipelineProfile, loadStampedPipelineAgents, deleteStampedPipeline, refreshStampedPipelinesFromSource, forkStampedPipeline } from "./utils/pipelineProfiles.js"
 import { bridgeToClaudeCode } from "./utils/bridge.js"
 import { bridgeToCodex } from "./utils/codexBridge.js"
-import { buildInferenceIndex, loadTranslationConfig, resolveModelTarget, resolveRole, saveTranslationConfig, type TranslationConfig } from "./utils/translationConfig.js"
+import { buildInferenceIndex, loadTranslationConfig, resolveModelTarget, resolveRole, saveTranslationConfig, validateClaudeModelName, type TranslationConfig } from "./utils/translationConfig.js"
 import { AUTO_COMMIT_MESSAGES, autoCommitEnabled, repositoryTransaction, type TransactionWarning } from "./utils/repositoryTransaction.js"
 import { adjustListShare, calculateLayout, calculateListColumnBudget, calculatePanelWidths, resetListShare } from "./utils/layout.js"
 import { loadUiConfig, saveUiConfig } from "./utils/uiConfig.js"
@@ -246,7 +246,8 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
   const [bridgePipelinePrefix, setBridgePipelinePrefix] = useState("")
   const [bridgeSourceDir, setBridgeSourceDir] = useState(() => resolveSourceSubdir(workspaceRoot))
   const [bridgeTarget, setBridgeTarget] = useState<"claude" | "codex">("claude")
-  const [bridgeFocusedField, setBridgeFocusedField] = useState<"name" | "prefix" | "sourceDir">("name")
+  const [bridgeModelTarget, setBridgeModelTarget] = useState("")
+  const [bridgeFocusedField, setBridgeFocusedField] = useState<"name" | "prefix" | "sourceDir" | "model">("name")
   const [translationConfig, setTranslationConfig] = useState<TranslationConfig | null>(() => {
     try {
       return loadTranslationConfig(workspaceRoot, undefined, { persistMigration: false })
@@ -516,6 +517,17 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
     if (!bridgePluginName) return
     try {
       const bridgeConfig = loadTranslationConfig(workspaceRoot, undefined, { persistMigration: false })
+      const modelTarget = bridgeModelTarget.trim()
+      const modelMap = bridgeConfig[bridgeTarget].modelMap
+      if (modelTarget) {
+        // Claude aliases need validation; Codex model ids are validated as non-empty strings on save.
+        if (bridgeTarget === "claude") validateClaudeModelName(modelTarget)
+        const nextModelMap = { ...modelMap, "*": modelTarget }
+        if (bridgeTarget === "codex") bridgeConfig.codex.modelMap = nextModelMap
+        else bridgeConfig.claude.modelMap = nextModelMap
+      } else if (modelMap) {
+        delete modelMap["*"]
+      }
       const sourceAgents = findAgentFiles(workspaceRoot, bridgeSourceDir)
       const selectedAgents = selectedAgentPaths.size > 0
         ? agents.filter((a) => selectedAgentPaths.has(a.currentPath))
@@ -527,9 +539,10 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
         saveTranslationConfig(workspaceRoot, { ...bridgeConfig, pluginName: bridgePluginName, prefix: bridgePipelinePrefix, sourceDir: bridgeSourceDir })
         return bridgeTarget === "codex"
           ? bridgeToCodex(selectedAgents, bridgePluginName, bridgePipelinePrefix, outputDir, workspaceRoot, { ...bridgeConfig, pluginName: bridgePluginName, prefix: bridgePipelinePrefix, sourceDir: bridgeSourceDir })
-          : bridgeToClaudeCode(selectedAgents, bridgePluginName, bridgePipelinePrefix, outputDir, workspaceRoot, { ...bridgeConfig, pluginName: bridgePluginName, prefix: bridgePipelinePrefix, sourceDir: bridgeSourceDir })
+          : bridgeToClaudeCode(selectedAgents, bridgePluginName, bridgePipelinePrefix, outputDir, workspaceRoot, { ...bridgeConfig, pluginName: bridgePluginName, prefix: bridgePipelinePrefix, sourceDir: bridgeSourceDir }, { category: activeItems[focusedIndex]?.category || undefined })
       })
        const result = tx.value
+       setTranslationConfig(loadTranslationConfig(workspaceRoot, undefined, { persistMigration: false }))
        setSelectedAgentPaths(new Set())
       setActionResultTitle(`Bridge to ${bridgeTarget === "codex" ? "Codex" : "Claude Code"} Complete`)
       const lines = [`${bridgeTarget === "codex" ? "Translation layer" : "Plugin"} '${safePluginName}' generated successfully!`, `Output directory:`, `  ${result.pluginDir}`, ``, `Generated ${result.files.length} files:`, ...result.files.map((f) => `  * ${f}`)]
@@ -977,10 +990,19 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
         if (activeItems.length > 0) {
           const item = activeItems[focusedIndex]
           const cat = item.category || ""
+          // Read disk state so a bridge opened after a concurrent CLI run does not prefill stale values.
+          let config = translationConfig
+          try {
+            config = loadTranslationConfig(workspaceRoot, undefined, { persistMigration: false })
+            setTranslationConfig(config)
+          } catch {
+            // Keep the in-memory config; generateBridge surfaces the load error on submit.
+          }
           setBridgeTarget("claude")
-             setBridgePluginName(translationConfig?.pluginName || "decent-pipeline")
-             setBridgePipelinePrefix(translationConfig?.prefix || "")
-             setBridgeSourceDir(translationConfig?.sourceDir || resolveSourceSubdir(workspaceRoot))
+          setBridgeModelTarget(config?.claude.modelMap?.["*"] || "")
+          setBridgePluginName(config?.pluginName || "decent-pipeline")
+          setBridgePipelinePrefix(config?.prefix || "")
+          setBridgeSourceDir(config?.sourceDir || resolveSourceSubdir(workspaceRoot))
           setBridgeFocusedField("name")
           setViewMode("bridge-prompt")
         }
@@ -988,10 +1010,19 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
         if (activeItems.length > 0) {
           const item = activeItems[focusedIndex]
           const cat = item.category || ""
+          // Read disk state so a bridge opened after a concurrent CLI run does not prefill stale values.
+          let config = translationConfig
+          try {
+            config = loadTranslationConfig(workspaceRoot, undefined, { persistMigration: false })
+            setTranslationConfig(config)
+          } catch {
+            // Keep the in-memory config; generateBridge surfaces the load error on submit.
+          }
           setBridgeTarget("codex")
-            setBridgePluginName(translationConfig?.pluginName || "decent-pipeline")
-             setBridgePipelinePrefix(translationConfig?.prefix || "")
-             setBridgeSourceDir(translationConfig?.sourceDir || resolveSourceSubdir(workspaceRoot))
+          setBridgeModelTarget(config?.codex.modelMap?.["*"] || "")
+          setBridgePluginName(config?.pluginName || "decent-pipeline")
+          setBridgePipelinePrefix(config?.prefix || "")
+          setBridgeSourceDir(config?.sourceDir || resolveSourceSubdir(workspaceRoot))
           setBridgeFocusedField("name")
           setViewMode("bridge-prompt")
         }
@@ -1522,7 +1553,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
         if (bridgeFocusedField === "prefix" && filteredBridgePrefixSuggestions.length > 0) {
           setBridgePipelinePrefix(filteredBridgePrefixSuggestions[bridgeSuggestionIndex].prefix)
         }
-        setBridgeFocusedField((prev) => prev === "name" ? "prefix" : prev === "prefix" ? "sourceDir" : "name")
+        setBridgeFocusedField((prev) => prev === "name" ? "prefix" : prev === "prefix" ? "sourceDir" : prev === "sourceDir" ? "model" : "name")
       } else if (key === "up" || key === "down") {
         if (bridgeFocusedField === "prefix" && filteredBridgePrefixSuggestions.length > 0) {
             setBridgeSuggestionIndex(index => {
@@ -1533,7 +1564,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
              return next
            })
         } else {
-          setBridgeFocusedField((prev) => prev === "name" ? "prefix" : prev === "prefix" ? "sourceDir" : "name")
+          setBridgeFocusedField((prev) => prev === "name" ? "prefix" : prev === "prefix" ? "sourceDir" : prev === "sourceDir" ? "model" : "name")
         }
       }
     } else if (viewMode === "export-confirm") {
@@ -3629,6 +3660,23 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
                 {bridgeSourceValidation.valid ? `✓ ${bridgeSourceValidation.count} agents found` : "✗ invalid path"}
               </text>
               {bridgeFocusedField === "sourceDir" && <text flexShrink={0} style={{ textColor: "gray" }}>Workspace-relative folder containing agent files.</text>}
+            </box>
+
+            {/* Map all models to field */}
+            <box
+              flexDirection={bridgeFocusedField === "model" ? "column" : "row"}
+              borderStyle="single"
+              borderColor={bridgeFocusedField === "model" ? (bridgeTarget === "codex" ? "#00AAFF" : "#FF6B35") : "#333333"}
+              paddingLeft={1}
+              paddingRight={1}
+              marginTop={1}
+              flexShrink={0}
+            >
+              <text width="30%" flexShrink={0} style={{ textColor: bridgeFocusedField === "model" ? (bridgeTarget === "codex" ? "#00AAFF" : "#FF6B35") : "gray" }} b>
+                {bridgeFocusedField === "model" ? "► Map all models to:" : "  Map all models to:"}
+              </text>
+              <input width="70%" value={bridgeModelTarget} placeholder="empty = tier mapping" focused={bridgeFocusedField === "model"} onInput={setBridgeModelTarget} onSubmit={generateBridge} />
+              {bridgeFocusedField === "model" && <text flexShrink={0} style={{ textColor: "gray" }}>empty = tier mapping; full per-model editing lives in .agent-manager/translation-config.json</text>}
             </box>
 
             {/* Info */}

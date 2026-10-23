@@ -3,13 +3,46 @@ import path from "node:path"
 import YAML from "yaml"
 import { escapeRegExp, normalizeAgentBody } from "./agents.js"
 import type { AgentInfo } from "./agents.js"
-import { buildInferenceIndex, DEFAULT_TRANSLATION_CONFIG, resolveModelTarget, authorName } from "./translationConfig.js"
+import { buildInferenceIndex, DEFAULT_TRANSLATION_CONFIG, resolveModelTarget, authorName, unusedModelMapKeys } from "./translationConfig.js"
 import type { TranslationConfig } from "./translationConfig.js"
+import { getCategoryCompanionLinks } from "./companionLinks.js"
 import { assertInsideRealWorkspace, realpathThroughExistingAncestor } from "./pathValidation.js"
 import { translatePermissionsV2ToV1 } from "./v2Compat.js"
 
 type ResolvedModelTarget = ReturnType<typeof resolveModelTarget>
 type ResolvedTargets = Map<string, ResolvedModelTarget>
+
+/**
+ * OpenCode permission keys that map to dedicated Claude Code tools (or to no
+ * tool at all). Any other key containing an underscore is treated as an MCP
+ * server permission so it cannot fabricate a server for a built-in key.
+ */
+const KNOWN_PERMISSION_KEYS = new Set([
+  "read", "write", "edit", "execute", "bash", "shell", "list", "glob", "grep", "task",
+  "skill", "lsp", "question", "webfetch", "websearch", "todowrite", "external_directory",
+  "doom_loop", "pipeline_state", "pipeline_verify", "pipeline_commit", "pipeline_serve", "pipeline_smoke",
+  "read_mcp_resource", "list_mcp_resources", "list_mcp_resource_templates"
+])
+
+/** OpenCode permission keys with no Claude Code tool equivalent; dropped with a warning. */
+const DROPPED_PERMISSION_KEYS = [
+  "doom_loop", "external_directory", "pipeline_state", "pipeline_verify",
+  "pipeline_commit", "pipeline_serve", "pipeline_smoke"
+]
+
+/** Tools whose `ask` state is promoted to allow when the tool is emitted. */
+const PROMOTED_ASK_KEYS = ["websearch", "skill", "lsp", "question", "todowrite", "edit", "bash", "shell", "webfetch"]
+
+/** Scalar `ask`, or a catch-all `*: ask` rule, promotes tool presence. */
+function promotesAsk(value: unknown): boolean {
+  if (value === "ask") return true
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false
+  return (value as Record<string, unknown>)["*"] === "ask"
+}
+
+function isMcpPermissionKey(key: string): boolean {
+  return key.includes("_") && !KNOWN_PERMISSION_KEYS.has(key)
+}
 
 const markdownCode = (value: string) => {
   const normalized = value.replace(/\r\n?|\n/g, " ")
@@ -56,7 +89,7 @@ export interface AgentTranslationPreview {
   role: string
   tier: string
   model: string
-  source: "override" | "role" | "inferred" | "default"
+  source: "override" | "model-map" | "role" | "inferred" | "default"
   inferredFrom?: string
 }
 
@@ -176,6 +209,23 @@ function resolveAgentAlias(rawName: string, prefix: string, names: AgentNameMap)
 }
 
 /**
+ * OpenCode evaluates permission patterns in insertion order with last match
+ * winning. Without a concrete path we cannot match globs, so a later catch-all
+ * deny overrides earlier rules; any surviving allow/ask means the tool is
+ * usable.
+ */
+function objectAllowsAny(value: unknown): boolean {
+  if (value === "allow" || value === true || value === "ask") return true
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false
+  let allowed = false
+  for (const [pattern, action] of Object.entries(value as Record<string, unknown>)) {
+    if (action === "allow" || action === true || action === "ask") allowed = true
+    else if (pattern === "*" && (action === "deny" || action === false)) allowed = false
+  }
+  return allowed
+}
+
+/**
  * Build the `tools:` string for a Claude Code agent from OpenCode permissions.
  */
 function buildToolsString(
@@ -229,39 +279,40 @@ function buildToolsString(
   }
 
   // Write/Edit tools
-  if (perms.edit === "allow" || perms.edit === true ||
-      (typeof perms.edit === "object" && perms.edit["*"] === "allow")) {
+  if (objectAllowsAny(perms.edit)) {
     tools.push("Write", "Edit")
   }
 
-  // Bash tool
-  const bashPerm = perms.bash
-  if (bashPerm === "allow" || bashPerm === true) {
+  // Bash tool (OpenCode exposes both `bash` and `shell`)
+  if (objectAllowsAny(perms.bash) || objectAllowsAny(perms.shell)) {
     tools.push("Bash")
-  } else if (typeof bashPerm === "object" && bashPerm["*"] !== "deny") {
-    // Has some bash allowed
-    tools.push("Bash")
-  } else if (typeof bashPerm === "object") {
-    // Has granular patterns — some commands are allowed even if * is deny
-    const hasAllowed = Object.entries(bashPerm).some(([k, v]) => k !== "*" && (v === "allow" || v === true))
-    if (hasAllowed) {
-      tools.push("Bash")
-    }
   }
 
   // WebFetch tool
-  if (perms.webfetch === "allow" || perms.webfetch === true) {
+  if (objectAllowsAny(perms.webfetch)) {
     tools.push("WebFetch")
+  }
+  if (objectAllowsAny(perms.websearch)) {
+    tools.push("WebSearch")
+  }
+  if (objectAllowsAny(perms.skill)) {
+    tools.push("Skill")
+  }
+  if (objectAllowsAny(perms.lsp)) {
+    tools.push("LSP")
+  }
+  if (objectAllowsAny(perms.question)) {
+    tools.push("AskUserQuestion")
+  }
+  if (objectAllowsAny(perms.todowrite)) {
+    tools.push("TodoWrite")
   }
 
   // OpenCode names MCP permissions as `<server>_*`. Claude exposes bundled
   // plugin servers through scoped `mcp__plugin_<plugin>_<server>__*` names;
   // keep the bare form as a compatibility fallback for user-scoped servers.
   const permissionServers = Object.keys(perms)
-    .filter(key => key.includes("_") && ![
-      "read", "write", "edit", "execute", "bash",
-      "question", "task", "grep", "glob", "lsp", "webfetch"
-    ].includes(key) && (perms[key] === "allow" || perms[key] === true ||
+    .filter(key => isMcpPermissionKey(key) && (perms[key] === "allow" || perms[key] === true ||
       (typeof perms[key] === "object" && perms[key] !== null)))
     .map(key => key.replace(/_.*$/, ""))
     .filter((server, index, all) => server && all.indexOf(server) === index)
@@ -286,15 +337,65 @@ function collectWarnings(frontmatter: Record<string, any>, enabledMcpServers?: S
 
   if (enabledMcpServers) {
     for (const key of Object.keys(perms)) {
-      if (!key.includes("_") || [
-        "read", "write", "edit", "execute", "bash",
-        "question", "task", "grep", "glob", "lsp", "webfetch"
-      ].includes(key)) continue
+      if (!isMcpPermissionKey(key)) continue
       const server = key.replace(/_.*$/, "")
       if (!enabledMcpServers.has(server)) {
         warnings.push(`MCP server '${server}' is not enabled in the generated Claude .mcp.json`)
       }
     }
+  }
+
+  // Claude Code has no per-tool deny syntax for MCP servers: only the whole
+  // server can be allowed or removed, so individual denials must be disclosed.
+  const allowedMcpServers = new Set<string>()
+  const deniedMcpTools = new Map<string, string[]>()
+  for (const key of Object.keys(perms)) {
+    if (!isMcpPermissionKey(key)) continue
+    const value = perms[key]
+    const server = key.replace(/_.*$/, "")
+    if (value === "allow" || value === true || (typeof value === "object" && value !== null)) {
+      allowedMcpServers.add(server)
+    } else if ((value === "deny" || value === false) && key !== `${server}_*`) {
+      const denied = deniedMcpTools.get(server)
+      if (denied) denied.push(key)
+      else deniedMcpTools.set(server, [key])
+    }
+  }
+  for (const [server, tools] of deniedMcpTools) {
+    if (!allowedMcpServers.has(server)) continue
+    warnings.push(`MCP per-tool deny rules for server '${server}' cannot be enforced in Claude Code plugin agents (denied tools: ${tools.join(", ")}); the whole server is allowed`)
+  }
+
+  // Granular pattern permissions are collapsed to the whole tool.
+  for (const key of ["bash", "shell", "edit"]) {
+    const value = perms[key]
+    if (!value || typeof value !== "object" || Array.isArray(value)) continue
+    const patterns = Object.keys(value).filter(pattern => pattern !== "*")
+    if (patterns.length === 0) continue
+    warnings.push(`${key} patterns not representable in Claude Code plugin agents; ${patterns.length} rule${patterns.length === 1 ? "" : "s"} dropped: ${patterns.map(pattern => `"${pattern}"`).join(", ")}`)
+  }
+
+  const webfetch = perms.webfetch
+  if (webfetch && typeof webfetch === "object" && !Array.isArray(webfetch)) {
+    const patterns = Object.keys(webfetch).filter(pattern => pattern !== "*")
+    if (patterns.length > 0) {
+      warnings.push(`webfetch URL patterns match by domain only in Claude Code; ${patterns.length} rule${patterns.length === 1 ? "" : "s"} dropped: ${patterns.map(pattern => `"${pattern}"`).join(", ")}`)
+    }
+  }
+
+  // Custom tools and built-in permissions have no plugin-agent equivalent.
+  for (const key of Object.keys(perms)) {
+    const droppedBuiltin = DROPPED_PERMISSION_KEYS.includes(key)
+    const droppedCustomTool = !KNOWN_PERMISSION_KEYS.has(key) && !key.includes("_") &&
+      (perms[key] === "allow" || perms[key] === true)
+    if (droppedBuiltin || droppedCustomTool) {
+      warnings.push(`permission '${key}' is not representable in Claude Code plugin agents; dropped`)
+    }
+  }
+
+  const promoted = PROMOTED_ASK_KEYS.filter(key => promotesAsk(perms[key]))
+  if (promoted.length > 0) {
+    warnings.push(`ask states promoted to allow for ${promoted.join(", ")} (not enforceable per-agent in Claude Code plugin agents)`)
   }
 
   // Hidden flag
@@ -362,10 +463,7 @@ function permissionMcpServers(frontmatter: Record<string, any>): string[] {
   const servers: string[] = []
 
   for (const [key, value] of Object.entries(perms)) {
-    if (key.includes("_") && ![
-      "read", "write", "edit", "execute", "bash",
-      "question", "task", "grep", "glob", "lsp", "webfetch"
-    ].includes(key) && (value === "allow" || value === true)) {
+    if (isMcpPermissionKey(key) && (value === "allow" || value === true)) {
       servers.push(key.replace(/_.*$/, ""))
     }
   }
@@ -538,6 +636,44 @@ function renderMcpSetup(
   return lines
 }
 
+interface OpenCodeCompanions {
+  plugins: string[]
+  tools: string[]
+}
+
+/** Linked companion paths are workspace-relative but live under the source root. */
+function resolveOpenCodeCompanions(workspaceRoot: string, category: string): OpenCodeCompanions {
+  const links = getCategoryCompanionLinks(workspaceRoot, category)
+  const roots = [path.join(workspaceRoot, "src"), path.join(workspaceRoot, "general"), workspaceRoot]
+  const exists = (relative: string) => roots.some(root => fs.existsSync(path.join(root, relative)))
+  return {
+    plugins: links.plugins.filter(exists),
+    tools: links.tools.filter(exists)
+  }
+}
+
+function renderCompanionSection(companions: OpenCodeCompanions | undefined): string[] {
+  if (!companions || (companions.plugins.length === 0 && companions.tools.length === 0)) return []
+  return [
+    "## OpenCode plugins and tools",
+    "",
+    "These OpenCode companions are linked by the category but are not transpiled by the bridge:",
+    "",
+    ...companions.plugins.map(plugin => `- Plugin: ${markdownCode(plugin)}`),
+    ...companions.tools.map(tool => `- Tool: ${markdownCode(tool)}`),
+    "",
+    "| OpenCode plugin hook | Claude Code equivalent |",
+    "|---|---|",
+    "| `tool.execute.before` | `PreToolUse` |",
+    "| `tool.execute.after` | `PostToolUse` |",
+    "| `session.idle` | `Stop` |",
+    "| `permission.asked` | `PermissionRequest` |",
+    "",
+    "Custom OpenCode tools have no per-agent Claude Code equivalent; expose their behavior through a Claude Code MCP server if agents need it.",
+    ""
+  ]
+}
+
 /**
  * Convert a single OpenCode AgentInfo to a Claude Code agent.
  */
@@ -657,11 +793,16 @@ export function buildClaudeCodePlugin(
 /**
  * Write a Claude Code plugin to disk.
  */
+export interface ClaudeCodeWriteOptions {
+  companions?: OpenCodeCompanions
+}
+
 export function writeClaudeCodePlugin(
   plugin: ClaudeCodePlugin,
   outputDir: string,
   workspaceRoot: string,
-  sourceDir = "general"
+  sourceDir = "general",
+  options: ClaudeCodeWriteOptions = {}
 ): BridgeResult {
   // Resolve symlinks through the nearest existing ancestor so the containment
   // check cannot be fooled by links planted where the output dir will live.
@@ -745,7 +886,7 @@ export function writeClaudeCodePlugin(
     "",
     "## Source and configuration",
     "",
-    `Agent definitions are discovered under ${markdownCode(`agents/${sourceDir}/`)}; model tiers, roles, overrides, and bridge options come from ${markdownCode("agents/.agent-manager/translation-config.json")}. MCP and LSP declarations are read from ${markdownCode("agents/general/opencode.json")}.`,
+    `Agent definitions are discovered under ${markdownCode(`${sourceDir}/`)}; model tiers, roles, overrides, and bridge options come from ${markdownCode(".agent-manager/translation-config.json")}. MCP and LSP declarations are read from ${markdownCode("src/opencode.json")}, falling back to the legacy ${markdownCode("general/opencode.json")} when it is absent.`,
     "",
     "## Generated contents",
     "",
@@ -769,7 +910,12 @@ export function writeClaudeCodePlugin(
     "- `.lsp.json` mirrors enabled OpenCode LSP declarations.",
     "- Agent-to-agent references are rewritten to Claude's canonical lowercase-hyphen names.",
     "",
+    "## Model connection",
+    "",
+    "The bridge emits Claude family aliases (`sonnet`, `opus`, `haiku`, `fable`, `inherit`) unless a full `claude-*` model ID was pinned in `claude.modelMap`, a tier's `claude.model`, or a per-agent `claude.overrides` entry. Aliases resolve per connection mode: subscription OAuth via `/login` needs no extra configuration, while API key, Bedrock, and Vertex connections resolve aliases according to the provider configuration. `fable` requires Claude Code CLI v2.1.257 or newer.",
+    "",
     ...renderMcpSetup(mcpResult.config, plugin.mcpRequirements),
+    ...renderCompanionSection(options.companions),
     "## Usage",
     "",
   ]
@@ -800,6 +946,11 @@ export function writeClaudeCodePlugin(
   }
 }
 
+export interface ClaudeBridgeOptions {
+  /** Category used to resolve OpenCode companion links; defaults to the first agent's category. */
+  category?: string
+}
+
 /**
  * One-shot: bridge a category of agents to Claude Code plugin.
  * Main entry point for both TUI and CLI.
@@ -810,7 +961,8 @@ export function bridgeToClaudeCode(
   prefix: string,
   outputDir: string,
   workspaceRoot: string,
-  config: TranslationConfig = DEFAULT_TRANSLATION_CONFIG
+  config: TranslationConfig = DEFAULT_TRANSLATION_CONFIG,
+  options: ClaudeBridgeOptions = {}
 ): BridgeResult {
   // Claude plugin manifests use the same lower-kebab naming convention as
   // agent identifiers. Validate the input first, then normalize harmless
@@ -830,7 +982,20 @@ export function bridgeToClaudeCode(
   }
 
   const plugin = buildClaudeCodePlugin(agents, safePluginName, prefix, config, availableMcpServers, resolvedTargets)
-  const result = writeClaudeCodePlugin(plugin, outputDir, workspaceRoot, config.sourceDir)
+  const companionCategory = options.category || agents[0]?.category || ""
+  const companions = companionCategory
+    ? resolveOpenCodeCompanions(workspaceRoot, companionCategory)
+    : undefined
+  for (const file of companions?.plugins || []) {
+    allWarnings.push(`OpenCode plugin '${file}' is not transpiled; see the README section 'OpenCode plugins and tools'`)
+  }
+  for (const file of companions?.tools || []) {
+    allWarnings.push(`OpenCode tool '${file}' is not transpiled; see the README section 'OpenCode plugins and tools'`)
+  }
+  for (const key of unusedModelMapKeys(agents, config, "claude")) {
+    allWarnings.push(`[model-map] entry "${key}" matches no source agent model in this bridge`)
+  }
+  const result = writeClaudeCodePlugin(plugin, outputDir, workspaceRoot, config.sourceDir, { companions })
   result.warnings.push(...allWarnings)
   result.preview = agents.map(agent => {
     const resolved = resolvedTargets.get(agent.filename)!

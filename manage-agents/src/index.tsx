@@ -12,6 +12,7 @@ import {
   DEFAULT_TRANSLATION_CONFIG,
   loadTranslationConfig,
   normalizeTranslationConfig,
+  parseKeyValueMappings,
   saveTranslationConfig,
   type TranslationConfig,
   type TranslationTarget
@@ -195,6 +196,8 @@ async function runBridge(workspaceRoot: string) {
   let targetSpecified = false
   let configFile = ""
   let wizard = false
+  let modelMappings: Record<string, string> = {}
+  let modelFlagsGiven = false
 
   for (let i = 0; i < args.length; i++) {
     if ((args[i] === "--category" || args[i] === "-c") && args[i + 1]) {
@@ -212,6 +215,12 @@ async function runBridge(workspaceRoot: string) {
       if (requested !== "claude" && requested !== "codex") throw new Error("--target must be claude or codex")
       target = requested
       targetSpecified = true
+    } else if (args[i] === "--model" && args[i + 1]) {
+      modelMappings = { ...modelMappings, ...parseKeyValueMappings(args[++i]) }
+      modelFlagsGiven = true
+    } else if (args[i] === "--map-all" && args[i + 1]) {
+      modelMappings = { ...modelMappings, "*": args[++i] }
+      modelFlagsGiven = true
     } else if (args[i] === "--config" && args[i + 1]) {
       configFile = args[++i]
     } else if (args[i] === "--wizard" || args[i] === "-w") {
@@ -223,13 +232,20 @@ Usage: manage-agents bridge [options]
 Options:
   --category, -c <name>   Category to bridge (e.g. copilot-pipeline)
   --target, -t <name>     Translation target: claude (default) or codex
-  --output, -o <path>     Output directory (default: bridges/<target>/<name>)
+  --output, -o <path>     Output directory (default: export/bridges/<target>/<name>, or bridges/<target>/<name> without export/)
   --name, -n <name>       Plugin name (default: decent-pipeline)
   --prefix, -p <prefix>   Prefix to strip (default: <category>-)
   --source-dir, -s <dir>  Agent source directory (default: config or general)
   --config <path>         Reusable translation config (default: .agent-manager/translation-config.json)
+  --model <src=target>    Map a source model to a target model; repeatable and accepts comma lists
+                          (e.g. --model "zai-glm-5-3=opus" --model "deepseek-*=sonnet")
+  --map-all <target>      Shorthand for --model "*=<target>": use one model for every source
   --wizard, -w            Configure model mappings and save them before bridging
   --help, -h              Show this help
+
+Model mappings use source=target syntax; the source may be a "*" catch-all (e.g. "*=sonnet")
+and mappings merge with the loaded config for the selected target. Provided mappings are
+persisted to the translation config, so later runs replay them without flags.
 `)
       process.exit(0)
     }
@@ -240,6 +256,7 @@ Options:
     ? await runTranslationWizard(workspaceRoot, loaded, configFile || undefined, false)
     : loaded
   if (!targetSpecified) target = config.target
+  if (modelFlagsGiven) config[target].modelMap = { ...(config[target].modelMap || {}), ...modelMappings }
   pluginName = pluginName || config.pluginName || DEFAULT_TRANSLATION_CONFIG.pluginName
   prefix = prefix || (category ? `${category}-` : config.prefix)
   sourceDir = sourceDir || config.sourceDir || resolveSourceSubdir(workspaceRoot)
@@ -277,7 +294,7 @@ Options:
     const bridgeConfigPath = configFile || path.join(workspaceRoot, ".agent-manager", "translation-config.json")
     const bridgePlan = { localPaths: [bridgeConfigPath].filter(file => isRepositoryLocalPath(workspaceRoot, file)).concat(isRepositoryLocalPath(workspaceRoot, outputDir) ? [outputDir] : []), externalPaths: [bridgeConfigPath, outputDir].filter(file => !isRepositoryLocalPath(workspaceRoot, file)) }
     const codexResult = repositoryMutation(workspaceRoot, bridgePlan, AUTO_COMMIT_MESSAGES.bridge, () => {
-      if (wizard) saveTranslationConfig(workspaceRoot, config, configFile || undefined)
+      if (wizard || modelFlagsGiven) saveTranslationConfig(workspaceRoot, config, configFile || undefined)
       return bridgeToCodex(categoryAgents, safePluginName, prefix, outputDir, workspaceRoot, { ...config, sourceDir })
     })
     result = codexResult
@@ -287,8 +304,8 @@ Options:
     const bridgeConfigPath = configFile || path.join(workspaceRoot, ".agent-manager", "translation-config.json")
     const bridgePlan = { localPaths: [bridgeConfigPath].filter(file => isRepositoryLocalPath(workspaceRoot, file)).concat(isRepositoryLocalPath(workspaceRoot, outputDir) ? [outputDir] : []), externalPaths: [bridgeConfigPath, outputDir].filter(file => !isRepositoryLocalPath(workspaceRoot, file)) }
     const claudeResult = repositoryMutation(workspaceRoot, bridgePlan, AUTO_COMMIT_MESSAGES.bridge, () => {
-      if (wizard) saveTranslationConfig(workspaceRoot, config, configFile || undefined)
-      return bridgeToClaudeCode(categoryAgents, safePluginName, prefix, outputDir, workspaceRoot, { ...config, sourceDir })
+      if (wizard || modelFlagsGiven) saveTranslationConfig(workspaceRoot, config, configFile || undefined)
+      return bridgeToClaudeCode(categoryAgents, safePluginName, prefix, outputDir, workspaceRoot, { ...config, sourceDir }, { category })
     })
     result = claudeResult
   }

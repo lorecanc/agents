@@ -1,7 +1,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import type { AgentInfo } from "./agents.js"
-import { isWorkspaceRelativePath } from "./pathValidation.js"
+import { isWorkspaceRelativePath, realpathThroughExistingAncestor } from "./pathValidation.js"
 
 export type TranslationTarget = "claude" | "codex"
 
@@ -26,9 +26,10 @@ export interface TranslationConfig {
   defaultTier: string
   tiers: Record<string, TranslationTier>
   roles: Record<string, string>
-  claude: { overrides: Record<string, ModelTarget> }
+  claude: { overrides: Record<string, ModelTarget>; modelMap?: Record<string, string> }
   codex: {
     overrides: Record<string, ModelTarget>
+    modelMap?: Record<string, string>
     emitSkills?: boolean
     emitReadme?: boolean
     emitMcp?: boolean
@@ -63,8 +64,8 @@ export const DEFAULT_TRANSLATION_CONFIG: TranslationConfig = {
   defaultTier: "execution",
   tiers: DEFAULT_TIERS,
   roles: DEFAULT_ROLES,
-  claude: { overrides: {} },
-  codex: { overrides: {}, emitSkills: true, emitReadme: true }
+  claude: { overrides: {}, modelMap: {} },
+  codex: { overrides: {}, modelMap: {}, emitSkills: true, emitReadme: true }
 }
 
 /** Default author name stamped into generated plugin manifests and READMEs. */
@@ -127,14 +128,20 @@ export interface InferenceIndex {
   byBare: Map<string, Set<string>>
 }
 
+/** Source models match on the trimmed, lowercased id and on the bare id after the last slash. */
+function normalizeSourceModel(model: string): { full: string; bare: string } {
+  const full = String(model).trim().toLowerCase()
+  return { full, bare: full.slice(full.lastIndexOf("/") + 1) }
+}
+
 export function buildInferenceIndex(agents: AgentInfo[], config: TranslationConfig): InferenceIndex {
   const index: InferenceIndex = { byFull: new Map(), byBare: new Map() }
   for (const candidate of agents) {
-    const tier = config.roles[resolveRole(candidate, config)]
+    const role = resolveRole(candidate, config)
+    const tier = Object.prototype.hasOwnProperty.call(config.roles, role) ? config.roles[role] : undefined
     const model = candidate.frontmatter?.model || candidate.model
-    if (!tier || !config.tiers[tier] || !model) continue
-    const full = String(model).trim().toLowerCase()
-    const bare = full.slice(full.lastIndexOf("/") + 1)
+    if (!tier || !Object.prototype.hasOwnProperty.call(config.tiers, tier) || !model) continue
+    const { full, bare } = normalizeSourceModel(model)
     for (const [map, key] of [[index.byFull, full], [index.byBare, bare]] as const) {
       const tiers = map.get(key) || new Set<string>()
       tiers.add(tier)
@@ -149,20 +156,34 @@ export function resolveModelTarget(
   index: InferenceIndex,
   config: TranslationConfig,
   target: TranslationTarget
-): { role: string; tier: string; model: ModelTarget; source: "override" | "role" | "inferred" | "default"; inferredFrom?: string } {
+): { role: string; tier: string; model: ModelTarget; source: "override" | "model-map" | "role" | "inferred" | "default"; inferredFrom?: string } {
   const name = normalizeAgentName(agent.filename, config.prefix)
   const role = resolveRole(agent, config)
-  const override = config[target].overrides[name]
-  const fallback = config.tiers[config.defaultTier] ? config.defaultTier : Object.keys(config.tiers)[0]
-  if (override) return { role, tier: config.roles[role] || fallback, model: override, source: "override" }
-  let tier = config.roles[role]
-  let source: "role" | "inferred" | "default" = tier && config.tiers[tier] ? "role" : "default"
+  const overrides = config[target].overrides
+  const override = Object.prototype.hasOwnProperty.call(overrides, name) ? overrides[name] : undefined
+  const fallback = Object.prototype.hasOwnProperty.call(config.tiers, config.defaultTier)
+    ? config.defaultTier
+    : Object.keys(config.tiers)[0]
+  const roleTier = Object.prototype.hasOwnProperty.call(config.roles, role) ? config.roles[role] : undefined
+  if (override) return { role, tier: roleTier || fallback, model: override, source: "override" }
+  const sourceModel = agent.frontmatter?.model || agent.model
+  if (sourceModel) {
+    const { full, bare } = normalizeSourceModel(sourceModel)
+    const modelMap = config[target].modelMap
+    const mapped = modelMap && Object.prototype.hasOwnProperty.call(modelMap, full) ? modelMap[full]
+      : modelMap && Object.prototype.hasOwnProperty.call(modelMap, bare) ? modelMap[bare]
+        : modelMap && Object.prototype.hasOwnProperty.call(modelMap, "*") ? modelMap["*"]
+          : undefined
+    if (mapped !== undefined) return { role, tier: roleTier || fallback, model: { model: mapped }, source: "model-map" }
+  }
+  let tier = roleTier
+  let source: "role" | "inferred" | "default" = tier && Object.prototype.hasOwnProperty.call(config.tiers, tier) ? "role" : "default"
   let inferredFrom: string | undefined
-  if (!tier && config.inference !== false) {
-    const model = agent.frontmatter?.model || agent.model
-    if (model) for (const [map, key] of [[index.byFull, String(model).trim().toLowerCase()], [index.byBare, String(model).trim().toLowerCase().split("/").pop()!]] as const) {
+  if (!tier && config.inference !== false && sourceModel) {
+    const { full, bare } = normalizeSourceModel(sourceModel)
+    for (const [map, key] of [[index.byFull, full], [index.byBare, bare]] as const) {
       const matches = map.get(key)
-      if (matches?.size === 1) { tier = [...matches][0]; source = "inferred"; inferredFrom = String(model); break }
+      if (matches?.size === 1) { tier = [...matches][0]; source = "inferred"; inferredFrom = String(sourceModel); break }
        // A per-map ambiguity abstains rather than falling through to another
        // key. This is structurally unobservable: identical full-model matches
        // always contribute the same bare-model matches as well.
@@ -170,17 +191,51 @@ export function resolveModelTarget(
     }
   }
   tier ||= fallback
-  const model = config.tiers[tier]?.[target] || { model: "" }
+  const tierConfig = Object.prototype.hasOwnProperty.call(config.tiers, tier) ? config.tiers[tier] : undefined
+  const model = tierConfig?.[target] || { model: "" }
   return { role, tier, model, source, ...(inferredFrom ? { inferredFrom } : {}) }
+}
+
+/** Model-map keys that no agent's source model (full or provider-bare form) would ever hit. */
+export function unusedModelMapKeys(agents: AgentInfo[], config: TranslationConfig, target: TranslationTarget): string[] {
+  const modelMap = config[target].modelMap
+  if (!modelMap) return []
+  const used = new Set<string>()
+  for (const candidate of agents) {
+    const model = candidate.frontmatter?.model || candidate.model
+    if (!model) continue
+    const { full, bare } = normalizeSourceModel(model)
+    used.add(full)
+    used.add(bare)
+  }
+  return Object.keys(modelMap).filter(key => key !== "*" && !used.has(key))
+}
+
+const CLAUDE_MODEL_PATTERN = /^(fable|sonnet|opus|haiku|inherit)$|^claude-[a-z0-9][a-z0-9.-]*$/
+
+export function validateClaudeModelName(value: string): void {
+  if (!CLAUDE_MODEL_PATTERN.test(value)) {
+    throw new Error(`Invalid Claude model "${value}". Use an alias (fable, sonnet, opus, haiku, inherit) or a full claude-* model ID.`)
+  }
 }
 
 export function validateTranslationConfig(config: TranslationConfig): void {
   if (Object.keys(config.tiers).length === 0) throw new Error("Translation config tiers must not be empty")
-  for (const [role, tier] of Object.entries(config.roles)) if (!config.tiers[tier]) throw new Error(`Translation role "${role}" points to missing tier "${tier}"`)
-  if (!config.tiers[config.defaultTier]) throw new Error(`Translation config defaultTier "${config.defaultTier}" does not exist in tiers`)
+  for (const [role, tier] of Object.entries(config.roles)) if (!Object.prototype.hasOwnProperty.call(config.tiers, tier)) throw new Error(`Translation role "${role}" points to missing tier "${tier}"`)
+  if (!Object.prototype.hasOwnProperty.call(config.tiers, config.defaultTier)) throw new Error(`Translation config defaultTier "${config.defaultTier}" does not exist in tiers`)
   for (const [name, tier] of Object.entries(config.tiers)) {
     if (!tier.claude?.model) throw new Error(`Translation tier "${name}" is missing claude.model`)
     if (!tier.codex?.model) throw new Error(`Translation tier "${name}" is missing codex.model`)
+  }
+  for (const [source, value] of Object.entries(config.claude.modelMap || {})) {
+    try {
+      validateClaudeModelName(value)
+    } catch (error) {
+      throw new Error(`claude.modelMap["${source}"]: ${(error as Error).message}`)
+    }
+  }
+  for (const [source, value] of Object.entries(config.codex.modelMap || {})) {
+    if (typeof value !== "string" || !value.trim()) throw new Error(`Translation codex.modelMap["${source}"] must be a non-empty model name`)
   }
   if (!isWorkspaceRelativePath(config.sourceDir)) {
     throw new Error(`Translation config sourceDir must stay inside workspace: ${config.sourceDir}`)
@@ -200,10 +255,10 @@ export function migrateV1(raw: Record<string, any>): TranslationConfig {
     warnMigration("codex.modelMapping.opus differs from primary; primary wins")
   }
   for (const key of Object.keys(claude.modelMap || {})) {
-    warnMigration(`discarded claude.modelMap key "${key}"; use overrides instead${key.includes("*") ? " (wildcards are not supported in v2)" : ""}`)
+    warnMigration(`discarded claude.modelMap key "${key}"; use overrides instead${key.includes("*") ? " (v1 keys are wildcard patterns; v2 modelMap uses exact source-model ids plus the \"*\" catch-all)" : ""}`)
   }
   for (const key of Object.keys(mapping.exact || {})) {
-    warnMigration(`discarded codex.modelMapping.exact key "${key}"; use overrides instead${key.includes("*") ? " (wildcards are not supported in v2)" : ""}`)
+    warnMigration(`discarded codex.modelMapping.exact key "${key}"; use overrides instead${key.includes("*") ? " (v1 keys are wildcard patterns; v2 modelMap uses exact source-model ids plus the \"*\" catch-all)" : ""}`)
   }
   const migrated: any = {
     version: 2,
@@ -233,12 +288,28 @@ export function migrateV1(raw: Record<string, any>): TranslationConfig {
   return normalizeTranslationConfig(migrated)
 }
 
+function rejectSymlink(filePath: string): void {
+  try {
+    if (fs.lstatSync(filePath).isSymbolicLink()) throw new Error(`Translation config path must not be a symlink: ${filePath}`)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+  }
+}
+
+function assertRealpathInsideWorkspace(workspaceRoot: string, configPath: string, originalPath: string): void {
+  const relative = path.relative(realpathThroughExistingAncestor(workspaceRoot), realpathThroughExistingAncestor(configPath))
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new Error(`Translation config must stay inside workspace: ${originalPath}`)
+  }
+}
+
 export function loadTranslationConfig(
   workspaceRoot: string,
   configPath?: string,
   options: { persistMigration?: boolean } = { persistMigration: true }
 ): TranslationConfig {
   const filePath = configPath || translationConfigPath(workspaceRoot)
+  rejectSymlink(filePath)
   if (!fs.existsSync(filePath)) {
     const config = normalizeTranslationConfig(undefined)
     validateTranslationConfig(config)
@@ -268,7 +339,13 @@ export function saveTranslationConfig(workspaceRoot: string, config: Partial<Tra
   if (resolvedPath !== resolvedRoot && !resolvedPath.startsWith(`${resolvedRoot}${path.sep}`)) {
     throw new Error(`Translation config must stay inside workspace: ${filePath}`)
   }
+  rejectSymlink(filePath)
+  assertRealpathInsideWorkspace(resolvedRoot, resolvedPath, filePath)
   fs.mkdirSync(parent, { recursive: true })
+  // Re-check now that the parent exists, mirroring the plugin writer's
+  // post-creation gate against links planted while we were creating it.
+  rejectSymlink(filePath)
+  assertRealpathInsideWorkspace(resolvedRoot, resolvedPath, filePath)
   fs.writeFileSync(filePath, `${JSON.stringify(normalized, null, 2)}\n`, "utf-8")
   return filePath
 }

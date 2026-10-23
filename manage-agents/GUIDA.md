@@ -173,11 +173,13 @@ Opzioni disponibili:
 |---|---|
 | `--category <nome>`, `-c <nome>` | Categoria da tradurre. Necessaria, salvo che il wizard fornisca un prefisso da cui ricavarla. |
 | `--target claude\|codex`, `-t` | Destinazione: `claude` o `codex`. In assenza di opzione si usa il target salvato in configurazione, predefinito `claude`. |
-| `--output <percorso>`, `-o` | Directory di output; per default `agents/bridges/claude-code/<nome>` o `agents/bridges/codex/<nome>`. |
+| `--output <percorso>`, `-o` | Directory di output; per default `export/bridges/claude-code/<nome>` o `export/bridges/codex/<nome>`. In un workspace privo di `export/` il bridge usa `bridges/claude-code/<nome>` o `bridges/codex/<nome>`. |
 | `--name <nome>`, `-n` | Nome del plugin/layer; il valore iniziale predefinito è `decent-pipeline`. |
 | `--prefix <prefisso>`, `-p` | Prefisso da rimuovere dai nomi sorgenti; per default `<categoria>-`. |
 | `--source-dir <directory>`, `-s` | Directory sorgente relativa al workspace; per default `general` o il valore della configurazione. |
-| `--config <percorso>` | Percorso del file di configurazione del bridge, normalmente `agents/.agent-manager/translation-config.json`. |
+| `--config <percorso>` | Percorso del file di configurazione del bridge, per default `.agent-manager/translation-config.json`. |
+| `--model <sorgente>=<destinazione>` | Associazione ripetibile tra modello sorgente e modello di destinazione. Accetta liste separate da virgola, per esempio `--model "zai-glm-5-3=opus,glm-5-3=haiku"`, e la chiave `"*"` come catch-all. I valori forniti vengono salvati nella configurazione e riusati dalle esecuzioni successive. |
+| `--map-all <destinazione>` | Scorciatoia per `--model "*=<destinazione>"`: tutti i modelli mappano su un solo modello. La struttura multi-agente della categoria resta quella originale. |
 | `--wizard`, `-w` | Chiede target, nome, prefisso, directory sorgente e modelli per i tier; salva la configurazione prima della generazione. |
 | `--help`, `-h` | Mostra le opzioni di `bridge`. |
 
@@ -186,14 +188,34 @@ Altri esempi:
 ```bash
 node manage-agents/manage-agents.mjs bridge -c copilot-pipeline -t codex -n mio-layer -p copilot-pipeline- -s general
 node manage-agents/manage-agents.mjs bridge --category wiki --output artifacts/wiki-claude --target claude
+node manage-agents/manage-agents.mjs bridge -c copilot-pipeline -t claude --model "zai-glm-5-3=opus" --model "glm-5-3=haiku"
+node manage-agents/manage-agents.mjs bridge -c copilot-pipeline -t codex --map-all gpt-5.6-luna
 node manage-agents/manage-agents.mjs bridge --category copilot-pipeline --wizard
 ```
 
-Un output personalizzato può trovarsi fuori dal repository; scegli un percorso deliberatamente e controlla prima se esiste già. Il wizard salva le impostazioni, ma il bridge scrive anche gli artefatti. Controlla in output la lista dei file e gli eventuali avvisi di traduzione. Per Claude il manager suggerisce `claude plugin validate <percorso> --strict`; per Codex indica gli agenti scoped e il manifest del plugin.
+Un output personalizzato deve restare dentro il workspace: il bridge verifica il percorso e rifiuta quelli esterni. Scegli un percorso deliberatamente e controlla prima se esiste già. Il wizard salva le impostazioni, ma il bridge scrive anche gli artefatti. Controlla in output la lista dei file e gli eventuali avvisi di traduzione. Per Claude il manager suggerisce `claude plugin validate <percorso> --strict`; per Codex indica gli agenti scoped e il manifest del plugin.
+
+#### Modelli di destinazione
+
+Le chiavi di `claude.modelMap` e `codex.modelMap` si confrontano con il modello sorgente dell’agente in minuscolo: prima l’ID completo (`zai-glm-5-3`), poi l’ID senza provider dopo l’ultima `/` (`glm-5-3`), infine la chiave `"*"`. L’ordine di risoluzione è: override per agente, `modelMap`, tier del ruolo (`roles` e poi `tiers`), inferenza, `defaultTier`. Una mappa vuota non cambia nulla. Resta il comportamento basato sui tier. La chiave `"*"` realizza l’opzione «tutti i modelli su un solo modello» senza toccare la struttura multi-agente della categoria.
+
+Le mappature passate con `--model` o `--map-all` hanno la precedenza sulle chiavi già presenti nel file e vengono salvate; le esecuzioni successive le riusano senza flag, quindi non devi ripetere le stesse opzioni a ogni generazione. Una chiave che non corrisponde ad alcun agente produce un avviso che dipende dal target: `[model-map] entry "<chiave>" matches no source agent model in this bridge` per Claude, `[model-map] entry "<chiave>" matches no source agent model` per Codex.
+
+Per Claude la destinazione deve essere `fable`, `sonnet`, `opus`, `haiku`, `inherit` o un ID completo `claude-*` (per esempio `claude-opus-5-5`). Altre stringhe vengono rifiutate prima della generazione, con `Invalid Claude model "<valore>". Use an alias (fable, sonnet, opus, haiku, inherit) or a full claude-* model ID.` preceduto da `claude.modelMap["<sorgente>"]:`. Per Codex basta una stringa non vuota: l’associazione scrive solo il modello, senza `model_reasoning_effort`.
+
+Non esiste un flag CLI per cancellare un catch-all già salvato. Svuota il campo «Map all models to» nella TUI oppure modifica il JSON. La modifica per singolo modello si fa solo nel JSON.
+
+#### Permessi e companion non tradotti
+
+La traduzione dei permessi è a livello di tool. Le chiavi OpenCode diventano nomi di tool Claude: `bash`/`shell` → `Bash`, `edit` → `Write` e `Edit`, `read`/`grep`/`glob` con i nomi omonimi, `task` → `Agent`, `webfetch` → `WebFetch`, `websearch` → `WebSearch`, `skill` → `Skill`, `lsp` → `LSP`, `question` → `AskUserQuestion`, `todowrite` → `TodoWrite`, le chiavi MCP → `mcp__<server>__*` più la forma con lo scope del plugin. Le regole granulari (liste di pattern per bash, glob per edit, glob di URL per webfetch, stati `ask`) non sono applicabili per agente in un plugin Claude Code: gli agenti del plugin ignorano `permissionMode` e gli hook, e le regole `allow`/`ask`/`deny` per singola azione vivono solo nelle impostazioni, che il plugin non può trasportare. Il bridge emette quindi la decisione a livello di tool, segnala con un avviso specifico le regole granulari perse, le chiavi non rappresentabili e gli stati `ask` promossi e non genera `hooks/hooks.json`.
+
+Il README generato documenta ciò che il bridge non traduce. I link companion della categoria (per `pipeline`: `plugins/pipeline-guard.js` e gli strumenti pipeline) compaiono nella sezione `OpenCode plugins and tools` con l’equivalente Claude più vicino: `tool.execute.before` → `PreToolUse`, `tool.execute.after` → `PostToolUse`, `session.idle` → `Stop`, `permission.asked` → `PermissionRequest`. Per i tool personalizzati il README rimanda a un server MCP. Ogni plugin o tool non trasposto produce anche un avviso.
+
+La sezione `Model connection` dello stesso README chiarisce quali alias riceve Claude: `sonnet`, `opus`, `haiku`, `fable`, `inherit`, a meno che la configurazione fissi un ID completo `claude-*` in `claude.modelMap`, nel modello di un tier o in un override per agente. Gli alias si risolvono in base alla modalità di connessione: l’abbonamento OAuth con `/login` non richiede configurazione aggiuntiva, mentre API key, Bedrock e Vertex seguono la configurazione del provider. `fable` richiede Claude Code CLI 2.1.257 o superiore.
 
 ### Generare e verificare distribuzioni di categoria
 
-I manifest in `agents/.agent-manager/categories/` selezionano risorse canoniche. I comandi `check`, `status`, `explain`, `list` e `package --dry-run` sono di ispezione/anteprima; `build` genera output.
+I manifest in `.agent-manager/categories/` selezionano risorse canoniche. I comandi `check`, `status`, `explain`, `list` e `package --dry-run` sono di ispezione/anteprima; `build` genera output.
 
 | Attività | Comando |
 |---|---|
@@ -302,7 +324,7 @@ Le modifiche restano in bozza finché non premi `Enter`: il manager salva tutte 
 | `e` | Esporta in OpenCode; mostra una conferma prima di sovrascrivere i file di destinazione. |
 | `i` | Apre il confronto tra catalogo, agenti e risorse companion in OpenCode. Esamina le differenze; `Enter` importa solo agenti nuovi/modificati e risorse modificate (`tools/`, `commands/`, `skills/`, `plugins/`) in `general/`. I file identici sono saltati e, se non ci sono differenze, non viene creato un backup. `Esc` annulla. |
 
-Nei prompt di bridge, usa `Tab` per passare tra nome, prefisso e directory sorgente; con il campo prefisso attivo le frecce selezionano i suggerimenti disponibili. Verifica i valori, il target e i percorsi prima di generare. L’import CLI, come quello TUI, elabora le differenze degli agenti e delle risorse companion; il CLI non permette di scegliere singoli file.
+Nei prompt di bridge, usa `Tab` per passare tra nome, prefisso, directory sorgente e `Map all models to`, nello stesso ordine; con il campo prefisso attivo le frecce selezionano i suggerimenti disponibili. Il quarto campo imposta il catch-all per il target scelto: vuoto significa mapping per tier e, se in configurazione esisteva una chiave `"*"`, la elimina. Per Claude il valore deve superare la stessa validazione degli alias descritta sopra; per Codex viene salvato se non è vuoto. La modifica per singolo modello si fa nel JSON. Verifica i valori, il target e i percorsi prima di generare. L’import CLI, come quello TUI, elabora le differenze degli agenti e delle risorse companion; il CLI non permette di scegliere singoli file.
 
 ## Ricette operative
 
@@ -336,7 +358,7 @@ Rispondi `Y` o premi Invio solo dopo aver letto percorso, numero di agenti e bac
 node manage-agents/manage-agents.mjs bridge --category copilot-pipeline --target claude --output artifacts/copilot-claude
 ```
 
-Esamina l’elenco di file, preview e warning. Se il mapping di modelli o ruoli va modificato, ripeti con `--wizard` dopo aver verificato che la configurazione salvata è quella voluta.
+Esamina l’elenco di file, preview e warning. Se devi cambiare il modello di alcuni agenti, usa `--model <sorgente>=<destinazione>`; per usarne uno solo per tutti, `--map-all <destinazione>`. Entrambe le opzioni salvano il mapping, quindi le esecuzioni successive lo riusano anche senza flag. Per tier, ruoli e altri override, ripeti con `--wizard` dopo aver verificato che la configurazione salvata sia quella voluta.
 
 ### Riprendere il controllo dopo una build generale interrotta
 
@@ -353,11 +375,11 @@ node manage-agents/manage-agents.mjs category check --all
 
 ### Dove si trovano le sorgenti e gli output
 
-La fonte canonica è `agents/general/`: modifica lì gli agenti e, quando necessario, i manifest sotto `agents/.agent-manager/categories/`. Non modificare direttamente i risultati generati:
+La fonte canonica è `src/`: modifica lì gli agenti e, quando necessario, i manifest sotto `.agent-manager/categories/`. Non modificare direttamente i risultati generati:
 
 - `agents/categories/`: distribuzioni create dai manifest; la build ricrea/sostituisce la directory della categoria.
-- `agents/bridges/claude-code/` e `agents/bridges/codex/`: bridge generati; un `--output` può scegliere un altro percorso.
-- `agents/.agent-manager/translation-config.json`: impostazioni persistenti del bridge, comprese destinazione, prefisso, directory sorgente, tier, mapping per ruolo e override.
+- `export/bridges/claude-code/` e `export/bridges/codex/`: bridge generati; un `--output` può scegliere un altro percorso. In un workspace senza `export/` la destinazione predefinita è `bridges/claude-code/<nome>` o `bridges/codex/<nome>`.
+- `.agent-manager/translation-config.json`: impostazioni persistenti del bridge, comprese destinazione, prefisso, directory sorgente, tier, mapping per ruolo, override e le mappe `claude.modelMap` e `codex.modelMap`.
 - `agents/.agent-manager/ui-config.json`: proporzione di lista e inspector della TUI.
 - `agents/.agent-manager/category-control/`: controllo e journal delle operazioni di generazione/recupero; non rimuovere file mentre un’operazione è in corso.
 

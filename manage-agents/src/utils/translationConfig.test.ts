@@ -15,6 +15,8 @@ import {
   resolveModelTarget,
   resolveRole,
   saveTranslationConfig,
+  unusedModelMapKeys,
+  validateClaudeModelName,
   validateTranslationConfig
 } from "./translationConfig.js"
 
@@ -172,3 +174,246 @@ test("loading v2 is idempotent", () => {
   assert.deepEqual(loaded, DEFAULT_TRANSLATION_CONFIG)
   assert.equal(fs.readFileSync(filePath, "utf8"), before)
 })
+
+test("modelMap round-trips through save and load and materializes when absent", () => {
+  assert.deepEqual(DEFAULT_TRANSLATION_CONFIG.claude.modelMap, {})
+  assert.deepEqual(DEFAULT_TRANSLATION_CONFIG.codex.modelMap, {})
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "translation-config-"))
+  const config = {
+    ...structuredClone(DEFAULT_TRANSLATION_CONFIG),
+    claude: { overrides: {}, modelMap: { "provider/opus": "haiku", "*": "sonnet" } },
+    codex: { overrides: {}, emitSkills: true, emitReadme: true, modelMap: { "gpt-5": "gpt-5.6-luna" } }
+  }
+  saveTranslationConfig(workspace, config)
+  const loaded = loadTranslationConfig(workspace)
+  assert.deepEqual(loaded.claude.modelMap, config.claude.modelMap)
+  assert.deepEqual(loaded.codex.modelMap, config.codex.modelMap)
+
+  const legacy = structuredClone(DEFAULT_TRANSLATION_CONFIG) as any
+  delete legacy.claude.modelMap
+  delete legacy.codex.modelMap
+  const legacyPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "translation-config-")), "config.json")
+  fs.writeFileSync(legacyPath, JSON.stringify(legacy))
+  const materialized = loadTranslationConfig(path.dirname(legacyPath), legacyPath)
+  assert.deepEqual(materialized.claude.modelMap, {})
+  assert.deepEqual(materialized.codex.modelMap, {})
+})
+
+test("claude modelMap rejects unknown models with the valid-values message", () => {
+  const invalid = structuredClone(DEFAULT_TRANSLATION_CONFIG)
+  invalid.claude.modelMap = { "provider/glm-4.6": "iq" }
+  assert.throws(() => validateTranslationConfig(invalid), (error: any) => {
+    const message = String(error.message)
+    assert.match(message, /fable/)
+    assert.match(message, /sonnet/)
+    assert.match(message, /opus/)
+    assert.match(message, /haiku/)
+    assert.match(message, /inherit/)
+    assert.match(message, /claude-\*/)
+    assert.match(message, /iq/)
+    assert.match(message, /claude\.modelMap\["provider\/glm-4\.6"\]/)
+    return true
+  })
+  assert.throws(() => validateClaudeModelName("gpt-5"), /claude-\*/)
+})
+
+test("claude modelMap accepts aliases and full IDs while codex rejects empty values", () => {
+  for (const alias of ["fable", "sonnet", "opus", "haiku", "inherit", "claude-opus-5-5"]) {
+    assert.doesNotThrow(() => validateClaudeModelName(alias))
+  }
+  const config = structuredClone(DEFAULT_TRANSLATION_CONFIG)
+  config.claude.modelMap = { "provider/opus": "claude-opus-5-5" }
+  assert.doesNotThrow(() => validateTranslationConfig(config))
+  config.codex.modelMap = { "gpt-5": "" }
+  assert.throws(() => validateTranslationConfig(config), /codex\.modelMap\["gpt-5"\]/)
+  config.codex.modelMap = { "gpt-5": "gpt-5.6-luna" }
+  assert.doesNotThrow(() => validateTranslationConfig(config))
+})
+
+test("modelMap is layered below overrides and above roles and inference", () => {
+  const classified = (filename: string, model: string) => ({ ...agent(filename), model, frontmatter: { model } }) as any
+  const mapped = classified("planner.md", "provider/opus")
+  const config = {
+    ...structuredClone(DEFAULT_TRANSLATION_CONFIG),
+    roles: { planner: "planning" },
+    claude: { overrides: {}, modelMap: { "provider/opus": "haiku" } }
+  }
+  assert.deepEqual(resolveModelTarget(mapped, buildInferenceIndex([mapped], config), config, "claude"), {
+    role: "planner", tier: "planning", model: { model: "haiku" }, source: "model-map"
+  })
+
+  const overridden = {
+    ...config,
+    claude: { overrides: { planner: { model: "custom" } }, modelMap: config.claude.modelMap }
+  }
+  assert.equal(resolveModelTarget(mapped, buildInferenceIndex([mapped], overridden), overridden, "claude").source, "override")
+
+  const noRole = classified("illustrator.md", "provider/opus")
+  const inferenceConfig = {
+    ...structuredClone(DEFAULT_TRANSLATION_CONFIG),
+    roles: { planner: "planning" },
+    claude: { overrides: {}, modelMap: {} }
+  }
+  assert.equal(resolveModelTarget(noRole, buildInferenceIndex([mapped, noRole], inferenceConfig), inferenceConfig, "claude").source, "inferred")
+  const inferred = {
+    ...inferenceConfig,
+    claude: { overrides: {}, modelMap: { "provider/opus": "fable" } }
+  }
+  const mappedResult = resolveModelTarget(noRole, buildInferenceIndex([mapped, noRole], inferred), inferred, "claude")
+  assert.equal(mappedResult.source, "model-map")
+  assert.equal(mappedResult.model.model, "fable")
+})
+
+test("modelMap prefers specific keys over the catch-all and full IDs over bare IDs", () => {
+  const source = (model: string) => ({ ...agent("executor.md"), model, frontmatter: { model } }) as any
+  const config = (modelMap: Record<string, string>) => ({
+    ...structuredClone(DEFAULT_TRANSLATION_CONFIG),
+    roles: { executor: "execution" },
+    claude: { overrides: {}, modelMap }
+  })
+  const providerAgent = source("provider/opus")
+  const specific = config({ "provider/opus": "haiku", "*": "sonnet" })
+  assert.equal(resolveModelTarget(providerAgent, buildInferenceIndex([providerAgent], specific), specific, "claude").model.model, "haiku")
+  const catchAll = config({ "*": "sonnet" })
+  assert.equal(resolveModelTarget(providerAgent, buildInferenceIndex([providerAgent], catchAll), catchAll, "claude").model.model, "sonnet")
+  const fullWins = config({ "provider/opus": "fable", "opus": "haiku" })
+  assert.equal(resolveModelTarget(providerAgent, buildInferenceIndex([providerAgent], fullWins), fullWins, "claude").model.model, "fable")
+  const bareOnly = config({ "opus": "haiku" })
+  assert.equal(resolveModelTarget(providerAgent, buildInferenceIndex([providerAgent], bareOnly), bareOnly, "claude").model.model, "haiku")
+})
+
+test("modelMap matches after trimming and lowercasing the source model", () => {
+  const source = (model: string) => ({ ...agent("executor.md"), model, frontmatter: { model } }) as any
+  const noisy = source("  Provider/OPUS  ")
+  const config = {
+    ...structuredClone(DEFAULT_TRANSLATION_CONFIG),
+    roles: { executor: "execution" },
+    claude: { overrides: {}, modelMap: { "provider/opus": "haiku" } }
+  }
+  const result = resolveModelTarget(noisy, buildInferenceIndex([noisy], config), config, "claude")
+  assert.equal(result.source, "model-map")
+  assert.equal(result.model.model, "haiku")
+})
+
+test("modelMap on the inactive target does not affect the active target", () => {
+  const source = (model: string) => ({ ...agent("planner.md"), model, frontmatter: { model } }) as any
+  const mapped = source("provider/opus")
+  const config = {
+    ...structuredClone(DEFAULT_TRANSLATION_CONFIG),
+    roles: { planner: "planning" },
+    claude: { overrides: {}, modelMap: { "provider/opus": "haiku" } },
+    codex: { overrides: {}, emitSkills: true, emitReadme: true, modelMap: { "provider/opus": "gpt-inactive" } }
+  }
+  const claude = resolveModelTarget(mapped, buildInferenceIndex([mapped], config), config, "claude")
+  assert.equal(claude.source, "model-map")
+  assert.equal(claude.model.model, "haiku")
+  const codex = resolveModelTarget(mapped, buildInferenceIndex([mapped], config), config, "codex")
+  assert.equal(codex.model.model, "gpt-inactive")
+  const claudeWithoutMap = { ...config, claude: { overrides: {}, modelMap: {} } }
+  assert.equal(resolveModelTarget(mapped, buildInferenceIndex([mapped], claudeWithoutMap), claudeWithoutMap, "claude").source, "role")
+})
+
+test("unusedModelMapKeys reports dead keys and never the catch-all", () => {
+  const sources = [
+    { ...agent("planner.md"), model: "provider/opus", frontmatter: { model: "provider/opus" } },
+    { ...agent("executor.md"), model: "glm-4.6", frontmatter: { model: "glm-4.6" } }
+  ] as any[]
+  const config = structuredClone(DEFAULT_TRANSLATION_CONFIG)
+  config.claude.modelMap = { "provider/opus": "haiku", "opus": "sonnet", "glm-4.6": "sonnet", "*": "sonnet", "dead-key": "haiku" }
+  assert.deepEqual(unusedModelMapKeys(sources, config, "claude"), ["dead-key"])
+  config.codex.modelMap = { "*": "gpt-5.6-luna" }
+  assert.deepEqual(unusedModelMapKeys(sources, config, "codex"), [])
+})
+
+test("unusedModelMapKeys returns no keys when the target has no modelMap", () => {
+  const legacy = structuredClone(DEFAULT_TRANSLATION_CONFIG) as any
+  delete legacy.claude.modelMap
+  delete legacy.codex.modelMap
+  const sources = [{ ...agent("planner.md"), model: "provider/opus", frontmatter: { model: "provider/opus" } }] as any[]
+  assert.deepEqual(unusedModelMapKeys(sources, legacy, "claude"), [])
+  assert.deepEqual(unusedModelMapKeys(sources, legacy, "codex"), [])
+})
+
+test("v1 modelMap migration still warns and yields an empty v2 map", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "translation-config-"))
+  const filePath = path.join(workspace, "config.json")
+  fs.writeFileSync(filePath, JSON.stringify({
+    version: 1, target: "claude", pluginName: "old", prefix: "old-", sourceDir: "general",
+    claude: { primaryModel: "old-opus", defaultSubagentModel: "old-sonnet", modelMap: { "old-*": "x" } },
+    codex: { modelMapping: { primary: { model: "old-sol" }, default: { model: "old-luna" } } }
+  }))
+  const originalError = console.error
+  const warnings: string[] = []
+  console.error = (...args: unknown[]) => { warnings.push(args.join(" ")) }
+  let loaded
+  try {
+    loaded = loadTranslationConfig(workspace, filePath)
+  } finally {
+    console.error = originalError
+  }
+  assert.deepEqual(loaded!.claude.modelMap, {})
+  assert.ok(warnings.some(warning =>
+    /discarded claude\.modelMap key "old-\*"/.test(warning) &&
+    /v1 keys are wildcard patterns/.test(warning) &&
+    /exact source-model ids plus the "\*" catch-all/.test(warning)))
+})
+
+test("inherited object keys never resolve as roles, overrides or model-map entries", () => {
+  const source = (filename: string, model: string) => ({ ...agent(filename), model, frontmatter: { model } }) as any
+  const config = {
+    ...structuredClone(DEFAULT_TRANSLATION_CONFIG),
+    roles: { constructor: "planning", tostring: "execution" },
+    claude: { overrides: {}, modelMap: {} }
+  }
+  const constructorAgent = source("constructor.md", "constructor")
+  const constructorResult = resolveModelTarget(constructorAgent, buildInferenceIndex([constructorAgent], config), config, "claude")
+  assert.equal(constructorResult.source, "role")
+  assert.equal(constructorResult.tier, "planning")
+  assert.equal(constructorResult.model.model, "opus")
+
+  const toStringAgent = source("toString.md", "toString")
+  const toStringResult = resolveModelTarget(toStringAgent, buildInferenceIndex([toStringAgent], config), config, "claude")
+  assert.equal(toStringResult.source, "role")
+  assert.equal(toStringResult.tier, "execution")
+  assert.equal(toStringResult.model.model, "sonnet")
+})
+
+test("an explicit constructor modelMap key resolves while the inherited property does not", () => {
+  const source = { ...agent("executor.md"), model: "constructor", frontmatter: { model: "constructor" } } as any
+  const baseline = { ...structuredClone(DEFAULT_TRANSLATION_CONFIG), roles: { executor: "execution" } }
+  const explicit = { ...baseline, claude: { overrides: {}, modelMap: { constructor: "haiku" } } }
+  const mapped = resolveModelTarget(source, buildInferenceIndex([source], explicit), explicit, "claude")
+  assert.equal(mapped.source, "model-map")
+  assert.equal(mapped.model.model, "haiku")
+
+  const inheritedOnly = { ...baseline, claude: { overrides: {}, modelMap: {} } }
+  const fallback = resolveModelTarget(source, buildInferenceIndex([source], inheritedOnly), inheritedOnly, "claude")
+  assert.equal(fallback.source, "role")
+  assert.equal(fallback.model.model, "sonnet")
+})
+
+test("symlinked translation config paths are rejected by load and save", (t) => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "translation-config-"))
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "translation-config-outside-"))
+  const target = path.join(outside, "target.json")
+  const link = path.join(workspace, "translation-config.json")
+  const original = JSON.stringify({ version: 2, pluginName: "untouched" })
+  fs.writeFileSync(target, original)
+  try {
+    fs.symlinkSync(target, link)
+  } catch {
+    t.skip("symlinks are not supported in this environment")
+    fs.rmSync(workspace, { recursive: true, force: true })
+    fs.rmSync(outside, { recursive: true, force: true })
+    return
+  }
+  try {
+    assert.throws(() => loadTranslationConfig(workspace, link), /must not be a symlink/)
+    assert.throws(() => saveTranslationConfig(workspace, DEFAULT_TRANSLATION_CONFIG, link), /must not be a symlink/)
+    assert.equal(fs.readFileSync(target, "utf8"), original)
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true })
+    fs.rmSync(outside, { recursive: true, force: true })
+  }
+})
+
