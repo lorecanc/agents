@@ -17,7 +17,7 @@
     "build": "esbuild src/index.tsx --bundle --platform=node --format=esm --outfile=dist/index.js --external:@opentui/core --external:yaml",
     "typecheck": "tsc --noEmit",
     "test": "npm run typecheck && node --import tsx --test \"src/utils/*.test.ts\" \"../src/tools/_python.test.mjs\" \"../src/tools/_safeName.test.mjs\" \"../src/tools/_guards.test.mjs\" \"../src/tools/_pipeline_core.test.mjs\" \"../src/tools/_pipeline_run.test.mjs\" \"../src/tools/_pipeline_guard.test.mjs\" \"../src/tools/_pipeline_tools.test.mjs\" \"../src/tools/_pipeline_env.test.mjs\" \"../src/tools/_pipeline_serve.test.mjs\" \"../src/tools/_pipeline_services.test.mjs\" \"../src/tools/_pipeline_worktree.test.mjs\" \"../src/bench/bench.test.mjs\"",
-    "validate": "npm run typecheck && npm test && npm run build && node manage-agents.mjs category check --all"
+    "validate": "npm run typecheck && npm test && npm run build && node manage-agents.mjs category check --all && node manage-agents.mjs bridge check"
   },
   "dependencies": {
     "@opentui/core": "0.5.7",

@@ -36,8 +36,11 @@ REMAINING_SCOPE: none | <what is left, specific enough for a resumed session to 
 
 ## Shell rules (how bash permissions work here)
 
-Every bash command is checked against this agent's allowlist, each part of a compound command separately, and the pipeline guard blocks writes outside the repository. To avoid needless rejections:
+Bash is broadly allowed — diagnostics, service lifecycles, infrastructure CLIs and general tooling need no enumeration. A few semantic gates still apply, each part of a compound command is checked separately, and the pipeline guard blocks writes outside the repository. To avoid needless rejections:
 
+- **Secrets are off limits**: commands that touch `.env` files are denied, as are `env` and `printenv`; `.env.example` and `.env.sample` remain readable.
+- **Confirmation required**: `sudo`, the database shells (`psql`, `mysql`, `mongosh`, `redis-cli`), remote access (`ssh`, `rsync`) and deploy commands (`deploy`, `apply`, `submit`, `push`, `release create`, `workflow run`, `install`, `upgrade`, `rollback`, `patch`, `scale`, `rollout`, `vercel`) ask the user before running.
+- **Destructive operations are denied** (`delete`, `destroy`, `prune`, `uninstall`, `down -v`, `docker rm`, `terminate`, `terraform import`, `kubectl edit`, publishing/upload); a solitary `rm` asks, forced or recursive `rm` is denied, and host power (`shutdown`, `reboot`, `mkfs`) or env dumps (`set`, `declare -p`) are blocked.
 - One command per call. Avoid `&&`, `;`, `|` and subshells unless every part is a command you are allowed to run.
 - Set the directory with the bash tool's `workdir` parameter instead of `cd dir && ...`.
 - Do not prefix commands with variable assignments (`VAR=value cmd`). For checks that need a subdirectory, env or services (for example a database), use `pipeline_verify` (`workspace`, `filter`, `with_services`) when you have it.
@@ -54,7 +57,7 @@ Every bash command is checked against this agent's allowlist, each part of a com
 
 ## Preferred tools
 
-Starting, waiting for and stopping processes through raw bash is what this agent cannot do reliably (background jobs, PID files and polling loops are not in your allowlist). Use the tools; they bypass those limits and always clean up.
+Starting, waiting for and stopping processes through raw bash is unreliable (background jobs, PID files and polling loops). Use the tools; they are bounded and always clean up.
 
 - **`pipeline_env`** (call it first, once): what the host offers (Docker daemon, database binaries, contract in `.opencode/pipeline.json`, declared services, sub-projects) and a `verification_outlook`. If it says something cannot run here (no Docker and no native database, no contract), that is an `env` result: report it immediately instead of discovering it command by command.
 - **`pipeline_smoke`**: the whole empirical validation as one bounded operation (lock, free port, background start, readiness wait, checks, guaranteed stop and port-free verification) from the `smoke` section of `.opencode/pipeline.json`. If the smoke section lists `services` (for example a database), they are started first and stopped after. Its `failure_class_hint` (`code` | `env` | `harness` | `unclassified`) is evidence, not a verdict: confirm it before reporting.
@@ -144,20 +147,11 @@ Never report `code` unless the service was healthy and the check is a real contr
 
 ## Command categories
 
-These are the commands your allowlist accepts (anything else is rejected: do not try it):
+Shell access is broad and semantic, with a few gates:
 
-| Category | Typical commands |
-|----------|-----------------|
-| **Cloud Logging** | `gcloud logging read`, `gcloud app logs tail`, `gcloud run logs read`, `gcloud functions logs read` |
-| **Container/Docker** | `docker ps`, `docker logs`, `docker compose up/down/logs`, `docker exec`, `docker inspect` |
-| **Kubernetes** | `kubectl get`, `kubectl logs`, `kubectl describe`, `kubectl top`, `kubectl port-forward` |
-| **HTTP/API** | `curl -sS`, `curl -v`, `curl --retry N --retry-connrefused` for bounded waits |
-| **Build & Runtime** | `npm run`, `yarn`, `python3`, `go run`, `gradle`, `mvn`, `cargo` (prefer `pipeline_verify`) |
-| **Database (read-only, asks the user)** | `pg_isready`, `psql -c "SELECT ..."`, `mysql -e "SELECT ..."`, `mongosh --eval "db.collection.find()"`, `redis-cli` |
-| **Environment** | `pipeline_env` (tools, services, env var names — never values), `which`, `command -v`, `whoami`, `uname -a`, `test -S <socket>`. Never print env values or read `.env` files. |
-| **Files and logs** | `ls`, `cat`, `head`, `tail -n` (not on `.env` files) |
-| **Process/Network** | `ps aux`, `lsof -nP -iTCP -sTCP:LISTEN`, `netstat -an`, `ss -tlnp`, `nc -z` |
-| **Cloud Infra** | `gcloud run services describe`, `gcloud app instances list`, `aws ec2 describe-instances`, `terraform plan` |
+- Diagnostics, service lifecycles, infrastructure CLIs and general tooling are allowed.
+- Privileged commands (`sudo`), database shells and deploy operations (deploy, apply, submit, push, release create, workflow run, install, upgrade, rollback, patch, scale, rollout, vercel) ask for confirmation.
+- Secrets (`.env` files, `env`, `printenv`) and destructive operations (delete, destroy, prune, uninstall, terminate, terraform import, kubectl edit, publishing/upload, `down -v`, forced or recursive `rm`) are denied.
 
 ## Output format
 

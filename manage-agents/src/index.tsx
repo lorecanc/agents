@@ -187,7 +187,93 @@ async function runTranslationWizard(
   return next
 }
 
+const BRIDGE_CHECK_HELP = `
+Usage: manage-agents bridge check [options]
+
+Regenerate every committed bridge in a temporary workspace and compare it
+byte-exact with the files committed under export/bridges/.
+
+Options:
+  --category, -c <name>   Only check bridges of this category
+  --target, -t <name>     Only check claude or codex (default: both)
+  --help, -h              Show this help
+`
+
+async function runBridgeCheck(workspaceRoot: string) {
+  const args = process.argv.slice(4)
+  let category = ""
+  let targetFilter: TranslationTarget | "" = ""
+
+  for (let i = 0; i < args.length; i++) {
+    if ((args[i] === "--category" || args[i] === "-c") && args[i + 1]) {
+      category = args[++i]
+    } else if ((args[i] === "--target" || args[i] === "-t") && args[i + 1]) {
+      const requested = args[++i].toLowerCase()
+      if (requested !== "claude" && requested !== "codex") throw new Error("--target must be claude or codex")
+      targetFilter = requested
+    } else if (args[i] === "--help" || args[i] === "-h") {
+      console.log(BRIDGE_CHECK_HELP)
+      process.exit(0)
+    } else {
+      throw new Error(`Unknown option for 'bridge check': ${args[i]}`)
+    }
+  }
+
+  // Check-only runs must never migrate or persist the translation config.
+  const config = loadTranslationConfig(workspaceRoot, undefined, { persistMigration: false })
+  const bridgesRoot = path.join(workspaceRoot, fs.existsSync(path.join(workspaceRoot, "export")) ? path.join("export", "bridges") : "bridges")
+  const folders: Array<{ target: "claude" | "codex"; folder: string }> = [
+    { target: "claude" as const, folder: "claude-code" },
+    { target: "codex" as const, folder: "codex" }
+  ].filter(entry => !targetFilter || entry.target === targetFilter)
+
+  // Without --category, every committed bridge directory is checked and its
+  // category comes from the configured prefix.
+  const derivedCategory = (config.prefix || "").replace(/-$/, "")
+  const checks: Array<{ label: string; target: "claude" | "codex"; category: string; committedDir: string }> = []
+  for (const { target, folder } of folders) {
+    const folderPath = path.join(bridgesRoot, folder)
+    if (category) {
+      const pluginName = sanitizeFilename(config.pluginName || DEFAULT_TRANSLATION_CONFIG.pluginName)
+      checks.push({ label: `${folder}/${pluginName}`, target, category, committedDir: path.join(folderPath, pluginName) })
+      continue
+    }
+    if (!fs.existsSync(folderPath)) continue
+    for (const entry of fs.readdirSync(folderPath, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue
+      const relative = path.relative(workspaceRoot, path.join(folderPath, entry.name))
+      if (!derivedCategory) {
+        throw new Error(`Cannot map bridge '${relative}' to a category: set 'prefix' in .agent-manager/translation-config.json or pass --category`)
+      }
+      checks.push({ label: `${folder}/${entry.name}`, target, category: derivedCategory, committedDir: path.join(folderPath, entry.name) })
+    }
+  }
+  if (checks.length === 0) throw new Error(`No bridges found under ${bridgesRoot}`)
+
+  const { checkBridge } = await import("./utils/bridgeCheck.js")
+  let drifted = false
+  for (const check of checks) {
+    const result = checkBridge({ workspaceRoot, target: check.target, category: check.category, config, committedDir: check.committedDir })
+    if (result.clean) {
+      console.log(`Bridge ${check.label} (category ${check.category}): current.`)
+      continue
+    }
+    drifted = true
+    console.log(`Bridge ${check.label} (category ${check.category}): drift.`)
+    for (const file of result.missing) console.log(`  missing ${file} (not emitted by a fresh regeneration)`)
+    for (const file of result.changed) console.log(`  changed ${file} (content differs from a fresh regeneration)`)
+    for (const file of result.extra) console.log(`  extra   ${file} (stale file no longer generated)`)
+    console.log(`  Regenerate with: node manage-agents/manage-agents.mjs bridge --category ${check.category} --target ${check.target}`)
+  }
+  if (drifted) process.exitCode = 1
+}
+
 async function runBridge(workspaceRoot: string) {
+  if (process.argv[3] === "check") {
+    await runBridgeCheck(workspaceRoot)
+    return
+  }
+
   const { findAgentFiles } = await import("./utils/agents.js")
 
   // Parse CLI args. The wizard persists reusable mappings in a translation
@@ -248,6 +334,10 @@ async function runBridge(workspaceRoot: string) {
     } else if (args[i] === "--help" || args[i] === "-h") {
       console.log(`
 Usage: manage-agents bridge [options]
+       manage-agents bridge check [options]
+
+Subcommands:
+  check                   Verify committed bridges match a fresh regeneration
 
 Options:
   --category, -c <name>   Category to bridge (e.g. copilot-pipeline)
