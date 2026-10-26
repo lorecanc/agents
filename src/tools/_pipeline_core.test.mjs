@@ -192,6 +192,38 @@ test("checkBash: post_session may add explicit files and commit, nothing broader
   }
 })
 
+test("checkBash: recursive or forced rm is blocked in every whitespace spelling", () => {
+  const ctx = ctxFor(mkRepo())
+  const blocked = [
+    "rm\t-rf dist", "rm  -rf dist", "rm -fr dist", "rm --recursive dist",
+    "rm dist -rf", "env rm -rf dist", "bash -c 'rm\t-rf x'",
+  ]
+  for (const role of ["ops", "executor", "tester"]) {
+    for (const cmd of blocked) {
+      assert.ok(checkBash(cmd, role, ctx), `should block for ${role}: ${JSON.stringify(cmd)}`)
+    }
+    for (const cmd of ["rm a.txt", "rm -i a.txt"]) {
+      assert.equal(checkBash(cmd, role, ctx), null, `should allow for ${role}: ${cmd}`)
+    }
+  }
+})
+
+test("checkBash: privilege-escalation binaries are never allowed", () => {
+  const ctx = ctxFor(mkRepo())
+  for (const role of ["executor", "tester", "explorer", "ops", "post_session"]) {
+    for (const cmd of ["sudo ls", "doas ls", "su -", "pkexec ls", "sudoedit /etc/x"]) {
+      assert.ok(checkBash(cmd, role, ctx), `should block for ${role}: ${cmd}`)
+    }
+  }
+})
+
+test("checkBash: git push stays blocked for ops in every whitespace spelling", () => {
+  const ctx = ctxFor(mkRepo())
+  for (const cmd of ["git push", "git  push", "git\t push"]) {
+    assert.ok(checkBash(cmd, "ops", ctx), `should block for ops: ${JSON.stringify(cmd)}`)
+  }
+})
+
 test("checkBash: writes outside the repository are blocked, scratch and repo paths are fine", () => {
   const dir = mkRepo()
   const ctx = ctxFor(dir)
@@ -200,16 +232,16 @@ test("checkBash: writes outside the repository are blocked, scratch and repo pat
     "echo hi > /etc/x.txt", "curl https://example.com -o ~/a.html", "sed -i '' 's/a/b/' ~/x",
     "cat a.txt >> ~/notes.md", "mv a.txt /var/folders/x/a.txt",
     "cd ~/ && ls", "cd ../ && ls", "echo x > ../outside.txt",
-    "sed -i 's/a/b/' /etc/hosts", "sudo ls",
+    "sed -i 's/a/b/' /etc/hosts", "sudo ls", "rm -rf /tmp/work", "rm -rf dist",
     "cp a.txt .git/hooks/pre-commit", "echo x > .git/config",
   ]) {
     assert.ok(checkBash(cmd, "executor", ctx), `should block: ${cmd}`)
   }
   for (const cmd of [
     "echo hi > out.txt", "git status > /tmp/x", "echo hi > /tmp/x.txt", "curl https://example.com -o /tmp/a.html", "sed -i '' 's/a/b/' /tmp/x",
-    "cp a.txt /tmp/a.txt", "mkdir -p /tmp/work", "rm -rf /tmp/work", "tee /tmp/x < a.txt", "curl -s -o /tmp/r.json http://x",
+    "cp a.txt /tmp/a.txt", "mkdir -p /tmp/work", "tee /tmp/x < a.txt", "curl -s -o /tmp/r.json http://x",
     "wget -O /tmp/f http://x", "dd if=a.txt of=/tmp/o", "echo $(cat a.txt > /tmp/z)", "mktemp /tmp/xxx",
-    "echo hi > /dev/null", "cmd 2>&1", "cmd >&2", "cp a.txt c.txt", "mkdir -p src/new", "rm -rf dist",
+    "echo hi > /dev/null", "cmd 2>&1", "cmd >&2", "cp a.txt c.txt", "mkdir -p src/new",
     `echo x > ${scratch}/log.txt`, "echo x > $TMPDIR/log.txt", "echo x > $PIPELINE_SCRATCH/log.txt",
     "mktemp", "npm test", "ls /usr/bin", "cat /etc/hosts", "cp /usr/share/x ./local", "curl -s http://localhost:3000/health",
     "timeout 10 npm test", "chmod +x script.sh", "sed -i 's/a/b/' a.txt", "echo ${HOME} > out.txt",

@@ -59,6 +59,14 @@ permission:
     "* scale*": ask
     "* rollout*": ask
     "vercel *": ask
+    "ssh *": ask
+    "scp *": ask
+    "sftp *": ask
+    "rsync *": ask
+    "telnet *": ask
+    "mosh *": ask
+    "socat *": ask
+    "nmap *": ask
     "* rm *": deny
     "* delete*": deny
     "*--delete*": deny
@@ -71,6 +79,24 @@ permission:
     "terraform * import*": deny
     "kubectl edit*": deny
     "kubectl * edit*": deny
+    "set": deny
+    "export -p*": deny
+    "declare -p*": deny
+    "/usr/bin/env*": deny
+    "/usr/bin/printenv*": deny
+    "shutdown*": deny
+    "sudo shutdown*": deny
+    "reboot*": deny
+    "poweroff*": deny
+    "halt*": deny
+    "init 0*": deny
+    "init 6*": deny
+    "mkfs*": deny
+    "systemctl reboot*": deny
+    "systemctl poweroff*": deny
+    "systemctl halt*": deny
+    "systemctl suspend*": deny
+    "systemctl hibernate*": deny
     "npm publish*": deny
     "pnpm publish*": deny
     "yarn publish*": deny
@@ -123,8 +149,8 @@ REMAINING_SCOPE: none | <what is left, specific enough for a resumed session to 
 Bash is broadly allowed — diagnostics, service lifecycles, infrastructure CLIs and general tooling need no enumeration. A few semantic gates still apply, each part of a compound command is checked separately, and the pipeline guard blocks writes outside the repository. To avoid needless rejections:
 
 - **Secrets are off limits**: commands that touch `.env` files are denied, as are `env` and `printenv`; `.env.example` and `.env.sample` remain readable.
-- **Confirmation required**: `sudo`, the database shells (`psql`, `mysql`, `mongosh`, `redis-cli`) and deploy commands (`deploy`, `apply`, `submit`, `push`, `release create`, `workflow run`, `install`, `upgrade`, `rollback`, `patch`, `scale`, `rollout`, `vercel`) ask the user before running.
-- **Destructive operations are denied** (`delete`, `destroy`, `prune`, `uninstall`, `down -v`, `docker rm`, `terminate`, `terraform import`, `kubectl edit`, publishing/upload); a solitary `rm` asks, and forced or recursive `rm` is denied.
+- **Confirmation required**: `sudo`, the database shells (`psql`, `mysql`, `mongosh`, `redis-cli`), remote access (`ssh`, `rsync`) and deploy commands (`deploy`, `apply`, `submit`, `push`, `release create`, `workflow run`, `install`, `upgrade`, `rollback`, `patch`, `scale`, `rollout`, `vercel`) ask the user before running.
+- **Destructive operations are denied** (`delete`, `destroy`, `prune`, `uninstall`, `down -v`, `docker rm`, `terminate`, `terraform import`, `kubectl edit`, publishing/upload); a solitary `rm` asks, forced or recursive `rm` is denied, and host power (`shutdown`, `reboot`, `mkfs`) or env dumps (`set`, `declare -p`) are blocked.
 - One command per call. Avoid `&&`, `;`, `|` and subshells unless every part is a command you are allowed to run.
 - Set the directory with the bash tool's `workdir` parameter instead of `cd dir && ...`.
 - Do not prefix commands with variable assignments (`VAR=value cmd`). For checks that need a subdirectory, env or services (for example a database), use `pipeline_verify` (`workspace`, `filter`, `with_services`) when you have it.
@@ -141,7 +167,7 @@ Bash is broadly allowed — diagnostics, service lifecycles, infrastructure CLIs
 
 ## Preferred tools
 
-Starting, waiting for and stopping processes through raw bash is what this agent cannot do reliably (background jobs, PID files and polling loops are not in your allowlist). Use the tools; they bypass those limits and always clean up.
+Starting, waiting for and stopping processes through raw bash is unreliable (background jobs, PID files and polling loops). Use the tools; they are bounded and always clean up.
 
 - **`pipeline_env`** (call it first, once): what the host offers (Docker daemon, database binaries, contract in `.opencode/pipeline.json`, declared services, sub-projects) and a `verification_outlook`. If it says something cannot run here (no Docker and no native database, no contract), that is an `env` result: report it immediately instead of discovering it command by command.
 - **`pipeline_smoke`**: the whole empirical validation as one bounded operation (lock, free port, background start, readiness wait, checks, guaranteed stop and port-free verification) from the `smoke` section of `.opencode/pipeline.json`. If the smoke section lists `services` (for example a database), they are started first and stopped after. Its `failure_class_hint` (`code` | `env` | `harness` | `unclassified`) is evidence, not a verdict: confirm it before reporting.
@@ -231,7 +257,7 @@ Never report `code` unless the service was healthy and the check is a real contr
 
 ## Command categories
 
-Shell access is semantic rather than an enumerated allowlist:
+Shell access is broad and semantic, with a few gates:
 
 - Diagnostics, service lifecycles, infrastructure CLIs and general tooling are allowed.
 - Privileged commands (`sudo`), database shells and deploy operations (deploy, apply, submit, push, release create, workflow run, install, upgrade, rollback, patch, scale, rollout, vercel) ask for confirmation.

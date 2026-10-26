@@ -178,7 +178,7 @@
       ]
     },
     "ops-trusted-shell": {
-      "description": "Broad semantic access: catch-all allow, with secret, destructive, and privilege gates layered after it.",
+      "description": "Broad semantic access: catch-all allow, with secret, env-dump, destructive, lateral-movement, host-DoS, and privilege gates layered after it.",
       "rules": [
         ["*", "allow"],
         ["env", "deny"],
@@ -206,6 +206,14 @@
         ["* scale*", "ask"],
         ["* rollout*", "ask"],
         ["vercel *", "ask"],
+        ["ssh *", "ask"],
+        ["scp *", "ask"],
+        ["sftp *", "ask"],
+        ["rsync *", "ask"],
+        ["telnet *", "ask"],
+        ["mosh *", "ask"],
+        ["socat *", "ask"],
+        ["nmap *", "ask"],
         ["* rm *", "deny"],
         ["* delete*", "deny"],
         ["*--delete*", "deny"],
@@ -217,7 +225,25 @@
         ["terraform import*", "deny"],
         ["terraform * import*", "deny"],
         ["kubectl edit*", "deny"],
-        ["kubectl * edit*", "deny"]
+        ["kubectl * edit*", "deny"],
+        ["set", "deny"],
+        ["export -p*", "deny"],
+        ["declare -p*", "deny"],
+        ["/usr/bin/env*", "deny"],
+        ["/usr/bin/printenv*", "deny"],
+        ["shutdown*", "deny"],
+        ["sudo shutdown*", "deny"],
+        ["reboot*", "deny"],
+        ["poweroff*", "deny"],
+        ["halt*", "deny"],
+        ["init 0*", "deny"],
+        ["init 6*", "deny"],
+        ["mkfs*", "deny"],
+        ["systemctl reboot*", "deny"],
+        ["systemctl poweroff*", "deny"],
+        ["systemctl halt*", "deny"],
+        ["systemctl suspend*", "deny"],
+        ["systemctl hibernate*", "deny"]
       ]
     },
     "audit-tools": {

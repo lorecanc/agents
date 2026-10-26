@@ -180,11 +180,14 @@ const FIXTURES: Record<string, Partial<Record<BashAction, string[]>>> = {
   },
   ops: {
     allow: ["which psql", "pg_isready -h 127.0.0.1 -p 5432", "ls /var/run/docker.sock", "docker compose up -d db", "curl --retry 10 --retry-connrefused -fsS http://127.0.0.1:8000/health", "cat .env.example", "cat .env.sample", "tail -n 50 log.txt", "uname -a",
-      "hostnamectl", "journalctl -b -1", "lsblk", "sensors", "dmidecode -t memory", "smartctl -a /dev/nvme0", "docker info"],
+      "hostnamectl", "journalctl -b -1", "lsblk", "sensors", "dmidecode -t memory", "smartctl -a /dev/nvme0", "docker info",
+      "systemctl is-active nginx", "systemctl status nginx", "systemctl list-units --type=service", "journalctl -u nginx -n 50", "set -e"],
     deny: ["cat .env", "cat ./.env", "cat ../.env", "cat ~/.env", `cat "$HOME/.env"`, `cat ".env"`, "tail -n 5 .env.local", "cp .env .env.example", "diff .env .env.example", "grep KEY .env .env.example", "cat .env .env.example", "docker system prune -f", "kubectl delete pod x", "kubectl delete deployment x", "kubectl delete -f deployment.yaml", "gcloud deployment-manager deployments delete x", "git push --delete origin b", "docker rm -f x", "docker compose down -v", "env", "printenv", "sudo rm -rf /tmp/x",
-      "npm publish", "pnpm publish", "cargo publish", "twine upload dist/x", "aws ec2 terminate-instances --instance-ids i-1", "kubectl edit configmap c", "terraform import a.b id", "helm uninstall rel"],
+      "npm publish", "pnpm publish", "cargo publish", "twine upload dist/x", "aws ec2 terminate-instances --instance-ids i-1", "kubectl edit configmap c", "terraform import a.b id", "helm uninstall rel",
+      "shutdown", "shutdown -h now", "reboot", "reboot -f", "poweroff", "halt", "mkfs.ext4 /dev/sda1", "systemctl reboot", "systemctl poweroff", "sudo shutdown -h now", "set", "export -p", "declare -p", "/usr/bin/env", "/usr/bin/printenv"],
     ask: [`psql -c "SELECT 1"`, "gcloud run deploy x", "sudo smartctl -a /dev/nvme0", "kubectl apply -f x", "docker push x", "git push",
-      "helm install rel chart", "helm upgrade rel chart", "helm rollback rel 1", "kubectl patch configmap c -p {}", "kubectl scale sts db --replicas=0", "kubectl rollout restart daemonset x", "vercel --prod"]
+      "helm install rel chart", "helm upgrade rel chart", "helm rollback rel 1", "kubectl patch configmap c -p {}", "kubectl scale sts db --replicas=0", "kubectl rollout restart daemonset x", "vercel --prod",
+      "ssh user@host", "scp f.txt host:/tmp/", "rsync -a a.txt host:/tmp/", "nmap -p 22 host"]
   },
   reader: {
     allow: [`git diff -- ".github/workflows/ci.yml"`, "git log --oneline -5", "cd src"],

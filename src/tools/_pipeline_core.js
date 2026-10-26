@@ -639,7 +639,7 @@ export function executeCommit(info, plan, message, trailers = []) {
 
 const WRAPPERS = new Set(["env", "command", "time", "nohup", "exec", "builtin", "xargs", "nice", "setsid", "stdbuf", "timeout", "gtimeout"])
 const SHELLS = new Set(["sh", "bash", "zsh", "dash", "ksh"])
-const NEVER = new Set(["sudo", "doas", "su"])
+const NEVER = new Set(["sudo", "doas", "su", "pkexec", "sudoedit"])
 
 const GIT_READ = new Set([
   "status", "diff", "log", "show", "ls-files", "rev-parse", "blame", "grep", "ls-tree", "cat-file",
@@ -1190,6 +1190,9 @@ function checkSegment(tokens, role, ctx, depth = 0) {
     if (subcmd) return checkBash(subcmd, role, ctx, depth + 1)
   }
   if (NEVER.has(cmd)) return `${cmd} is not allowed.`
+  if (cmd === "rm" && args.some((a) => /^--(?:recursive|force)/.test(a) || /^-[^-]*[rRfF]/.test(a))) {
+    return "recursive or forced rm is not allowed."
+  }
   if (cmd === "git") return checkGitCommand(args, role, ctx)
   if (cmd === "cd" || cmd === "pushd") {
     const target = args.find((a) => !a.startsWith("-"))
