@@ -73,10 +73,17 @@
     "cp_nightly-pipeline-reasoner": "planning"
   },
   "claude": {
-    "overrides": {}
+    "overrides": {},
+    "modelMap": {},
+    "emitMarketplace": true,
+    "emitCommands": true,
+    "emitSkills": true,
+    "autoValidate": true,
+    "autoRegister": true
   },
   "codex": {
     "overrides": {},
+    "modelMap": {},
     "emitSkills": true,
     "emitReadme": true
   }
