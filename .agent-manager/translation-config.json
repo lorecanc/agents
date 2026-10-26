@@ -26,6 +26,16 @@
         "model": "gpt-5.6-luna",
         "reasoningEffort": "max"
       }
+    },
+    "light": {
+      "description": "Cheap lightweight agents",
+      "claude": {
+        "model": "haiku"
+      },
+      "codex": {
+        "model": "gpt-5.6-luna",
+        "reasoningEffort": "max"
+      }
     }
   },
   "roles": {
@@ -34,8 +44,8 @@
     "reasoner": "planning",
     "critic": "execution",
     "code_reviewer": "execution",
-    "executor": "execution",
-    "explorer": "execution",
+    "executor": "light",
+    "explorer": "light",
     "refactorer": "execution",
     "tester": "execution",
     "fast_lane": "execution",

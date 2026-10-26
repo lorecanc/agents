@@ -2,7 +2,7 @@
 name: explorer
 description: Fast read-only codebase explorer. Locates relevant files, patterns,
   tests, configs, and implementation context before planning or coding.
-model: sonnet
+model: haiku
 tools: Read, Grep, Glob, Bash, Skill, LSP, mcp__codebase-memory-mcp__*,
   mcp__plugin_decent-pipeline_codebase-memory-mcp__*
 ---

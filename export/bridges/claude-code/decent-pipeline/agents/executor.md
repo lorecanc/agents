@@ -2,7 +2,7 @@
 name: executor
 description: Focused implementation agent. Applies small, plan-driven code
   changes without expanding scope.
-model: sonnet
+model: haiku
 tools: Read, Grep, Glob, Write, Edit, Bash, Skill, LSP,
   mcp__codebase-memory-mcp__*,
   mcp__plugin_decent-pipeline_codebase-memory-mcp__*
