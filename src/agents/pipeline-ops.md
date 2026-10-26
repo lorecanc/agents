@@ -33,167 +33,50 @@ permission:
   glob: allow
   lsp: allow
   bash:
-    "*": deny
-    "cd *": allow
-    "docker *": allow
-    "docker-compose *": allow
-    "kubectl *": allow
-    "helm *": allow
-    "gcloud *": allow
-    "aws *": allow
-    "az *": allow
-    "terraform *": allow
-    "gh *": allow
-    "firebase *": allow
-    "fly *": allow
-    "flyctl *": allow
-    "wrangler *": allow
-    "curl *": allow
-    "nc *": allow
-    "lsof *": allow
-    "ps *": allow
-    "kill *": allow
-    "ls *": allow
-    "cat *": allow
-    "head *": allow
-    "tail *": allow
-    "cat *.env*": deny
-    "head *.env*": deny
-    "tail *.env*": deny
-    "cat *.env.example*": allow
-    "cat *.env.sample*": allow
-    "which *": allow
-    "command -v *": allow
-    "whoami": allow
-    "uname*": allow
-    "test *": allow
-    "sleep *": allow
-    "ss *": allow
-    "netstat *": allow
-    "pg_isready*": allow
+    "*": allow
+    "env": deny
+    "env *": deny
+    "printenv*": deny
+    "*.env*": deny
+    "cat .env.example": allow
+    "cat .env.sample": allow
+    "sudo *": ask
     "psql *": ask
     "mysql *": ask
     "mongosh *": ask
     "redis-cli *": ask
-    "mkdir -p *": allow
     "rm *": ask
-    "node *": allow
-    "npm *": allow
-    "npx *": allow
-    "pnpm *": allow
-    "yarn *": allow
-    "bun *": allow
-    "deno *": allow
-    "python *": allow
-    "python3 *": allow
-    "pytest*": allow
-    "uv *": allow
-    "poetry *": allow
-    "pip *": allow
-    "pip3 *": allow
-    "go *": allow
-    "cargo *": allow
-    "rustc *": allow
-    "make*": allow
-    "cmake *": allow
-    "gradle *": allow
-    "./gradlew*": allow
-    "mvn *": allow
-    "./mvnw*": allow
-    "dotnet *": allow
-    "bundle *": allow
-    "rake*": allow
-    "rspec*": allow
-    "composer *": allow
-    "php *": allow
-    "swift *": allow
-    "xcodebuild *": allow
-    "xcrun *": allow
-    "git status*": allow
-    "git diff*": allow
-    "git diff *--output*": deny
-    "git log*": allow
-    "git show*": allow
-    "git rev-parse*": allow
-    "git merge-base*": allow
-    "git branch --show-current*": allow
-    "git fetch*": allow
-    "git fetch *--upload-pack*": deny
-    "git fetch *ext::*": deny
-    "git pull*": allow
-    "git pull *--upload-pack*": deny
-    "git pull *ext::*": deny
-    "git merge*": allow
-    "git rebase*": allow
-    "git rebase *-i*": deny
-    "git rebase *--interactive*": deny
-    "git rebase *-x*": deny
-    "git rebase *--exec*": deny
-    "git cherry-pick*": allow
-    "gcloud * deploy*": ask
-    "gcloud *builds submit*": ask
-    "kubectl apply*": ask
-    "kubectl * apply*": ask
-    "kubectl patch*": ask
-    "kubectl * patch*": ask
-    "kubectl scale*": ask
-    "kubectl * scale*": ask
-    "kubectl rollout*": ask
-    "kubectl * rollout*": ask
-    "helm install*": ask
-    "helm * install*": ask
-    "helm upgrade*": ask
-    "helm * upgrade*": ask
-    "helm rollback*": ask
-    "helm * rollback*": ask
-    "terraform apply*": ask
-    "terraform * apply*": ask
-    "firebase deploy*": ask
-    "firebase * deploy*": ask
+    "* install*": ask
+    "* deploy*": ask
+    "* apply*": ask
+    "* submit*": ask
+    "* push*": ask
+    "* release create*": ask
+    "* workflow run*": ask
+    "* upgrade*": ask
+    "* rollback*": ask
+    "* patch*": ask
+    "* scale*": ask
+    "* rollout*": ask
     "vercel *": ask
-    "fly deploy*": ask
-    "fly * deploy*": ask
-    "flyctl deploy*": ask
-    "flyctl * deploy*": ask
-    "wrangler deploy*": ask
-    "wrangler * deploy*": ask
-    "docker push*": ask
-    "docker * push*": ask
-    "gh release create*": ask
-    "gh * release create*": ask
-    "gh workflow run*": ask
-    "gh * workflow run*": ask
-    "docker rm -f*": deny
-    "docker * rm -f*": deny
-    "docker system prune*": deny
-    "docker * system prune*": deny
-    "docker volume prune*": deny
-    "docker * volume prune*": deny
-    "docker compose down -v*": deny
-    "docker * compose down -v*": deny
-    "docker-compose down -v*": deny
-    "docker-compose * down -v*": deny
-    "kubectl delete*": deny
-    "kubectl * delete*": deny
-    "kubectl edit*": deny
-    "kubectl * edit*": deny
-    "helm uninstall*": deny
-    "helm * uninstall*": deny
-    "helm delete*": deny
-    "helm * delete*": deny
-    "terraform destroy*": deny
-    "terraform * destroy*": deny
+    "* rm *": deny
+    "* delete*": deny
+    "*--delete*": deny
+    "* destroy*": deny
+    "* prune*": deny
+    "* uninstall*": deny
+    "* down -v*": deny
+    "* terminate*": deny
     "terraform import*": deny
     "terraform * import*": deny
-    "gcloud * delete*": deny
-    "aws * delete*": deny
-    "aws * terminate*": deny
-    "az * delete*": deny
-    "gh repo delete*": deny
-    "gh * repo delete*": deny
-    "gh release delete*": deny
-    "gh * release delete*": deny
+    "kubectl edit*": deny
+    "kubectl * edit*": deny
     "npm publish*": deny
+    "pnpm publish*": deny
+    "yarn publish*": deny
+    "bun publish*": deny
+    "cargo publish*": deny
+    "twine upload*": deny
     "rm -r*": deny
     "rm -f*": deny
     "rm -rf /*": deny
@@ -237,8 +120,11 @@ REMAINING_SCOPE: none | <what is left, specific enough for a resumed session to 
 
 ## Shell rules (how bash permissions work here)
 
-Every bash command is checked against this agent's allowlist, each part of a compound command separately, and the pipeline guard blocks writes outside the repository. To avoid needless rejections:
+Bash is broadly allowed — diagnostics, service lifecycles, infrastructure CLIs and general tooling need no enumeration. A few semantic gates still apply, each part of a compound command is checked separately, and the pipeline guard blocks writes outside the repository. To avoid needless rejections:
 
+- **Secrets are off limits**: commands that touch `.env` files are denied, as are `env` and `printenv`; `.env.example` and `.env.sample` remain readable.
+- **Confirmation required**: `sudo`, the database shells (`psql`, `mysql`, `mongosh`, `redis-cli`) and deploy commands (`deploy`, `apply`, `submit`, `push`, `release create`, `workflow run`, `install`, `upgrade`, `rollback`, `patch`, `scale`, `rollout`, `vercel`) ask the user before running.
+- **Destructive operations are denied** (`delete`, `destroy`, `prune`, `uninstall`, `down -v`, `docker rm`, `terminate`, `terraform import`, `kubectl edit`, publishing/upload); a solitary `rm` asks, and forced or recursive `rm` is denied.
 - One command per call. Avoid `&&`, `;`, `|` and subshells unless every part is a command you are allowed to run.
 - Set the directory with the bash tool's `workdir` parameter instead of `cd dir && ...`.
 - Do not prefix commands with variable assignments (`VAR=value cmd`). For checks that need a subdirectory, env or services (for example a database), use `pipeline_verify` (`workspace`, `filter`, `with_services`) when you have it.
@@ -345,20 +231,11 @@ Never report `code` unless the service was healthy and the check is a real contr
 
 ## Command categories
 
-These are the commands your allowlist accepts (anything else is rejected: do not try it):
+Shell access is semantic rather than an enumerated allowlist:
 
-| Category | Typical commands |
-|----------|-----------------|
-| **Cloud Logging** | `gcloud logging read`, `gcloud app logs tail`, `gcloud run logs read`, `gcloud functions logs read` |
-| **Container/Docker** | `docker ps`, `docker logs`, `docker compose up/down/logs`, `docker exec`, `docker inspect` |
-| **Kubernetes** | `kubectl get`, `kubectl logs`, `kubectl describe`, `kubectl top`, `kubectl port-forward` |
-| **HTTP/API** | `curl -sS`, `curl -v`, `curl --retry N --retry-connrefused` for bounded waits |
-| **Build & Runtime** | `npm run`, `yarn`, `python3`, `go run`, `gradle`, `mvn`, `cargo` (prefer `pipeline_verify`) |
-| **Database (read-only, asks the user)** | `pg_isready`, `psql -c "SELECT ..."`, `mysql -e "SELECT ..."`, `mongosh --eval "db.collection.find()"`, `redis-cli` |
-| **Environment** | `pipeline_env` (tools, services, env var names — never values), `which`, `command -v`, `whoami`, `uname -a`, `test -S <socket>`. Never print env values or read `.env` files. |
-| **Files and logs** | `ls`, `cat`, `head`, `tail -n` (not on `.env` files) |
-| **Process/Network** | `ps aux`, `lsof -nP -iTCP -sTCP:LISTEN`, `netstat -an`, `ss -tlnp`, `nc -z` |
-| **Cloud Infra** | `gcloud run services describe`, `gcloud app instances list`, `aws ec2 describe-instances`, `terraform plan` |
+- Diagnostics, service lifecycles, infrastructure CLIs and general tooling are allowed.
+- Privileged commands (`sudo`), database shells and deploy operations (deploy, apply, submit, push, release create, workflow run, install, upgrade, rollback, patch, scale, rollout, vercel) ask for confirmation.
+- Secrets (`.env` files, `env`, `printenv`) and destructive operations (delete, destroy, prune, uninstall, terminate, terraform import, kubectl edit, publishing/upload, `down -v`, forced or recursive `rm`) are denied.
 
 ## Output format
 

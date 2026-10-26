@@ -179,9 +179,12 @@ const FIXTURES: Record<string, Partial<Record<BashAction, string[]>>> = {
     ask: ["git push"]
   },
   ops: {
-    allow: ["which psql", "pg_isready -h 127.0.0.1 -p 5432", "ls /var/run/docker.sock", "docker compose up -d db", "curl --retry 10 --retry-connrefused -fsS http://127.0.0.1:8000/health", "cat .env.example", "tail -n 50 log.txt", "uname -a"],
-    deny: ["cat .env", "tail -n 5 .env.local", "docker system prune -f", "kubectl delete pod x", "env", "printenv"],
-    ask: [`psql -c "SELECT 1"`, "gcloud run deploy x"]
+    allow: ["which psql", "pg_isready -h 127.0.0.1 -p 5432", "ls /var/run/docker.sock", "docker compose up -d db", "curl --retry 10 --retry-connrefused -fsS http://127.0.0.1:8000/health", "cat .env.example", "cat .env.sample", "tail -n 50 log.txt", "uname -a",
+      "hostnamectl", "journalctl -b -1", "lsblk", "sensors", "dmidecode -t memory", "smartctl -a /dev/nvme0", "docker info"],
+    deny: ["cat .env", "cat ./.env", "cat ../.env", "cat ~/.env", `cat "$HOME/.env"`, `cat ".env"`, "tail -n 5 .env.local", "cp .env .env.example", "diff .env .env.example", "grep KEY .env .env.example", "cat .env .env.example", "docker system prune -f", "kubectl delete pod x", "kubectl delete deployment x", "kubectl delete -f deployment.yaml", "gcloud deployment-manager deployments delete x", "git push --delete origin b", "docker rm -f x", "docker compose down -v", "env", "printenv", "sudo rm -rf /tmp/x",
+      "npm publish", "pnpm publish", "cargo publish", "twine upload dist/x", "aws ec2 terminate-instances --instance-ids i-1", "kubectl edit configmap c", "terraform import a.b id", "helm uninstall rel"],
+    ask: [`psql -c "SELECT 1"`, "gcloud run deploy x", "sudo smartctl -a /dev/nvme0", "kubectl apply -f x", "docker push x", "git push",
+      "helm install rel chart", "helm upgrade rel chart", "helm rollback rel 1", "kubectl patch configmap c -p {}", "kubectl scale sts db --replicas=0", "kubectl rollout restart daemonset x", "vercel --prod"]
   },
   reader: {
     allow: [`git diff -- ".github/workflows/ci.yml"`, "git log --oneline -5", "cd src"],
@@ -243,6 +246,8 @@ const PROMPT_SCAN_IGNORE: Record<string, string[]> = {
   "pipeline-refactorer.md": ["git add/commit/reset/clean/switch/push"],
   // "do not run `git add/commit/...`", "Never use `git stash`, `git checkout`" (prohibitions)
   "pipeline-tester.md": ["git add/commit/reset/clean/checkout/restore/rebase/merge/push", "git stash", "git checkout"],
+  // "Destructive operations are denied (... `terraform import`, `kubectl edit` ...)" (prohibition)
+  "pipeline-ops.md": ["terraform import", "kubectl edit"],
   // install command recommended to the user in the component report; the agent has bash: deny
   "pipeline-frontend_specialist.md": ["npx shadcn@latest add <component>"]
 }
