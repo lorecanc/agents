@@ -25,11 +25,15 @@ import {
 
 const agent = (filename: string): any => ({ filename })
 
-test("translation defaults define the planning and execution roles", () => {
+test("translation defaults define the planning, execution and light tiers", () => {
   assert.equal(DEFAULT_TRANSLATION_CONFIG.tiers.planning.claude.model, "opus")
   assert.deepEqual(DEFAULT_TRANSLATION_CONFIG.tiers.planning.codex, { model: "gpt-5.6-sol", reasoningEffort: "high" })
   assert.equal(DEFAULT_TRANSLATION_CONFIG.tiers.execution.claude.model, "sonnet")
   assert.deepEqual(DEFAULT_TRANSLATION_CONFIG.tiers.execution.codex, { model: "gpt-5.6-luna", reasoningEffort: "max" })
+  assert.equal(DEFAULT_TRANSLATION_CONFIG.tiers.light.claude.model, "haiku")
+  assert.deepEqual(DEFAULT_TRANSLATION_CONFIG.tiers.light.codex, { model: "gpt-5.6-luna", reasoningEffort: "max" })
+  assert.equal(DEFAULT_TRANSLATION_CONFIG.roles.executor, "light")
+  assert.equal(DEFAULT_TRANSLATION_CONFIG.roles.explorer, "light")
 })
 
 test("authorName falls back to the default and honors AGENT_AUTHOR_NAME", () => {

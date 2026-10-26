@@ -55,11 +55,16 @@ const DEFAULT_TIERS: Record<string, TranslationTier> = {
     description: "Agents that execute tasks, cheaper and faster",
     claude: { model: "sonnet" },
     codex: { model: "gpt-5.6-luna", reasoningEffort: "max" },
+  },
+  light: {
+    description: "Agents that do lightweight work (claude haiku; codex parity with execution)",
+    claude: { model: "haiku" },
+    codex: { model: "gpt-5.6-luna", reasoningEffort: "max" },
   }
 }
 const DEFAULT_ROLES: Record<string, string> = {
   orchestrator: "planning", planner: "planning", reasoner: "planning", critic: "planning",
-  code_reviewer: "planning", executor: "execution", explorer: "execution", refactorer: "execution",
+  code_reviewer: "planning", executor: "light", explorer: "light", refactorer: "execution",
   tester: "execution", fast_lane: "execution"
 }
 

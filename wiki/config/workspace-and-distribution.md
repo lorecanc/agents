@@ -13,7 +13,7 @@ source_files:
   - "manage-agents/package.json"
   - "manage-agents/tsconfig.json"
 created: "2026-10-16"
-last_updated: "2026-10-16"
+last_updated: "2026-10-26"
 ---
 
 # Workspace and Distribution Configuration
@@ -32,7 +32,7 @@ Workspace behavior is configured across OpenCode's local server definitions, age
 
 `.agent-manager/companion-links.json` connects categories to related plugin, command, skill, and tool paths. Its `docs`, `pipeline`, and `slides` entries list category-specific companions; pipeline links the `plugins/pipeline-guard.js` plugin and pipeline tools, while docs and slides have empty plugin lists.
 
-`.agent-manager/translation-config.json` is version `2`, targets `claude`, uses plugin name `decent-pipeline`, prefix `pipeline-`, source directory `src`, and enables inference. The default tier is `execution`; `planning` and `execution` tiers hold target-specific model settings, while `roles` maps agent names to tiers. Target-specific options include the Codex `reasoningEffort` setting and `emitSkills`/`emitReadme` flags.
+`.agent-manager/translation-config.json` is version `2`, targets `claude`, uses plugin name `decent-pipeline`, prefix `pipeline-`, source directory `src`, and enables inference. The default tier is `execution`; the `planning`, `execution`, and `light` tiers hold target-specific model settings, while `roles` maps agent names to tiers. `light` uses `haiku` on Claude, is at parity with `execution` on Codex, and is assigned to the base pipeline `executor` and `explorer` roles. Target-specific options include the Codex `reasoningEffort` setting and `emitSkills`/`emitReadme` flags.
 
 ## Category distribution manifests
 

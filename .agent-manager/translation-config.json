@@ -28,7 +28,7 @@
       }
     },
     "light": {
-      "description": "Cheap lightweight agents",
+      "description": "Agents that do lightweight work (claude haiku; codex parity with execution)",
       "claude": {
         "model": "haiku"
       },
