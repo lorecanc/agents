@@ -2116,7 +2116,11 @@ export function forkCategory(
 }
 
 /** Resource roots under agents/general/ whose per-domain subdirectories travel with their agents on export. */
-const DOMAIN_RESOURCE_ROOTS = ["tools", "commands", "skills", "plugins"] as const
+const DOMAIN_RESOURCE_ROOTS = ["tools", "commands", "skills", "plugins", "resources"] as const
+const EXCLUDED_COMPANION_DIRECTORIES = new Set([
+  "node_modules", ".git", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
+  ".venv", "venv", ".tox", ".cache"
+])
 
 /** Domain key of an agent filename: the first hyphen-delimited segment (family when present, else category). */
 export function agentDomain(filename: string): string {
@@ -2131,9 +2135,12 @@ function validateResourceRoot(sourceRoot: string): void {
 }
 
 function isExcludedCompanionFile(relPath: string): boolean {
-  const basename = path.posix.basename(relPath.replace(/\\/g, "/"))
+  const normalized = relPath.replace(/\\/g, "/")
+  const basename = path.posix.basename(normalized)
+  if (normalized.split("/").some(component => EXCLUDED_COMPANION_DIRECTORIES.has(component))) return true
+  if (basename === ".env" || basename.startsWith(".env.") || /\.(?:pyc|pyo)$/i.test(basename)) return true
   if (basename === ".DS_Store" || /(\.test\.|_testutil\.|\.d\.ts$)/i.test(basename)) return true
-  return /^README\.md$/i.test(basename) && /^(?:plugins|tools)\//i.test(relPath.replace(/\\/g, "/"))
+  return /^README\.md$/i.test(basename) && /^(?:plugins|tools)\//i.test(normalized)
 }
 
 function safeRelativeStat(sourceRoot: string, relative: string): fs.Stats | undefined {
@@ -2257,12 +2264,8 @@ export function discoverCompanionResourcePaths(sourceRoot: string, domains: stri
   if (!fs.existsSync(sourceRoot)) return []
   const found = new Set<string>()
   const names = [...new Set(domains.filter(Boolean))]
+  const domainSet = new Set(names)
   const matches = (name: string): boolean => names.some(domain => name === domain || name.startsWith(`${domain}-`))
-  // OpenCode custom tools of a domain use the `<domain>_<name>.ts` convention
-  // (for example `tools/pipeline_state.ts`). Ship every such tool with the
-  // domain so new tools travel without being listed anywhere; their relative
-  // helper imports are traced below.
-  const matchesToolFamily = (filename: string): boolean => /\.ts$/i.test(filename) && names.some(domain => filename.startsWith(`${domain}_`))
 
   const categoriesDirectory = manifestDirectory ?? (["general", "src"].includes(path.basename(sourceRoot))
     ? path.join(path.dirname(sourceRoot), ".agent-manager", "categories")
@@ -2277,7 +2280,7 @@ export function discoverCompanionResourcePaths(sourceRoot: string, domains: stri
       if (!Array.isArray(manifest.resources)) continue
       for (const resource of manifest.resources) {
         if (typeof resource?.source !== "string" || !["file", "directory"].includes(resource.kind)) continue
-        const sourcePrefix = ["src/tools/", "src/commands/", "src/skills/", "src/plugins/", "general/tools/", "general/commands/", "general/skills/", "general/plugins/"]
+        const sourcePrefix = ["src/tools/", "src/commands/", "src/skills/", "src/plugins/", "src/resources/", "general/tools/", "general/commands/", "general/skills/", "general/plugins/", "general/resources/"]
           .find(prefix => resource.source.startsWith(prefix))
         if (!sourcePrefix) continue
         const relative = resource.source.slice(sourcePrefix.slice(0, sourcePrefix.indexOf("/") + 1).length)
@@ -2309,12 +2312,52 @@ export function discoverCompanionResourcePaths(sourceRoot: string, domains: stri
     for (const entry of fs.readdirSync(rootDir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
       const entryPath = path.join(rootDir, entry.name)
       const entryStat = fs.lstatSync(entryPath)
+      const rootToolMatches = root === "tools" && /\.(?:js|ts)$/i.test(entry.name) && names.some(domain => {
+        const stem = entry.name.replace(/\.(?:js|ts)$/i, "")
+        return stem.startsWith(`${domain}_`) && stem.length > domain.length + 1
+      })
       if (entryStat.isSymbolicLink()) {
-        if (matches(entry.name) || matches(path.parse(entry.name).name)) throw new Error(`Refusing to export resource symlink: ${entryPath}`)
+        if (rootToolMatches || matches(entry.name) || matches(path.parse(entry.name).name)) throw new Error(`Refusing to export resource symlink: ${entryPath}`)
         continue
       }
+      if (rootToolMatches && entryStat.isFile() && !isExcludedCompanionFile(path.posix.join(root, entry.name))) found.add(path.posix.join(root, entry.name))
       if (entryStat.isDirectory() && matches(entry.name)) for (const file of walkFiles(sourceRoot, path.join(root, entry.name))) found.add(file)
-      else if (entryStat.isFile() && (matches(path.parse(entry.name).name) || (root === "tools" && matchesToolFamily(entry.name))) && !isExcludedCompanionFile(path.join(root, entry.name))) found.add(path.join(root, entry.name))
+      else if (entryStat.isFile() && matches(path.parse(entry.name).name) && !isExcludedCompanionFile(path.posix.join(root, entry.name))) found.add(path.posix.join(root, entry.name))
+    }
+  }
+
+  const rootEntries = fs.readdirSync(sourceRoot, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))
+  for (const entry of rootEntries) {
+    if (!entry.name.endsWith(".md") || /^(?:README|AGENTS)\.md$/i.test(entry.name)) continue
+    const stem = entry.name.slice(0, -3)
+    if (!names.some(domain => stem === domain || stem.startsWith(`${domain}-`))) continue
+    const relative = entry.name
+    const stat = safeRelativeStat(sourceRoot, relative)
+    if (stat?.isFile() && !isExcludedCompanionFile(relative)) found.add(relative)
+  }
+
+  const agentsDirectory = path.join(sourceRoot, "agents")
+  const agentsStat = fs.lstatSync(agentsDirectory, { throwIfNoEntry: false })
+  if (agentsStat?.isSymbolicLink()) throw new Error(`Refusing to scan agent references through symlink: ${agentsDirectory}`)
+  if (agentsStat?.isDirectory()) {
+    for (const entry of fs.readdirSync(agentsDirectory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      if (!entry.name.endsWith(".md")) continue
+      if (!domainSet.has(agentDomain(entry.name))) continue
+      const agentPath = path.join(agentsDirectory, entry.name)
+      const agentStat = fs.lstatSync(agentPath)
+      if (agentStat.isSymbolicLink()) throw new Error(`Refusing to scan agent references through symlink: ${agentPath}`)
+      if (!agentStat.isFile()) continue
+      const content = fs.readFileSync(agentPath, "utf8")
+      for (const match of content.matchAll(/\.\.\/([^/\\\s"'`]+\.md)\b/g)) {
+        const referenced = path.resolve(path.dirname(agentPath), `../${match[1]}`)
+        const relative = path.relative(path.resolve(sourceRoot), referenced)
+        if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+          throw new Error(`Refusing referenced companion document outside resource root: ${referenced}`)
+        }
+        const stat = safeRelativeStat(sourceRoot, relative)
+        if (stat && !stat.isFile()) throw new Error(`Referenced companion document is not a regular file: ${referenced}`)
+        if (stat && !isExcludedCompanionFile(relative)) found.add(relative.replace(/\\/g, "/"))
+      }
     }
   }
 
@@ -2609,6 +2652,57 @@ export function getGlobalOpenCodeConfigPath(env: NodeJS.ProcessEnv = process.env
   return path.join(path.dirname(getExportDestination(env)), "opencode.json")
 }
 
+function preflightAgentExport(agents: AgentInfo[], destinationPath: string): { destinationPath: string; tempBackupPath: string } {
+  const configHome = path.dirname(path.dirname(destinationPath))
+  const root = path.parse(path.resolve(configHome)).root
+  let current = root
+  for (const component of path.relative(root, path.resolve(configHome)).split(path.sep).filter(Boolean)) {
+    current = path.join(current, component)
+    const stat = fs.lstatSync(current, { throwIfNoEntry: false })
+    if (!stat) continue
+    if (stat.isSymbolicLink()) {
+      const realPath = fs.realpathSync(current)
+      if (process.platform === "darwin" && ((current === "/var" && realPath === "/private/var") || (current === "/tmp" && realPath === "/private/tmp"))) {
+        continue
+      }
+      throw new Error(`Refusing symlink in OpenCode config path: ${current}`)
+    }
+    if (!stat.isDirectory()) throw new Error(`OpenCode config path component is not a directory: ${current}`)
+  }
+
+  const resolvedOpenCodeRoot = path.join(current, "opencode")
+  const resolvedDestination = path.join(resolvedOpenCodeRoot, "agents")
+  const opencodeRoot = resolvedOpenCodeRoot
+  for (const directory of [opencodeRoot, resolvedDestination]) {
+    const stat = fs.lstatSync(directory, { throwIfNoEntry: false })
+    if (stat?.isSymbolicLink()) throw new Error(`Refusing symlink in OpenCode export destination: ${directory}`)
+    if (stat && !stat.isDirectory()) throw new Error(`OpenCode export destination is not a directory: ${directory}`)
+  }
+  const backupPath = path.join(opencodeRoot, "agents_backup")
+  const backupStat = fs.lstatSync(backupPath, { throwIfNoEntry: false })
+  if (backupStat?.isSymbolicLink()) throw new Error(`Refusing symlink at export backup destination: ${backupPath}`)
+  if (backupStat && !backupStat.isDirectory()) throw new Error(`Export backup destination is not a directory: ${backupPath}`)
+  const tempBackupPath = `${backupPath}.tmp-${Date.now()}`
+  if (fs.lstatSync(tempBackupPath, { throwIfNoEntry: false })) throw new Error(`Export backup temporary path already exists: ${tempBackupPath}`)
+
+  const seenTargets = new Set<string>()
+  for (const agent of agents) {
+    const sourceStat = fs.lstatSync(agent.currentPath, { throwIfNoEntry: false })
+    if (!sourceStat || sourceStat.isSymbolicLink() || !sourceStat.isFile()) throw new Error(`Refusing to export symlink or non-regular agent file: ${agent.currentPath}`)
+    const filename = sanitizeFilename(agent.filename)
+    const targetPath = path.join(resolvedDestination, filename)
+    const identity = filename.normalize("NFC").toLocaleLowerCase("und")
+    if (path.dirname(targetPath) !== resolvedDestination || seenTargets.has(identity)) {
+      throw new Error(`Invalid or duplicate export target for agent: ${agent.filename}`)
+    }
+    seenTargets.add(identity)
+    const targetStat = fs.lstatSync(targetPath, { throwIfNoEntry: false })
+    if (targetStat?.isSymbolicLink()) throw new Error(`Refusing symlink at export agent target: ${targetPath}`)
+    if (targetStat && !targetStat.isFile()) throw new Error(`Export agent target is not a regular file: ${targetPath}`)
+  }
+  return { destinationPath: resolvedDestination, tempBackupPath }
+}
+
 /**
  * Export agents to ~/.config/opencode/agents/ with full overwrite.
  * Creates a single disaster-recovery backup of the destination folder
@@ -2619,9 +2713,11 @@ export function exportAgents(
   selectedPaths?: Set<string>,
   resourceSourceRoot?: string
 ): ExportResult {
-  const destinationPath = getExportDestination()
+  const preflight = preflightAgentExport(agents, getExportDestination())
+  const destinationPath = preflight.destinationPath
   const opencodeRoot = path.dirname(destinationPath)
   const backupPath = path.join(opencodeRoot, "agents_backup")
+  const tempBackupPath = preflight.tempBackupPath
   const rootStat = fs.lstatSync(opencodeRoot, { throwIfNoEntry: false })
   if (rootStat && (rootStat.isSymbolicLink() || !rootStat.isDirectory())) throw new Error(`Invalid OpenCode destination directory: ${opencodeRoot}`)
   const destinationStat = fs.lstatSync(destinationPath, { throwIfNoEntry: false })
@@ -2635,7 +2731,6 @@ export function exportAgents(
 
   // Create disaster-recovery backup of current destination (if it exists)
   if (destinationStat) {
-    const tempBackupPath = `${backupPath}.tmp-${Date.now()}`
     try {
       fs.cpSync(destinationPath, tempBackupPath, { recursive: true })
       if (fs.existsSync(backupPath)) {

@@ -1,12 +1,12 @@
 # Guida alla Configurazione MCP e LSP (`opencode.json`)
 
-Questo documento illustra la struttura del blueprint di configurazione `general/opencode.json` per **OpenCode**, progettato per essere **portabile e multipiattaforma** (macOS, Linux, Windows / WSL).
+Questo documento illustra la struttura del blueprint di configurazione `src/opencode.json` per **OpenCode**, progettato per essere **portabile e multipiattaforma** (macOS, Linux, Windows / WSL).
 
 ---
 
 ## 🚀 Panoramica e Blueprint
 
-Il file `general/opencode.json` serve da configurazione di riferimento per attivare server **MCP** (Model Context Protocol) e **LSP** (Language Server Protocol) all'interno di OpenCode.
+Il file `src/opencode.json` serve da configurazione di riferimento per attivare server **MCP** (Model Context Protocol) e **LSP** (Language Server Protocol) all'interno di OpenCode.
 
 ### Principi del Blueprint
 1. **Comandi portabili**: Utilizzo dei binari registrati nel `PATH` di sistema o esecuzione tramite `npx -y` anziché percorsi assoluti specifici per un utente o un OS (`/Users/...`, `/opt/homebrew/...`).
@@ -27,6 +27,108 @@ Il file `general/opencode.json` serve da configurazione di riferimento per attiv
 | `cwe-search` | Ricerca e analisi vulnerabilità Common Weakness Enumeration (CWE) | Node.js (`npx`) | `true` |
 | `XcodeBuildMCP` | Integrazione Xcode per build e testing di app iOS/macOS | macOS con Xcode CLI Tools | `false` (Attivare su macOS) |
 | `cupertino` | Toolchain Cupertino per progetti Apple/Flutter | CLI `cupertino` installata nel `PATH` | `false` (Attivare se presente) |
+| `bigquery` | Query, esplorazione e gestione dei dati BigQuery | Remote (Google Cloud); endpoint `https://bigquery.googleapis.com/mcp` | `false` |
+| `cloud-run` | Ispezione e gestione dei servizi Cloud Run | Remote (Google Cloud); endpoint `https://run.googleapis.com/mcp` | `false` |
+| `cloud-logging` | Ricerca e analisi dei log, inclusi quelli di Cloud Run e Cloud Build | Remote (Google Cloud); endpoint `https://logging.googleapis.com/mcp` | `false` |
+| `cloud-monitoring` | Ispezione di metriche e risorse monitorate, inclusi Cloud Run e Cloud Build | Remote (Google Cloud); endpoint `https://monitoring.googleapis.com/mcp` | `false` |
+| `cloud-sql` | Ispezione delle istanze Cloud SQL ed esecuzione SQL su PostgreSQL | Remote (Google Cloud); endpoint `https://sqladmin.googleapis.com/mcp` | `false` |
+| `cloud-storage` | Esplorazione dei bucket e degli oggetti Cloud Storage | Remote (Google Cloud); endpoint `https://storage.googleapis.com/storage/mcp` | `false` |
+| `cloud-cli` | Operazioni CLI Google Cloud; permette di ispezionare Cloud Build insieme a `cloud-logging` | Remote (Google Cloud); endpoint `https://cloudcli.googleapis.com/mcp` | `false` |
+
+---
+
+## Server MCP Remoti Google Cloud (GCP)
+
+I sette server remoti sono già descritti nel blueprint `src/opencode.json`; non richiedono l'installazione di un pacchetto locale. Prima di usarli, abilita le API necessarie, assegna i ruoli IAM e configura l'autenticazione. Nel blueprint sono disabilitati di default.
+
+### Gestione Multi-Progetto GCP
+
+Non è necessario duplicare i server MCP in `opencode.json` per ogni progetto né fissare `GOOGLE_CLOUD_PROJECT`: ogni tool MCP riceve il progetto di destinazione come parametro della chiamata. Usa `projectId` per BigQuery e per Cloud Storage `list_buckets` (i tool Cloud Storage sugli oggetti ricevono direttamente `bucketName`), `project` per Cloud Run e Cloud SQL, e il nome risorsa `projects/TARGET_PROJECT_ID` per Cloud Logging e Cloud Monitoring (ad esempio `resourceNames: ["projects/TARGET_PROJECT_ID"]` o `name: "projects/TARGET_PROJECT_ID"`, in base al tool). Cloud CLI segue una convenzione diversa: con `run_gcloud_command`, l'argomento MCP `project: "projects/EXECUTION_PROJECT_ID"` è usato per l'abilitazione e la quota della Cloud CLI Execution API, mentre il flag `--project=TARGET_PROJECT_ID` nel comando `gcloud` seleziona il progetto target su cui operare.
+
+Con l'autenticazione tramite OAuth Client ID/Secret basta un unico OAuth Client Desktop, creato in un progetto hub o principale; non serve l'header `x-goog-user-project`. In ogni progetto target su cui vuoi operare, abilita le API relative ai servizi e assegna al tuo utente Google `roles/mcp.toolUser` e i ruoli IAM specifici del servizio indicati sotto. Puoi assegnare i ruoli a livello di Folder o Organization GCP perché si applichino automaticamente ai progetti contenuti.
+
+### Abilitazione delle API su GCP
+
+Abilita `cloudcli.googleapis.com` nel progetto di esecuzione (hub) indicato dall'argomento MCP `project` di `run_gcloud_command`:
+
+```bash
+gcloud services enable cloudcli.googleapis.com --project="EXECUTION_PROJECT_ID"
+```
+
+Abilita le API dei servizi e Cloud Build in ciascun progetto di destinazione:
+
+```bash
+gcloud services enable \
+  bigquery.googleapis.com \
+  run.googleapis.com \
+  logging.googleapis.com \
+  monitoring.googleapis.com \
+  sqladmin.googleapis.com \
+  storage.googleapis.com \
+  cloudbuild.googleapis.com \
+  --project="TARGET_PROJECT_ID"
+```
+
+Da `gcloud` 581.0.0, `gcloud services enable` abilita automaticamente anche il remote MCP endpoint del servizio. Il vecchio comando `gcloud beta services mcp enable` è stato rimosso.
+
+### Ruoli IAM richiesti
+
+Concedi i ruoli all'identità Google usata da OpenCode. Per tutti gli endpoint MCP remoti Google è obbligatorio il ruolo base `roles/mcp.toolUser`, che include `mcp.tools.call`. Aggiungi anche i ruoli specifici dei servizi necessari:
+
+- **BigQuery**: `roles/bigquery.jobUser` e `roles/bigquery.dataViewer`; per scrivere dati, usa `roles/bigquery.dataEditor`.
+- **Cloud Run**: la configurazione `cloud-run` fornita in `src/opencode.json` è in sola lettura (`scope: "https://www.googleapis.com/auth/run.readonly"`) e gli agenti pipeline negano `cloud-run_deploy_*`; richiede `roles/run.viewer`. Se in futuro servono operazioni di scrittura o deploy, concedi `roles/run.developer` (oltre a `roles/iam.serviceAccountUser` e `roles/artifactregistry.reader`), cambia lo scope OAuth in `https://www.googleapis.com/auth/run` e consenti esplicitamente i tool di deploy nei permessi dell'agente.
+- **Cloud Logging e Monitoring** (anche per osservare Cloud Run e Cloud Build): `roles/logging.viewer` oppure `roles/logging.admin`, e `roles/monitoring.viewer` oppure `roles/monitoring.admin`.
+- **Cloud SQL (PostgreSQL)**: `roles/cloudsql.viewer` e `roles/cloudsql.studioUser` (oppure `roles/cloudsql.admin`). Per consentire l'esecuzione SQL è inoltre obbligatorio abilitare Data API sull'istanza PostgreSQL:
+
+  ```bash
+  gcloud sql instances patch INSTANCE_NAME \
+    --data-api-access=ALLOW_DATA_API \
+    --project=PROJECT_ID
+  ```
+
+- **Cloud Storage**: `roles/storage.objectViewer`; per elencare i bucket occorre `roles/storage.admin` oppure un ruolo custom che includa `storage.buckets.list`.
+- **Cloud CLI** (per ispezionare Cloud Build): `roles/cloudbuild.builds.viewer`.
+
+### Autenticazione su OpenCode
+
+Gli endpoint remoti Google non supportano OAuth Dynamic Client Registration (DCR). Configura quindi un client OAuth pre-registrato, oppure passa un token Bearer ADC statico.
+
+#### OAuth Client ID/Secret pre-registrato (consigliato per uso continuativo)
+
+Nella Google Cloud Console, vai a **APIs & Services → Credentials → Create credentials → OAuth client ID** e crea un unico client di tipo **Desktop app** in un progetto hub o principale. Se richiesto, configura prima la schermata di consenso in Google Auth Platform. Esporta le credenziali del client nell'ambiente in cui avvii OpenCode:
+
+```bash
+export GCLOUD_MCP_CLIENT_ID="il-tuo-client-id.apps.googleusercontent.com"
+export GCLOUD_MCP_CLIENT_SECRET="il-tuo-client-secret"
+```
+
+Il blueprint usa queste variabili per gli oggetti `oauth` dei server remoti. Il progetto target viene indicato nei parametri dei singoli tool MCP, non tramite una variabile d'ambiente.
+
+#### Alternativa rapida con ADC Bearer Token (scadenza 1 ora)
+
+Esegui il login ADC e crea un token di accesso:
+
+```bash
+gcloud auth application-default login
+export GOOGLE_CLOUD_PROJECT="il-tuo-project-id"
+export GCLOUD_MCP_ACCESS_TOKEN="$(gcloud auth application-default print-access-token)"
+```
+
+Nell'oggetto del server MCP remoto in `~/.config/opencode/opencode.json`, imposta gli header seguenti e rimuovi la configurazione `oauth` del client, oppure impostala a `false`:
+
+```json
+"headers": {
+  "Authorization": "Bearer {env:GCLOUD_MCP_ACCESS_TOKEN}",
+  "x-goog-user-project": "{env:GOOGLE_CLOUD_PROJECT}"
+},
+"oauth": false
+```
+
+Il token Bearer scade dopo un'ora: per continuare a usare i server, genera ed esporta un nuovo token. L'header `x-goog-user-project` è necessario solo con questa alternativa manuale ADC, non con OAuth Client ID/Secret.
+
+### Attivazione in OpenCode
+
+Attiva i server che vuoi usare tramite `manage-agents`: apri Resource Manager con `r` e abilita i server MCP desiderati. L'operazione copia la relativa voce in `~/.config/opencode/opencode.json` e la imposta con `"enabled": true`. In alternativa, imposta direttamente `"enabled": true` nella voce del server MCP remoto in quel file.
 
 ---
 
@@ -86,13 +188,13 @@ Per applicare la configurazione a tutti i progetti OpenCode:
 **Linux / macOS:**
 ```bash
 mkdir -p ~/.config/opencode
-cp general/opencode.json ~/.config/opencode/opencode.json
+cp src/opencode.json ~/.config/opencode/opencode.json
 ```
 
 **Windows (PowerShell):**
 ```powershell
 New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.config\opencode"
-Copy-Item general\opencode.json "$env:USERPROFILE\.config\opencode\opencode.json"
+Copy-Item src\opencode.json "$env:USERPROFILE\.config\opencode\opencode.json"
 ```
 
 ### Opzione B: Riferimento nel file di configurazione principale
@@ -111,7 +213,7 @@ Se hai già un file `~/.config/opencode/opencode.json`, puoi collegare questo pr
 
 ### Opzione C: Symlink (macOS / Linux)
 ```bash
-ln -sf $(pwd)/general/opencode.json ~/.config/opencode/opencode.json
+ln -sf $(pwd)/src/opencode.json ~/.config/opencode/opencode.json
 ```
 
 ---

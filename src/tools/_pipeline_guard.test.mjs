@@ -3,6 +3,7 @@ import { test } from "node:test"
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
+import { randomUUID } from "node:crypto"
 import { execFileSync } from "node:child_process"
 import { mkTmp } from "./_pipeline_testutil.mjs"
 
@@ -97,6 +98,63 @@ test("shell.env points temp dirs at the in-repo scratch for pipeline sessions on
   const unknown = { env: {} }
   await hooks["shell.env"]({ cwd: dir, sessionID: "ses_never_seen" }, unknown)
   assert.deepEqual(unknown.env, {})
+})
+
+test("shell.env for a pipeline session uses its session repo scratch, not the cwd repo", async () => {
+  const fixtureRoot = path.join(process.cwd(), ".git", "opencode-scratch", `shell-env-${randomUUID()}`)
+  const sessionRepo = path.join(fixtureRoot, "session-repo")
+  const foreignRepo = path.join(fixtureRoot, "foreign-repo")
+  const sessionScratch = path.join(sessionRepo, ".git", "opencode-scratch")
+  const foreignScratch = path.join(foreignRepo, ".git", "opencode-scratch")
+
+  try {
+    const init = (dir) => {
+      fs.mkdirSync(dir, { recursive: true })
+      const git = (...args) => execFileSync("git", args, { cwd: dir, stdio: "ignore" })
+      git("init", "-q", "-b", "main")
+      git("config", "user.email", "t@example.com")
+      git("config", "user.name", "T")
+      fs.writeFileSync(path.join(dir, "tracked.txt"), "fixture\n")
+      git("add", "tracked.txt")
+      git("commit", "-qm", "fixture")
+    }
+    init(sessionRepo)
+    init(foreignRepo)
+
+    const client = {
+      session: { get: async ({ path: p }) => ({ data: { id: p.id, parentID: null } }) },
+      app: { log: async () => {} },
+    }
+    const hooks = await createPipelineGuard({ client, directory: sessionRepo })
+    await hooks["chat.params"]({ sessionID: "ses_shell_env", agent: "hybrid-pipeline-orchestrator" })
+
+    const unknown = { env: {} }
+    await hooks["shell.env"]({ cwd: foreignRepo, sessionID: "ses_unknown_shell_env" }, unknown)
+    assert.deepEqual(unknown.env, {})
+    assert.equal(fs.existsSync(foreignScratch), false)
+
+    const output = { env: {} }
+    await hooks["shell.env"]({ cwd: foreignRepo, sessionID: "ses_shell_env" }, output)
+
+    assert.equal(fs.existsSync(foreignScratch), false, "shell.env must not create scratch in the cwd repository")
+    assert.equal(fs.existsSync(sessionScratch), true)
+    assert.deepEqual(
+      {
+        TMPDIR: output.env.TMPDIR,
+        TMP: output.env.TMP,
+        TEMP: output.env.TEMP,
+        PIPELINE_SCRATCH: output.env.PIPELINE_SCRATCH,
+      },
+      {
+        TMPDIR: sessionScratch,
+        TMP: sessionScratch,
+        TEMP: sessionScratch,
+        PIPELINE_SCRATCH: sessionScratch,
+      },
+    )
+  } finally {
+    fs.rmSync(fixtureRoot, { recursive: true, force: true })
+  }
 })
 
 test("tool.execute.before blocks escapes and git state changes with actionable messages", async () => {

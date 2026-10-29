@@ -385,7 +385,7 @@ export async function createPipelineGuard({ client, directory } = {}, options = 
       try {
         const s = input.sessionID ? sessions.get(input.sessionID) : null
         if (!s || !s.pipeline) return
-        const info = infoFor(input.cwd || s.directory)
+        const info = infoFor(s.directory)
         if (!info) return
         const scratch = ensureScratch(info)
         output.env.TMPDIR = scratch

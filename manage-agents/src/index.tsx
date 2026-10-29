@@ -28,6 +28,18 @@ import { claudeNextSteps } from "./utils/claudeNextSteps.js"
 import { registerPlugin, validatePlugin } from "./utils/claudePluginCli.js"
 import type { BridgeResult } from "./utils/bridge.js"
 import type { CodexBridgeResult } from "./utils/codexBridge.js"
+import {
+  applySharedSync,
+  compareSharedSync,
+  loadSharedSyncManifest,
+  parseSharedSyncArgs,
+  releaseSharedSync,
+  SHARED_SYNC_MANIFEST_PATH,
+  SHARED_SYNC_RELEASE_INDEX,
+  SHARED_SYNC_STATE_PATH,
+  type SharedComponentId,
+  type SharedSyncComparison
+} from "./utils/sharedSync.js"
 
 function repositoryMutation<T>(workspaceRoot: string, plan: string[] | { localPaths: string[]; externalPaths?: string[] }, message: string, mutation: () => T): T {
   const result = repositoryTransaction(workspaceRoot, plan, message, mutation)
@@ -950,6 +962,216 @@ async function runPipelineCLI(workspaceRoot: string) {
   console.log(`Synced profile '${profileName}' to category '${result.targetCategory}': ${result.synced.length} agents at ${result.outputDir}.`)
 }
 
+const SHARED_SYNC_COMPONENTS: SharedComponentId[] = ["agentManager", "pipelineCore"]
+const SHARED_SYNC_HELP = `
+Usage: manage-agents sync <status|release|apply> [options]
+       manage-agents shared-sync <status|release|apply> [options]
+
+Commands:
+  status, diff  Compare shared files and report compatibility and local changes
+  release       Create a versioned release bundle with SHA-256 hashes
+  apply, import Apply shared files to a target repository (no automatic commit)
+
+Usage examples:
+  manage-agents sync status --target <repo-or-dir> [--from <source-or-bundle>] [--component all|agent-manager|pipeline-core] [--json] [--check]
+  manage-agents sync release --out <dir> [--component all|agent-manager|pipeline-core] [--json]
+  manage-agents sync apply --target <repo> [--from <source-or-bundle>] [--component all|agent-manager|pipeline-core] [--dry-run] [--force] [--no-refresh] [--json]
+
+Options:
+  --help, -h       Show this help
+`
+
+function readSharedSyncJson(file: string): any {
+  const stat = fs.lstatSync(file, { throwIfNoEntry: false })
+  if (!stat) return null
+  if (stat.isSymbolicLink() || !stat.isFile()) throw new Error(`Refusing to read non-regular shared sync JSON file: ${file}`)
+  return JSON.parse(fs.readFileSync(file, "utf8"))
+}
+
+function sharedSyncVersions(root: string, allowReleaseBundle = false): Partial<Record<SharedComponentId, string>> {
+  let components: any
+  const indexFile = path.join(root, SHARED_SYNC_RELEASE_INDEX)
+  if (allowReleaseBundle && fs.existsSync(indexFile)) {
+    components = readSharedSyncJson(indexFile)?.components
+  } else {
+    const manifestFile = path.join(root, ...SHARED_SYNC_MANIFEST_PATH.split("/"))
+    if (fs.existsSync(manifestFile)) components = loadSharedSyncManifest(root).components
+  }
+  return Object.fromEntries(SHARED_SYNC_COMPONENTS.flatMap(component =>
+    typeof components?.[component]?.version === "string" ? [[component, components[component].version]] : []
+  ))
+}
+
+function sharedSyncTargetVersions(root: string): Partial<Record<SharedComponentId, string>> {
+  const versions = sharedSyncVersions(root)
+  const state = readSharedSyncJson(path.join(root, ...SHARED_SYNC_STATE_PATH.split("/")))
+  for (const component of SHARED_SYNC_COMPONENTS) {
+    const installed = state?.installedComponents?.[component]
+    const version = typeof installed === "string" ? installed : installed?.version
+    if (typeof version === "string") versions[component] = version
+  }
+  return versions
+}
+
+function sharedSyncComponents(args: ReturnType<typeof parseSharedSyncArgs>, sourceVersions: Partial<Record<SharedComponentId, string>>): SharedComponentId[] {
+  return args.components ?? SHARED_SYNC_COMPONENTS.filter(component => sourceVersions[component] !== undefined)
+}
+
+function emptySharedSyncComparison(): SharedSyncComparison {
+  return { identical: [], modified: [], missingInTarget: [], protectedByOverlay: [], dirtyTargetFiles: [] }
+}
+
+function sharedSyncCounts(comparison: SharedSyncComparison) {
+  return {
+    identical: comparison.identical.length,
+    modified: comparison.modified.length,
+    missingInTarget: comparison.missingInTarget.length
+  }
+}
+
+async function runSharedSyncCLI(workspaceRoot: string) {
+  try {
+    const args = parseSharedSyncArgs(process.argv.slice(3))
+    if (args.help) {
+      console.log(SHARED_SYNC_HELP)
+      return
+    }
+
+    if (args.command === "status" || args.command === "diff") {
+      if (!args.target) throw new Error("sync status requires --target <repo-or-dir>.")
+      const sourceRoot = path.resolve(args.from || workspaceRoot)
+      const targetRoot = path.resolve(args.target)
+      let comparison = emptySharedSyncComparison()
+      let incompatible = false
+      let comparisonComplete = true
+      let compatibilityMessage: string | null = null
+      try {
+        comparison = compareSharedSync({ sourceRoot, targetRoot, components: args.components })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        if (!message.startsWith("Cannot apply pipelineCore:")) throw error
+        incompatible = true
+        comparisonComplete = false
+        compatibilityMessage = message
+        const sourceVersions = sharedSyncVersions(sourceRoot, true)
+        const comparable = sharedSyncComponents(args, sourceVersions).filter(component => component !== "pipelineCore")
+        comparison = compareSharedSync({ sourceRoot, targetRoot, components: comparable })
+      }
+
+      const sourceVersions = sharedSyncVersions(sourceRoot, true)
+      const targetVersions = sharedSyncTargetVersions(targetRoot)
+      const components = sharedSyncComponents(args, sourceVersions)
+      const compatibility = components.includes("pipelineCore") ? (incompatible ? "incompatible" : "compatible") : "not-applicable"
+      const counts = sharedSyncCounts(comparison)
+      const outOfSync = counts.modified > 0 || counts.missingInTarget > 0
+      const report = {
+        command: args.command,
+        source: sourceRoot,
+        target: targetRoot,
+        components,
+        versions: { source: sourceVersions, target: targetVersions },
+        compatibility,
+        compatibilityMessage,
+        comparisonComplete,
+        uncomparedComponents: comparisonComplete ? [] : components.filter(component => component === "pipelineCore"),
+        counts,
+        modified: comparison.modified,
+        missingInTarget: comparison.missingInTarget,
+        identical: comparison.identical,
+        dirtyTargetFiles: comparison.dirtyTargetFiles,
+        protectedByOverlay: comparison.protectedByOverlay,
+        outOfSync
+      }
+      if (args.json) console.log(JSON.stringify(report, null, 2))
+      else {
+        console.log(`Sincronizzazione condivisa: ${sourceRoot} → ${targetRoot}`)
+        console.log(`Componenti: ${components.join(", ") || "nessuno"}`)
+        for (const component of components) {
+          console.log(`  ${component}: fonte ${sourceVersions[component] ?? "n/d"}; destinazione ${targetVersions[component] ?? "non installato"}`)
+        }
+        console.log(`Compatibilità: ${compatibility}${compatibilityMessage ? ` — ${compatibilityMessage}` : ""}`)
+        console.log(`File: ${counts.identical} identici, ${counts.modified} modificati, ${counts.missingInTarget} mancanti${comparisonComplete ? "" : " (confronto parziale)"}`)
+        if (comparison.modified.length) console.log(`Modificati:\n${comparison.modified.map(file => `  - ${file}`).join("\n")}`)
+        if (comparison.missingInTarget.length) console.log(`Mancanti:\n${comparison.missingInTarget.map(file => `  - ${file}`).join("\n")}`)
+        if (comparison.dirtyTargetFiles.length) console.log(`File locali modificati nella destinazione:\n${comparison.dirtyTargetFiles.map(file => `  - ${file}`).join("\n")}`)
+        if (comparison.protectedByOverlay.length) console.log(`Protetti dal local overlay: ${comparison.protectedByOverlay.length}`)
+      }
+      if (args.check && (incompatible || comparison.dirtyTargetFiles.length > 0 || outOfSync)) process.exitCode = 1
+      return
+    }
+
+    if (args.command === "release" || args.command === "export") {
+      if (!args.out) throw new Error("sync release requires --out <dir>.")
+      const outputDir = path.resolve(args.out)
+      const release = releaseSharedSync({ sourceRoot: workspaceRoot, outputDir, components: args.components })
+      const components = Object.fromEntries(Object.entries(release.components).map(([id, component]) => [
+        id,
+        { version: component?.version, fileCount: release.entries.filter(entry => entry.component === id).length }
+      ]))
+      const report = { outputDir, components, fileCount: release.entries.length, contentDigest: release.contentDigest, sourceCommit: release.sourceCommit }
+      if (args.json) console.log(JSON.stringify(report, null, 2))
+      else {
+        console.log(`Release condivisa creata: ${outputDir}`)
+        for (const [component, detail] of Object.entries(components)) {
+          console.log(`  ${component} ${detail.version}: ${detail.fileCount} file`)
+        }
+        console.log(`Totale: ${release.entries.length} file`)
+        console.log(`SHA-256 contentDigest: ${release.contentDigest}`)
+      }
+      return
+    }
+
+    if (args.command === "apply" || args.command === "import") {
+      if (!args.target) throw new Error("sync apply requires --target <repo>.")
+      const sourceRoot = path.resolve(args.from || workspaceRoot)
+      const targetRoot = path.resolve(args.target)
+      const before = compareSharedSync({ sourceRoot, targetRoot, components: args.components })
+      const result = applySharedSync({
+        sourceRoot,
+        targetRoot,
+        components: args.components,
+        dryRun: args.dryRun,
+        force: args.force,
+        refreshPipelines: args.refreshPipelines
+      })
+      const sourceVersions = sharedSyncVersions(sourceRoot, true)
+      const components = sharedSyncComponents(args, sourceVersions)
+      const added = result.updated.filter(file => before.missingInTarget.includes(file)).length
+      const updated = result.updated.length - added
+      const refreshRequested = components.includes("pipelineCore") && args.refreshPipelines !== false
+      const stampedPipelinesRefreshed = refreshRequested && !result.dryRun
+      const bashProfilesRefreshed = stampedPipelinesRefreshed && fs.existsSync(path.join(targetRoot, ".agent-manager", "bash-profiles.json"))
+      const report = {
+        dryRun: result.dryRun,
+        source: sourceRoot,
+        target: targetRoot,
+        appliedComponents: components,
+        versions: Object.fromEntries(components.map(component => [component, sourceVersions[component]])),
+        added,
+        updated,
+        filesToWrite: result.updated,
+        refreshed: { stampedPipelines: stampedPipelinesRefreshed, bashProfiles: bashProfilesRefreshed },
+        noAutomaticGitCommit: true
+      }
+      if (args.json) console.log(JSON.stringify(report, null, 2))
+      else {
+        console.log(`${result.dryRun ? "Anteprima sincronizzazione" : "Sincronizzazione applicata"}: ${sourceRoot} → ${targetRoot}`)
+        for (const component of components) console.log(`  ${component} ${sourceVersions[component] ?? "versione n/d"}`)
+        console.log(`File: ${added} da aggiungere, ${updated} da aggiornare (${result.updated.length} scritture previste/eseguite)`)
+        console.log(`Refresh pipeline stamped: ${stampedPipelinesRefreshed ? "eseguito" : refreshRequested ? "non eseguito (dry-run)" : "non richiesto"}`)
+        console.log(`Refresh profili Bash: ${bashProfilesRefreshed ? "eseguito" : stampedPipelinesRefreshed ? "non presente" : "non eseguito"}`)
+        console.log("Nessun commit Git automatico creato: controlla `git diff` e `git status` nella destinazione.")
+      }
+      return
+    }
+
+    throw new Error(`Unknown shared sync command '${args.command}'.`)
+  } catch (error) {
+    console.error(`Error: ${error instanceof Error ? error.message : String(error)}`)
+    process.exitCode = 1
+  }
+}
+
 async function runCategory(workspaceRoot: string) {
   const rootCategoryConfigDir = path.join(workspaceRoot, ".agent-manager", "categories")
   const hasRootCategoryConfig = fs.existsSync(rootCategoryConfigDir)
@@ -1029,7 +1251,12 @@ async function run() {
   // Intercept CLI commands
   if (process.argv[2] === "--help" || process.argv[2] === "-h") {
     console.log("Usage: manage-agents <command> [options]")
-    console.log("Commands: create, bridge, export, lint, fix-names, audit, import, tune, pipeline, category")
+    console.log("Commands: create, bridge, export, lint, fix-names, audit, import, tune, pipeline, category, sync")
+    return
+  }
+
+  if (process.argv[2] === "sync" || process.argv[2] === "shared-sync") {
+    await runSharedSyncCLI(workspaceRoot)
     return
   }
 

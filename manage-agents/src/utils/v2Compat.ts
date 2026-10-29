@@ -142,6 +142,7 @@ function mapActionToPermissionKey(action: string): string | null {
     webfetch: "webfetch",
     subagent: "task",
     question: "question",
+    external_directory: "external_directory",
   }
   return map[action] || null
 }

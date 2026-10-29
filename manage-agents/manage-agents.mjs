@@ -27,8 +27,13 @@ if (!process.versions.bun) {
     process.exit(1)
   }
 
-  if (!process.execArgv.includes("--experimental-ffi")) {
-    const result = spawnSync(process.execPath, ["--experimental-ffi", ...process.argv.slice(1)], { stdio: "inherit" })
+  const hasExperimentalFfi = process.execArgv.includes("--experimental-ffi")
+  const hasExperimentalWarningSuppression = process.execArgv.some((arg) => arg === "--no-warnings" || arg === "--no-warnings=ExperimentalWarning")
+  if (!hasExperimentalFfi || !hasExperimentalWarningSuppression) {
+    const execArgs = [...process.execArgv]
+    if (!hasExperimentalFfi) execArgs.push("--experimental-ffi")
+    if (!hasExperimentalWarningSuppression) execArgs.push("--no-warnings=ExperimentalWarning")
+    const result = spawnSync(process.execPath, [...execArgs, ...process.argv.slice(1)], { stdio: "inherit" })
     if (result.error) {
       console.error(`Failed to re-exec with --experimental-ffi: ${result.error.message}`)
       process.exit(1)

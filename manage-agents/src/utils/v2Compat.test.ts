@@ -65,6 +65,32 @@ test("permission translation is idempotent for simple cases", () => {
   assert.deepEqual(v1Again, v1)
 })
 
+test("external_directory permissions round-trip through V2 without losing order or other permissions", () => {
+  const v1 = {
+    external_directory: {
+      "*": "ask",
+      "~/.config/opencode/skills/*": "allow",
+      "/tmp/*": "allow",
+    },
+    bash: "deny",
+    read: "allow",
+  }
+
+  const v2 = translatePermissionsV1ToV2(v1)
+  assert.deepEqual(v2, [
+    { action: "external_directory", resource: "*", effect: "ask" },
+    { action: "external_directory", resource: "~/.config/opencode/skills/*", effect: "allow" },
+    { action: "external_directory", resource: "/tmp/*", effect: "allow" },
+    { action: "shell", resource: "*", effect: "deny" },
+    { action: "read", resource: "*", effect: "allow" },
+  ], "V2 rules preserve V1 permission and external resource order")
+  const v1Again = translatePermissionsV2ToV1(v2)
+  assert.deepEqual(v1Again, v1)
+  assert.deepEqual(Object.keys(v1Again.external_directory), Object.keys(v1.external_directory),
+    "V1 round-trip preserves external_directory rule order")
+  assert.deepEqual(Object.keys(v1Again), Object.keys(v1), "V1 round-trip preserves top-level permission order")
+})
+
 // --- Frontmatter translation ---
 
 test("translateFrontmatterV1ToV2 converts max_steps to steps", () => {

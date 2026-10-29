@@ -10,6 +10,7 @@ Manage Agents è lo strumento da terminale del repository per consultare e modif
 - [Avvio per sistema operativo](#avvio-per-sistema-operativo)
 - [Scegliere CLI o TUI](#scegliere-cli-o-tui)
 - [Riferimento CLI per attività](#riferimento-cli-per-attività)
+- [Rilascio versioni e sincronizzazione tra repository (sync)](#rilascio-versioni-e-sincronizzazione-tra-repository-sync)
 - [TUI: navigazione e comandi](#tui-navigazione-e-comandi)
 - [Ricette operative](#ricette-operative)
 - [Configurazione, dati e sicurezza](#configurazione-dati-e-sicurezza)
@@ -152,6 +153,68 @@ Per ogni agente copiato con successo, l’export individua le risorse companion 
 I file di risorsa identici per contenuto e permessi vengono saltati, senza scritture o backup inutili. Prima di sostituire risorse modificate, vengono salvati in un backup separato `resource_export_backup_<timestamp>_<suffix>/` solo i file che saranno sostituiti, nella radice della configurazione OpenCode; vengono conservate automaticamente le 5 directory di backup più recenti. Se l’installazione delle risorse fallisce, vengono ripristinati automaticamente sia le risorse companion sia gli agenti esportati nella stessa operazione.
 
 > **Attenzione:** `import --dry-run` è un’anteprima senza scrittura e senza backup. L’import effettivo CLI/TUI applica solo le differenze: importa agenti nuovi o modificati e risorse companion modificate in `general/`, saltando i file identici; non crea backup se non ci sono differenze. L’export è distruttivo sulla destinazione: leggi [Backup](#backup-e-dati) e verifica i file prima di confermare.
+
+## Rilascio versioni e sincronizzazione tra repository (sync)
+
+Il flusso standard è **dal repository personale/originale alla repository di lavoro Enterprise**:
+
+- Fonte di verità: `/Users/lorenzo.cancellara/dev/Altro/agents`.
+- Destinazione di lavoro: `/Users/lorenzo.cancellara/dev/Programmazione/agents`.
+
+La sync trasferisce solo i componenti condivisi dichiarati in `.agent-manager/shared-sync.json`. Non è una copia completa delle repository e non importa le personalizzazioni locali della destinazione. È possibile confrontare direttamente le due repository oppure creare un bundle di rilascio verificabile e trasferirlo separatamente.
+
+### Le tre categorie e le regole d’oro
+
+1. **`agentManager` — condiviso e versionato.** Comprende la CLI/TUI `manage-agents/**`, `manage-agents.sh`, `.agent-manager/bash-profiles.json` e `.agent-manager/translation-config.json`. La lista precisa dei file inclusi/esclusi è nel manifest.
+2. **`pipelineCore` — condiviso e versionato.** Comprende gli agenti canonici `src/agents/pipeline-*.md`, i comandi `src/commands/pipeline-*.md`, `src/plugins/pipeline-guard.js` (e il README del plugin), gli strumenti `src/tools/*pipeline*`, gli helper `_guards*`, `_paths.js` e `_safeName*`, e `src/docs/mcp-configuration.md`.
+3. **`localOverlay` — locale a ciascuna repository e mai sovrascritto dalla sync.** Comprende lo stack Ontology (`src/agents/ontology-*.md`, `src/tools/ontology/**`, `src/skills/ontology-*/**`, `src/resources/ontology/**`, `src/ontology-pipeline.md`), i profili modello locali (`.agent-manager/pipeline-profiles.json`, per esempio `spark`), `.agent-manager/companion-links.json`, `.agent-manager/categories/**` e `src/opencode.json`. Anche gli output generati `export/categories/**` e `export/bridges/**` restano locali: la sync non li copia dalla fonte. Dopo l’applicazione di `pipelineCore`, i bundle stamped `*-pipeline` vengono aggiornati dal profilo locale; distribuzioni di categoria non stamped e bridge si rigenerano con i rispettivi comandi (`category build` e `bridge`).
+
+**Regole pratiche:** modifica il manager e il core pipeline nella repository fonte; conserva profili, overlay e configurazioni specifiche nella repository di destinazione. Non spostare file da una categoria all’altra senza aggiornare `.agent-manager/shared-sync.json`: è il manifest che definisce cosa è condiviso, cosa è protetto e quali versioni sono compatibili.
+
+### Versioni, compatibilità e modifiche locali
+
+Le versioni SemVer dei due componenti e la compatibilità sono dichiarate in `.agent-manager/shared-sync.json`:
+
+- Aggiorna `components.agentManager.version` quando rilasci modifiche condivise a CLI/TUI, configurazione o profili Bash. Usa patch per correzioni compatibili, minor per funzionalità compatibili e major per cambiamenti incompatibili.
+- Aggiorna `components.pipelineCore.version` quando rilasci modifiche condivise agli agenti, ai comandi, agli strumenti o al guard. Applica gli stessi criteri SemVer.
+- `components.pipelineCore.requiresAgentManager` è l’intervallo SemVer di versioni del manager con cui il core funziona. Se una modifica del core richiede nuove funzioni o un nuovo contratto del manager, aggiorna l’intervallo e rilascia una versione manager compatibile. Quando applichi entrambi i componenti insieme, la versione manager della fonte deve soddisfare tale intervallo.
+
+`sync status` mostra le versioni e lo stato di compatibilità. L’applicazione di un `pipelineCore` incompatibile viene bloccata. Anche modifiche locali non committate sui file condivisi della destinazione bloccano la sovrascrittura: esaminale e committale/revertile prima di procedere. `--force` consente di superare il blocco dei file condivisi locali solo quando si è deciso consapevolmente di sovrascriverli; non rimuove il controllo di compatibilità. La sync non crea commit Git automatici.
+
+### Flusso operativo rapido
+
+Esegui gli esempi dalla radice della repository fonte (`/Users/lorenzo.cancellara/dev/Altro/agents`):
+
+1. Controlla differenze, versioni, compatibilità e file locali modificati:
+
+   ```bash
+   ./manage-agents.sh sync status --target /Users/lorenzo.cancellara/dev/Programmazione/agents
+   ```
+
+   Per usarlo in uno script e ottenere exit code `1` quando è incompatibile, sporco o fuori sync, aggiungi `--check`. `status` accetta anche `--from <repository-o-bundle>`, `--component agent-manager|pipeline-core|all` e `--json`.
+
+2. Simula le modifiche, senza scrivere:
+
+   ```bash
+   ./manage-agents.sh sync apply --target /Users/lorenzo.cancellara/dev/Programmazione/agents --dry-run
+   ```
+
+3. Applica `agentManager` e `pipelineCore` alla destinazione:
+
+   ```bash
+   ./manage-agents.sh sync apply --target /Users/lorenzo.cancellara/dev/Programmazione/agents
+   ```
+
+   Il comando aggiorna anche i bundle stamped dei profili locali (per esempio `spark-pipeline` e `copilot-pipeline`) e sincronizza i profili Bash quando presenti. Per saltare questi refresh usa `--no-refresh`. Prima dell’applicazione controlla e risolvi eventuali modifiche locali; non viene creato alcun commit automatico. Al termine verifica la destinazione con `git diff` e `git status`.
+
+4. In alternativa, crea un bundle versionato con `release-index.json` e hash SHA-256, quindi applicalo:
+
+   ```bash
+   ./manage-agents.sh sync release --out dist/shared-release
+   ./manage-agents.sh sync apply --from dist/shared-release --target /Users/lorenzo.cancellara/dev/Programmazione/agents
+   ```
+
+   Il bundle include le versioni, l’elenco dei file e `contentDigest`; durante l’import gli hash sono verificati. `release` accetta `--component` e `--json`; `apply` accetta inoltre `--dry-run`, `--force` e `--no-refresh`. Le forme `diff`, `export` e `import` sono alias rispettivamente di `status`, `release` e `apply`; `shared-sync` è alias del comando `sync`.
 
 ### Generare bridge Claude Code e Codex
 

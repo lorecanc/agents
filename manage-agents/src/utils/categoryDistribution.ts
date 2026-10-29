@@ -59,9 +59,9 @@ function assertSafeTree(root: string, candidate: string, recurse = false): void 
 }
 function sourceAllowed(source: string): boolean {
   return source === "src/AGENTS.md" || source === "src/requirements.txt" ||
-    /^(src)\/(agents|commands|skills|tools|office)(\/|$)/.test(source) ||
+    /^(src)\/(agents|commands|skills|tools|resources|office)(\/|$)/.test(source) ||
     source === "general/AGENTS.md" || source === "general/requirements.txt" ||
-    /^(general)\/(agents|commands|skills|tools|office)(\/|$)/.test(source) ||
+    /^(general)\/(agents|commands|skills|tools|resources|office)(\/|$)/.test(source) ||
     /^(office)\/(docs|slides)(\/|$)/.test(source)
 }
 function sourcePath(workspaceRoot: string, source: string) {

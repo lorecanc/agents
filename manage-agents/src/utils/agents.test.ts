@@ -1177,6 +1177,21 @@ test("agent permissions derive tool resources and trace relative helper imports"
   assert.ok(catalog.companionFiles.some(file => file.replace(/\\/g, "/") === "tools/_custom_helper.js"))
 }))
 
+test("relative companion documents are discovered only for requested agent domains", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "agent-domain-companion-filter-"))
+  const sourceRoot = path.join(workspace, "src")
+  const agentsDir = path.join(sourceRoot, "agents")
+  fs.mkdirSync(agentsDir, { recursive: true })
+  fs.writeFileSync(path.join(agentsDir, "ontology-orchestrator.md"), "Read ../ontology-pipeline.md\n")
+  fs.writeFileSync(path.join(agentsDir, "pipeline-orchestrator.md"), "Pipeline agent\n")
+  fs.writeFileSync(path.join(sourceRoot, "ontology-pipeline.md"), "Ontology workflow\n")
+
+  const pipelineResources = agentsMod.discoverCompanionResourcePaths(sourceRoot, ["pipeline"])
+  const ontologyResources = agentsMod.discoverCompanionResourcePaths(sourceRoot, ["ontology"])
+  assert.equal(pipelineResources.includes("ontology-pipeline.md"), false)
+  assert.equal(ontologyResources.includes("ontology-pipeline.md"), true)
+})
+
 test("category companion link changes control linked companion discovery", (t) => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "agent-category-links-"))
   const previousXdg = process.env.XDG_CONFIG_HOME
@@ -1339,6 +1354,46 @@ test("export rejects a symlinked resource source root and agent destination", (t
   fs.symlinkSync(outside, path.join(opencodeRoot, "agents", agent.filename))
   assert.throws(() => exportAgents([agent], new Set([agent.currentPath])), /symlink|non-regular/i)
   assert.equal(fs.readFileSync(outside, "utf8"), "must not change\n")
+})
+
+test("export preflight preserves the existing backup for symlink and duplicate targets", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-export-preflight-"))
+  const previousXdg = process.env.XDG_CONFIG_HOME
+  t.after(() => {
+    if (previousXdg === undefined) delete process.env.XDG_CONFIG_HOME
+    else process.env.XDG_CONFIG_HOME = previousXdg
+  })
+
+  const symlinkXdg = path.join(root, "symlink-xdg")
+  const symlinkOpenCode = path.join(symlinkXdg, "opencode")
+  const symlinkBackup = path.join(symlinkOpenCode, "agents_backup")
+  const outsideBackup = path.join(root, "outside-backup")
+  const workspace = path.join(root, "workspace")
+  const agent = fixtureAgent(path.join(workspace, "general/agents/slides-orchestrator.md"), workspace, "test/model")
+  fs.mkdirSync(path.join(symlinkOpenCode, "agents"), { recursive: true })
+  fs.writeFileSync(path.join(symlinkOpenCode, "agents", "existing.md"), "current\n")
+  fs.mkdirSync(outsideBackup)
+  fs.writeFileSync(path.join(outsideBackup, "keep.txt"), "keep\n")
+  if (process.platform !== "win32") {
+    fs.symlinkSync(outsideBackup, symlinkBackup, "dir")
+    process.env.XDG_CONFIG_HOME = symlinkXdg
+    assert.throws(() => exportAgents([agent]), /symlink/i)
+    assert.equal(fs.readFileSync(path.join(outsideBackup, "keep.txt"), "utf8"), "keep\n")
+    assert.equal(fs.lstatSync(symlinkBackup).isSymbolicLink(), true)
+  }
+
+  const duplicateXdg = path.join(root, "duplicate-xdg")
+  const duplicateOpenCode = path.join(duplicateXdg, "opencode")
+  const backup = path.join(duplicateOpenCode, "agents_backup")
+  fs.mkdirSync(path.join(duplicateOpenCode, "agents"), { recursive: true })
+  fs.writeFileSync(path.join(duplicateOpenCode, "agents", "existing.md"), "current\n")
+  fs.mkdirSync(backup, { recursive: true })
+  fs.writeFileSync(path.join(backup, "keep.txt"), "keep\n")
+  const duplicate = fixtureAgent(path.join(workspace, "general/agents/SLIDES-orchestrator.md"), workspace, "test/model")
+  process.env.XDG_CONFIG_HOME = duplicateXdg
+  assert.throws(() => exportAgents([agent, duplicate]), /duplicate export target/i)
+  assert.deepEqual(fs.readdirSync(backup), ["keep.txt"])
+  assert.equal(fs.readFileSync(path.join(backup, "keep.txt"), "utf8"), "keep\n")
 })
 
 test("companion resource comparison and import are symmetric, read-only in preview, and skip unchanged files", (t) => {
