@@ -2,12 +2,22 @@ import assert from "node:assert/strict"
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
+import { pathToFileURL } from "node:url"
 import { execFileSync, spawnSync } from "node:child_process"
 import test from "node:test"
-import { extractFrontmatter, exportAgents, getExportDestination, getGlobalOpenCodeConfigPath, isInGeneralAgents, parseAgentFile, saveAgentFile, repairAgentModels, updateAgentsModel, forkCategory, parseForkReplacements, compareCompanionResources, previewImport, importAgents, discoverAgentResources, updateAgentResourcesAndMcp, updateAgentParams, AGENT_EFFORT_VARIANTS } from "./agents.js"
+import YAML from "yaml"
+import { extractFrontmatter, exportAgents, getExportDestination, getGlobalOpenCodeConfigPath, isInGeneralAgents, parseAgentFile, saveAgentFile, repairAgentModels, updateAgentsModel, forkCategory, parseForkReplacements, compareCompanionResources, previewImport, importAgents, discoverAgentResources, updateAgentResourcesAndMcp, updateAgentParams, AGENT_EFFORT_VARIANTS, detectOntologyStackDirectory, isValidOntologyStackCheckout } from "./agents.js"
 import * as agentsMod from "./agents.js"
 import { AUTO_COMMIT_MESSAGES, repositoryTransaction } from "./repositoryTransaction.js"
 import { updateCategoryCompanionLinks } from "./companionLinks.js"
+
+const ontologySourceRoot = process.env.ONTOLOGY_TEST_SOURCE_ROOT ?? path.resolve("..")
+const ontologySchemasRoot = path.join(ontologySourceRoot, "src/resources/ontology/schemas")
+const ontologyAgentsRoot = path.join(ontologySourceRoot, "src/agents")
+
+function ontologyYaml(relativePath: string): Record<string, any> {
+  return YAML.parse(fs.readFileSync(path.join(ontologySchemasRoot, relativePath), "utf8"))
+}
 
 function fixtureAgent(filePath: string, workspace: string, model: unknown) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true })
@@ -2103,3 +2113,370 @@ test("OpenCode V2 agent updates preserve frontmatter while changing params, mode
   assert.match(savedContent, /action: read\n\s+resource: ["']\*["']\n\s+effect: allow/)
   assert.match(saved.body, /V2 agent body\./)
 }))
+
+test("ontology agent export includes lean schemas, evidence templates and skills while preserving unrelated files", { skip: !fs.existsSync(path.join(ontologyAgentsRoot, "ontology-orchestrator.md")) }, (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-ontology-export-"))
+  const xdg = path.join(root, "xdg")
+  const opencodeRoot = path.join(xdg, "opencode")
+  const sourceRoot = path.join(root, "resources")
+  const workspace = path.join(root, "workspace")
+  const previousXdg = process.env.XDG_CONFIG_HOME
+  t.after(() => {
+    if (previousXdg === undefined) delete process.env.XDG_CONFIG_HOME
+    else process.env.XDG_CONFIG_HOME = previousXdg
+  })
+  process.env.XDG_CONFIG_HOME = xdg
+
+  const agent = fixtureAgent(path.join(workspace, "src/agents/ontology-orchestrator.md"), workspace, "test/model")
+  fs.mkdirSync(path.join(opencodeRoot, "agents"), { recursive: true })
+  fs.writeFileSync(path.join(opencodeRoot, "agents/unrelated.md"), "preserve agent\n")
+  fs.writeFileSync(path.join(opencodeRoot, "unrelated.txt"), "preserve config\n")
+  fs.cpSync(path.join(ontologySourceRoot, "src/resources/ontology"), path.join(sourceRoot, "resources/ontology"), { recursive: true })
+  const skillIds = ["ontology-tools", "ontology-ontogpt-select-template", "ontology-ontogpt-author-template", "ontology-ontogpt-extract", "ontology-ontogpt-troubleshoot"]
+  for (const skillId of skillIds) {
+    const source = path.join(sourceRoot, "skills", skillId, "SKILL.md")
+    fs.mkdirSync(path.dirname(source), { recursive: true })
+    fs.copyFileSync(path.join(ontologySourceRoot, "src/skills", skillId, "SKILL.md"), source)
+  }
+
+  const result = exportAgents([agent], new Set([agent.currentPath]), sourceRoot)
+  assert.deepEqual(result.exported, [agent.filename])
+  assert.equal(fs.readFileSync(path.join(opencodeRoot, "agents/unrelated.md"), "utf8"), "preserve agent\n")
+  assert.equal(fs.readFileSync(path.join(opencodeRoot, "unrelated.txt"), "utf8"), "preserve config\n")
+  for (const skillId of skillIds) {
+    const installed = path.join(opencodeRoot, "skills", skillId, "SKILL.md")
+    assert.deepEqual(fs.readFileSync(installed), fs.readFileSync(path.join(ontologySourceRoot, "src/skills", skillId, "SKILL.md")))
+    assert.ok(result.domainResources.includes(installed))
+  }
+  const resourceRoot = path.join(ontologySourceRoot, "src/resources/ontology")
+  const resourceFiles = fs.readdirSync(resourceRoot, { recursive: true })
+    .map(String).filter(relative => fs.statSync(path.join(resourceRoot, relative)).isFile())
+  for (const relative of resourceFiles) {
+    const installed = path.join(opencodeRoot, "resources/ontology", relative)
+    assert.deepEqual(fs.readFileSync(installed), fs.readFileSync(path.join(ontologySourceRoot, "src/resources/ontology", relative)))
+    assert.ok(result.domainResources.includes(installed))
+  }
+  assert.equal(result.domainResources.length, resourceFiles.length + skillIds.length)
+  assert.equal(fs.existsSync(path.join(opencodeRoot, "resources/ontology/contracts")), false)
+})
+
+test("lean ontology orchestrator discovers its explicitly allowed tools and companion skills", { skip: !fs.existsSync(path.join(ontologyAgentsRoot, "ontology-orchestrator.md")) }, () => {
+  const orchestrator = parseAgentFile(path.join(ontologyAgentsRoot, "ontology-orchestrator.md"), ontologySourceRoot)!
+  const catalog = discoverAgentResources(ontologySourceRoot, orchestrator)
+  const ontologyTools = catalog.tools.filter(resource => resource.id === "tool-family:ontology" || resource.id.startsWith("tool:ontology_"))
+  const ontogptSkills = catalog.skills.filter(resource => resource.name.startsWith("ontology-ontogpt-"))
+  assert.equal(ontologyTools.filter(resource => resource.id.startsWith("tool:ontology_")).length, 59)
+  for (const tool of ontologyTools.filter(resource => resource.id.startsWith("tool:ontology_"))) {
+    assert.equal(tool.allowed, orchestrator.frontmatter.permission[tool.name] === "allow", `${tool.name} follows its explicit permission`)
+  }
+  assert.equal(ontogptSkills.length, 4)
+  assert.ok(ontogptSkills.every(resource => resource.exists))
+  assert.ok(catalog.skills.some(resource => resource.name === "ontology-tools" && resource.allowed && resource.exists))
+})
+
+test("v2 pipeline references resolve for canonical and stamped agents", { skip: !fs.existsSync(path.join(ontologyAgentsRoot, "ontology-orchestrator.md")) }, () => {
+  for (const [prefix, root] of [
+    ["copilot-pipeline", path.join(ontologySourceRoot, "export/categories/copilot-pipeline/agents")],
+    ["cp_nightly-pipeline", path.join(ontologySourceRoot, "export/categories/cp_nightly-pipeline/agents")]
+  ]) {
+    const orchestrator = fs.readFileSync(path.join(root, `${prefix}-orchestrator.md`), "utf8")
+    assert.match(orchestrator, new RegExp(`@${prefix}-docs_grounding`))
+  }
+  assert.match(fs.readFileSync(path.join(ontologyAgentsRoot, "pipeline-orchestrator.md"), "utf8"), /@pipeline-docs_grounding/)
+})
+
+test("ontology schemas expose the lean project, discovery, design and test records", { skip: !fs.existsSync(path.join(ontologyAgentsRoot, "ontology-orchestrator.md")) }, () => {
+  for (const [schema, classes] of [
+    ["project.yaml", ["ProjectProfile"]],
+    ["discovery.yaml", ["Brief", "EvidenceLog", "InformationNeeds", "CandidateCQs"]],
+    ["design.yaml", ["DecisionLog", "CQTraceability", "ReuseCandidates", "AlignmentLog"]],
+    ["tests.yaml", ["CQChecks", "FixtureManifest"]]
+  ] as const) {
+    const document = ontologyYaml(schema)
+    assert.deepEqual(document.imports, ["linkml:types"])
+    for (const name of classes) assert.equal(document.classes[name].tree_root, true)
+  }
+})
+
+test("export provisions ontology plugins with npm ci, idempotently updates opencode.json with 0600 backup, and writes ontology-stack.json", (t) => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "agent-ontology-plugin-provision-")))
+  t.after(() => { try { fs.rmSync(root, { recursive: true, force: true }) } catch {} })
+  const xdg = path.join(root, "xdg")
+  const opencodeRoot = path.join(xdg, "opencode")
+  const repoRoot = path.join(root, "repo")
+  const sourceRoot = path.join(repoRoot, "src")
+  const siblingStack = path.join(root, "ontology-stack")
+  const previousXdg = process.env.XDG_CONFIG_HOME
+  t.after(() => {
+    if (previousXdg === undefined) delete process.env.XDG_CONFIG_HOME
+    else process.env.XDG_CONFIG_HOME = previousXdg
+  })
+  process.env.XDG_CONFIG_HOME = xdg
+
+  fs.mkdirSync(path.join(siblingStack, "payloads", "ontology-devbox"), { recursive: true })
+  fs.writeFileSync(path.join(siblingStack, "docker-compose.yml"), "services: {}\n")
+  fs.writeFileSync(path.join(siblingStack, "payloads", "ontology-devbox", "Dockerfile"), "FROM scratch\n")
+
+  const ontologyAgent = fixtureAgent(path.join(sourceRoot, "agents", "ontology-orchestrator.md"), repoRoot, "test/model")
+  const optionalPackageKey = "node_modules/@msgpackr-extract/msgpackr-extract-darwin-x64"
+  const lockPackage = {
+    name: "test-plugin",
+    version: "1.0.0",
+    lockfileVersion: 3,
+    packages: {
+      "": { name: "test-plugin", version: "1.0.0", dependencies: { "@opencode/plugin": "2.0.24" } },
+      "node_modules/@opencode/plugin": { version: "2.0.24", integrity: "sha512-fake" },
+      "node_modules/@opencode/sdk": { version: "2.0.24", integrity: "sha512-dev", dev: true },
+      [optionalPackageKey]: { version: "3.0.3", integrity: "sha512-x64", optional: true },
+    },
+  }
+  const lockContent = JSON.stringify(lockPackage, null, 2)
+  const installedLockContent = JSON.stringify({
+    ...lockPackage,
+    packages: Object.fromEntries(Object.entries(lockPackage.packages).filter(([name]) => name !== optionalPackageKey)),
+  }, null, 2)
+
+  for (const pluginName of ["ontogpt-plugin", "logmap-llm-plugin"]) {
+    const dir = path.join(sourceRoot, "tools", "ontology", pluginName)
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, "index.ts"), "export default {}\n")
+    fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: pluginName, version: "1.0.0" }) + "\n")
+    fs.writeFileSync(path.join(dir, "package-lock.json"), lockContent + "\n")
+  }
+
+  fs.mkdirSync(opencodeRoot, { recursive: true })
+  const initialOpencodeJson = JSON.stringify({
+    $schema: "https://opencode.ai/config.json",
+    theme: "dark",
+    mcp: { "codebase-memory-mcp": { type: "local", command: ["codebase-memory-mcp"], enabled: true } },
+    plugins: ["./custom/existing-plugin", "./tools/ontology/ontogpt-plugin"],
+  }, null, 2) + "\n"
+  const opencodeJsonPath = path.join(opencodeRoot, "opencode.json")
+  fs.writeFileSync(opencodeJsonPath, initialOpencodeJson)
+
+  const npmCalls: Array<{ cmd: string; args: readonly string[]; cwd: string }> = []
+  const fakeRunCommand = ((cmd: string, args: readonly string[] = [], opts: any = {}) => {
+    npmCalls.push({ cmd, args, cwd: String(opts.cwd) })
+    if (String(opts.cwd).endsWith("ontogpt-plugin")) {
+      const nmPkgDir = path.join(String(opts.cwd), "node_modules", "@opencode", "plugin")
+      fs.mkdirSync(nmPkgDir, { recursive: true })
+      fs.writeFileSync(path.join(nmPkgDir, "package.json"), JSON.stringify({ name: "@opencode/plugin", version: "2.0.24" }))
+      fs.writeFileSync(path.join(String(opts.cwd), "node_modules", ".package-lock.json"), installedLockContent)
+    }
+    return { status: 0, stdout: "", stderr: "" } as any
+  }) as any
+
+  const first = exportAgents(
+    [ontologyAgent],
+    new Set([ontologyAgent.currentPath]),
+    sourceRoot,
+    { runCommand: fakeRunCommand, env: { HOME: root, XDG_CONFIG_HOME: xdg } }
+  )
+
+  assert.equal(npmCalls.length, 2)
+  for (const call of npmCalls) {
+    assert.equal(call.cmd, "npm")
+    assert.deepEqual(call.args, ["ci", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund"])
+  }
+  assert.ok(first.pluginProvisioning)
+  assert.deepEqual(first.pluginProvisioning.installed, ["./tools/ontology/logmap-llm-plugin", "./tools/ontology/ontogpt-plugin"])
+  assert.deepEqual(first.pluginProvisioning.skipped, [])
+  assert.deepEqual(first.pluginProvisioning.failed, [])
+
+  const bakPath = path.join(opencodeRoot, "opencode.json.bak")
+  assert.equal(fs.existsSync(bakPath), true)
+  assert.equal(fs.readFileSync(bakPath, "utf8"), initialOpencodeJson)
+  assertPosixMode(fs.lstatSync(bakPath).mode & 0o777, 0o600)
+  assertPosixMode(fs.lstatSync(opencodeJsonPath).mode & 0o777, 0o600)
+
+  const mergedConfig = JSON.parse(fs.readFileSync(opencodeJsonPath, "utf8"))
+  assert.equal(mergedConfig.theme, "dark")
+  assert.deepEqual(mergedConfig.mcp, { "codebase-memory-mcp": { type: "local", command: ["codebase-memory-mcp"], enabled: true } })
+  assert.deepEqual(mergedConfig.plugins, [
+    "./custom/existing-plugin",
+    "./tools/ontology/ontogpt-plugin",
+    "./tools/ontology/logmap-llm-plugin",
+  ])
+
+  const stackConfigPath = path.join(opencodeRoot, "ontology-stack.json")
+  assert.equal(first.pluginProvisioning.ontologyStackConfigPath, stackConfigPath)
+  assert.equal(first.pluginProvisioning.ontologyStackDirectory, siblingStack)
+  assert.deepEqual(JSON.parse(fs.readFileSync(stackConfigPath, "utf8")), { stackDirectory: siblingStack })
+  assertPosixMode(fs.lstatSync(stackConfigPath).mode & 0o777, 0o600)
+
+  npmCalls.length = 0
+  const second = exportAgents(
+    [ontologyAgent],
+    new Set([ontologyAgent.currentPath]),
+    sourceRoot,
+    { runCommand: fakeRunCommand, env: { HOME: root, XDG_CONFIG_HOME: xdg } }
+  )
+  assert.equal(npmCalls.length, 1)
+  assert.ok(npmCalls[0].cwd.endsWith("logmap-llm-plugin"))
+  assert.deepEqual(second.pluginProvisioning?.skipped, ["./tools/ontology/ontogpt-plugin"])
+  assert.deepEqual(second.pluginProvisioning?.installed, ["./tools/ontology/logmap-llm-plugin"])
+  assert.deepEqual(JSON.parse(fs.readFileSync(opencodeJsonPath, "utf8")).plugins, [
+    "./custom/existing-plugin",
+    "./tools/ontology/ontogpt-plugin",
+    "./tools/ontology/logmap-llm-plugin",
+  ])
+})
+
+test("ontology plugin export replaces legacy package paths instead of shadowing current plugins", (t) => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "agent-ontology-plugin-migration-")))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const opencodeRoot = path.join(root, "config", "opencode")
+  const oldRoot = path.join(root, "old-checkout", "agents", "general")
+  const pluginNames = ["oops", "jena", "ontogpt", "logmap-llm"]
+  const currentPaths = pluginNames.map(name => `./tools/ontology/${name}-plugin`)
+  for (const name of pluginNames) {
+    for (const base of [opencodeRoot, oldRoot]) {
+      const dir = path.join(base, "tools", "ontology", `${name}-plugin`)
+      fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: `ontology-${name}-opencode-plugin` }))
+    }
+  }
+  const unrelated = { package: "third-party-plugin", options: { strict: true } }
+  const initial = {
+    providers: { custom: { name: "preserved" } },
+    plugins: [
+      unrelated,
+      path.join(oldRoot, "tools", "ontology", "oops-plugin"),
+      { package: path.join(oldRoot, "tools", "ontology", "jena-plugin"), options: { custom: true } },
+      path.join(oldRoot, "tools", "ontology", "ontogpt-plugin"),
+      pathToFileURL(path.join(oldRoot, "tools", "ontology", "logmap-llm-plugin", "index.ts")).href,
+      ...currentPaths,
+      "-unrelated.plugin",
+      "*", "-unrelated.plugin", "*",
+    ],
+  }
+  const configPath = path.join(opencodeRoot, "opencode.json")
+  const initialBytes = JSON.stringify(initial, null, 2) + "\n"
+  fs.writeFileSync(configPath, initialBytes)
+  const result = agentsMod.mergeOpenCodePluginsConfig(opencodeRoot, currentPaths)
+  const migrated = JSON.parse(fs.readFileSync(configPath, "utf8"))
+  assert.deepEqual(migrated.plugins, [
+    unrelated,
+    currentPaths[0],
+    { package: currentPaths[1], options: { custom: true } },
+    currentPaths[2],
+    currentPaths[3],
+    "-unrelated.plugin",
+    "*", "-unrelated.plugin", "*",
+  ])
+  assert.deepEqual(migrated.providers, initial.providers)
+  assert.equal(fs.readFileSync(result.backupPath!, "utf8"), initialBytes)
+  const once = fs.readFileSync(configPath, "utf8")
+  agentsMod.mergeOpenCodePluginsConfig(opencodeRoot, currentPaths)
+  assert.equal(fs.readFileSync(configPath, "utf8"), once)
+
+  // Same folder basename alone must not replace an unrelated custom package.
+  const customDir = path.join(root, "custom", "tools", "ontology", "oops-plugin")
+  fs.mkdirSync(customDir, { recursive: true })
+  fs.writeFileSync(path.join(customDir, "package.json"), JSON.stringify({ name: "custom-oops-plugin" }))
+  migrated.plugins.push(customDir)
+  fs.writeFileSync(configPath, JSON.stringify(migrated))
+  agentsMod.mergeOpenCodePluginsConfig(opencodeRoot, currentPaths)
+  assert.ok(JSON.parse(fs.readFileSync(configPath, "utf8")).plugins.includes(customDir))
+
+  // Conflicting user options must not silently be discarded while deduplicating.
+  migrated.plugins.push({ package: currentPaths[1], options: { custom: false } })
+  const conflictingBytes = JSON.stringify(migrated)
+  fs.writeFileSync(configPath, conflictingBytes)
+  assert.throws(() => agentsMod.mergeOpenCodePluginsConfig(opencodeRoot, currentPaths), /Conflicting options/)
+  assert.equal(fs.readFileSync(configPath, "utf8"), conflictingBytes)
+})
+
+test("mergeOpenCodePluginsConfig and writeOntologyStackConfig reject symlinks", { skip: process.platform === "win32" }, (t) => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "agent-opencode-config-symlink-")))
+  t.after(() => { try { fs.rmSync(root, { recursive: true, force: true }) } catch {} })
+  const opencodeRoot = path.join(root, "opencode")
+  fs.mkdirSync(opencodeRoot, { recursive: true })
+  const target = path.join(root, "outside.json")
+  fs.writeFileSync(target, "{}\n")
+
+  fs.symlinkSync(target, path.join(opencodeRoot, "opencode.json"))
+  assert.throws(() => agentsMod.mergeOpenCodePluginsConfig(opencodeRoot, ["./tools/ontology/ontogpt-plugin"]), /symlink/i)
+  fs.rmSync(path.join(opencodeRoot, "opencode.json"))
+
+  fs.writeFileSync(path.join(opencodeRoot, "opencode.json"), "{}\n")
+  fs.symlinkSync(target, path.join(opencodeRoot, "opencode.json.bak"))
+  assert.throws(() => agentsMod.mergeOpenCodePluginsConfig(opencodeRoot, ["./tools/ontology/ontogpt-plugin"]), /symlink/i)
+  fs.rmSync(path.join(opencodeRoot, "opencode.json.bak"))
+
+  const stack = path.join(root, "ontology-stack")
+  fs.mkdirSync(path.join(stack, "payloads", "ontology-devbox"), { recursive: true })
+  fs.writeFileSync(path.join(stack, "docker-compose.yml"), "services: {}\n")
+  fs.writeFileSync(path.join(stack, "payloads", "ontology-devbox", "Dockerfile"), "FROM scratch\n")
+
+  fs.symlinkSync(target, path.join(opencodeRoot, "ontology-stack.json"))
+  assert.throws(() => agentsMod.writeOntologyStackConfig(opencodeRoot, stack), /symlink/i)
+})
+
+test("detectOntologyStackDirectory and exportAgents handle tilde paths, compose-only checkouts, nested ontology-stack, and invalid explicit --stack fallback", { skip: process.platform === "win32" }, (t) => {
+  const tempRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "agent-stack-detect-")))
+  t.after(() => { try { fs.rmSync(tempRoot, { recursive: true, force: true }) } catch {} })
+
+  const homeDirectory = path.join(tempRoot, "home")
+  const tildeStack = path.join(homeDirectory, "dev", "ontology-stack")
+  fs.mkdirSync(tildeStack, { recursive: true })
+  fs.writeFileSync(path.join(tildeStack, "docker-compose.yml"), "services: {}\n")
+  assert.equal(isValidOntologyStackCheckout(tildeStack), true, "a regular compose file is sufficient when the devbox Dockerfile is absent")
+  assert.equal(detectOntologyStackDirectory({
+    stackDirectory: "~/dev/ontology-stack",
+    homeDirectory,
+    env: { HOME: path.join(tempRoot, "different-home") },
+  }), fs.realpathSync(tildeStack), "tilde paths expand against homeDirectory")
+
+  const composeSymlinkStack = path.join(tempRoot, "compose-symlink-stack")
+  const externalCompose = path.join(tempRoot, "external-compose.yml")
+  fs.mkdirSync(composeSymlinkStack, { recursive: true })
+  fs.writeFileSync(externalCompose, "services: {}\n")
+  fs.symlinkSync(externalCompose, path.join(composeSymlinkStack, "docker-compose.yml"))
+  assert.equal(isValidOntologyStackCheckout(composeSymlinkStack), false, "docker-compose.yml cannot be a symlink")
+
+  const dockerfileSymlinkStack = path.join(tempRoot, "dockerfile-symlink-stack")
+  fs.mkdirSync(path.join(dockerfileSymlinkStack, "payloads", "ontology-devbox"), { recursive: true })
+  fs.writeFileSync(path.join(dockerfileSymlinkStack, "docker-compose.yml"), "services: {}\n")
+  fs.symlinkSync(externalCompose, path.join(dockerfileSymlinkStack, "payloads", "ontology-devbox", "Dockerfile"))
+  assert.equal(isValidOntologyStackCheckout(dockerfileSymlinkStack), false, "an existing Dockerfile cannot be a symlink")
+
+  const nestedParent = path.join(tempRoot, "nested-parent")
+  const nestedStack = path.join(nestedParent, "ontology-stack")
+  fs.mkdirSync(nestedStack, { recursive: true })
+  fs.writeFileSync(path.join(nestedStack, "docker-compose.yml"), "services: {}\n")
+  assert.equal(detectOntologyStackDirectory({
+    repoRoot: nestedParent,
+    homeDirectory: path.join(tempRoot, "empty-home"),
+    env: { HOME: path.join(tempRoot, "empty-home") },
+  }), fs.realpathSync(nestedStack), "a valid child ontology-stack is found below its parent")
+
+  const devDirectory = path.join(tempRoot, "dev")
+  const invalidStack = path.join(devDirectory, "ontology")
+  const siblingStack = path.join(devDirectory, "ontology-stack")
+  fs.mkdirSync(invalidStack, { recursive: true })
+  fs.mkdirSync(siblingStack, { recursive: true })
+  fs.writeFileSync(path.join(siblingStack, "docker-compose.yml"), "services: {}\n")
+  assert.equal(detectOntologyStackDirectory({
+    stackDirectory: invalidStack,
+    homeDirectory: path.join(tempRoot, "empty-home"),
+    env: { HOME: path.join(tempRoot, "empty-home") },
+  }), fs.realpathSync(siblingStack), "an invalid explicit stack path falls back to its ontology-stack sibling")
+  assert.equal(detectOntologyStackDirectory({
+    stackDirectory: path.join(tempRoot, "no-fallback", "ontology"),
+    homeDirectory: path.join(tempRoot, "empty-home"),
+    env: { HOME: path.join(tempRoot, "empty-home") },
+  }), null, "an invalid explicit stack path returns null when no fallback exists")
+
+  const xdg = path.join(tempRoot, "xdg")
+  const workspace = path.join(tempRoot, "workspace")
+  const ontologyAgent = fixtureAgent(path.join(workspace, "agents", "ontology-orchestrator.md"), workspace, "test/model")
+  const result = exportAgents([ontologyAgent], new Set([ontologyAgent.currentPath]), undefined, {
+    stackDirectory: invalidStack,
+    env: { HOME: tempRoot, XDG_CONFIG_HOME: xdg },
+  })
+  assert.ok(result.pluginProvisioning?.ontologyStackWarning, "export reports that the explicit stack path was invalid")
+  assert.match(result.pluginProvisioning?.ontologyStackWarning ?? "", new RegExp(invalidStack.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")))
+  const stackConfigPath = path.join(path.dirname(result.destinationPath), "ontology-stack.json")
+  assert.deepEqual(JSON.parse(fs.readFileSync(stackConfigPath, "utf8")), { stackDirectory: fs.realpathSync(siblingStack) })
+})

@@ -1,4 +1,5 @@
 import { tool } from "@opencode-ai/plugin"
+import { createHash } from "node:crypto"
 import { safeProjectSegment } from "./_safeName.js"
 
 export default tool({
@@ -14,8 +15,23 @@ export default tool({
     imageName: tool.schema
       .string()
       .describe("Desired filename with extension (e.g. 'logo.png')"),
+    sha256: tool.schema
+      .string()
+      .optional()
+      .describe("Expected SHA-256 hex digest of the downloaded image"),
+    md5: tool.schema
+      .string()
+      .optional()
+      .describe("Expected MD5 hex digest of the downloaded image"),
   },
   async execute(args, context) {
+    if (args.sha256 !== undefined && !/^[a-f0-9]{64}$/i.test(args.sha256)) {
+      return "Error: Invalid sha256 digest; expected 64 hexadecimal characters."
+    }
+    if (args.md5 !== undefined && !/^[a-f0-9]{32}$/i.test(args.md5)) {
+      return "Error: Invalid md5 digest; expected 32 hexadecimal characters."
+    }
+
     let projectName
     try {
       projectName = safeProjectSegment(args.projectName)
@@ -50,6 +66,14 @@ export default tool({
     if (!response.ok) return `Error: HTTP ${response.status} — ${response.statusText}`
 
     const buffer = new Uint8Array(await response.arrayBuffer())
+    const sha256 = createHash("sha256").update(buffer).digest("hex")
+    const md5 = createHash("md5").update(buffer).digest("hex")
+    if (args.sha256 && sha256.toLowerCase() !== args.sha256.toLowerCase()) {
+      return `Error: SHA-256 checksum mismatch; expected ${args.sha256}, got ${sha256}.`
+    }
+    if (args.md5 && md5.toLowerCase() !== args.md5.toLowerCase()) {
+      return `Error: MD5 checksum mismatch; expected ${args.md5}, got ${md5}.`
+    }
 
     // Reject HTML responses
     const head = new TextDecoder().decode(buffer.slice(0, 100)).toLowerCase()
@@ -73,6 +97,6 @@ export default tool({
     }
 
     fs.writeFileSync(outputPath, buffer)
-    return `Downloaded image to: ${outputPath}`
+    return `Downloaded image to: ${outputPath} (SHA-256: ${sha256}, MD5: ${md5})`
   },
 })

@@ -1,7 +1,9 @@
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
+import { spawnSync } from "node:child_process"
 import { randomBytes } from "node:crypto"
+import { fileURLToPath } from "node:url"
 import YAML from "yaml"
 import { isPathInsideWorkspace, isWorkspaceRelativePath } from "./pathValidation.js"
 import { detectFrontmatterVersion, translateFrontmatterV1ToV2, translateFrontmatterV2ToV1 } from "./v2Compat.js"
@@ -2631,6 +2633,38 @@ function copyDomainResources(sourceRoot: string, opencodeRoot: string, agents: A
   }
 }
 
+export interface PluginProvisionResult {
+  installed: string[]
+  skipped: string[]
+  failed: Array<{ plugin: string; error: string }>
+  registeredPlugins: string[]
+  opencodeConfigPath: string | null
+  opencodeConfigBackupPath: string | null
+  ontologyStackConfigPath: string | null
+  ontologyStackDirectory: string | null
+  ontologyStackWarning?: string
+}
+
+const RETIRED_ONTOLOGY_AGENT_FILES = [
+  "ontology-domain_modeler.md",
+  "ontology-foundation_aligner.md",
+  "ontology-competency_analyst.md",
+  "ontology-evidence_analyst.md",
+  "ontology-data_profiler.md",
+  "ontology-shapes_author.md",
+  "ontology-abox_builder.md",
+  "ontology-release_reviewer.md",
+  "ontology-release_builder.md",
+  "ontology-hitl.md",
+] as const
+
+export interface ExportOptions {
+  runCommand?: typeof spawnSync
+  stackDirectory?: string
+  homeDirectory?: string
+  env?: NodeJS.ProcessEnv
+}
+
 export interface ExportResult {
   exported: string[]
   backupPath: string
@@ -2638,6 +2672,463 @@ export interface ExportResult {
   skipped: string[]
   domainResources: string[]
   domainBackupPath: string | null
+  removedRetiredAgents?: string[]
+  pluginProvisioning?: PluginProvisionResult
+}
+
+export function expandStackDirectoryPath(dirPath: string, homeDirectory = os.homedir()): string {
+  if (dirPath === "~") return path.resolve(homeDirectory)
+  if (dirPath.startsWith("~/") || dirPath.startsWith("~\\")) {
+    return path.resolve(path.join(homeDirectory, dirPath.slice(2)))
+  }
+  return path.resolve(dirPath)
+}
+
+/**
+ * Check whether a candidate directory is a valid ontology-stack checkout
+ * containing docker-compose.yml and no symlinks in existing payload paths.
+ */
+export function isValidOntologyStackCheckout(candidatePath: string): boolean {
+  if (typeof candidatePath !== "string" || !candidatePath.trim()) return false
+  const root = expandStackDirectoryPath(candidatePath)
+  try {
+    const rootStat = fs.lstatSync(root)
+    if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) return false
+    const composeStat = fs.lstatSync(path.join(root, "docker-compose.yml"))
+    if (composeStat.isSymbolicLink() || !composeStat.isFile()) return false
+    const payloadsPath = path.join(root, "payloads")
+    if (fs.existsSync(payloadsPath)) {
+      const payloadsStat = fs.lstatSync(payloadsPath)
+      if (payloadsStat.isSymbolicLink() || !payloadsStat.isDirectory()) return false
+    }
+    const devboxPath = path.join(root, "payloads", "ontology-devbox")
+    if (fs.existsSync(devboxPath)) {
+      const devboxStat = fs.lstatSync(devboxPath)
+      if (devboxStat.isSymbolicLink() || !devboxStat.isDirectory()) return false
+    }
+    const dockerfilePath = path.join(root, "payloads", "ontology-devbox", "Dockerfile")
+    if (fs.existsSync(dockerfilePath)) {
+      const dockerfileStat = fs.lstatSync(dockerfilePath)
+      if (dockerfileStat.isSymbolicLink() || !dockerfileStat.isFile()) return false
+    }
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Detect a valid ontology-stack directory from explicit input, ONTOLOGY_STACK_DIR,
+ * sibling ../ontology-stack, or ~/dev/ontology-stack.
+ */
+export function detectOntologyStackDirectory(options: {
+  stackDirectory?: string
+  env?: NodeJS.ProcessEnv
+  repoRoot?: string
+  homeDirectory?: string
+} = {}): string | null {
+  const env = options.env || process.env
+  const homeDirectory = options.homeDirectory ?? os.homedir()
+  let expandedExplicitDirectory: string | undefined
+  if (options.stackDirectory !== undefined && options.stackDirectory.trim() !== "") {
+    expandedExplicitDirectory = expandStackDirectoryPath(options.stackDirectory, homeDirectory)
+    if (isValidOntologyStackCheckout(expandedExplicitDirectory)) {
+      return fs.realpathSync(expandedExplicitDirectory)
+    }
+    const nestedStack = path.join(expandedExplicitDirectory, "ontology-stack")
+    if (isValidOntologyStackCheckout(nestedStack)) {
+      return fs.realpathSync(nestedStack)
+    }
+  }
+
+  const candidates: string[] = []
+  if (env.ONTOLOGY_STACK_DIR) {
+    candidates.push(expandStackDirectoryPath(env.ONTOLOGY_STACK_DIR, homeDirectory))
+  }
+  if (expandedExplicitDirectory) {
+    candidates.push(path.resolve(expandedExplicitDirectory, "..", "ontology-stack"))
+  }
+  if (options.repoRoot) {
+    candidates.push(path.resolve(options.repoRoot, "..", "ontology-stack"))
+    candidates.push(path.join(options.repoRoot, "ontology-stack"))
+  }
+  if (options.homeDirectory !== undefined || options.env === undefined) {
+    candidates.push(path.join(homeDirectory, "dev", "ontology-stack"))
+  }
+
+  for (const candidate of candidates) {
+    if (isValidOntologyStackCheckout(candidate)) {
+      return fs.realpathSync(candidate)
+    }
+  }
+  return null
+}
+
+/**
+ * Write ${XDG_CONFIG_HOME:-$HOME/.config}/opencode/ontology-stack.json with mode 0600,
+ * refusing symlinks.
+ */
+export function writeOntologyStackConfig(opencodeRoot: string, stackDirectory: string): string {
+  const expandedStackDirectory = expandStackDirectoryPath(stackDirectory)
+  if (!isValidOntologyStackCheckout(expandedStackDirectory)) {
+    throw new Error(
+      `Invalid ontology-stack directory: ${stackDirectory} (must be a non-symlink directory containing docker-compose.yml)`
+    )
+  }
+  const resolvedOpenCodeRoot = path.resolve(opencodeRoot)
+  const rootStat = fs.lstatSync(resolvedOpenCodeRoot, { throwIfNoEntry: false })
+  if (rootStat?.isSymbolicLink()) throw new Error(`Refusing symlink at OpenCode config root: ${resolvedOpenCodeRoot}`)
+  if (rootStat && !rootStat.isDirectory()) throw new Error(`OpenCode config root is not a directory: ${resolvedOpenCodeRoot}`)
+  if (!rootStat) fs.mkdirSync(resolvedOpenCodeRoot, { recursive: true })
+
+  const configPath = path.join(resolvedOpenCodeRoot, "ontology-stack.json")
+  const existingStat = fs.lstatSync(configPath, { throwIfNoEntry: false })
+  if (existingStat && (existingStat.isSymbolicLink() || !existingStat.isFile())) {
+    throw new Error(`Refusing symlink or non-regular file at ontology-stack.json: ${configPath}`)
+  }
+
+  const canonicalStack = fs.realpathSync(expandedStackDirectory)
+  const payload = Buffer.from(JSON.stringify({ stackDirectory: canonicalStack }, null, 2) + "\n", "utf8")
+  atomicWriteRestrictedFile(configPath, payload, 0o600)
+  return configPath
+}
+
+function atomicWriteRestrictedFile(filePath: string, bytes: Buffer, mode = 0o600): void {
+  const dir = path.dirname(filePath)
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true })
+  }
+  const target = fs.lstatSync(filePath, { throwIfNoEntry: false })
+  if (target && (target.isSymbolicLink() || !target.isFile())) {
+    throw new Error(`Refusing to replace non-regular file: ${filePath}`)
+  }
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const tempPath = path.join(dir, `.${path.basename(filePath)}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`)
+    let fd: number | undefined
+    let owned = false
+    try {
+      fd = fs.openSync(tempPath, "wx", mode)
+      owned = true
+      let offset = 0
+      while (offset < bytes.length) offset += fs.writeSync(fd, bytes, offset, bytes.length - offset)
+      fs.fchmodSync(fd, mode)
+      fs.closeSync(fd)
+      fd = undefined
+      fs.renameSync(tempPath, filePath)
+      fs.chmodSync(filePath, mode)
+      return
+    } catch (error: any) {
+      if (fd !== undefined) fs.closeSync(fd)
+      if (owned) { try { fs.unlinkSync(tempPath) } catch {} }
+      if (error?.code === "EEXIST") continue
+      throw error
+    }
+  }
+  throw new Error(`Unable to allocate a temporary file for ${filePath}`)
+}
+
+/**
+ * Safely and idempotently register exported plugin paths in opencode.json,
+ * backing up any pre-existing opencode.json to opencode.json.bak with 0600 permissions.
+ */
+export function mergeOpenCodePluginsConfig(
+  opencodeRoot: string,
+  pluginPaths: string[]
+): { configPath: string; backupPath: string | null; plugins: string[] } {
+  const resolvedOpenCodeRoot = path.resolve(opencodeRoot)
+  const rootStat = fs.lstatSync(resolvedOpenCodeRoot, { throwIfNoEntry: false })
+  if (rootStat?.isSymbolicLink()) throw new Error(`Refusing symlink at OpenCode config root: ${resolvedOpenCodeRoot}`)
+  if (rootStat && !rootStat.isDirectory()) throw new Error(`OpenCode config root is not a directory: ${resolvedOpenCodeRoot}`)
+  if (!rootStat) fs.mkdirSync(resolvedOpenCodeRoot, { recursive: true })
+
+  const configPath = path.join(resolvedOpenCodeRoot, "opencode.json")
+  const backupPath = path.join(resolvedOpenCodeRoot, "opencode.json.bak")
+  const configStat = fs.lstatSync(configPath, { throwIfNoEntry: false })
+  if (configStat && (configStat.isSymbolicLink() || !configStat.isFile())) {
+    throw new Error(`Refusing symlink or non-regular file at opencode.json: ${configPath}`)
+  }
+  const backupStat = fs.lstatSync(backupPath, { throwIfNoEntry: false })
+  if (backupStat && (backupStat.isSymbolicLink() || !backupStat.isFile())) {
+    throw new Error(`Refusing symlink or non-regular file at opencode.json.bak: ${backupPath}`)
+  }
+
+  let config: Record<string, any>
+  let createdBackup: string | null = null
+  if (configStat) {
+    const rawBytes = fs.readFileSync(configPath)
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(rawBytes.toString("utf8"))
+    } catch (error: any) {
+      throw new Error(`Failed to parse existing opencode.json (${configPath}): ${error?.message || error}`)
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error(`Existing opencode.json must contain a JSON object: ${configPath}`)
+    }
+    const obj = parsed as Record<string, any>
+    if (obj.plugins !== undefined && (!Array.isArray(obj.plugins) || obj.plugins.some((item: any) =>
+      typeof item !== "string" && (!item || typeof item !== "object" || Array.isArray(item) || typeof item.package !== "string")))) {
+      throw new Error(`Invalid "plugins" field in opencode.json; expected plugin strings or package objects: ${configPath}`)
+    }
+    atomicWriteRestrictedFile(backupPath, rawBytes, 0o600)
+    createdBackup = backupPath
+    config = obj
+  } else {
+    config = {
+      $schema: "https://opencode.ai/config.json",
+      plugins: [],
+    }
+  }
+
+  type PluginEntry = string | { package: string; [key: string]: unknown }
+  const targetOf = (entry: PluginEntry): string => typeof entry === "string" ? entry : entry.package
+  const localDirectory = (target: string): string | undefined => {
+    try {
+      const local = target.startsWith("file:") ? fileURLToPath(target)
+        : path.isAbsolute(target) ? target
+        : target.startsWith("./") || target.startsWith("../") ? path.resolve(resolvedOpenCodeRoot, target)
+        : undefined
+      return local === undefined ? undefined : path.basename(local) === "index.ts" ? path.dirname(local) : path.resolve(local)
+    } catch {
+      return undefined
+    }
+  }
+  const packageName = (directory: string): string | undefined => {
+    try {
+      const manifest = path.join(directory, "package.json")
+      const stat = fs.lstatSync(manifest)
+      if (!stat.isFile() || stat.isSymbolicLink()) return undefined
+      return JSON.parse(fs.readFileSync(manifest, "utf8")).name
+    } catch {
+      return undefined
+    }
+  }
+  // OpenCode keeps the first plugin with a given ID. Appending deployed paths
+  // leaves older checkout copies active, so reconcile only the exported ontology
+  // packages whose identity we can verify without executing plugin code.
+  const managed = new Map<string, string>()
+  for (const target of pluginPaths) {
+    const match = /^\.\/tools\/ontology\/([a-z0-9-]+)-plugin$/.exec(target)
+    const directory = localDirectory(target)
+    if (match && directory && packageName(directory) === `ontology-${match[1]}-opencode-plugin`) {
+      managed.set(`ontology-${match[1]}-opencode-plugin`, target)
+    }
+  }
+  const existingPlugins: PluginEntry[] = []
+  const seen = new Map<string, number>()
+  for (const entry of (config.plugins ?? []) as PluginEntry[]) {
+    const originalTarget = targetOf(entry)
+    const directory = localDirectory(originalTarget)
+    const identity = directory && /[/\\]tools[/\\]ontology[/\\][a-z0-9-]+-plugin$/.test(directory)
+      ? packageName(directory) : undefined
+    const managedTarget = identity && managed.get(identity)
+    const target = managedTarget || originalTarget
+    const normalized = typeof entry === "string" ? target : { ...entry, package: target }
+    const previousIndex = seen.get(target)
+    if (managedTarget && previousIndex !== undefined) {
+      const previous = existingPlugins[previousIndex]
+      if (typeof entry !== "string") {
+        if (typeof previous !== "string" && JSON.stringify(previous) !== JSON.stringify(normalized)) {
+          throw new Error(`Conflicting options for duplicate plugin ${target}; reconcile its configuration explicitly`)
+        }
+        existingPlugins[previousIndex] = normalized
+      }
+      continue
+    }
+    seen.set(target, existingPlugins.length)
+    existingPlugins.push(normalized)
+  }
+  for (const pluginPath of pluginPaths) {
+    if (!seen.has(pluginPath)) {
+      seen.set(pluginPath, existingPlugins.length)
+      existingPlugins.push(pluginPath)
+    }
+  }
+  config.plugins = existingPlugins
+
+  const updatedBytes = Buffer.from(JSON.stringify(config, null, 2) + "\n", "utf8")
+  atomicWriteRestrictedFile(configPath, updatedBytes, 0o600)
+  return { configPath, backupPath: createdBackup, plugins: existingPlugins.map(targetOf) }
+}
+
+/**
+ * Check whether node_modules in an exported plugin directory is already present
+ * and aligned with its package-lock.json production dependencies.
+ */
+export function isPluginNodeModulesAligned(pluginDir: string): boolean {
+  try {
+    const lockPath = path.join(pluginDir, "package-lock.json")
+    const nodeModulesDir = path.join(pluginDir, "node_modules")
+    const installedLockPath = path.join(nodeModulesDir, ".package-lock.json")
+    const lockStat = fs.lstatSync(lockPath, { throwIfNoEntry: false })
+    const nmStat = fs.lstatSync(nodeModulesDir, { throwIfNoEntry: false })
+    const installedLockStat = fs.lstatSync(installedLockPath, { throwIfNoEntry: false })
+    if (!lockStat?.isFile() || lockStat.isSymbolicLink()) return false
+    if (!nmStat?.isDirectory() || nmStat.isSymbolicLink()) return false
+    if (!installedLockStat?.isFile() || installedLockStat.isSymbolicLink()) return false
+
+    const lock = JSON.parse(fs.readFileSync(lockPath, "utf8"))
+    const installedLock = JSON.parse(fs.readFileSync(installedLockPath, "utf8"))
+    const packages = lock?.packages
+    const installedPackages = installedLock?.packages
+    if (!packages || typeof packages !== "object" || !installedPackages || typeof installedPackages !== "object") {
+      return false
+    }
+
+    for (const [pkgKey, meta] of Object.entries<any>(packages)) {
+      if (pkgKey === "" || !meta || typeof meta !== "object" || meta.dev) continue
+      const installedMeta = installedPackages[pkgKey]
+      if (!installedMeta || typeof installedMeta !== "object") {
+        if (meta.optional === true) continue
+        return false
+      }
+      if (installedMeta.version !== meta.version || installedMeta.integrity !== meta.integrity) {
+        return false
+      }
+      const pkgJsonPath = path.join(pluginDir, pkgKey, "package.json")
+      const pkgJsonStat = fs.lstatSync(pkgJsonPath, { throwIfNoEntry: false })
+      if (!pkgJsonStat?.isFile() || pkgJsonStat.isSymbolicLink()) return false
+      const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, "utf8"))
+      if (pkgJson?.version !== meta.version) return false
+    }
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Provision dependencies and register exported ontology plugins (tools/ontology/*-plugin)
+ * in the destination OpenCode configuration directory.
+ */
+export function provisionExportedOntologyPlugins(
+  opencodeRoot: string,
+  installedResourcePaths: string[],
+  options: {
+    runCommand?: typeof spawnSync
+    stackDirectory?: string
+    repoRoot?: string
+    sourceRoot?: string
+    env?: NodeJS.ProcessEnv
+    domains?: string[]
+    homeDirectory?: string
+  } = {}
+): PluginProvisionResult {
+  const resolvedOpenCodeRoot = path.resolve(opencodeRoot)
+  const runCommand = options.runCommand || spawnSync
+  const pluginNames = new Set<string>()
+
+  for (const resourcePath of installedResourcePaths) {
+    const relative = path.relative(resolvedOpenCodeRoot, path.resolve(resourcePath)).split(path.sep).join("/")
+    const match = /^tools\/ontology\/([^/]+-plugin)\/(?:package\.json|package-lock\.json|index\.ts)$/.exec(relative)
+    if (match) pluginNames.add(match[1])
+  }
+
+  if (options.domains?.includes("ontology")) {
+    const ontologyToolsDir = path.join(resolvedOpenCodeRoot, "tools", "ontology")
+    const dirStat = fs.lstatSync(ontologyToolsDir, { throwIfNoEntry: false })
+    if (dirStat?.isDirectory() && !dirStat.isSymbolicLink()) {
+      for (const entry of fs.readdirSync(ontologyToolsDir, { withFileTypes: true })) {
+        if (entry.isDirectory() && !entry.isSymbolicLink() && entry.name.endsWith("-plugin")) {
+          pluginNames.add(entry.name)
+        }
+      }
+    }
+  }
+
+  const sortedPlugins = [...pluginNames].sort().filter(name => {
+    const dir = path.join(resolvedOpenCodeRoot, "tools", "ontology", name)
+    const pkgStat = fs.lstatSync(path.join(dir, "package.json"), { throwIfNoEntry: false })
+    const lockStat = fs.lstatSync(path.join(dir, "package-lock.json"), { throwIfNoEntry: false })
+    return Boolean(pkgStat?.isFile() && !pkgStat.isSymbolicLink() && lockStat?.isFile() && !lockStat.isSymbolicLink())
+  })
+
+  const installed: string[] = []
+  const skipped: string[] = []
+  const failed: Array<{ plugin: string; error: string }> = []
+  const pluginRelatives = sortedPlugins.map(name => `./tools/ontology/${name}`)
+
+  for (const name of sortedPlugins) {
+    const pluginDir = path.join(resolvedOpenCodeRoot, "tools", "ontology", name)
+    const relativeDir = path.join("tools", "ontology", name)
+    const pluginRef = `./tools/ontology/${name}`
+    if (isPluginNodeModulesAligned(pluginDir)) {
+      skipped.push(pluginRef)
+      continue
+    }
+    const res = runCommand("npm", ["ci", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund"], {
+      cwd: pluginDir,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    })
+    if (res.error || res.status !== 0) {
+      const detail = res.error?.message || String(res.stderr || res.stdout || `npm ci exited with status ${res.status}`).trim()
+      const sourcePluginRoot = options.sourceRoot ? path.join(options.sourceRoot, relativeDir) : undefined
+      if (options.runCommand === undefined && sourcePluginRoot && isPluginNodeModulesAligned(sourcePluginRoot)) {
+        try {
+          fs.cpSync(path.join(sourcePluginRoot, "node_modules"), path.join(pluginDir, "node_modules"), { recursive: true, dereference: false })
+          if (isPluginNodeModulesAligned(pluginDir)) {
+            installed.push(pluginRef)
+            continue
+          }
+        } catch {}
+      }
+      failed.push({ plugin: pluginRef, error: detail })
+    } else {
+      installed.push(pluginRef)
+    }
+  }
+
+  let opencodeConfigPath: string | null = null
+  let opencodeConfigBackupPath: string | null = null
+  let registeredPlugins: string[] = []
+  if (pluginRelatives.length > 0) {
+    const merged = mergeOpenCodePluginsConfig(resolvedOpenCodeRoot, pluginRelatives)
+    opencodeConfigPath = merged.configPath
+    opencodeConfigBackupPath = merged.backupPath
+    registeredPlugins = merged.plugins
+  }
+
+  let ontologyStackConfigPath: string | null = null
+  let ontologyStackDirectory: string | null = null
+  let ontologyStackWarning: string | undefined
+  if (options.stackDirectory !== undefined || pluginRelatives.length > 0) {
+    const expandedExplicitDirectory = options.stackDirectory !== undefined && options.stackDirectory.trim() !== ""
+      ? expandStackDirectoryPath(options.stackDirectory, options.homeDirectory ?? os.homedir())
+      : undefined
+    const explicitStackIsValid = expandedExplicitDirectory !== undefined && (
+      isValidOntologyStackCheckout(expandedExplicitDirectory) ||
+      isValidOntologyStackCheckout(path.join(expandedExplicitDirectory, "ontology-stack"))
+    )
+    const detectedStack = detectOntologyStackDirectory({
+      stackDirectory: options.stackDirectory,
+      env: options.env,
+      repoRoot: options.repoRoot,
+      homeDirectory: options.homeDirectory,
+    })
+    if (detectedStack) {
+      ontologyStackDirectory = detectedStack
+      ontologyStackConfigPath = writeOntologyStackConfig(resolvedOpenCodeRoot, detectedStack)
+    }
+    if (expandedExplicitDirectory !== undefined && !explicitStackIsValid) {
+      ontologyStackWarning = detectedStack
+        ? `Explicit --stack path "${options.stackDirectory}" is not a valid ontology-stack directory; falling back to detected stack directory "${detectedStack}".`
+        : `Explicit --stack path "${options.stackDirectory}" is not a valid ontology-stack directory; skipped writing ontology-stack.json.`
+    }
+  }
+
+  return {
+    installed,
+    skipped,
+    failed,
+    registeredPlugins,
+    opencodeConfigPath,
+    opencodeConfigBackupPath,
+    ontologyStackConfigPath,
+    ontologyStackDirectory,
+    ...(ontologyStackWarning ? { ontologyStackWarning } : {}),
+  }
 }
 
 /**
@@ -2711,32 +3202,33 @@ function preflightAgentExport(agents: AgentInfo[], destinationPath: string): { d
 export function exportAgents(
   agents: AgentInfo[],
   selectedPaths?: Set<string>,
-  resourceSourceRoot?: string
+  resourceSourceRoot?: string,
+  options: ExportOptions = {}
 ): ExportResult {
-  const preflight = preflightAgentExport(agents, getExportDestination())
+  const requestedDestinationPath = getExportDestination(options.env)
+  const toExport = selectedPaths && selectedPaths.size > 0
+    ? agents.filter((a) => selectedPaths.has(a.currentPath))
+    : agents
+  const preflight = preflightAgentExport(toExport, requestedDestinationPath)
   const destinationPath = preflight.destinationPath
-  const opencodeRoot = path.dirname(destinationPath)
-  const backupPath = path.join(opencodeRoot, "agents_backup")
-  const tempBackupPath = preflight.tempBackupPath
-  const rootStat = fs.lstatSync(opencodeRoot, { throwIfNoEntry: false })
-  if (rootStat && (rootStat.isSymbolicLink() || !rootStat.isDirectory())) throw new Error(`Invalid OpenCode destination directory: ${opencodeRoot}`)
+  const resolvedOpenCodeRoot = path.dirname(destinationPath)
+  const opencodeRoot = resolvedOpenCodeRoot
+  const resolvedBackupPath = path.join(resolvedOpenCodeRoot, "agents_backup")
+  const rootStat = fs.lstatSync(resolvedOpenCodeRoot, { throwIfNoEntry: false })
+  if (rootStat && (rootStat.isSymbolicLink() || !rootStat.isDirectory())) throw new Error(`Invalid OpenCode destination directory: ${resolvedOpenCodeRoot}`)
   const destinationStat = fs.lstatSync(destinationPath, { throwIfNoEntry: false })
   if (destinationStat && (destinationStat.isSymbolicLink() || !destinationStat.isDirectory())) throw new Error(`Invalid agent destination directory: ${destinationPath}`)
   if (resourceSourceRoot) validateResourceRoot(resourceSourceRoot)
 
-  // Determine which agents to export
-  const toExport = selectedPaths && selectedPaths.size > 0
-    ? agents.filter((a) => selectedPaths.has(a.currentPath))
-    : agents
-
   // Create disaster-recovery backup of current destination (if it exists)
   if (destinationStat) {
+    const tempBackupPath = preflight.tempBackupPath
     try {
       fs.cpSync(destinationPath, tempBackupPath, { recursive: true })
-      if (fs.existsSync(backupPath)) {
-        fs.rmSync(backupPath, { recursive: true, force: true })
+      if (fs.existsSync(resolvedBackupPath)) {
+        fs.rmSync(resolvedBackupPath, { recursive: true, force: true })
       }
-      fs.renameSync(tempBackupPath, backupPath)
+      fs.renameSync(tempBackupPath, resolvedBackupPath)
     } catch (error) {
       if (fs.existsSync(tempBackupPath)) fs.rmSync(tempBackupPath, { recursive: true, force: true })
       throw error
@@ -2786,7 +3278,7 @@ export function exportAgents(
     for (const written of writtenAgents.reverse()) {
       try {
         if (written.existed) {
-          const saved = path.join(backupPath, written.filename)
+          const saved = path.join(resolvedBackupPath, written.filename)
           fs.copyFileSync(saved, written.targetFile)
           fs.chmodSync(written.targetFile, fs.statSync(saved).mode & 0o7777)
         } else fs.rmSync(written.targetFile, { force: true })
@@ -2806,7 +3298,7 @@ export function exportAgents(
     for (const written of writtenAgents.reverse()) {
       try {
         if (written.existed) {
-          const saved = path.join(backupPath, written.filename)
+          const saved = path.join(resolvedBackupPath, written.filename)
           fs.copyFileSync(saved, written.targetFile)
           fs.chmodSync(written.targetFile, fs.statSync(saved).mode & 0o7777)
         } else fs.rmSync(written.targetFile, { force: true })
@@ -2817,5 +3309,46 @@ export function exportAgents(
     throw new Error(message)
   }
 
-  return { exported, backupPath, destinationPath, skipped, domainResources: resourceResult.installed, domainBackupPath: resourceResult.backupPath }
+  const domains = successfulAgents.map(agent => agentDomain(agent.filename))
+  const removedRetiredAgents: string[] = []
+  if (successfulAgents.some(agent => agentDomain(path.basename(agent.currentPath)) === "ontology")) {
+    for (const filename of RETIRED_ONTOLOGY_AGENT_FILES) {
+      const targetPath = path.join(destinationPath, filename)
+      if (!fs.existsSync(targetPath)) continue
+      const stat = fs.lstatSync(targetPath)
+      if (!stat.isSymbolicLink() && stat.isFile()) {
+        fs.unlinkSync(targetPath)
+        removedRetiredAgents.push(filename)
+      }
+    }
+  }
+  let repoRoot: string | undefined
+  if (resourceSourceRoot) {
+    const resolvedSource = path.resolve(resourceSourceRoot)
+    const parent = path.dirname(resolvedSource)
+    repoRoot = path.basename(parent) === "agents" ? path.dirname(parent) : parent
+  }
+
+  const pluginProvisioning = (resourceSourceRoot || options.stackDirectory !== undefined)
+    ? provisionExportedOntologyPlugins(opencodeRoot, resourceResult.installed, {
+        runCommand: options.runCommand,
+        stackDirectory: options.stackDirectory,
+        homeDirectory: options.homeDirectory,
+        repoRoot,
+        sourceRoot: resourceSourceRoot,
+        env: options.env,
+        domains,
+      })
+    : undefined
+
+  return {
+    exported,
+    backupPath: resolvedBackupPath,
+    destinationPath,
+    skipped,
+    domainResources: resourceResult.installed,
+    domainBackupPath: resourceResult.backupPath,
+    removedRetiredAgents,
+    ...(pluginProvisioning ? { pluginProvisioning } : {}),
+  }
 }

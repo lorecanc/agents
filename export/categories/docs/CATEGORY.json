@@ -95,7 +95,7 @@
     },
     {
       "target": "tools/docx/scripts/html_docx_images.py",
-      "hash": "b03b54c16ac788315dc5bcbb46ae91a92703ecacc2a1f1935116c8e71d40d84f"
+      "hash": "5f073972eee73a181feeb7a3890a3dd7a27695fd9eb754da234cb6a913151a4d"
     },
     {
       "target": "tools/docx/scripts/html_docx_page.py",

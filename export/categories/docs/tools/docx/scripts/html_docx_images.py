@@ -1,9 +1,10 @@
 from __future__ import annotations
-import base64, binascii, mimetypes, re
+import base64, binascii, hashlib, hmac, mimetypes, re
 from io import BytesIO
 from pathlib import Path
 from typing import Dict, Optional
-from urllib.request import Request, urlopen
+from urllib.parse import parse_qs, urlsplit, urlunsplit
+from urllib.request import Request, url2pathname, urlopen
 from bs4.element import Tag
 from cairosvg import svg2png
 from docx.shared import Pt
@@ -12,36 +13,126 @@ from html_docx_selectors import _compute_style_map
 
 _IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".bmp", ".avif"}
 _DEFAULT_MAX_IMAGE_WIDTH_PT = 400.0
+_SHA256_RE = re.compile(r"\A[0-9a-fA-F]{64}\Z")
+_MD5_RE = re.compile(r"\A[0-9a-fA-F]{32}\Z")
+
+
+def verify_image_digest(
+    data: bytes, expected_sha256: str | None = None, expected_md5: str | None = None
+) -> bool:
+    if expected_sha256 is not None:
+        if not isinstance(expected_sha256, str) or not _SHA256_RE.fullmatch(expected_sha256):
+            return False
+        if not hmac.compare_digest(hashlib.sha256(data).hexdigest(), expected_sha256.lower()):
+            return False
+    if expected_md5 is not None:
+        if not isinstance(expected_md5, str) or not _MD5_RE.fullmatch(expected_md5):
+            return False
+        if not hmac.compare_digest(hashlib.md5(data).hexdigest(), expected_md5.lower()):
+            return False
+    return True
+
+
+def _image_digests(
+    src: str, expected_sha256: str | None, expected_md5: str | None
+) -> tuple[str | None, str | None]:
+    parsed = urlsplit(src)
+    query = parse_qs(parsed.query, keep_blank_values=True)
+    fragment = parse_qs(parsed.fragment, keep_blank_values=True)
+
+    def from_url(name: str) -> str | None:
+        for params in (query, fragment):
+            value = next((values[-1] for key, values in params.items() if key.lower() == name), None)
+            if value is not None:
+                return value
+        return None
+
+    if expected_sha256 is None:
+        expected_sha256 = from_url("sha256")
+    if expected_md5 is None:
+        expected_md5 = from_url("md5")
+    return expected_sha256, expected_md5
+
+
+def _local_image_path(src: str) -> str:
+    raw = src.split("#", 1)[0].split("?", 1)[0]
+    parsed = urlsplit(raw)
+    if parsed.scheme.lower() == "file":
+        return url2pathname(parsed.path)
+    return raw
 
 
 def _is_image_path(src: str) -> bool:
-    return Path(src.split("?")[0]).suffix.lower() in _IMAGE_EXTENSIONS
+    return Path(_local_image_path(src)).suffix.lower() in _IMAGE_EXTENSIONS
 
 
 def embed_local_images(html: str, base_dir: Path) -> str:
-    def _encode(src: str) -> str | None:
+    def _encode(
+        src: str, expected_sha256: str | None = None, expected_md5: str | None = None
+    ) -> str | None:
         if src.startswith("data:") or src.startswith("file://"):
             return None
+        expected_sha256, expected_md5 = _image_digests(src, expected_sha256, expected_md5)
         if src.startswith("http://") or src.startswith("https://"):
             try:
-                req = Request(src, headers={"User-Agent": "docs-agent"})
+                parsed = urlsplit(src)
+                request_url = urlunsplit(parsed._replace(fragment=""))
+                req = Request(request_url, headers={"User-Agent": "docs-agent"})
                 with urlopen(req, timeout=20) as response:
                     data = response.read()
-                mime, _ = mimetypes.guess_type(src.split("?")[0])
+                if (expected_sha256 is not None or expected_md5 is not None) and not verify_image_digest(
+                    data, expected_sha256, expected_md5
+                ):
+                    return None
+                mime, _ = mimetypes.guess_type(parsed.path)
                 mime = mime or "image/png"
                 return f"data:{mime};base64,{base64.b64encode(data).decode('ascii')}"
             except Exception:
                 return None
-        if not _is_image_path(src):
+        local_src = _local_image_path(src)
+        if not _is_image_path(local_src):
             return None
-        img_path = (base_dir / src).resolve()
+        img_path = (base_dir / local_src).resolve()
         if not img_path.exists():
+            return None
+        data = img_path.read_bytes()
+        if (expected_sha256 is not None or expected_md5 is not None) and not verify_image_digest(
+            data, expected_sha256, expected_md5
+        ):
             return None
         mime, _ = mimetypes.guess_type(str(img_path))
         mime = mime or "image/png"
-        return f"data:{mime};base64,{base64.b64encode(img_path.read_bytes()).decode('ascii')}"
+        return f"data:{mime};base64,{base64.b64encode(data).decode('ascii')}"
+
+    def replace_img_tag(match: re.Match) -> str:
+        tag = match.group(0)
+        src_match = re.search(r"""\bsrc\s*=\s*(?:(['"])(.*?)\1|([^\s>]+))""", tag, re.IGNORECASE)
+        if not src_match:
+            return tag
+
+        def attribute(name: str) -> str | None:
+            attr_match = re.search(
+                rf"""\b{re.escape(name)}(?:\s*=\s*(?:(['"])(.*?)\1|([^\s>]+)))?""",
+                tag,
+                re.IGNORECASE,
+            )
+            if not attr_match:
+                return None
+            return attr_match.group(2) if attr_match.group(1) else (attr_match.group(3) or "")
+
+        quote, src = src_match.group(1), src_match.group(2) if src_match.group(1) else src_match.group(3)
+        data_uri = _encode(src, attribute("data-sha256"), attribute("data-md5"))
+        if not data_uri:
+            return tag
+        quote = quote or '"'
+        return f"{tag[:src_match.start()]}src={quote}{data_uri}{quote}{tag[src_match.end():]}"
+
+    html = re.sub(r"<img\b[^>]*>", replace_img_tag, html, flags=re.IGNORECASE)
 
     def replace_src(match: re.Match) -> str:
+        preceding_html = html[:match.start()].lower()
+        if preceding_html.rfind("<img") > preceding_html.rfind(">"):
+            return match.group(0)
         quote, src = match.group(1), match.group(2)
         data_uri = _encode(src)
         return f"src={quote}{data_uri}{quote}" if data_uri else match.group(0)
@@ -112,7 +203,7 @@ def _add_image_run(paragraph, node: Tag, parent_style: Dict[str, str]) -> None:
     if not src:
         return
     width_pt, height_pt = _extract_image_dimensions(node, parent_style)
-    image_stream = _load_image_stream(src)
+    image_stream = _load_image_stream(src, node.get("data-sha256"), node.get("data-md5"))
     if image_stream is None:
         alt_text = (node.get("alt", "") or "").strip()
         if alt_text:
@@ -150,34 +241,58 @@ def _extract_image_dimensions(node: Tag, parent_style: Dict[str, str]) -> tuple[
     return width_pt, height_pt
 
 
-def _load_image_stream(src: str) -> BytesIO | Path | None:
+def _load_image_stream(
+    src: str, expected_sha256: str | None = None, expected_md5: str | None = None
+) -> BytesIO | Path | None:
+    expected_sha256, expected_md5 = _image_digests(src, expected_sha256, expected_md5)
     if src.startswith("data:image/"):
-        return _load_data_image(src)
+        return _load_data_image(src, expected_sha256, expected_md5)
     if src.startswith("http://") or src.startswith("https://"):
         try:
-            request = Request(src, headers={"User-Agent": "docs-agent"})
+            parsed = urlsplit(src)
+            request_url = urlunsplit(parsed._replace(fragment=""))
+            request = Request(request_url, headers={"User-Agent": "docs-agent"})
             with urlopen(request, timeout=20) as response:
-                return BytesIO(response.read())
+                data = response.read()
+            if (expected_sha256 is not None or expected_md5 is not None) and not verify_image_digest(
+                data, expected_sha256, expected_md5
+            ):
+                return None
+            return BytesIO(data)
         except Exception:
             return None
-    path = Path(src)
+    path = Path(_local_image_path(src))
     if path.exists():
+        if expected_sha256 is not None or expected_md5 is not None:
+            data = path.read_bytes()
+            if not verify_image_digest(data, expected_sha256, expected_md5):
+                return None
+            if path.suffix.lower() == ".svg":
+                return _convert_svg_to_png(data)
+            return BytesIO(data)
         if path.suffix.lower() == ".svg":
             return _convert_svg_to_png(path.read_bytes())
         return path
     return None
 
 
-def _load_data_image(src: str) -> BytesIO | None:
+def _load_data_image(
+    src: str, expected_sha256: str | None = None, expected_md5: str | None = None
+) -> BytesIO | None:
     try:
         header, encoded = src.split(",", 1)
     except ValueError:
         return None
     is_base64 = "base64" in header
-    if "image/svg+xml" in header:
-        svg_bytes = _decode_data_uri(encoded, is_base64)
-        return _convert_svg_to_png(svg_bytes)
     data = _decode_data_uri(encoded, is_base64)
+    if data is None:
+        return None
+    if (expected_sha256 is not None or expected_md5 is not None) and not verify_image_digest(
+        data, expected_sha256, expected_md5
+    ):
+        return None
+    if "image/svg+xml" in header:
+        return _convert_svg_to_png(data)
     return BytesIO(data) if data else None
 
 

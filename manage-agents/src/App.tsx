@@ -1623,6 +1623,29 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
               `Resource backup: ${result.domainBackupPath ? result.domainBackupPath.replace(/\/Users\/[^\/]+/, "~") : "not needed"}`
             )
           }
+          if (result.pluginProvisioning) {
+            const prov = result.pluginProvisioning
+            if (prov.installed.length > 0 || prov.skipped.length > 0) {
+              lines.push(
+                ``,
+                `Ontology plugins provisioned (${prov.installed.length} installed, ${prov.skipped.length} aligned):`,
+                ...prov.installed.map(p => `  ✔ ${p} (npm ci --omit=dev)`),
+                ...prov.skipped.map(p => `  • ${p} (node_modules aligned)`)
+              )
+            }
+            if (prov.opencodeConfigPath) {
+              lines.push(`Registered plugins in: ${prov.opencodeConfigPath.replace(/\/Users\/[^/]+/, "~")}`)
+              if (prov.opencodeConfigBackupPath) {
+                lines.push(`Config backup at: ${prov.opencodeConfigBackupPath.replace(/\/Users\/[^/]+/, "~")}`)
+              }
+            }
+            if (prov.ontologyStackConfigPath && prov.ontologyStackDirectory) {
+              lines.push(`Ontology stack config: ${prov.ontologyStackConfigPath.replace(/\/Users\/[^/]+/, "~")} -> ${prov.ontologyStackDirectory.replace(/\/Users\/[^/]+/, "~")}`)
+            }
+            if (prov.failed.length > 0) {
+              lines.push(``, `⚠ Plugin provisioning warnings:`, ...prov.failed.map(f => `  * ${f.plugin}: ${f.error}`))
+            }
+          }
           if (result.skipped.length > 0) {
             lines.push(``, `⚠ Skipped ${result.skipped.length} files:`,
               ...result.skipped.map((s) => `  * ${s}`))

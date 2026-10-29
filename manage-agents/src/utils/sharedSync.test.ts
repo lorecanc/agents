@@ -41,9 +41,6 @@ function manifest(overrides: { managerVersion?: string; pipelineVersion?: string
         include: [
           "manage-agents.sh",
           "manage-agents/manage-agents.mjs",
-          "manage-agents/package.json",
-          "manage-agents/package-lock.json",
-          "manage-agents/tsconfig.json",
           "manage-agents/README.md",
           "manage-agents/GUIDA.md",
           "manage-agents/assets/**",
@@ -51,7 +48,17 @@ function manifest(overrides: { managerVersion?: string; pipelineVersion?: string
           ".agent-manager/bash-profiles.json",
           ".agent-manager/translation-config.json"
         ],
-        exclude: ["manage-agents/node_modules/**", "manage-agents/dist/**"]
+        exclude: [
+          "manage-agents/node_modules/**",
+          "manage-agents/dist/**",
+          "manage-agents/package.json",
+          "manage-agents/package-lock.json",
+          "manage-agents/tsconfig.json",
+          "manage-agents/bun.lock",
+          "manage-agents/bunfig.toml",
+          "manage-agents/.npmrc",
+          "manage-agents/integration/**"
+        ]
       },
       pipelineCore: {
         version: overrides.pipelineVersion ?? "1.1.0",
@@ -83,7 +90,14 @@ function manifest(overrides: { managerVersion?: string; pipelineVersion?: string
         ".agent-manager/categories/**",
         "src/opencode.json",
         "export/categories/**",
-        "export/bridges/**"
+        "export/bridges/**",
+        "manage-agents/package.json",
+        "manage-agents/package-lock.json",
+        "manage-agents/tsconfig.json",
+        "manage-agents/bun.lock",
+        "manage-agents/bunfig.toml",
+        "manage-agents/.npmrc",
+        "manage-agents/integration/**"
       ]
     }
   }
@@ -141,16 +155,22 @@ test("manifest validation, semver ranges, and overlay exclusions", () => {
 
   const broad = structuredClone(loaded)
   broad.components.agentManager.include = ["manage-agents/**", ".agent-manager/**"]
+  broad.components.agentManager.exclude = ["manage-agents/node_modules/**", "manage-agents/dist/**"]
   writeFile(root, ".agent-manager/shared-sync.json", `${JSON.stringify(broad, null, 2)}\n`)
-  for (const relative of [
+  const overlayFiles = [
     ".agent-manager/pipeline-profiles.json",
-    ".agent-manager/companion-links.json"
-  ]) writeFile(root, relative, "local overlay\n")
+    ".agent-manager/companion-links.json",
+    "manage-agents/package.json",
+    "manage-agents/package-lock.json",
+    "manage-agents/tsconfig.json",
+    "manage-agents/bun.lock",
+    "manage-agents/bunfig.toml",
+    "manage-agents/.npmrc",
+    "manage-agents/integration/example.test.ts"
+  ]
+  for (const relative of overlayFiles) writeFile(root, relative, "local overlay\n")
   const paths = collectComponentFiles(root, broad, "agentManager").map(entry => entry.path)
-  for (const relative of [
-    ".agent-manager/pipeline-profiles.json",
-    ".agent-manager/companion-links.json"
-  ]) assert.equal(paths.includes(relative), false, `${relative} must be protected`)
+  for (const relative of overlayFiles) assert.equal(paths.includes(relative), false, `${relative} must be protected`)
 })
 
 test("collectComponentFiles rejects symlinks", () => {

@@ -7,9 +7,6 @@
       "include": [
         "manage-agents.sh",
         "manage-agents/manage-agents.mjs",
-        "manage-agents/package.json",
-        "manage-agents/package-lock.json",
-        "manage-agents/tsconfig.json",
         "manage-agents/README.md",
         "manage-agents/GUIDA.md",
         "manage-agents/assets/**",
@@ -19,7 +16,14 @@
       ],
       "exclude": [
         "manage-agents/node_modules/**",
-        "manage-agents/dist/**"
+        "manage-agents/dist/**",
+        "manage-agents/package.json",
+        "manage-agents/package-lock.json",
+        "manage-agents/tsconfig.json",
+        "manage-agents/bun.lock",
+        "manage-agents/bunfig.toml",
+        "manage-agents/.npmrc",
+        "manage-agents/integration/**"
       ]
     },
     "pipelineCore": {
@@ -52,7 +56,14 @@
       ".agent-manager/categories/**",
       "src/opencode.json",
       "export/categories/**",
-      "export/bridges/**"
+      "export/bridges/**",
+      "manage-agents/package.json",
+      "manage-agents/package-lock.json",
+      "manage-agents/tsconfig.json",
+      "manage-agents/bun.lock",
+      "manage-agents/bunfig.toml",
+      "manage-agents/.npmrc",
+      "manage-agents/integration/**"
     ]
   }
 }

@@ -60,6 +60,51 @@ function askQuestion(query: string): Promise<string> {
   )
 }
 
+export function askConfirmation(
+  query: string,
+  defaultYes = true,
+  io: { stdin: typeof process.stdin; stdout: typeof process.stdout } = process
+): Promise<boolean> {
+  const { stdin, stdout } = io
+  if (stdin.isTTY && typeof stdin.setRawMode === "function") {
+    return new Promise((resolve) => {
+      stdout.write(query)
+      stdin.setRawMode(true)
+
+      const onKey = (data: Buffer) => {
+        for (const key of data.toString("utf8")) {
+          if (key !== "\u0003" && key !== "\u0004" && key !== "\r" && key !== "\n" && key !== "y" && key !== "Y" && key !== "n" && key !== "N") continue
+
+          stdin.removeListener("data", onKey)
+          stdin.setRawMode(false)
+          stdin.pause()
+
+          if (key === "\u0003" || key === "\u0004") {
+            stdout.write("\n")
+            resolve(false)
+          } else if (key === "\r" || key === "\n") {
+            stdout.write("\n")
+            resolve(defaultYes)
+          } else {
+            stdout.write(`${key}\n`)
+            resolve(key.toLowerCase() === "y")
+          }
+          return
+        }
+      }
+
+      stdin.on("data", onKey)
+      stdin.resume()
+    })
+  }
+
+  return askQuestion(query).then((answer) => {
+    const normalizedAnswer = answer.toLowerCase()
+    const isYes = normalizedAnswer === "y" || normalizedAnswer === "yes"
+    return defaultYes ? answer === "" || isYes : isYes
+  })
+}
+
 /** Shorten the user's home directory prefix to `~` for display. */
 function shortenHome(p: string): string {
   const home = os.homedir()
@@ -501,16 +546,24 @@ async function runExport(workspaceRoot: string) {
   // Parse CLI args
   const args = process.argv.slice(3)
   let exportAll = false
+  let assumeYes = false
   let category = ""
   let profile = ""
+  let stackDirectory: string | undefined
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--all" || args[i] === "-a") {
       exportAll = true
+    } else if (args[i] === "--yes" || args[i] === "-y") {
+      assumeYes = true
     } else if ((args[i] === "--category" || args[i] === "-c") && args[i + 1]) {
       category = args[++i]
     } else if ((args[i] === "--profile" || args[i] === "-p") && args[i + 1]) {
       profile = args[++i]
+    } else if ((args[i] === "--stack" || args[i] === "-s") && args[i + 1]) {
+      stackDirectory = args[++i]
+    } else if (args[i].startsWith("--stack=")) {
+      stackDirectory = args[i].slice("--stack=".length)
     } else if (args[i] === "--help" || args[i] === "-h") {
       console.log(`
 Usage: manage-agents export [options]
@@ -520,11 +573,18 @@ Export agent files to its agents/ directory with full overwrite.
 A single disaster-recovery backup is kept at agents_backup/ in that directory.
 Companion resources in tools/, commands/, skills/, and plugins/ matching each exported
 agent's domain are installed under the same subpath in that directory.
+When ontology plugins (tools/ontology/*-plugin) are exported, production
+dependencies are automatically provisioned via npm ci --omit=dev, plugin
+paths are idempotently merged into opencode.json (backing up opencode.json.bak),
+and ontology-stack.json is written when a valid ontology-stack directory is
+detected or passed with --stack.
 
 Options:
   --all, -a               Export all agents
+  --yes, -y                  Skip confirmation prompt
   --category, -c <name>   Export only agents from a specific category
   --profile, -p <name>    Apply a pipeline profile before exporting
+  --stack, -s <path>      Optional ontology-stack directory to persist in ontology-stack.json
   --help, -h              Show this help
 `)
       process.exit(0)
@@ -586,13 +646,16 @@ Options:
   console.log(`   Backup location:  ${shortenHome(path.join(path.dirname(getExportDestination()), "agents_backup"))}`)
   console.log(`   ------------------------------------------\n`)
 
-  const answer = await askQuestion("⚠  Proceed with export? (Y/n): ")
-  if (answer.toLowerCase() !== "y" && answer !== "") {
+  if (!assumeYes && !(await askConfirmation("⚠  Proceed with export? (Y/n): ", true))) {
     console.log("\n❌ Export cancelled.")
     process.exit(0)
   }
 
-  const result = exportAgents(agentsToExport, undefined, resourceSourceRoot)
+  const result = exportAgents(agentsToExport, undefined, resourceSourceRoot, { stackDirectory })
+
+  if (result.pluginProvisioning?.ontologyStackWarning) {
+    console.warn(`   ⚠  ${result.pluginProvisioning.ontologyStackWarning}`)
+  }
 
   console.log(`\n✅ Export complete!`)
   console.log(`   Exported ${result.exported.length} agents to:`)
@@ -604,6 +667,31 @@ Options:
     console.log(`   Companion resources installed:`)
     result.domainResources.forEach(resource => console.log(`     ${shortenHome(resource)}`))
     console.log(`   Resource backup: ${result.domainBackupPath ? shortenHome(result.domainBackupPath) : "not needed (no existing files replaced)"}`)
+  }
+
+  if (result.pluginProvisioning) {
+    const prov = result.pluginProvisioning
+    if (prov.installed.length > 0 || prov.skipped.length > 0) {
+      console.log(`\n   Ontology plugins provisioned (${prov.installed.length} installed, ${prov.skipped.length} already aligned):`)
+      prov.installed.forEach(p => console.log(`     ✔ ${p} (npm ci --omit=dev)`))
+      prov.skipped.forEach(p => console.log(`     • ${p} (node_modules aligned)`))
+    }
+    if (prov.opencodeConfigPath) {
+      console.log(`   Registered plugins in: ${shortenHome(prov.opencodeConfigPath)}`)
+      if (prov.opencodeConfigBackupPath) {
+        console.log(`   Config backup at:      ${shortenHome(prov.opencodeConfigBackupPath)}`)
+      }
+    }
+    if (prov.ontologyStackConfigPath && prov.ontologyStackDirectory) {
+      console.log(`   Ontology stack config: ${shortenHome(prov.ontologyStackConfigPath)} -> ${shortenHome(prov.ontologyStackDirectory)}`)
+    }
+    if (prov.failed.length > 0) {
+      console.log(`\n   ⚠ Plugin dependency provisioning warnings:`)
+      prov.failed.forEach(f => console.log(`     * ${f.plugin}: ${f.error}`))
+    }
+    if (prov.registeredPlugins.length > 0) {
+      console.log("   ℹ  If OpenCode is already running, run `opencode service restart` (or restart OpenCode) to reload ontology tools and plugins.")
+    }
   }
 
   if (result.skipped.length > 0) {
@@ -1328,7 +1416,10 @@ async function run() {
   root.render(<App workspaceRoot={workspaceRoot} listShare={uiConfig.config.listShare} uiConfigWarning={uiConfig.warning} configReadOnly={uiConfig.readOnly} uiConfigRevision={uiConfig.revision} />)
 }
 
-run().catch((e) => {
-  console.error("Renderer initialization failed:", e)
-  process.exit(1)
-})
+const IS_CLI_ENTRYPOINT = /(?:^|[\\/])(?:manage-agents\.mjs|index\.(?:js|tsx))$/.test(process.argv[1] ?? "")
+if (IS_CLI_ENTRYPOINT) {
+  run().catch((error) => {
+    console.error(`✗ Error: ${error instanceof Error ? error.message : String(error)}`)
+    process.exit(1)
+  })
+}

@@ -4,7 +4,7 @@
   "category": "docs",
   "manifestHash": "e38b515397fa6ca04c1887112d7622e2e64efdce4cf7762e7bdb7f8eec2c8cc8",
   "generatorVersion": "2.0.0",
-  "bundleDigest": "d18fdf46e02a3034aafce3008c06cd65e7f69a24c9143b0ebbfa06bef4bd4203",
+  "bundleDigest": "ae70039ad0205b8573864b189d85fa09f8f87d9e34792ae3ed05e17867f777dc",
   "entries": [
     {
       "target": "AGENTS.md",
@@ -96,7 +96,7 @@
     },
     {
       "target": "tools/docx/scripts/html_docx_images.py",
-      "hash": "b03b54c16ac788315dc5bcbb46ae91a92703ecacc2a1f1935116c8e71d40d84f"
+      "hash": "5f073972eee73a181feeb7a3890a3dd7a27695fd9eb754da234cb6a913151a4d"
     },
     {
       "target": "tools/docx/scripts/html_docx_page.py",
