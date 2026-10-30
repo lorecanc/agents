@@ -16,6 +16,7 @@ permission:
   pipeline_state: allow
   pipeline_verify: allow
   read: allow
+  list: allow
   grep: allow
   glob: allow
   lsp: allow
@@ -31,15 +32,145 @@ permission:
   bash:
     "*": deny
     cd *: allow
+    pwd: allow
+    pwd *: allow
+    ls: allow
+    ls *: allow
+    tree: allow
+    tree *: allow
+    which *: allow
+    type *: allow
+    command -v *: allow
+    file *: allow
+    stat *: allow
+    du *: allow
+    df *: allow
+    cat *: allow
+    head *: allow
+    tail *: allow
+    wc *: allow
+    nl *: allow
+    find *: allow
+    fd *: allow
+    grep *: allow
+    egrep *: allow
+    fgrep *: allow
+    rg *: allow
+    sed *: allow
+    jq *: allow
+    cut *: allow
+    tr *: allow
+    sort *: allow
+    uniq *: allow
+    paste *: allow
+    column *: allow
+    comm *: allow
+    diff *: allow
+    cmp *: allow
+    echo: allow
+    echo *: allow
+    printf *: allow
+    "true": allow
+    "false": allow
+    test *: allow
+    "[ *": allow
+    date: allow
+    date *: allow
+    uname: allow
+    uname *: allow
+    whoami: allow
+    id: allow
+    basename *: allow
+    dirname *: allow
+    realpath *: allow
+    readlink *: allow
+    shasum *: allow
+    sha256sum *: allow
+    md5 *: allow
+    md5sum *: allow
+    base64 *: allow
+    xxd *: allow
+    hexdump *: allow
+    lsof *: allow
+    ps: allow
+    ps *: allow
+    pgrep *: allow
+    find -exec*: deny
+    find * -exec*: deny
+    find -execdir*: deny
+    find * -execdir*: deny
+    find -ok*: deny
+    find * -ok*: deny
+    find -delete*: deny
+    find * -delete*: deny
+    find -fprint*: deny
+    find * -fprint*: deny
+    find -fls*: deny
+    find * -fls*: deny
+    find -fprintf*: deny
+    find * -fprintf*: deny
+    fd -x*: deny
+    fd * -x*: deny
+    fd -X*: deny
+    fd * -X*: deny
+    fd --exec*: deny
+    fd * --exec*: deny
+    sed -i*: deny
+    sed * -i*: deny
+    sed --in-place*: deny
+    sed * --in-place*: deny
+    sort -o*: deny
+    sort * -o*: deny
+    sort --output*: deny
+    sort * --output*: deny
     git status*: allow
     git diff*: allow
     git diff *--output*: deny
     git log*: allow
     git show*: allow
+    git log *--output*: deny
+    git show *--output*: deny
+    git ls-files*: allow
+    git grep*: allow
+    git shortlog*: allow
+    git describe*: allow
+    git reflog show*: allow
+    git stash list*: allow
+    git stash show*: allow
+    git worktree list*: allow
+    git tag -l*: allow
+    git tag --list*: allow
+    git remote -v*: allow
+    git config --get*: allow
+    git config --list*: allow
+    git check-ignore*: allow
+    git check-attr*: allow
     git blame*: allow
-    git rev-parse*: allow
-    git merge-base*: allow
     git branch --show-current*: allow
+    git branch -l*: allow
+    git branch --list*: allow
+    git branch -a*: allow
+    git branch --all*: allow
+    git branch -r*: allow
+    git branch --remotes*: allow
+    git branch -v*: allow
+    git branch -vv*: allow
+    git branch --contains*: allow
+    git branch --merged*: allow
+    git branch --no-merged*: allow
+    env: deny
+    env *: deny
+    printenv*: deny
+    set: deny
+    export -p*: deny
+    declare -p*: deny
+    /usr/bin/env*: deny
+    /usr/bin/printenv*: deny
+    "*.env*": deny
+    cat .env.example: allow
+    cat .env.sample: allow
+    cat .env.template: allow
+    cat .env.test: allow
 color: "#BDC3C7"
 hidden: true
 variant: high

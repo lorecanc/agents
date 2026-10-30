@@ -52,6 +52,11 @@ permission:
   glob: allow
   lsp: allow
   edit: allow
+  write: allow
+  apply_patch: allow
+  patch: allow
+  multiedit: allow
+  list: allow
   bash:
     "*": deny
     cd *: allow
@@ -87,18 +92,216 @@ permission:
     swift *: allow
     xcodebuild *: allow
     xcrun *: allow
-    mkdir -p *: allow
-    rm *: ask
+    .venv/bin/*: allow
+    venv/bin/*: allow
+    ./node_modules/.bin/*: allow
+    node_modules/.bin/*: allow
+    tsc*: allow
+    tsx *: allow
+    ts-node *: allow
+    vitest*: allow
+    jest*: allow
+    mocha*: allow
+    ava*: allow
+    eslint*: allow
+    prettier*: allow
+    biome*: allow
+    oxlint*: allow
+    turbo *: allow
+    nx *: allow
+    corepack *: allow
+    ruff *: allow
+    black *: allow
+    isort *: allow
+    flake8*: allow
+    mypy*: allow
+    pyright*: allow
+    basedpyright*: allow
+    pylint*: allow
+    tox*: allow
+    nox*: allow
+    alembic *: allow
+    uvicorn *: allow
+    gunicorn *: allow
+    flask *: allow
+    django-admin *: allow
+    pdm *: allow
+    hatch *: allow
+    pipenv *: allow
+    conda *: allow
+    gofmt*: allow
+    golangci-lint*: allow
+    rustfmt*: allow
+    rustup *: allow
+    gcc *: allow
+    g++ *: allow
+    clang *: allow
+    clang++ *: allow
+    ninja*: allow
+    ctest*: allow
+    bazel *: allow
+    kotlinc*: allow
+    ktlint*: allow
+    detekt*: allow
+    flutter *: allow
+    dart *: allow
+    pod *: allow
+    fastlane *: allow
+    mix *: allow
+    elixir *: allow
+    zig *: allow
+    protoc*: allow
+    buf *: allow
+    prisma *: allow
+    drizzle-kit *: allow
+    sh *: allow
+    bash *: allow
+    zsh *: allow
+    ./*.sh*: allow
+    scripts/*: allow
+    ./scripts/*: allow
+    bin/*: allow
+    ./bin/*: allow
+    NODE_ENV=* *: allow
+    CI=* *: allow
+    PYTHONPATH=* *: allow
+    PYTHONDONTWRITEBYTECODE=* *: allow
+    TMPDIR=* *: allow
+    TZ=* *: allow
+    LANG=* *: allow
+    LC_ALL=* *: allow
+    RUST_BACKTRACE=* *: allow
+    RUSTFLAGS=* *: allow
+    CGO_ENABLED=* *: allow
+    GOFLAGS=* *: allow
+    GOOS=* *: allow
+    GOARCH=* *: allow
+    PORT=* *: allow
+    FORCE_COLOR=* *: allow
+    NO_COLOR=* *: allow
+    pwd: allow
+    pwd *: allow
+    ls: allow
+    ls *: allow
+    tree: allow
+    tree *: allow
+    which *: allow
+    type *: allow
+    command -v *: allow
+    file *: allow
+    stat *: allow
+    du *: allow
+    df *: allow
+    cat *: allow
+    head *: allow
+    tail *: allow
+    wc *: allow
+    nl *: allow
+    find *: allow
+    fd *: allow
+    grep *: allow
+    egrep *: allow
+    fgrep *: allow
+    rg *: allow
+    sed *: allow
+    jq *: allow
+    cut *: allow
+    tr *: allow
+    sort *: allow
+    uniq *: allow
+    paste *: allow
+    column *: allow
+    comm *: allow
+    diff *: allow
+    cmp *: allow
+    echo: allow
+    echo *: allow
+    printf *: allow
+    "true": allow
+    "false": allow
+    test *: allow
+    "[ *": allow
+    date: allow
+    date *: allow
+    uname: allow
+    uname *: allow
+    whoami: allow
+    id: allow
+    basename *: allow
+    dirname *: allow
+    realpath *: allow
+    readlink *: allow
+    shasum *: allow
+    sha256sum *: allow
+    md5 *: allow
+    md5sum *: allow
+    base64 *: allow
+    xxd *: allow
+    hexdump *: allow
+    lsof *: allow
+    ps: allow
+    ps *: allow
+    pgrep *: allow
+    awk *: allow
+    perl *: allow
+    yq *: allow
+    patch *: allow
+    xargs *: allow
+    tee *: allow
+    sleep *: allow
+    timeout *: allow
+    gtimeout *: allow
+    time *: allow
+    tar *: allow
+    unzip *: allow
+    zip *: allow
+    gzip *: allow
+    gunzip *: allow
+    curl *: allow
+    mkdir *: allow
+    rmdir *: allow
+    touch *: allow
+    chmod *: allow
+    mktemp*: allow
+    rm *: allow
     cp *: allow
     mv *: allow
+    ln *: allow
     git status*: allow
     git diff*: allow
     git diff *--output*: deny
     git log*: allow
     git show*: allow
-    git rev-parse*: allow
-    git merge-base*: allow
+    git log *--output*: deny
+    git show *--output*: deny
+    git ls-files*: allow
+    git grep*: allow
+    git shortlog*: allow
+    git describe*: allow
+    git reflog show*: allow
+    git stash list*: allow
+    git stash show*: allow
+    git worktree list*: allow
+    git tag -l*: allow
+    git tag --list*: allow
+    git remote -v*: allow
+    git config --get*: allow
+    git config --list*: allow
+    git check-ignore*: allow
+    git check-attr*: allow
+    git blame*: allow
     git branch --show-current*: allow
+    git branch -l*: allow
+    git branch --list*: allow
+    git branch -a*: allow
+    git branch --all*: allow
+    git branch -r*: allow
+    git branch --remotes*: allow
+    git branch -v*: allow
+    git branch -vv*: allow
+    git branch --contains*: allow
+    git branch --merged*: allow
+    git branch --no-merged*: allow
     git fetch*: allow
     git fetch *--upload-pack*: deny
     git fetch *ext::*: deny
@@ -114,10 +317,10 @@ permission:
     git cherry-pick*: allow
     git checkout --ours *: allow
     git checkout --theirs *: allow
-    git restore --staged *: allow
     git restore --ours *: allow
     git restore --theirs *: allow
     git restore --merge *: allow
+    git restore --staged *: allow
     git add *: allow
     git add .: deny
     git add ./: deny
@@ -125,28 +328,62 @@ permission:
     git add --all*: deny
     git add -u*: deny
     git add --update*: deny
+    git mv *: allow
+    git rm *: allow
+    git rm -r .: deny
+    git rm -rf .: deny
+    git rm -r ./: deny
+    git rm -rf ./: deny
+    git rm -r ..*: deny
+    git rm -rf ..*: deny
+    git rm -r /*: deny
+    git rm -rf /*: deny
     npm publish*: deny
     pnpm publish*: deny
     yarn publish*: deny
     bun publish*: deny
     cargo publish*: deny
     twine upload*: deny
-    rm -r*: deny
-    rm -f*: deny
+    rm -rf: deny
+    rm -fr: deny
+    rm -r: deny
+    rm -f: deny
     rm -rf /*: deny
     rm -fr /*: deny
+    rm -r /*: deny
     rm -rf ~*: deny
     rm -fr ~*: deny
+    rm -r ~*: deny
     rm -rf ..*: deny
     rm -fr ..*: deny
+    rm -r ..*: deny
     rm -rf .: deny
     rm -fr .: deny
-    rm -rf *: deny
-    rm -fr *: deny
-    rm * -r*: deny
-    rm * -f*: deny
-    rm --recursive*: deny
-    rm * --recursive*: deny
+    rm -r .: deny
+    rm -rf ./: deny
+    rm -fr ./: deny
+    rm -r ./: deny
+    rm -rf .*: deny
+    rm -fr .*: deny
+    rm -r .*: deny
+    rm * .git*: deny
+    env: deny
+    env *: deny
+    printenv*: deny
+    set: deny
+    export -p*: deny
+    declare -p*: deny
+    /usr/bin/env*: deny
+    /usr/bin/printenv*: deny
+    "*.env*": deny
+    cat .env.example: allow
+    cat .env.sample: allow
+    cat .env.template: allow
+    cat .env.test: allow
+    cp .env.example *: allow
+    cp .env.sample *: allow
+    cp .env.template *: allow
+    cp .env.test *: allow
 color: "#BDC3C7"
 hidden: true
 variant: high
@@ -181,10 +418,14 @@ Every bash command is checked against this agent's allowlist, each part of a com
 
 - One command per call. Avoid `&&`, `;`, `|` and subshells unless every part is a command you are allowed to run.
 - Set the directory with the bash tool's `workdir` parameter instead of `cd dir && ...`.
-- Do not prefix commands with variable assignments (`VAR=value cmd`). For checks that need a subdirectory, env or services (for example a database), use `pipeline_verify` (`workspace`, `filter`, `with_services`) when you have it.
+- Standard POSIX inspection and text utilities (`ls`, `cat`, `head`, `tail`, `wc`, `find`, `grep`, `rg`, `sed`, `awk`, `jq`, etc.), local executables (`.venv/bin/*`, `node_modules/.bin/*`), and common environment prefixes (`NODE_ENV=...`, `CI=...`, `PYTHONPATH=...`, `TMPDIR=...`) are allowed. For checks that need a subdirectory or services (for example a database), use `pipeline_verify` (`workspace`, `filter`, `with_services`) when you have it.
 - Quote paths, especially ones starting with `.` or containing spaces: `git diff -- ".github/workflows/ci.yml"`.
 - Three identical tool calls in a row are rejected (`doom_loop`). Bound a wait inside one command instead of polling with repeated identical calls.
 - If a command is rejected: rewrite it once following these rules, or use the equivalent `pipeline_*` tool. If it is still rejected, stop trying variations, report `BLOCKED_BY: permission: <exact command>` with the error text, and continue with what you can do without it.
+
+## Repository-scoped file operations
+
+Use the full repository-scoped file toolset: `edit`, `write`, `apply_patch`, `patch`, and `multiedit`. Shell file operations (`mkdir`, `rmdir`, `touch`, `cp`, `mv`, `ln`, `rm`, `git mv`, and `git rm`) are permitted on explicit repository paths, subject to the pipeline guard. Creating files, folders, or helper modules when they are part of the plan or needed for clean modular code, and moving, renaming, or deleting obsolete files inside the repository, is expected.
 
 ## Execution rules
 - Follow planner/reasoner output exactly unless it is clearly wrong.
@@ -203,7 +444,7 @@ Every bash command is checked against this agent's allowlist, each part of a com
 - Creating or switching branches, worktrees, stashes, tags, or remotes and running `git commit/reset/clean/switch/push` are denied (standalone commits are made only by `@go-pipeline-post_session`). `git fetch`, `git pull`, and conflict resolution (`git merge`, `git rebase`, `git cherry-pick`, `git checkout --ours/--theirs <files>`, `git restore --staged/--ours/--theirs/--merge <files>`, and `git add <explicit-files>`) are allowed when syncing or resolving conflicts.
 - The working tree is shared with other agents. Edit only the files assigned to you. If a file you must change is listed in the orchestrator's `baseline_dirty` (uncommitted changes that existed before the session), stop and report it instead of editing.
 - Never start long-running processes (dev servers, watchers) and never leave a background process running.
-- While parallel tasks are in progress, do not run the project-wide build or test suite; run only the narrowest check for your own files, unless the orchestrator told you that you are the only agent running.
+- When you are the single executor, or the orchestrator does not specify parallel co-executors in the same wave, running `pipeline_verify` or targeted build, test, or typecheck commands is encouraged. Skip project-wide builds/test suites or dev servers only when the orchestrator explicitly notes that parallel executors are running concurrently in the same wave; then run only the narrowest check for your own files.
 
 ## Output format
 ```markdown

@@ -16,6 +16,7 @@ permission:
   pipeline_state: allow
   pipeline_commit: allow
   read: allow
+  list: allow
   grep: allow
   glob: allow
   lsp: allow
@@ -31,8 +32,35 @@ permission:
     git diff *--output*: deny
     git log*: allow
     git show*: allow
-    git rev-parse*: allow
+    git log *--output*: deny
+    git show *--output*: deny
+    git ls-files*: allow
+    git grep*: allow
+    git shortlog*: allow
+    git describe*: allow
+    git reflog show*: allow
+    git stash list*: allow
+    git stash show*: allow
+    git worktree list*: allow
+    git tag -l*: allow
+    git tag --list*: allow
+    git remote -v*: allow
+    git config --get*: allow
+    git config --list*: allow
+    git check-ignore*: allow
+    git check-attr*: allow
     git branch --show-current*: allow
+    git branch -l*: allow
+    git branch --list*: allow
+    git branch -a*: allow
+    git branch --all*: allow
+    git branch -r*: allow
+    git branch --remotes*: allow
+    git branch -v*: allow
+    git branch -vv*: allow
+    git branch --contains*: allow
+    git branch --merged*: allow
+    git branch --no-merged*: allow
     git restore --staged *: allow
     git add *: allow
     git add -A*: deny
@@ -48,13 +76,27 @@ permission:
     git add -- .: deny
     git add */: deny
     git add *.: deny
-    git commit -m *: allow
+    git rm --cached *: allow
+    git commit -m "*": allow
     git commit -a*: deny
     git commit --all*: deny
     git commit * --amend*: deny
     git commit * --no-verify*: deny
     git commit * --all*: deny
     git push*: ask
+    env: deny
+    env *: deny
+    printenv*: deny
+    set: deny
+    export -p*: deny
+    declare -p*: deny
+    /usr/bin/env*: deny
+    /usr/bin/printenv*: deny
+    "*.env*": deny
+    cat .env.example: allow
+    cat .env.sample: allow
+    cat .env.template: allow
+    cat .env.test: allow
 color: "#FFD700"
 hidden: true
 variant: high

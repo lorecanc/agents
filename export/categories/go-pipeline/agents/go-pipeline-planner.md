@@ -16,6 +16,7 @@ permission:
   pipeline_state: allow
   pipeline_env: allow
   read: allow
+  list: allow
   grep: allow
   glob: allow
   lsp: allow

@@ -56,6 +56,7 @@ permission:
   cloud-cli_*: allow
   codebase-memory-mcp_index_repository: deny
   read: allow
+  list: allow
   grep: allow
   glob: allow
   lsp: allow
@@ -65,8 +66,15 @@ permission:
     env *: deny
     printenv*: deny
     "*.env*": deny
+    "* .env *": deny
     cat .env.example: allow
     cat .env.sample: allow
+    cat .env.template: allow
+    cat .env.test: allow
+    cp .env.example *: allow
+    cp .env.sample *: allow
+    cp .env.template *: allow
+    cp .env.test *: allow
     sudo *: ask
     psql *: ask
     mysql *: ask
@@ -130,22 +138,33 @@ permission:
     bun publish*: deny
     cargo publish*: deny
     twine upload*: deny
-    rm -r*: deny
-    rm -f*: deny
+    rm -rf: deny
+    rm -fr: deny
+    rm -r: deny
+    rm -f: deny
     rm -rf /*: deny
     rm -fr /*: deny
+    rm -r /*: deny
     rm -rf ~*: deny
     rm -fr ~*: deny
+    rm -r ~*: deny
     rm -rf ..*: deny
     rm -fr ..*: deny
+    rm -r ..*: deny
     rm -rf .: deny
     rm -fr .: deny
+    rm -r .: deny
+    rm -rf ./: deny
+    rm -fr ./: deny
+    rm -r ./: deny
+    rm -rf .*: deny
+    rm -fr .*: deny
+    rm -r .*: deny
+    rm * .git*: deny
     rm -rf *: deny
     rm -fr *: deny
-    rm * -r*: deny
-    rm * -f*: deny
-    rm --recursive*: deny
-    rm * --recursive*: deny
+    rm -r*: deny
+    rm -f*: deny
 color: success
 hidden: true
 variant: high

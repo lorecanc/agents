@@ -640,6 +640,15 @@ export function executeCommit(info, plan, message, trailers = []) {
 const WRAPPERS = new Set(["env", "command", "time", "nohup", "exec", "builtin", "xargs", "nice", "setsid", "stdbuf", "timeout", "gtimeout"])
 const SHELLS = new Set(["sh", "bash", "zsh", "dash", "ksh"])
 const NEVER = new Set(["sudo", "doas", "su", "pkexec", "sudoedit"])
+const READ_ONLY_BASH_ROLES = new Set(["explorer", "code_reviewer", "critic", "hitl", "security_auditor"])
+const WRITE_CMDS = new Set([
+  "rm", "rmdir", "mkdir", "touch", "truncate", "chmod", "chown", "chgrp", "tee", "unlink", "shred", "mktemp",
+  "mv", "cp", "ln", "install", "rsync", "ditto", "dd", "curl", "wget", "tar", "unzip",
+])
+const DANGEROUS_GIT_ENV = /^GIT_(?:SSH|SSH_COMMAND|ASKPASS|EXEC_PATH|TEMPLATE_DIR|CONFIG|CONFIG_GLOBAL|CONFIG_SYSTEM|CONFIG_NOSYSTEM|CONFIG_COUNT|CONFIG_KEY_\d+|CONFIG_VALUE_\d+|EXTERNAL_DIFF|DIFF_OPTS|DIR|WORK_TREE|INDEX_FILE|OBJECT_DIRECTORY|ALTERNATE_OBJECT_DIRECTORIES|PROXY_COMMAND|UPLOAD_PACK|RECEIVE_PACK)=/i
+const DANGEROUS_EXEC_ENV = /^(?:LD_PRELOAD|LD_LIBRARY_PATH|DYLD_[A-Z0-9_]*|BASH_ENV|ENV|PROMPT_COMMAND|PYTHONSTARTUP|PYTHONINSPECT|RUBYOPT|PERL5OPT)=/i
+const ENV_TEMPLATE_FILES = new Set([".env.example", ".env.sample", ".env.template", ".env.test"])
+const ENV_TEMPLATE_COPY_ROLES = new Set(["executor", "fast_lane", "refactorer", "tester", "ops"])
 
 const GIT_READ = new Set([
   "status", "diff", "log", "show", "ls-files", "rev-parse", "blame", "grep", "ls-tree", "cat-file",
@@ -951,6 +960,21 @@ function nonFlags(args) {
   return args.filter((a) => !a.startsWith("-"))
 }
 
+function checkSecretEnvArgs(cmd, args, role) {
+  if (cmd === "git") return null
+  const positional = nonFlags(args)
+  const templateCopy = cmd === "cp" && ENV_TEMPLATE_COPY_ROLES.has(role) && positional.length === 2
+    && ENV_TEMPLATE_FILES.has(path.basename(positional[0].replace(/\[([^\]]{1})\]/g, "$1")).toLowerCase())
+  for (let i = 0; i < positional.length; i++) {
+    const basename = path.basename(positional[i].replace(/\[([^\]]{1})\]/g, "$1"))
+    if (/^\.env(?:\..+)?$/i.test(basename) && !/^\.env\.(?:example|sample|template|test)$/i.test(basename)
+      && !(templateCopy && i === 1)) {
+      return "Pipeline guard: reading or accessing '.env' secret files is blocked."
+    }
+  }
+  return null
+}
+
 function shellCommandArg(cmd, args) {
   if (!SHELLS.has(cmd)) return null
   for (let i = 0; i < args.length; i++) {
@@ -979,6 +1003,30 @@ function stripWrappers(tokens) {
   return t
 }
 
+function takeLeadingAssigns(tokens) {
+  const t = tokens.slice()
+  const assigns = []
+  for (;;) {
+    while (t.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(t[0])) assigns.push(t.shift())
+    if (t.length && WRAPPERS.has(t[0])) {
+      const wrapper = t.shift()
+      while (t.length && (t[0].startsWith("-") || /^[A-Za-z_][A-Za-z0-9_]*=/.test(t[0]))) {
+        if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(t[0])) assigns.push(t[0])
+        t.shift()
+      }
+      if ((wrapper === "timeout" || wrapper === "gtimeout") && t.length) t.shift()
+      continue
+    }
+    break
+  }
+  return assigns
+}
+
+function isDangerousEnvAssignment(assignment) {
+  return DANGEROUS_GIT_ENV.test(assignment) || DANGEROUS_EXEC_ENV.test(assignment)
+    || (/^NODE_OPTIONS=/i.test(assignment) && /--require|-r|--import|--loader|--experimental-loader/i.test(assignment))
+}
+
 function inPlaceTargets(cmd, args) {
   if (!args.some((a) => /^-[a-zA-Z]*i/.test(a) || a === "-i" || a.startsWith("--in-place"))) return []
   const positional = []
@@ -1001,7 +1049,15 @@ function inPlaceTargets(cmd, args) {
   return positional.slice(scriptIndex + 1)
 }
 
-function segmentWritePaths(tokens) {
+function inPlaceEdit(cmd, args) {
+  return inPlaceTargets(cmd, args).length > 0
+}
+
+function hasOutputRedirect(rawSeg) {
+  return Array.isArray(rawSeg) && rawSeg.length > 0
+}
+
+function segmentWritePaths(tokens, cwd = process.cwd()) {
   const t = stripWrappers(tokens)
   if (!t.length) return { rawPaths: [], subcommands: [], cwdChange: null }
   const cmd = path.basename(t[0])
@@ -1052,6 +1108,38 @@ function segmentWritePaths(tokens) {
     case "sed": case "perl":
       rawPaths.push(...inPlaceTargets(cmd, args))
       break
+    case "git": {
+      let i = 0
+      let gitCwd = null
+      while (i < args.length) {
+        const a = args[i]
+        if (a === "-C") {
+          gitCwd = path.resolve(gitCwd === null ? cwd : gitCwd, args[i + 1] || "")
+          i += 2
+          continue
+        }
+        if (a.startsWith("-C") && a.length > 2) {
+          gitCwd = path.resolve(gitCwd === null ? cwd : gitCwd, a.slice(2))
+          i++
+          continue
+        }
+        if (a === "-c" || (a.startsWith("-c") && a.length > 2)) {
+          i += a === "-c" ? 2 : 1
+          continue
+        }
+        if (a.startsWith("--git-dir") || a.startsWith("--work-tree") || a === "--bare" || a.startsWith("-")) {
+          i++
+          continue
+        }
+        break
+      }
+      const sub = args[i]
+      if (["mv", "rm", "add", "checkout", "restore"].includes(sub)) {
+        const files = gitFileArgs(args.slice(i + 1))
+        rawPaths.push(...files.map((file) => gitCwd ? path.resolve(gitCwd, file) : file))
+      }
+      break
+    }
   }
   return { rawPaths, subcommands, cwdChange }
 }
@@ -1069,19 +1157,32 @@ function isGitExplicitFile(file, ctx) {
   return true
 }
 
+function isGitExplicitPath(arg, ctx) {
+  if (!arg || arg === "." || arg === "./" || arg === ".." || arg.startsWith(":") || arg.includes("$") || arg.startsWith("~") || /[*?\[\]]/.test(arg)) return false
+  if (checkWritePath(arg, ctx)) return false
+  const abs = realpathLoose(path.resolve(ctx.cwd || ctx.info.top, arg))
+  return isInside(ctx.info.top, abs) && abs !== realpathLoose(ctx.info.top)
+}
+
 function gitFileArgs(args) {
   const separator = args.indexOf("--")
   return separator >= 0 ? args.slice(separator + 1) : args.filter((r) => !r.startsWith("-"))
 }
 
 function checkGitCommand(args, role, ctx) {
+  let effectiveCwd = (ctx && ctx.cwd) || (ctx && ctx.info && ctx.info.top) || process.cwd()
+  let gitDirError = null
   let i = 0
   while (i < args.length) {
     const a = args[i]
-    if (a === "-C") {
-      const d = args[i + 1]
-      if (d !== undefined && checkWritePath(d, ctx)) return `git -C ${d} points outside the repository.`
-      i += 2
+    if (a === "-C" || (a.startsWith("-C") && a.length > 2)) {
+      const d = a === "-C" ? args[i + 1] : a.slice(2)
+      if (d !== undefined) {
+        const gitDirCtx = ctx ? { ...ctx, cwd: effectiveCwd } : null
+        if (gitDirCtx && checkWritePath(d, gitDirCtx)) gitDirError = `git -C ${d} points outside the repository.`
+        effectiveCwd = path.resolve(effectiveCwd, expandArg(d, ctx || {}))
+      }
+      i += a === "-C" ? 2 : 1
       continue
     }
     if (a === "-c" || (a.startsWith("-c") && a.length > 2)) {
@@ -1089,6 +1190,9 @@ function checkGitCommand(args, role, ctx) {
       if (GIT_ALWAYS_BLOCKED_CFG.test(v) && !GIT_SAFE_EDITOR_CFG.test(v)) return `git -c ${v.split("=")[0]} is not allowed.`
       i += a === "-c" ? 2 : 1
       continue
+    }
+    if (a === "--config-env" || a.startsWith("--config-env=") || a === "--exec-path" || a.startsWith("--exec-path=")) {
+      return `Pipeline guard: 'git ${a.split("=")[0]}' is blocked.`
     }
     if (a.startsWith("--git-dir") || a.startsWith("--work-tree") || a === "--bare") {
       return `${a.split("=")[0]} is not allowed: operate on the repository you were started in.`
@@ -1100,7 +1204,13 @@ function checkGitCommand(args, role, ctx) {
     break
   }
   const sub = args[i]
-  if (sub === undefined) return null
+  if (sub === undefined) return gitDirError
+  const gitCtx = ctx ? { ...ctx, cwd: effectiveCwd } : { cwd: effectiveCwd }
+  if (["fetch", "mv", "rm", "add", "checkout", "restore", "commit", "pull", "merge", "rebase", "cherry-pick"].includes(sub)
+    && ctx && ctx.info && !isInside(realpathLoose(ctx.info.top), realpathLoose(effectiveCwd))) {
+    return "Pipeline guard: 'git -C' for mutating git commands must stay inside the repository root."
+  }
+  if (gitDirError) return gitDirError
   const rest = args.slice(i + 1)
   const hint = " Branches, worktrees, stashes, resets and commits are managed by the pipeline; report what you need instead."
   const deny = (what) => `git ${what} is not allowed for ${role || "this agent"} in a pipeline session.${hint}`
@@ -1140,7 +1250,7 @@ function checkGitCommand(args, role, ctx) {
       const prohibitedFlags = rest.some((r) => ["-b", "-B", "-d", "--detach", "-f", "--force", "-p", "--patch", "-t", "--track", "--orphan"].includes(r) || (/^-[a-zA-Z]+$/.test(r) && /[bBdfpt]/.test(r)))
       const separator = rest.indexOf("--")
       const files = separator >= 0 ? rest.slice(separator + 1) : rest.filter((r) => !r.startsWith("-"))
-      if (!conflictFlags || prohibitedFlags || !files.length || files.some((f) => !isGitExplicitFile(f, ctx))) return deny("checkout")
+      if (!conflictFlags || prohibitedFlags || !files.length || files.some((f) => !isGitExplicitFile(f, gitCtx))) return deny("checkout")
       return null
     }
     case "stash":
@@ -1152,7 +1262,7 @@ function checkGitCommand(args, role, ctx) {
     case "add": {
       if (role !== "post_session" && !GIT_SYNC_ROLES.has(role)) return deny("add")
       const files = gitFileArgs(rest)
-      if (rest.some((r) => ["-A", "--all", "--no-ignore-removal", "-u", "--update", "-p", "--patch", "-i", "--interactive"].includes(r) || (/^-[a-zA-Z]+$/.test(r) && /[Aupi]/.test(r))) || !files.length || files.some((f) => !isGitExplicitFile(f, ctx))) {
+      if (rest.some((r) => ["-A", "--all", "--no-ignore-removal", "-u", "--update", "-p", "--patch", "-i", "--interactive"].includes(r) || (/^-[a-zA-Z]+$/.test(r) && /[Aupi]/.test(r))) || !files.length || files.some((f) => !isGitExplicitFile(f, gitCtx))) {
         return "git add requires explicit file paths (no -A, -u, -p, or .)"
       }
       return null
@@ -1168,30 +1278,93 @@ function checkGitCommand(args, role, ctx) {
     case "restore": {
       const flags = rest.filter((r) => r.startsWith("-"))
       const files = gitFileArgs(rest)
-      if (role === "post_session") return flags.some((f) => f === "--staged" || f === "-S") && files.length && files.every((f) => isGitExplicitFile(f, ctx)) ? null : "git restore is only allowed with --staged and explicit file paths."
+      if (role === "post_session") return flags.some((f) => f === "--staged" || f === "-S") && files.length && files.every((f) => isGitExplicitFile(f, gitCtx)) ? null : "git restore is only allowed with --staged and explicit file paths."
       if (GIT_SYNC_ROLES.has(role)) {
         const conflictFlags = rest.some((r) => r === "--staged" || r === "-S" || r === "--ours" || r === "--theirs" || r === "--merge" || r === "-m" || r.startsWith("--conflict="))
-        return conflictFlags && files.length && files.every((f) => isGitExplicitFile(f, ctx)) ? null : deny("restore (working-tree discard)")
+        return conflictFlags && files.length && files.every((f) => isGitExplicitFile(f, gitCtx)) ? null : deny("restore (working-tree discard)")
       }
       return deny("restore (working-tree discard)")
+    }
+    case "mv": {
+      if (!GIT_SYNC_ROLES.has(role)) return deny("mv")
+      const files = gitFileArgs(rest)
+      return files.length >= 2 && files.every((f) => isGitExplicitPath(f, gitCtx)) ? null : deny("mv")
+    }
+    case "rm": {
+      const flags = rest.filter((r) => r.startsWith("-"))
+      if (!GIT_SYNC_ROLES.has(role) && !(role === "post_session" && flags.includes("--cached"))) return deny("rm")
+      const files = gitFileArgs(rest)
+      const recursive = flags.some((f) => f === "--recursive" || /^-[^-]*[rR]/.test(f))
+      if (!files.length || files.some((f) => !(recursive && GIT_SYNC_ROLES.has(role) ? isGitExplicitPath(f, gitCtx) : isGitExplicitFile(f, gitCtx)))) {
+        return "git rm requires explicit file paths (or explicit directories with -r)."
+      }
+      return null
     }
     default:
       return deny(sub)
   }
 }
 
-function checkSegment(tokens, role, ctx, depth = 0) {
+const RM_CODING_ROLES = new Set(["executor", "refactorer", "fast_lane", "tester"])
+
+function checkSegment(tokens, role, ctx, depth = 0, rawSeg = []) {
+  for (const assignment of takeLeadingAssigns(tokens)) {
+    if (isDangerousEnvAssignment(assignment)) {
+      return "Pipeline guard: dangerous environment variable assignments are blocked."
+    }
+  }
   const t = stripWrappers(tokens)
   if (!t.length) return null
   const cmd = path.basename(t[0])
   const args = t.slice(1)
+  if (["export", "declare", "typeset", "env"].includes(cmd)) {
+    for (const assignment of args) {
+      if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(assignment) && isDangerousEnvAssignment(assignment)) {
+        return `Pipeline guard: dangerous environment override '${assignment.split("=")[0]}' is blocked.`
+      }
+    }
+  }
   if (SHELLS.has(cmd)) {
     const subcmd = shellCommandArg(cmd, args)
     if (subcmd) return checkBash(subcmd, role, ctx, depth + 1)
   }
   if (NEVER.has(cmd)) return `${cmd} is not allowed.`
-  if (cmd === "rm" && args.some((a) => /^--(?:recursive|force)/.test(a) || /^-[^-]*[rRfF]/.test(a))) {
-    return "recursive or forced rm is not allowed."
+  const secretEnvErr = checkSecretEnvArgs(cmd, args, role)
+  if (secretEnvErr) return secretEnvErr
+  if (READ_ONLY_BASH_ROLES.has(role) && (hasOutputRedirect(rawSeg) || WRITE_CMDS.has(cmd) || inPlaceEdit(cmd, args)
+    || (cmd === "find" && args.some((a) => /^-(?:exec|execdir|ok|okdir|delete|fprint0?|fls|fprintf)$/.test(a)))
+    || (cmd === "fd" && args.some((a) => /^(?:-[xX]|--exec(?:-batch)?)(?:=|$)/.test(a)))
+    || (cmd === "sort" && args.some((a) => /^(?:-o|--output)(?:=|$)/.test(a))))) {
+    return `Pipeline guard: role '${role}' is read-only and cannot modify files.`
+  }
+  if (cmd === "rm" || cmd === "rmdir") {
+    const hasRecursiveOrForce = cmd === "rm" && args.some((a) => /^--(?:recursive|force)$/.test(a) || (/^-[^-]/.test(a) && /[rRfF]/.test(a)))
+    const targets = nonFlags(args)
+    if (!targets.length) return `Pipeline guard: '${cmd}' requires at least one explicit path target.`
+    for (const raw of targets) {
+      if (/[*?\[\]]/.test(raw)) return `Pipeline guard: '${cmd}' does not allow wildcard targets.`
+      if (!raw || /^(?:\.|\.\.|\.\.?\/|\/|~|~\/.*|\*|\.\*|\.\.?\/\*)$/.test(raw) || raw.endsWith("/.") || raw.endsWith("/..") || raw.endsWith("/*")) {
+        return `Pipeline guard: '${cmd}' requires an explicit path target inside the repository or scratch directory.`
+      }
+      const expanded = expandArg(raw, ctx)
+      if (expanded.includes("$") || expanded.startsWith("~")) return `Pipeline guard: '${cmd}' requires an explicit path target.`
+      const base = (ctx && ctx.cwd) || (ctx && ctx.info && ctx.info.top) || process.cwd()
+      const abs = realpathLoose(path.resolve(base, expanded))
+      const writeErr = checkWritePath(raw, ctx)
+      if (writeErr) return writeErr
+      const scratch = ctx && ctx.info ? realpathLoose(scratchDir(ctx.info)) : null
+      if (scratch && isInside(scratch, abs) && abs !== scratch) continue
+      if (ctx && ctx.info && isSystemTempPath(raw, abs, ctx.info.top) && abs !== "/tmp" && abs !== "/private/tmp") continue
+      if (scratch && abs === scratch) return "Pipeline guard: rm or rmdir cannot target the pipeline scratch root."
+      if (ctx && ctx.info && !isInside(realpathLoose(ctx.info.top), abs)) return writeErr || `Pipeline guard: '${cmd}' target must be inside the repository or an allowed temporary directory.`
+      if (ctx && ctx.info) {
+        const topReal = realpathLoose(ctx.info.top)
+        if (abs === topReal) return `Pipeline guard: '${cmd}' cannot target the repository root.`
+        if (hasRecursiveOrForce && !RM_CODING_ROLES.has(role)) {
+          return "Pipeline guard: recursive or forced 'rm' on repository paths is only permitted for coding roles (executor, refactorer, fast_lane, tester)."
+        }
+      }
+    }
   }
   if (cmd === "git") return checkGitCommand(args, role, ctx)
   if (cmd === "cd" || cmd === "pushd") {
@@ -1269,9 +1442,9 @@ export function checkBash(command, role, ctx, depth = 0) {
       if (reason) return `output redirection to ${reason}`
     }
     const seg = parsed.segments[i]
-    const reason = checkSegment(seg, role, segmentCtx, depth)
+    const reason = checkSegment(seg, role, segmentCtx, depth, parsed.segmentRedirects[i] || [])
     if (reason) return reason
-    const command = segmentWritePaths(seg)
+    const command = segmentWritePaths(seg, cwd)
     if (command.cwdChange) {
       const next = command.cwdChange === "-" ? cwd : path.resolve(cwd, expandArg(command.cwdChange, { scratch: ctx.scratch }))
       if (!next.includes("$")) cwd = next
@@ -1320,7 +1493,7 @@ export function bashWriteTargets(command, ctx, depth = 0) {
   for (let i = 0; i < parsed.segments.length; i++) {
     const seg = parsed.segments[i]
     collect(parsed.segmentRedirects[i] || [], cwd)
-    const result = segmentWritePaths(seg)
+    const result = segmentWritePaths(seg, cwd)
     collect(result.rawPaths, cwd)
     for (const sub of result.subcommands) {
       for (const rel of bashWriteTargets(sub, { ...ctx, info, cwd, scratch: scratchPath }, depth + 1)) targets.add(rel)
@@ -1340,7 +1513,8 @@ export function bashWriteTargets(command, ctx, depth = 0) {
 export function editTargets(tool, args) {
   if (!args || typeof args !== "object") return []
   if (tool === "edit" || tool === "write" || tool === "multiedit") {
-    return typeof args.filePath === "string" ? [args.filePath] : []
+    const fp = args.filePath ?? args.file_path ?? args.path
+    return typeof fp === "string" && fp ? [fp] : []
   }
   if (tool === "apply_patch" || tool === "patch") {
     const text = typeof args.patchText === "string" ? args.patchText : typeof args.patch === "string" ? args.patch : ""

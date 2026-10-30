@@ -15,6 +15,7 @@ permission:
   pipeline_state: allow
   doom_loop: deny
   read: allow
+  list: allow
   grep: allow
   glob: allow
   lsp: allow

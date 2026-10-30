@@ -17,6 +17,7 @@ permission:
   pipeline_state: allow
   pipeline_env: allow
   read: allow
+  list: allow
   grep: allow
   glob: allow
   skill: allow
@@ -198,7 +199,7 @@ Rules for Assessment:
 - If the task introduces new external library usage: use the Docs Grounding modifier.
 - If the task needs knowledge from outside the repository (an unfamiliar technology, an upgrade or migration, an error that originates in a third-party library, a security advisory, a choice between approaches): use the External Research modifier.
 - If **risk ≥ medium** or **type is security**: use the Security modifier.
-- If **type is bug**: the TDD Bug-Fix Modifier is **mandatory**. A bug classification is incompatible with Fast Lane — always use at least Standard Lane.
+- If **type is bug**: apply the proportional TDD Bug-Fix Modifier below. A trivial or small, clear, low-risk local bug with an identified or immediately obvious root cause may use Fast Lane; all other bugs use at least Standard Lane.
 - If **type is ops** or the task involves log inspection, infrastructure diagnostics, deployment verification, an explicitly requested deployment or release, runtime troubleshooting, container management, or cloud operations: route to the **Ops Lane**. Do NOT route ops tasks to the explorer or executor — they lack the right permissions or role for operational work.
 
 ## Phase 2: Route (Composable Pipeline)
@@ -208,9 +209,9 @@ Instead of rigid static lanes, build a dynamic pipeline by selecting a **Core La
 ### Step 2.1: Choose a Core Lane
 
 1. **Fast Lane** (`@free-pipeline-fast_lane`)
-   *Use ONLY for trivial, 1-line, obvious changes (e.g., fixing a typo, renaming a variable). Bypasses all specialists. If the task requires UI changes, architecture, or new libraries, DO NOT use this.*
+   *Use for trivial or small, clear, low-risk changes (typically 1–3 files): typos, config tweaks, renames, small self-contained helpers or adjustments, and obvious local bug fixes where the root cause and fix are immediately clear and low-risk. `@free-pipeline-fast_lane` runs targeted verification (`pipeline_verify` or a targeted test command) before returning. It bypasses other specialists. Do not use for UI changes, architecture, or new libraries.*
 2. **Standard Lane** (`@free-pipeline-explorer → @free-pipeline-planner → @free-pipeline-executor → @free-pipeline-code_reviewer`)
-   *Use for normal, low-risk code changes.*
+   *Use for normal, low-risk code changes. If the request already pinpoints the exact files or symbols (Size: small, Clarity: clear) and `pipeline_state` / `pipeline_env` are already known, the explorer may be skipped and the lane can start with `@free-pipeline-planner`.*
 3. **Hard Reasoning Lane** (`@free-pipeline-explorer → @free-pipeline-planner → @free-pipeline-reasoner → @free-pipeline-executor → @free-pipeline-tester → @free-pipeline-code_reviewer → @free-pipeline-critic`)
    *Use for complex bugs, high-risk features, architecture, concurrency, or multi-file interactions.*
 4. **Refactor Lane** (`@free-pipeline-explorer → @free-pipeline-planner → @free-pipeline-refactorer → @free-pipeline-tester → @free-pipeline-code_reviewer`)
@@ -253,17 +254,14 @@ If you chose a Core Lane other than Fast Lane or Research Lane, inject the follo
 - **Critic policy**: add `@free-pipeline-critic` only in the Hard Reasoning Lane or when risk is high. Do not add it to Standard, Refactor, or Fast lanes: the code reviewer and the verification results already cover them.
 - **Security Modifier** (if risk >= medium or type == security):
   - Append `@free-pipeline-security_auditor` AFTER the code-reviewer.
-- **TDD Bug-Fix Modifier** (if type == bug, mandatory):
-  - A bug is NEVER eligible for Fast Lane. Use at least Standard Lane.
-  - Inject `@free-pipeline-tester` **(Red phase)** AFTER the planner/reasoner, BEFORE the executor.
-    - The tester writes a test that reproduces the bug, runs it, and confirms it **fails** with the expected error.
-    - If the test passes immediately → the bug is not reproducible → stop the lane and report to the user.
-    - If the Red phase is not verifiable because of the environment (`RED NOT VERIFIABLE (env)`), do not loop: continue only if the planner declared an `Alternative verification`, otherwise report to the user.
-  - If the planner's `Reproduction test plan` declares an **Alternative verification** (no automated test is feasible), the Red/Green tester steps are replaced by that alternative, executed by the agent the plan names (tester, ops, or chrome_devtools). A bug is then verified through it, and its result goes into the final verification status.
-  - The executor writes the fix.
-  - Inject `@free-pipeline-tester` **(Green phase)** AFTER the executor, BEFORE the code-reviewer.
-    - The tester re-runs the reproduction test, then the targeted tests of the touched modules, then the fast test command (not the full suite unless it is quick), and confirms they **pass**.
-    - If the reproduction test still fails and the failure class is `code` → the fix did not work → retry the executor (within the 2 fix rounds of the anti-loop policy). If the failure class is `env` or `test`, do not retry the executor: fix the test (tester) or report `UNVERIFIED`.
+- **TDD Bug-Fix Modifier** (for bug tasks outside Fast Lane, mandatory):
+  - Trivial or small, clear, low-risk local bugs whose root cause is already identified or immediately obvious may use Fast Lane; it must run targeted regression verification before returning.
+  - For a small, clear, low-risk bug in Standard Lane, `@free-pipeline-executor` may write or update the regression test alongside the fix, confirming reproduction and fix in one turn. Then invoke `@free-pipeline-tester` (or `pipeline_verify`) to confirm Green before code review; an extra pre-edit tester handoff is not required.
+  - For non-trivial, ambiguous, or medium/high-risk bugs, and for bugs in Hard Reasoning Lane, use the full two-phase protocol: inject `@free-pipeline-tester` **(Red phase)** AFTER the planner/reasoner and BEFORE the executor. The tester writes a reproducer and confirms it fails with the expected error; if it passes, stop and report that the bug was not reproduced.
+  - If Red is not verifiable because of the environment (`RED NOT VERIFIABLE (env)`), do not loop: continue only if the planner declared an `Alternative verification`, otherwise report to the user.
+  - If the planner's `Reproduction test plan` declares an **Alternative verification** because no automated test is feasible, the Red/Green tester steps are replaced by that alternative, executed by the agent the plan names (tester, ops, or chrome_devtools). Its result goes into the final verification status.
+  - The executor writes the fix. For the full protocol, inject `@free-pipeline-tester` **(Green phase)** AFTER the executor and BEFORE the code-reviewer. The tester re-runs the reproduction test, then targeted tests of touched modules, then the fast test command (not the full suite unless it is quick), and confirms they pass.
+  - If the reproduction test still fails and the failure class is `code`, retry the executor within the 2 fix rounds of the anti-loop policy. If the failure class is `env` or `test`, do not retry the executor: fix the test (tester) or report `UNVERIFIED`.
 - **Empirical Validation Modifier** (when code changes affect runtime behavior):
   - Inject `@free-pipeline-ops` **(empirical-validation mode)** AFTER the code review (and the security audit, if any), BEFORE the HITL. Reviewing first avoids repeating the expensive runtime check for every review round.
   - The ops agent starts the relevant service in a controlled way, runs real requests, checks logs, stops what it started, and validates that the change works in practice, not just in tests.
@@ -379,7 +377,7 @@ After each agent returns, inspect the result. Do NOT just pass it through. Check
 - **Scope creep**: Did the agent change unrelated code?
 - **Gaps**: What is still missing?
 - **Proportionality of the solution**: Did the agent fix the root cause or apply a band-aid? If the code reviewer or reasoner flags a palliative pattern, you MUST request a plan revision before continuing. A fix that only handles the specific reported case without correcting the underlying behavior is not acceptable unless explicitly justified by constraints (backward compatibility, external dependency, time-critical hotfix).
-- **TDD compliance (bug fixes only)**: If the task type is `bug`, verify: (1) the tester confirmed Red (test fails before fix), (2) the executor wrote the fix, (3) the tester confirmed Green (test passes after fix). If any step is missing, do NOT proceed — retry the missing step. Exception: when the plan declared an **Alternative verification**, that alternative replaces the Red/Green test and must be completed and reported instead.
+- **TDD compliance (bug fixes only)**: For non-trivial, ambiguous, or medium/high-risk bugs (and Hard Reasoning Lane), verify tester Red → executor fix → tester Green. For small, clear, low-risk Standard Lane bugs, verify the executor added or updated the regression test alongside the fix and that tester or `pipeline_verify` confirmed Green. Fast Lane bugs require targeted regression verification. If the plan declared an **Alternative verification**, it replaces automated Red/Green and must be completed and reported instead.
 
 If the result is incomplete or flawed, you may retry the same agent or route to a different one, within the limits of the anti-loop policy. Before any executor retry, check the failure class: only `code` failures justify changing code.
 
