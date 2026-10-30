@@ -1650,6 +1650,12 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
             lines.push(``, `⚠ Skipped ${result.skipped.length} files:`,
               ...result.skipped.map((s) => `  * ${s}`))
           }
+          if (result.experimentalTodoWarning) {
+            lines.push(``, `⚠ ${result.experimentalTodoWarning}`)
+          } else {
+            const configPath = path.join(path.dirname(result.destinationPath), "opencode.json")
+            lines.push(``, `✔ experimental.todo enabled in ${configPath.replace(/\/Users\/[^\/]+/, "~")}`)
+          }
           setActionResultLines(lines)
         } catch (error: any) {
           setActionResultTitle("Error During Export")

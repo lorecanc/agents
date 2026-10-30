@@ -2674,6 +2674,7 @@ export interface ExportResult {
   domainBackupPath: string | null
   removedRetiredAgents?: string[]
   pluginProvisioning?: PluginProvisionResult
+  experimentalTodoWarning?: string
 }
 
 export function expandStackDirectoryPath(dirPath: string, homeDirectory = os.homedir()): string {
@@ -2775,22 +2776,73 @@ export function writeOntologyStackConfig(opencodeRoot: string, stackDirectory: s
       `Invalid ontology-stack directory: ${stackDirectory} (must be a non-symlink directory containing docker-compose.yml)`
     )
   }
+  const opened = openOpenCodeConfig(opencodeRoot, "ontology-stack.json")
+
+  const canonicalStack = fs.realpathSync(expandedStackDirectory)
+  const payload = Buffer.from(JSON.stringify({ stackDirectory: canonicalStack }, null, 2) + "\n", "utf8")
+  atomicWriteRestrictedFile(opened.configPath, payload, 0o600)
+  return opened.configPath
+}
+
+/**
+ * Read a file without following symlinks: the final path component is opened
+ * with O_NOFOLLOW and verified as a regular file before any bytes are read.
+ */
+function readRegularFileNoFollow(filePath: string): Buffer {
+  const fd = fs.openSync(filePath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW)
+  try {
+    if (!fs.fstatSync(fd).isFile()) throw new Error(`Refusing to read non-regular file: ${filePath}`)
+    return fs.readFileSync(fd)
+  } finally {
+    fs.closeSync(fd)
+  }
+}
+
+/**
+ * Resolve the OpenCode config directory and open one config file inside it,
+ * refusing symlinks and non-regular files at every step. `subject` is the file
+ * name used in error messages so each caller keeps its distinct wording.
+ * Set `parse` to also read and validate the file as a JSON object.
+ */
+function openOpenCodeConfig(
+  opencodeRoot: string,
+  subject: string,
+  options: { backup?: boolean; parse?: boolean } = {}
+): { configPath: string; backupPath: string; rawBytes: Buffer | null; config: Record<string, any> | null } {
   const resolvedOpenCodeRoot = path.resolve(opencodeRoot)
   const rootStat = fs.lstatSync(resolvedOpenCodeRoot, { throwIfNoEntry: false })
   if (rootStat?.isSymbolicLink()) throw new Error(`Refusing symlink at OpenCode config root: ${resolvedOpenCodeRoot}`)
   if (rootStat && !rootStat.isDirectory()) throw new Error(`OpenCode config root is not a directory: ${resolvedOpenCodeRoot}`)
   if (!rootStat) fs.mkdirSync(resolvedOpenCodeRoot, { recursive: true })
 
-  const configPath = path.join(resolvedOpenCodeRoot, "ontology-stack.json")
-  const existingStat = fs.lstatSync(configPath, { throwIfNoEntry: false })
-  if (existingStat && (existingStat.isSymbolicLink() || !existingStat.isFile())) {
-    throw new Error(`Refusing symlink or non-regular file at ontology-stack.json: ${configPath}`)
+  const configPath = path.join(resolvedOpenCodeRoot, subject)
+  const backupPath = `${configPath}.bak`
+  const configStat = fs.lstatSync(configPath, { throwIfNoEntry: false })
+  if (configStat && (configStat.isSymbolicLink() || !configStat.isFile())) {
+    throw new Error(`Refusing symlink or non-regular file at ${subject}: ${configPath}`)
   }
+  if (options.backup) {
+    const backupStat = fs.lstatSync(backupPath, { throwIfNoEntry: false })
+    if (backupStat && (backupStat.isSymbolicLink() || !backupStat.isFile())) {
+      throw new Error(`Refusing symlink or non-regular file at ${subject}.bak: ${backupPath}`)
+    }
+  }
+  if (!configStat) return { configPath, backupPath, rawBytes: null, config: null }
 
-  const canonicalStack = fs.realpathSync(expandedStackDirectory)
-  const payload = Buffer.from(JSON.stringify({ stackDirectory: canonicalStack }, null, 2) + "\n", "utf8")
-  atomicWriteRestrictedFile(configPath, payload, 0o600)
-  return configPath
+  const rawBytes = readRegularFileNoFollow(configPath)
+  if (!options.parse) return { configPath, backupPath, rawBytes, config: null }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(rawBytes.toString("utf8"))
+  } catch {
+    // The parser message quotes config content near the syntax error, which can
+    // leak credentials stored in opencode.json, so only the path is reported.
+    throw new Error(`Failed to parse existing ${subject} (${configPath})`)
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`Existing ${subject} must contain a JSON object: ${configPath}`)
+  }
+  return { configPath, backupPath, rawBytes, config: parsed as Record<string, any> }
 }
 
 function atomicWriteRestrictedFile(filePath: string, bytes: Buffer, mode = 0o600): void {
@@ -2829,6 +2881,54 @@ function atomicWriteRestrictedFile(filePath: string, bytes: Buffer, mode = 0o600
 }
 
 /**
+ * OpenCode v2 registers the `todowrite` tool only when experimental.todo is true.
+ * Mutates `config` in place; returns false when the flag is already enabled.
+ */
+function applyExperimentalTodoField(config: Record<string, any>, configPath: string): boolean {
+  const experimental = config.experimental
+  // `null` carries no settings, so it is treated like an absent field.
+  if (experimental === undefined || experimental === null) {
+    config.experimental = { todo: true }
+    return true
+  }
+  if (typeof experimental !== "object" || Array.isArray(experimental)) {
+    throw new Error(`Invalid "experimental" field in opencode.json; it must be an object: ${configPath}`)
+  }
+  if (experimental.todo === true) return false
+  experimental.todo = true
+  return true
+}
+
+/**
+ * Enable experimental.todo in opencode.json, backing up any pre-existing
+ * opencode.json to opencode.json.bak with 0600 permissions. Pass `skipBackup`
+ * when the caller already backed up the current bytes in this run.
+ */
+export function ensureOpenCodeExperimentalTodo(
+  opencodeRoot: string,
+  options: { skipBackup?: boolean } = {}
+): { configPath: string; backupPath: string | null; changed: boolean } {
+  const opened = openOpenCodeConfig(opencodeRoot, "opencode.json", { backup: true, parse: true })
+
+  if (opened.rawBytes === null) {
+    const created = {
+      $schema: "https://opencode.ai/config.json",
+      plugins: [],
+      experimental: { todo: true },
+    }
+    atomicWriteRestrictedFile(opened.configPath, Buffer.from(JSON.stringify(created, null, 2) + "\n", "utf8"), 0o600)
+    return { configPath: opened.configPath, backupPath: null, changed: true }
+  }
+
+  const config = opened.config as Record<string, any>
+  if (!applyExperimentalTodoField(config, opened.configPath)) return { configPath: opened.configPath, backupPath: null, changed: false }
+
+  if (!options.skipBackup) atomicWriteRestrictedFile(opened.backupPath, opened.rawBytes, 0o600)
+  atomicWriteRestrictedFile(opened.configPath, Buffer.from(JSON.stringify(config, null, 2) + "\n", "utf8"), 0o600)
+  return { configPath: opened.configPath, backupPath: options.skipBackup ? null : opened.backupPath, changed: true }
+}
+
+/**
  * Safely and idempotently register exported plugin paths in opencode.json,
  * backing up any pre-existing opencode.json to opencode.json.bak with 0600 permissions.
  */
@@ -2837,42 +2937,18 @@ export function mergeOpenCodePluginsConfig(
   pluginPaths: string[]
 ): { configPath: string; backupPath: string | null; plugins: string[] } {
   const resolvedOpenCodeRoot = path.resolve(opencodeRoot)
-  const rootStat = fs.lstatSync(resolvedOpenCodeRoot, { throwIfNoEntry: false })
-  if (rootStat?.isSymbolicLink()) throw new Error(`Refusing symlink at OpenCode config root: ${resolvedOpenCodeRoot}`)
-  if (rootStat && !rootStat.isDirectory()) throw new Error(`OpenCode config root is not a directory: ${resolvedOpenCodeRoot}`)
-  if (!rootStat) fs.mkdirSync(resolvedOpenCodeRoot, { recursive: true })
-
-  const configPath = path.join(resolvedOpenCodeRoot, "opencode.json")
-  const backupPath = path.join(resolvedOpenCodeRoot, "opencode.json.bak")
-  const configStat = fs.lstatSync(configPath, { throwIfNoEntry: false })
-  if (configStat && (configStat.isSymbolicLink() || !configStat.isFile())) {
-    throw new Error(`Refusing symlink or non-regular file at opencode.json: ${configPath}`)
-  }
-  const backupStat = fs.lstatSync(backupPath, { throwIfNoEntry: false })
-  if (backupStat && (backupStat.isSymbolicLink() || !backupStat.isFile())) {
-    throw new Error(`Refusing symlink or non-regular file at opencode.json.bak: ${backupPath}`)
-  }
+  const opened = openOpenCodeConfig(resolvedOpenCodeRoot, "opencode.json", { backup: true, parse: true })
 
   let config: Record<string, any>
   let createdBackup: string | null = null
-  if (configStat) {
-    const rawBytes = fs.readFileSync(configPath)
-    let parsed: unknown
-    try {
-      parsed = JSON.parse(rawBytes.toString("utf8"))
-    } catch (error: any) {
-      throw new Error(`Failed to parse existing opencode.json (${configPath}): ${error?.message || error}`)
-    }
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      throw new Error(`Existing opencode.json must contain a JSON object: ${configPath}`)
-    }
-    const obj = parsed as Record<string, any>
+  if (opened.rawBytes !== null) {
+    const obj = opened.config as Record<string, any>
     if (obj.plugins !== undefined && (!Array.isArray(obj.plugins) || obj.plugins.some((item: any) =>
       typeof item !== "string" && (!item || typeof item !== "object" || Array.isArray(item) || typeof item.package !== "string")))) {
-      throw new Error(`Invalid "plugins" field in opencode.json; expected plugin strings or package objects: ${configPath}`)
+      throw new Error(`Invalid "plugins" field in opencode.json; expected plugin strings or package objects: ${opened.configPath}`)
     }
-    atomicWriteRestrictedFile(backupPath, rawBytes, 0o600)
-    createdBackup = backupPath
+    atomicWriteRestrictedFile(opened.backupPath, opened.rawBytes, 0o600)
+    createdBackup = opened.backupPath
     config = obj
   } else {
     config = {
@@ -2948,8 +3024,8 @@ export function mergeOpenCodePluginsConfig(
   config.plugins = existingPlugins
 
   const updatedBytes = Buffer.from(JSON.stringify(config, null, 2) + "\n", "utf8")
-  atomicWriteRestrictedFile(configPath, updatedBytes, 0o600)
-  return { configPath, backupPath: createdBackup, plugins: existingPlugins.map(targetOf) }
+  atomicWriteRestrictedFile(opened.configPath, updatedBytes, 0o600)
+  return { configPath: opened.configPath, backupPath: createdBackup, plugins: existingPlugins.map(targetOf) }
 }
 
 /**
@@ -3329,8 +3405,10 @@ export function exportAgents(
     repoRoot = path.basename(parent) === "agents" ? path.dirname(parent) : parent
   }
 
-  const pluginProvisioning = (resourceSourceRoot || options.stackDirectory !== undefined)
-    ? provisionExportedOntologyPlugins(opencodeRoot, resourceResult.installed, {
+  let pluginProvisioning: PluginProvisionResult | undefined
+  if (resourceSourceRoot || options.stackDirectory !== undefined) {
+    try {
+      pluginProvisioning = provisionExportedOntologyPlugins(opencodeRoot, resourceResult.installed, {
         runCommand: options.runCommand,
         stackDirectory: options.stackDirectory,
         homeDirectory: options.homeDirectory,
@@ -3339,7 +3417,30 @@ export function exportAgents(
         env: options.env,
         domains,
       })
-    : undefined
+    } catch (error: any) {
+      // Agents and companion resources are already exported; a config write
+      // failure degrades to a warning instead of aborting a half-applied export.
+      pluginProvisioning = {
+        installed: [],
+        skipped: [],
+        failed: [{ plugin: "plugin provisioning", error: error?.message || String(error) }],
+        registeredPlugins: [],
+        opencodeConfigPath: null,
+        opencodeConfigBackupPath: null,
+        ontologyStackConfigPath: null,
+        ontologyStackDirectory: null,
+      }
+    }
+  }
+
+  let experimentalTodoWarning: string | undefined
+  try {
+    // mergeOpenCodePluginsConfig already backed up the pre-export bytes when it
+    // ran, so keep that pristine backup instead of overwriting it.
+    ensureOpenCodeExperimentalTodo(opencodeRoot, { skipBackup: Boolean(pluginProvisioning?.opencodeConfigBackupPath) })
+  } catch (error: any) {
+    experimentalTodoWarning = `Failed to enable experimental.todo in opencode.json: ${error?.message || error}`
+  }
 
   return {
     exported,
@@ -3350,5 +3451,6 @@ export function exportAgents(
     domainBackupPath: resourceResult.backupPath,
     removedRetiredAgents,
     ...(pluginProvisioning ? { pluginProvisioning } : {}),
+    ...(experimentalTodoWarning ? { experimentalTodoWarning } : {}),
   }
 }

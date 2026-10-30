@@ -2355,6 +2355,7 @@ test("ontology plugin export replaces legacy package paths instead of shadowing 
   fs.writeFileSync(configPath, initialBytes)
   const result = agentsMod.mergeOpenCodePluginsConfig(opencodeRoot, currentPaths)
   const migrated = JSON.parse(fs.readFileSync(configPath, "utf8"))
+  assert.equal(migrated.experimental, undefined, "only ensureOpenCodeExperimentalTodo may write experimental.todo")
   assert.deepEqual(migrated.plugins, [
     unrelated,
     currentPaths[0],
@@ -2479,4 +2480,175 @@ test("detectOntologyStackDirectory and exportAgents handle tilde paths, compose-
   assert.match(result.pluginProvisioning?.ontologyStackWarning ?? "", new RegExp(invalidStack.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")))
   const stackConfigPath = path.join(path.dirname(result.destinationPath), "ontology-stack.json")
   assert.deepEqual(JSON.parse(fs.readFileSync(stackConfigPath, "utf8")), { stackDirectory: fs.realpathSync(siblingStack) })
+})
+
+// `todowrite` only registers in OpenCode v2 when experimental.todo is enabled,
+// and the manager must be able to patch the config it owns.
+test("ensureOpenCodeExperimentalTodo creates a minimal config when opencode.json is missing", (t) => {
+  const opencodeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "agent-experimental-todo-missing-"))
+  t.after(() => { try { fs.rmSync(opencodeRoot, { recursive: true, force: true }) } catch {} })
+
+  const result = agentsMod.ensureOpenCodeExperimentalTodo(opencodeRoot)
+
+  const configPath = path.join(opencodeRoot, "opencode.json")
+  assert.deepEqual(result, { configPath, changed: true, backupPath: null })
+  assert.deepEqual(JSON.parse(fs.readFileSync(configPath, "utf8")), {
+    $schema: "https://opencode.ai/config.json",
+    plugins: [],
+    experimental: { todo: true },
+  })
+})
+
+test("ensureOpenCodeExperimentalTodo merges todo into an existing config and backs up the original bytes", (t) => {
+  const opencodeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "agent-experimental-todo-merge-"))
+  t.after(() => { try { fs.rmSync(opencodeRoot, { recursive: true, force: true }) } catch {} })
+  const configPath = path.join(opencodeRoot, "opencode.json")
+  const original = {
+    $schema: "https://opencode.ai/config.json",
+    plugins: ["./tools/ontology/ontogpt-plugin"],
+    mcp: { docs: { command: ["docs-mcp", "--stdio"] } },
+    lsp: { typescript: { command: ["typescript-language-server", "--stdio"] } },
+    experimental: { background_compaction: true },
+  }
+  const originalBytes = JSON.stringify(original, null, 2) + "\n"
+  fs.writeFileSync(configPath, originalBytes)
+
+  const result = agentsMod.ensureOpenCodeExperimentalTodo(opencodeRoot)
+
+  assert.equal(result.changed, true)
+  assert.ok(result.backupPath, "the previous config must be backed up")
+  assert.equal(fs.readFileSync(result.backupPath!, "utf8"), originalBytes)
+  const updated = JSON.parse(fs.readFileSync(configPath, "utf8"))
+  assert.deepEqual(updated.experimental, { background_compaction: true, todo: true })
+  for (const key of ["$schema", "plugins", "mcp", "lsp"]) {
+    assert.deepEqual(updated[key], original[key], `${key} must be preserved verbatim`)
+  }
+})
+
+test("ensureOpenCodeExperimentalTodo is a no-op when experimental.todo is already true", (t) => {
+  const opencodeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "agent-experimental-todo-present-"))
+  t.after(() => { try { fs.rmSync(opencodeRoot, { recursive: true, force: true }) } catch {} })
+  const configPath = path.join(opencodeRoot, "opencode.json")
+  const originalBytes = JSON.stringify({ experimental: { todo: true } }, null, 2) + "\n"
+  fs.writeFileSync(configPath, originalBytes)
+
+  const result = agentsMod.ensureOpenCodeExperimentalTodo(opencodeRoot)
+
+  assert.deepEqual(result, { configPath, changed: false, backupPath: null })
+  assert.equal(fs.readFileSync(configPath, "utf8"), originalBytes, "an already enabled config must not be rewritten")
+})
+
+test("ensureOpenCodeExperimentalTodo rejects a non-object experimental field without touching the file", (t) => {
+  const opencodeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "agent-experimental-todo-invalid-"))
+  t.after(() => { try { fs.rmSync(opencodeRoot, { recursive: true, force: true }) } catch {} })
+  const configPath = path.join(opencodeRoot, "opencode.json")
+  const originalBytes = JSON.stringify({ experimental: "on" }, null, 2) + "\n"
+  fs.writeFileSync(configPath, originalBytes)
+
+  assert.throws(() => agentsMod.ensureOpenCodeExperimentalTodo(opencodeRoot), /experimental.*(plain )?object/i)
+  assert.equal(fs.readFileSync(configPath, "utf8"), originalBytes)
+})
+
+test("ensureOpenCodeExperimentalTodo treats a null experimental field like an absent one", (t) => {
+  const opencodeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "agent-experimental-todo-null-"))
+  t.after(() => { try { fs.rmSync(opencodeRoot, { recursive: true, force: true }) } catch {} })
+  const configPath = path.join(opencodeRoot, "opencode.json")
+  fs.writeFileSync(configPath, JSON.stringify({ experimental: null, theme: "dark" }, null, 2) + "\n")
+
+  const result = agentsMod.ensureOpenCodeExperimentalTodo(opencodeRoot)
+
+  assert.equal(result.changed, true)
+  const updated = JSON.parse(fs.readFileSync(configPath, "utf8"))
+  assert.deepEqual(updated.experimental, { todo: true })
+  assert.equal(updated.theme, "dark")
+})
+
+test("config parse failures report only the path and never echo configuration content", (t) => {
+  const opencodeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "agent-config-parse-error-"))
+  t.after(() => { try { fs.rmSync(opencodeRoot, { recursive: true, force: true }) } catch {} })
+  const configPath = path.join(opencodeRoot, "opencode.json")
+  const invalidBytes = '{ not json "sk-secret"\n'
+  fs.writeFileSync(configPath, invalidBytes)
+
+  for (const attempt of [
+    () => agentsMod.ensureOpenCodeExperimentalTodo(opencodeRoot),
+    () => agentsMod.mergeOpenCodePluginsConfig(opencodeRoot, ["./tools/ontology/ontogpt-plugin"]),
+  ]) {
+    assert.throws(attempt, (error: any) => {
+      const message = String(error?.message ?? error)
+      assert.doesNotMatch(message, /sk-secret/)
+      assert.match(message, /opencode\.json/)
+      return true
+    })
+  }
+  assert.equal(fs.readFileSync(configPath, "utf8"), invalidBytes)
+})
+
+test("exportAgents warns about an unparseable opencode.json and leaves it untouched", (t) => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "agent-export-invalid-config-")))
+  t.after(() => { try { fs.rmSync(root, { recursive: true, force: true }) } catch {} })
+  const xdg = path.join(root, "xdg")
+  const opencodeRoot = path.join(xdg, "opencode")
+  fs.mkdirSync(opencodeRoot, { recursive: true })
+  const configPath = path.join(opencodeRoot, "opencode.json")
+  const invalidBytes = '{ not json "sk-secret"\n'
+  fs.writeFileSync(configPath, invalidBytes)
+  const workspace = path.join(root, "workspace")
+  const agent = fixtureAgent(path.join(workspace, "general", "agents", "slides-writer.md"), workspace, "test/model")
+
+  const result = exportAgents([agent], new Set([agent.currentPath]), undefined, {
+    env: { HOME: root, XDG_CONFIG_HOME: xdg },
+  })
+
+  assert.ok(result.exported.includes(agent.filename), "the agents must still be exported")
+  assert.ok(result.experimentalTodoWarning, "the failed experimental.todo write must be surfaced")
+  assert.match(result.experimentalTodoWarning, /opencode\.json/)
+  assert.doesNotMatch(result.experimentalTodoWarning, /sk-secret/)
+  assert.equal(fs.readFileSync(configPath, "utf8"), invalidBytes, "an unparseable config must not be rewritten")
+  assert.equal(fs.existsSync(path.join(opencodeRoot, "opencode.json.bak")), false)
+})
+
+test("exportAgents enables experimental.todo and keeps a single pristine backup", (t) => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "agent-export-experimental-todo-")))
+  t.after(() => { try { fs.rmSync(root, { recursive: true, force: true }) } catch {} })
+  const xdg = path.join(root, "xdg")
+  const opencodeRoot = path.join(xdg, "opencode")
+  fs.mkdirSync(opencodeRoot, { recursive: true })
+  const originalBytes = JSON.stringify({ theme: "dark" }, null, 2) + "\n"
+  fs.writeFileSync(path.join(opencodeRoot, "opencode.json"), originalBytes)
+  const workspace = path.join(root, "workspace")
+  const agent = fixtureAgent(path.join(workspace, "general", "agents", "slides-writer.md"), workspace, "test/model")
+
+  const result = exportAgents([agent], new Set([agent.currentPath]), undefined, {
+    env: { HOME: root, XDG_CONFIG_HOME: xdg },
+  })
+
+  assert.equal(result.experimentalTodoWarning, undefined)
+  const config = JSON.parse(fs.readFileSync(path.join(opencodeRoot, "opencode.json"), "utf8"))
+  assert.equal(config.experimental.todo, true)
+  assert.equal(config.theme, "dark", "unrelated settings must be preserved")
+  assert.equal(fs.readFileSync(path.join(opencodeRoot, "opencode.json.bak"), "utf8"), originalBytes)
+})
+
+test("exportAgents degrades a plugin config write failure to a provisioning warning", { skip: process.platform === "win32" }, (t) => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "agent-export-provision-warning-")))
+  t.after(() => { try { fs.rmSync(root, { recursive: true, force: true }) } catch {} })
+  const xdg = path.join(root, "xdg")
+  const opencodeRoot = path.join(xdg, "opencode")
+  fs.mkdirSync(opencodeRoot, { recursive: true })
+  const stack = path.join(root, "ontology-stack")
+  fs.mkdirSync(stack, { recursive: true })
+  fs.writeFileSync(path.join(stack, "docker-compose.yml"), "services: {}\n")
+  fs.symlinkSync(path.join(root, "outside.json"), path.join(opencodeRoot, "ontology-stack.json"))
+  const workspace = path.join(root, "workspace")
+  const agent = fixtureAgent(path.join(workspace, "general", "agents", "slides-writer.md"), workspace, "test/model")
+
+  const result = exportAgents([agent], new Set([agent.currentPath]), undefined, {
+    stackDirectory: stack,
+    env: { HOME: root, XDG_CONFIG_HOME: xdg },
+  })
+
+  assert.ok(result.exported.includes(agent.filename), "agents must stay exported when provisioning fails")
+  assert.ok(result.pluginProvisioning?.failed.length, "the provisioning failure must be reported")
+  assert.match(result.pluginProvisioning!.failed[0].error, /symlink/i)
 })

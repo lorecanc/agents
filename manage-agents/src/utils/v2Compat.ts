@@ -92,7 +92,9 @@ export function translatePermissionsV2ToV1(perms: V2PermissionRule[]): V1Permiss
   const result: V1PermissionObject = {}
 
   for (const rule of perms) {
-    const key = mapActionToPermissionKey(rule.action)
+    // Fail closed: an action outside the V2 vocabulary is dropped instead of
+    // copied verbatim, so a V1 spelling cannot smuggle a permission through.
+    const key = resolveV2PermissionKey(rule.action)
     if (!key) continue
 
     if (rule.resource === "*") {
@@ -114,6 +116,20 @@ export function translatePermissionsV2ToV1(perms: V2PermissionRule[]): V1Permiss
   return result
 }
 
+/**
+ * V2 action vocabulary provenance: OpenCode v2.1, the config schema published
+ * at https://opencode.ai/config.json plus the permissions documentation,
+ * verified against `opencode debug agents` on v2.1.3.
+ *
+ * INTENTIONAL, irreversible collapses between V2 actions and V1 permission
+ * keys. The V2 runtime carries no action that could map back to the finer V1
+ * spelling, so these must not be "fixed":
+ * - V2 `read` covers V1 `read` and `list`.
+ * - V2 `edit` covers V1 `write`, `patch`, `apply_patch` and `multiedit`.
+ * - V2 `shell` covers V1 `bash` and `execute`.
+ * V2 `subagent` similarly covers V1 `task`. The existing tests pin these
+ * collapses.
+ */
 function mapPermissionKeyToAction(key: string): string {
   const map: Record<string, string> = {
     bash: "shell",
@@ -132,7 +148,9 @@ function mapPermissionKeyToAction(key: string): string {
     task: "subagent",
     question: "question",
   }
-  return map[key] || key
+  // Own-property reads only: `constructor`, `toString` and friends must not
+  // resolve to inherited Object members.
+  return Object.hasOwn(map, key) ? map[key] : key
 }
 
 function mapActionToPermissionKey(action: string): string | null {
@@ -148,7 +166,59 @@ function mapActionToPermissionKey(action: string): string | null {
     question: "question",
     external_directory: "external_directory",
   }
-  return map[action] || null
+  return Object.hasOwn(map, action) ? map[action] : null
+}
+
+/** Permission key names are lowercase identifiers; anything else is rejected. */
+const PERMISSION_KEY_NAME = /^[a-z][a-z0-9_-]*$/
+
+/**
+ * V2-only action names with no V1 spelling. Only these reach the V1 layer
+ * verbatim. The set is closed on purpose: an action missing from the V2
+ * vocabulary (including a V1 spelling such as `bash`, `write` or `task`) must
+ * be dropped, not forwarded, so the translation fails closed.
+ */
+const V2_PASSTHROUGH_ACTIONS = new Set([
+  "todowrite", "skill", "websearch", "mcp-resource", "artifact", "file-diff",
+  "opencode_session_rename", "opencode_session_move",
+  "opencode_worktree_create", "opencode_worktree_list", "opencode_worktree_remove",
+])
+
+/** Repository custom tools (`src/tools/pipeline_*.ts`) are V2-only as well. */
+const PIPELINE_TOOL_ACTION = /^pipeline_[a-z][a-z0-9_]*$/
+
+function resolveV2PermissionKey(action: string): string | null {
+  const mapped = mapActionToPermissionKey(action)
+  if (mapped) return mapped
+  if (!PERMISSION_KEY_NAME.test(action)) return null
+  return V2_PASSTHROUGH_ACTIONS.has(action) || PIPELINE_TOOL_ACTION.test(action) ? action : null
+}
+
+/**
+ * Built-in tool permission keys and the V2-only action names that reach the V1
+ * layer verbatim. Anything else containing an underscore is an MCP tool key
+ * (`<server>_<tool>`), never a built-in.
+ */
+const KNOWN_PERMISSION_KEYS = new Set([
+  "read", "grep", "glob", "edit", "write", "patch", "multiedit", "apply_patch",
+  "shell", "bash", "execute", "lsp", "webfetch", "websearch", "skill", "question",
+  "task", "subagent", "todowrite", "external_directory", "doom_loop", "list",
+  "mcp-resource", "artifact", "file-diff",
+  "opencode_session_rename", "opencode_session_move",
+  "opencode_worktree_create", "opencode_worktree_list", "opencode_worktree_remove",
+  "read_mcp_resource", "list_mcp_resources", "list_mcp_resource_templates"
+])
+
+/**
+ * Single source of truth for "built-in tool permission key vs MCP server key".
+ * Bridges must call this instead of keeping their own key lists.
+ *
+ * The `pipeline_*` test mirrors `isOpenCodeCustomToolKey` in
+ * bridgeToolReferences.ts, which cannot be imported here without a module
+ * cycle (that file already imports this one).
+ */
+export function isKnownPermissionKey(key: string): boolean {
+  return KNOWN_PERMISSION_KEYS.has(key) || /^pipeline_[a-z][a-z0-9_]*$/.test(key)
 }
 
 // --- Frontmatter translation ---

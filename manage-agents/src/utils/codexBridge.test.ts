@@ -221,6 +221,24 @@ test("file-manipulation permission aliases enable workspace-write", () => {
   assert.deepEqual(result.plugin.agents.map(entry => entry.sandboxMode), ["workspace-write", "workspace-write", "workspace-write"])
 })
 
+test("V1 spellings inside a V2 permissions array do not flip the sandbox to workspace-write", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "codex-bridge-fail-closed-"))
+  const output = path.join(workspace, "bridges", "codex")
+  const result = bridgeToCodex([
+    agent("legacy-actions.md", "any", { permissions: [
+      { action: "bash", resource: "*", effect: "allow" },
+      { action: "write", resource: "*", effect: "allow" },
+      { action: "execute", resource: "*", effect: "allow" },
+      { action: "list", resource: "*", effect: "allow" }
+    ] }, "")
+  ], "sandbox", "", output, workspace, {
+    ...DEFAULT_TRANSLATION_CONFIG,
+    codex: { ...DEFAULT_TRANSLATION_CONFIG.codex, emitSkills: false, emitReadme: false }
+  })
+
+  assert.equal(result.plugin.agents[0].sandboxMode, "read-only", "a V1 spelling used as a V2 action must grant nothing")
+})
+
 test("Codex plugin mirrors enabled MCP servers in a valid companion layer", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "codex-bridge-mcp-"))
   fs.mkdirSync(path.join(workspace, "general"), { recursive: true })
@@ -343,4 +361,25 @@ test("Codex bridge never treats pipeline tool or built-in permission keys as MCP
   bridgeToCodex([auditor], "decent-pipeline", "pipeline-", output, workspace)
   const mcp = JSON.parse(fs.readFileSync(path.join(output, ".mcp.json"), "utf8")).mcpServers
   assert.deepEqual(Object.keys(mcp), ["cwe-search"])
+})
+
+test("Codex bridge never treats known tool permission keys as MCP servers", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "codex-bridge-known-keys-"))
+  fs.mkdirSync(path.join(workspace, "src"), { recursive: true })
+  fs.writeFileSync(path.join(workspace, "src", "opencode.json"), JSON.stringify({ mcp: {
+    opencode: { command: ["fake-opencode"], enabled: false }
+  } }))
+  const output = path.join(workspace, "bridges", "codex")
+  // `isMcpPermissionKey` is internal to codexBridge.ts, so this asserts its
+  // classification through the emitted .mcp.json companion layer.
+  const executor = agent("pipeline-executor.md", "any", { permission: {
+    opencode_session_rename: "allow"
+  } }, "")
+
+  bridgeToCodex([executor], "decent-pipeline", "pipeline-", output, workspace)
+
+  const mcpPath = path.join(output, ".mcp.json")
+  assert.equal(fs.existsSync(mcpPath), false, `known tool keys must not require an MCP server; got ${fs.existsSync(mcpPath) ? fs.readFileSync(mcpPath, "utf8") : ""}`)
+  const manifest = JSON.parse(fs.readFileSync(path.join(output, ".codex-plugin", "plugin.json"), "utf8"))
+  assert.equal(manifest.mcpServers, undefined)
 })

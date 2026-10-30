@@ -656,12 +656,19 @@ Options:
   if (result.pluginProvisioning?.ontologyStackWarning) {
     console.warn(`   ⚠  ${result.pluginProvisioning.ontologyStackWarning}`)
   }
+  if (result.experimentalTodoWarning) {
+    console.warn(`   ⚠  ${result.experimentalTodoWarning}`)
+  }
 
   console.log(`\n✅ Export complete!`)
   console.log(`   Exported ${result.exported.length} agents to:`)
   console.log(`   ${shortenHome(result.destinationPath)}`)
   console.log(`\n   Backup at:`)
   console.log(`   ${shortenHome(result.backupPath)}\n`)
+
+  if (!result.experimentalTodoWarning) {
+    console.log(`   ✔  experimental.todo enabled in ${shortenHome(path.join(path.dirname(result.destinationPath), "opencode.json"))}`)
+  }
 
   if (result.domainResources.length > 0) {
     console.log(`   Companion resources installed:`)

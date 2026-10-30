@@ -7,28 +7,18 @@ import { buildInferenceIndex, DEFAULT_TRANSLATION_CONFIG, resolveMarketplaceName
 import type { TranslationConfig } from "./translationConfig.js"
 import { getCategoryCompanionLinks } from "./companionLinks.js"
 import { assertInsideRealWorkspace, realpathThroughExistingAncestor } from "./pathValidation.js"
-import { translatePermissionsV2ToV1 } from "./v2Compat.js"
+import { isKnownPermissionKey, translatePermissionsV2ToV1 } from "./v2Compat.js"
 import { adaptToolReferences, collectBashAllowlist, isOpenCodeCustomToolKey, renderBashAllowlistSection, type BashAllowlist } from "./bridgeToolReferences.js"
 
 type ResolvedModelTarget = ReturnType<typeof resolveModelTarget>
 type ResolvedTargets = Map<string, ResolvedModelTarget>
 
-/**
- * OpenCode permission keys that map to dedicated Claude Code tools (or to no
- * tool at all). Any other key containing an underscore is treated as an MCP
- * server permission so it cannot fabricate a server for a built-in key.
- */
-const KNOWN_PERMISSION_KEYS = new Set([
-  "read", "write", "edit", "apply_patch", "patch", "multiedit", "execute", "bash", "shell", "list", "glob", "grep", "task",
-  "skill", "lsp", "question", "webfetch", "websearch", "todowrite", "external_directory",
-  "doom_loop", "pipeline_state", "pipeline_verify", "pipeline_commit", "pipeline_serve", "pipeline_smoke", "pipeline_env",
-  "read_mcp_resource", "list_mcp_resources", "list_mcp_resource_templates"
-])
-
 /** OpenCode permission keys with no Claude Code tool equivalent; dropped with a warning. */
 const DROPPED_PERMISSION_KEYS = [
-  "doom_loop", "external_directory", "pipeline_state", "pipeline_verify",
-  "pipeline_commit", "pipeline_serve", "pipeline_smoke", "pipeline_env"
+  "doom_loop", "external_directory",
+  "artifact", "file-diff", "mcp-resource",
+  "opencode_session_rename", "opencode_session_move",
+  "opencode_worktree_create", "opencode_worktree_list", "opencode_worktree_remove"
 ]
 
 /** Tools whose `ask` state is promoted to allow when the tool is emitted. */
@@ -41,8 +31,13 @@ function promotesAsk(value: unknown): boolean {
   return (value as Record<string, unknown>)["*"] === "ask"
 }
 
+/**
+ * A key containing an underscore that is not a built-in tool permission names
+ * an MCP server (`<server>_<tool>`), so it cannot fabricate a server for a
+ * built-in key.
+ */
 function isMcpPermissionKey(key: string): boolean {
-  return key.includes("_") && !KNOWN_PERMISSION_KEYS.has(key) && !isOpenCodeCustomToolKey(key)
+  return key.includes("_") && !isKnownPermissionKey(key) && !isOpenCodeCustomToolKey(key)
 }
 
 const markdownCode = (value: string) => {
@@ -233,6 +228,22 @@ function objectAllowsAny(value: unknown): boolean {
 }
 
 /**
+ * Normalize frontmatter permissions to the V1 object the bridge reads
+ * internally. V2 carries delegation as `subagent`; the bridge reads one key.
+ */
+function normalizedPermissions(frontmatter: Record<string, any>): Record<string, any> {
+  const permission = frontmatter.permission
+  const perms: Record<string, any> = frontmatter.permissions
+    ? translatePermissionsV2ToV1(frontmatter.permissions)
+    : permission && typeof permission === "object" && !Array.isArray(permission) ? { ...permission } : {}
+  if (perms.task === undefined && perms.subagent !== undefined) {
+    perms.task = perms.subagent
+    delete perms.subagent
+  }
+  return perms
+}
+
+/**
  * Build the `tools:` string for a Claude Code agent from OpenCode permissions.
  */
 function buildToolsString(
@@ -245,10 +256,7 @@ function buildToolsString(
   requiredMcpServers: string[] = []
 ): string {
   const tools: string[] = []
-  // Normalize permissions to V1 format for internal use
-  const perms = frontmatter.permissions
-    ? translatePermissionsV2ToV1(frontmatter.permissions)
-    : frontmatter.permission || {}
+  const perms = normalizedPermissions(frontmatter)
 
   // Agent tool (subagent delegation)
   const taskPerm = perms.task
@@ -338,10 +346,7 @@ function buildToolsString(
  */
 function collectWarnings(frontmatter: Record<string, any>, enabledMcpServers?: Set<string>): string[] {
   const warnings: string[] = []
-  // Normalize permissions to V1 format for internal use
-  const perms = frontmatter.permissions
-    ? translatePermissionsV2ToV1(frontmatter.permissions)
-    : frontmatter.permission || {}
+  const perms = normalizedPermissions(frontmatter)
 
   if (enabledMcpServers) {
     for (const key of Object.keys(perms)) {
@@ -393,9 +398,13 @@ function collectWarnings(frontmatter: Record<string, any>, enabledMcpServers?: S
 
   // Custom tools and built-in permissions have no plugin-agent equivalent.
   for (const key of Object.keys(perms)) {
-    const droppedBuiltin = DROPPED_PERMISSION_KEYS.includes(key) || isOpenCodeCustomToolKey(key)
-    const droppedCustomTool = !KNOWN_PERMISSION_KEYS.has(key) && !key.includes("_") &&
-      (perms[key] === "allow" || perms[key] === true)
+    const value = perms[key]
+    // A deny loses nothing, so only rules that grant something are reported.
+    const grantsSomething = value === "allow" || value === true ||
+      (typeof value === "object" && value !== null && !Array.isArray(value))
+    const droppedBuiltin = grantsSomething &&
+      (DROPPED_PERMISSION_KEYS.includes(key) || isOpenCodeCustomToolKey(key))
+    const droppedCustomTool = grantsSomething && !isKnownPermissionKey(key) && !key.includes("_")
     if (droppedBuiltin || droppedCustomTool) {
       warnings.push(`permission '${key}' is not representable in Claude Code plugin agents; dropped`)
     }

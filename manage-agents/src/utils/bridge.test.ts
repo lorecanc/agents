@@ -460,7 +460,7 @@ test("never fabricates MCP servers from built-in permission keys", () => {
     pipeline_state: "allow",
     external_directory: { "*": "deny", "~/.local/*": "allow" },
     read_mcp_resource: "allow",
-    doom_loop: "deny",
+    doom_loop: "allow",
     read: "allow"
   }
   const output = path.join(workspace, "claude")
@@ -1123,4 +1123,131 @@ test("refuses a companion skill tree containing symlinks", { skip: process.platf
   assert.equal(fs.readFileSync(outsideSkill, "utf8"), "outside skill\n", "the outside SKILL.md must not be overwritten")
   assert.equal(fs.readFileSync(outsideReference, "utf8"), "outside reference\n", "the outside reference must not be copied or overwritten")
   assert.equal(fs.existsSync(path.join(output, "skills", "leaky")), false, "no partial skill copy may be written")
+})
+
+// `isMcpPermissionKey` is internal to bridge.ts, so its classification is
+// asserted through the generated agent's parsed `tools` frontmatter field.
+test("opencode_session_rename stays a built-in permission key, not an MCP server", () => {
+  const agent = fixture("copilot-pipeline-executor.md")
+  agent.frontmatter.permission = {
+    opencode_session_rename: "allow",
+    "codebase-memory-mcp_delete_project": "allow",
+    "chrome-devtools_click": "allow",
+  }
+
+  const tools = String(buildClaudeCodePlugin([agent], "pipeline", "copilot-pipeline-").agents[0].frontmatter.tools || "")
+
+  assert.equal(tools.includes("mcp__opencode__*"), false, `a named built-in opencode_* key must not fabricate an MCP server; got ${tools}`)
+  assert.ok(tools.split(", ").includes("mcp__codebase-memory-mcp__*"), `a real MCP server must stay; got ${tools}`)
+  assert.ok(tools.split(", ").includes("mcp__chrome-devtools__*"), `a real MCP server must stay; got ${tools}`)
+})
+
+test("an MCP server named opencode is not swallowed by the built-in opencode_* names", () => {
+  // `opencode_search` is the tool `search` of a server named `opencode`: the
+  // explicit built-in list must not classify it as a built-in and drop it.
+  const agent = fixture("copilot-pipeline-executor.md")
+  agent.frontmatter.permission = { opencode_search: "allow" }
+
+  const tools = String(buildClaudeCodePlugin([agent], "pipeline", "copilot-pipeline-").agents[0].frontmatter.tools || "")
+
+  assert.ok(tools.split(", ").includes("mcp__opencode__*"), `an MCP tool key opencode_<tool> must stay an MCP server; got ${tools}`)
+})
+
+test("a V2-authored todowrite permission still emits TodoWrite", () => {
+  const agent = fixture("copilot-pipeline-executor.md")
+  delete agent.frontmatter.permission
+  agent.frontmatter.permissions = [{ action: "todowrite", resource: "*", effect: "allow" }]
+
+  const tools = String(buildClaudeCodePlugin([agent], "pipeline", "copilot-pipeline-").agents[0].frontmatter.tools || "")
+  assert.ok(tools.split(", ").includes("TodoWrite"), `V2 todowrite must emit TodoWrite; got ${tools}`)
+})
+
+test("the Agent tool is emitted for subagent permissions, both V2 actions and the legacy subagent key", () => {
+  const v2Agent = fixture("copilot-pipeline-executor.md")
+  delete v2Agent.frontmatter.permission
+  v2Agent.frontmatter.permissions = [{ action: "subagent", resource: "*", effect: "allow" }]
+  const v2Tools = String(buildClaudeCodePlugin([v2Agent], "pipeline", "copilot-pipeline-").agents[0].frontmatter.tools || "")
+  assert.ok(v2Tools.split(", ").includes("Agent"), `V2 subagent must emit Agent; got ${v2Tools}`)
+
+  // A partially migrated frontmatter can still carry the V2 action name as a
+  // plain permission key; it must not be ignored while only `task` is read.
+  const legacyKey = fixture("copilot-pipeline-executor.md")
+  legacyKey.frontmatter.permission = { subagent: "allow" }
+  const legacyTools = String(buildClaudeCodePlugin([legacyKey], "pipeline", "copilot-pipeline-").agents[0].frontmatter.tools || "")
+  assert.ok(legacyTools.split(", ").includes("Agent"), `perms.subagent must emit Agent; got ${legacyTools}`)
+})
+
+test("the legacy subagent key also drives the ask-to-allow warning", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "claude-subagent-ask-"))
+  const agent = fixture("copilot-pipeline-executor.md")
+  agent.frontmatter.permission = { subagent: { reviewer: "ask" } }
+  agent.allowedSubagents = ["reviewer"]
+
+  const result = bridgeToClaudeCode([agent], "pipeline", "copilot-pipeline-", path.join(workspace, "claude"), workspace)
+
+  const generated = fs.readFileSync(path.join(result.pluginDir, "agents", "executor.md"), "utf8")
+  assert.match(generated, /^tools: Agent\([^)]*reviewer\)/m, `subagent permissions must emit Agent(reviewer); got ${generated}`)
+  assert.ok(
+    result.warnings.some(warning => warning.includes("permission.task 'reviewer: ask' converted to 'allow'")),
+    `missing ask-to-allow warning for the subagent key; got ${JSON.stringify(result.warnings)}`
+  )
+})
+
+test("V1 permission spellings inside a V2 permissions array grant nothing (fail closed)", () => {
+  const agent = fixture("copilot-pipeline-executor.md")
+  delete agent.frontmatter.permission
+  agent.frontmatter.permissions = [
+    { action: "bash", resource: "*", effect: "allow" },
+    { action: "write", resource: "*", effect: "allow" },
+    { action: "task", resource: "*", effect: "allow" },
+    { action: "execute", resource: "*", effect: "allow" },
+    { action: "list", resource: "*", effect: "allow" },
+  ]
+
+  const tools = String(buildClaudeCodePlugin([agent], "pipeline", "copilot-pipeline-").agents[0].frontmatter.tools || "").split(", ")
+
+  for (const forbidden of ["Bash", "Write", "Edit", "Agent"]) {
+    assert.equal(tools.includes(forbidden), false, `${forbidden} must not be granted by a V1 spelling used as a V2 action; got ${tools.join(", ")}`)
+  }
+})
+
+test("V2-only permission keys Claude cannot express are reported as dropped", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "claude-v2-only-keys-"))
+  const agent = fixture("copilot-pipeline-executor.md")
+  delete agent.frontmatter.permission
+  agent.frontmatter.permissions = [
+    { action: "artifact", resource: "*", effect: "allow" },
+    { action: "file-diff", resource: "*", effect: "allow" },
+    { action: "opencode_session_rename", resource: "*", effect: "allow" },
+  ]
+
+  const result = bridgeToClaudeCode([agent], "pipeline", "copilot-pipeline-", path.join(workspace, "claude"), workspace)
+
+  for (const key of ["artifact", "file-diff", "opencode_session_rename"]) {
+    assert.ok(
+      result.warnings.some(warning => warning.includes(key) && /not representable|dropped/.test(warning)),
+      `missing dropped-key warning for ${key}; got ${JSON.stringify(result.warnings)}`
+    )
+  }
+})
+
+test("dropped-key warnings are skipped for denied permissions", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "claude-dropped-deny-"))
+  const denied = fixture("copilot-pipeline-executor.md")
+  denied.frontmatter.permission = { artifact: "deny" }
+  const allowed = fixture("copilot-pipeline-executor.md")
+  allowed.frontmatter.permission = { artifact: "allow" }
+
+  const deniedResult = bridgeToClaudeCode([denied], "pipeline", "copilot-pipeline-", path.join(workspace, "denied"), workspace)
+  const allowedResult = bridgeToClaudeCode([allowed], "pipeline", "copilot-pipeline-", path.join(workspace, "allowed"), workspace)
+
+  assert.equal(
+    deniedResult.warnings.some(warning => warning.includes("'artifact'")),
+    false,
+    `a deny loses nothing and must not be reported as dropped; got ${JSON.stringify(deniedResult.warnings)}`
+  )
+  assert.ok(
+    allowedResult.warnings.some(warning => warning.includes("'artifact'") && warning.includes("not representable")),
+    `an allow must still be reported as dropped; got ${JSON.stringify(allowedResult.warnings)}`
+  )
 })

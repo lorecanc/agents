@@ -8,6 +8,7 @@ import {
   translateConfigV1ToV2,
   translateConfigV2ToV1,
   detectFrontmatterVersion,
+  isKnownPermissionKey,
 } from "./v2Compat.js"
 
 // --- Permission translation ---
@@ -101,6 +102,99 @@ test("external_directory permissions round-trip through V2 without losing order 
   assert.deepEqual(Object.keys(v1Again.external_directory), Object.keys(v1.external_directory),
     "V1 round-trip preserves external_directory rule order")
   assert.deepEqual(Object.keys(v1Again), Object.keys(v1), "V1 round-trip preserves top-level permission order")
+})
+
+test("translatePermissionsV2ToV1 passes through only the closed set of V2-only actions", () => {
+  const v2 = [
+    { action: "todowrite", resource: "*", effect: "allow" as const },
+    { action: "skill", resource: "*", effect: "allow" as const },
+    { action: "mcp-resource", resource: "*", effect: "allow" as const },
+    { action: "opencode_session_rename", resource: "*", effect: "allow" as const },
+    { action: "pipeline_env", resource: "*", effect: "allow" as const },
+  ]
+  const v1 = translatePermissionsV2ToV1(v2)
+  assert.deepEqual(v1, {
+    todowrite: "allow",
+    skill: "allow",
+    "mcp-resource": "allow",
+    opencode_session_rename: "allow",
+    pipeline_env: "allow",
+  }, "V2-only actions must keep their own key so no permission silently disappears")
+})
+
+test("translatePermissionsV2ToV1 drops V1 spellings and unknown actions (fail closed)", () => {
+  const actions = ["bash", "write", "task", "execute", "list", "apply_patch", "patch", "multiedit", "not-a-tool"]
+  const v2 = actions.map(action => ({ action, resource: "*", effect: "allow" as const }))
+
+  assert.deepEqual(translatePermissionsV2ToV1(v2), {},
+    "an action outside the V2 vocabulary must not become a V1 permission key")
+})
+
+test("translatePermissionsV2ToV1 rejects inherited member and malformed action names", () => {
+  const v2 = [
+    { action: "constructor", resource: "*", effect: "allow" as const },
+    { action: "toString", resource: "pattern", effect: "allow" as const },
+    { action: "__proto__", resource: "pattern", effect: "allow" as const },
+    { action: "Not A Tool", resource: "*", effect: "allow" as const },
+  ]
+  const v1 = translatePermissionsV2ToV1(v2)
+
+  assert.deepEqual(v1, {})
+  assert.equal(Object.getPrototypeOf(v1), Object.prototype, "no action may touch the result prototype")
+})
+
+test("V1 permission map reads never resolve inherited Object members", () => {
+  assert.deepEqual(translatePermissionsV1ToV2({ constructor: "allow" }), [
+    { action: "constructor", resource: "*", effect: "allow" },
+  ])
+})
+
+test("translatePermissionsV2ToV1 keeps the explicit V2-to-V1 renames", () => {
+  const v1 = translatePermissionsV2ToV1([
+    { action: "shell", resource: "*", effect: "allow" as const },
+    { action: "subagent", resource: "reviewer", effect: "allow" as const },
+    { action: "edit", resource: "*", effect: "allow" as const },
+  ])
+  assert.deepEqual(v1, { bash: "allow", task: { reviewer: "allow" }, edit: "allow" })
+})
+
+test("documented lossy collapse: V2 'read' becomes V1 'read' and cannot reconstruct a V2 'list' rule", () => {
+  // The V1 vocabulary has both `read` and `list`; V2 only has `read`. The
+  // collapse is intentional, so a V2 corpus without `list` stays without it.
+  const v1 = translatePermissionsV2ToV1([{ action: "read", resource: "*", effect: "allow" as const }])
+  assert.deepEqual(v1, { read: "allow" })
+  assert.equal("list" in v1, false, "list cannot be recovered and must not be invented")
+  assert.deepEqual(translatePermissionsV1ToV2(v1), [{ action: "read", resource: "*", effect: "allow" }])
+})
+
+test("isKnownPermissionKey accepts the built-in V1/V2 tool vocabulary", () => {
+  for (const key of [
+    "read", "grep", "glob", "edit", "write", "patch", "multiedit", "apply_patch",
+    "shell", "bash", "execute", "lsp", "webfetch", "websearch", "skill", "question",
+    "task", "subagent", "todowrite", "external_directory", "doom_loop",
+    "mcp-resource", "artifact", "file-diff",
+    "opencode_session_rename", "opencode_session_move",
+    "opencode_worktree_create", "opencode_worktree_list", "opencode_worktree_remove",
+    "pipeline_env",
+  ]) {
+    assert.equal(isKnownPermissionKey(key), true, `${key} is part of the known vocabulary`)
+  }
+})
+
+test("isKnownPermissionKey does not accept arbitrary opencode_* MCP tool keys", () => {
+  // `opencode_search` is the tool `search` of a server named `opencode`.
+  assert.equal(isKnownPermissionKey("opencode_search"), false)
+  assert.equal(isKnownPermissionKey("opencode_tools_query"), false)
+})
+
+test("isKnownPermissionKey rejects concrete MCP server tool keys", () => {
+  for (const key of [
+    "codebase-memory-mcp_delete_project",
+    "chrome-devtools_click",
+    "some_future_mcp_tool",
+  ]) {
+    assert.equal(isKnownPermissionKey(key), false, `${key} must be treated as an MCP server tool`)
+  }
 })
 
 // --- Frontmatter translation ---

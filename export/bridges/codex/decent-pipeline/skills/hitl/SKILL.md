@@ -68,13 +68,22 @@ Prima di scrivere qualsiasi sezione del report, **devi** raccogliere i dati real
 0. Se `pipeline_state` è disponibile, chiamalo per primo: restituisce `base_commit`, `baseline_dirty` e i file modificati dalla sessione (`changed.session`), già separati da quelli preesistenti e non attribuiti.
 
 1. **Panoramica delle modifiche** — usa `base_commit`, `files_changed` e `baseline_dirty` forniti dal chiamante (se mancano, ripiega su `HEAD` e `git status`):
+
+   Esegui ogni comando seguente con una chiamata individuale dello strumento `bash`. Non concatenarli con altri comandi e non aggiungere `&& printf ...`.
+
    ```bash
    git status --porcelain=v1 -uall
+   ```
+
+   ```bash
    git diff --stat <base_commit> -- <files_changed>
    ```
    **Non usare `HEAD~1`**: includerebbe un commit precedente estraneo alla sessione. Ignora i file in `baseline_dirty` a meno che non siano anche in `files_changed`.
 
 2. **Diff completo** — per ogni file tracciato in `files_changed`:
+
+   Esegui un'altra chiamata individuale dello strumento `bash` per ciascun file:
+
    ```bash
    git diff <base_commit> -- path/to/file.ext
    ```

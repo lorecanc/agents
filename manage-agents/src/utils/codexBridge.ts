@@ -4,17 +4,12 @@ import type { AgentInfo } from "./agents.js"
 import { buildInferenceIndex, DEFAULT_TRANSLATION_CONFIG, resolveModelTarget, authorName, unusedModelMapKeys } from "./translationConfig.js"
 import type { TranslationConfig } from "./translationConfig.js"
 import { assertInsideRealWorkspace, realpathThroughExistingAncestor } from "./pathValidation.js"
-import { translatePermissionsV2ToV1 } from "./v2Compat.js"
+import { isKnownPermissionKey, translatePermissionsV2ToV1 } from "./v2Compat.js"
 import { adaptToolReferences, collectBashAllowlist, isOpenCodeCustomToolKey, renderBashAllowlistSection, type BashAllowlist } from "./bridgeToolReferences.js"
 
-/** OpenCode permission keys that contain an underscore but do not name an MCP server. */
-const NON_MCP_PERMISSION_KEYS = new Set([
-  "external_directory", "doom_loop", "apply_patch", "patch", "multiedit", "pipeline_env",
-  "read_mcp_resource", "list_mcp_resources", "list_mcp_resource_templates"
-])
-
+/** A key containing an underscore that is not a built-in tool permission names an MCP server. */
 function isMcpPermissionKey(key: string): boolean {
-  return key.includes("_") && !NON_MCP_PERMISSION_KEYS.has(key) && !isOpenCodeCustomToolKey(key)
+  return key.includes("_") && !isKnownPermissionKey(key) && !isOpenCodeCustomToolKey(key)
 }
 
 function agentPermissions(agent: AgentInfo): Record<string, any> {
