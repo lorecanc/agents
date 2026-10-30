@@ -2,7 +2,7 @@
 description: Reviews code changes for correctness, simplicity, maintainability,
   regressions, and security. Does not implement by default.
 mode: subagent
-model: mistral/zai-glm-5-3
+model: mistral/deepseek-v4-1-flash-1017
 temperature: 1
 permission:
   "*": deny

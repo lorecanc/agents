@@ -2,7 +2,7 @@
 description: Focused implementation agent. Applies small, plan-driven code
   changes without expanding scope.
 mode: subagent
-model: mistral/zai-glm-5-3
+model: mistral/deepseek-v4-1-flash-1017
 temperature: 1
 permission:
   "*": deny

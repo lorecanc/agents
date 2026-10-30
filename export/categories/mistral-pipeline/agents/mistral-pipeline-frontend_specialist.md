@@ -4,7 +4,7 @@ description: Read-only frontend advisor used BEFORE implementation. Detects the
   21st.dev) and tells the executor what to build and which visual checks apply.
   Does not edit files or validate the result in a browser.
 mode: subagent
-model: mistral/mistral-large-4
+model: mistral/deepseek-v4-1-flash-1017
 temperature: 1
 permission:
   "*": deny

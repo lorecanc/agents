@@ -2,7 +2,7 @@
 description: Fast low-cost agent for trivial or small, clear, low-risk coding
   tasks and obvious local bug fixes.
 mode: subagent
-model: mistral/zai-glm-5-3
+model: mistral/deepseek-v4-1-flash-1017
 temperature: 1
 permission:
   "*": deny

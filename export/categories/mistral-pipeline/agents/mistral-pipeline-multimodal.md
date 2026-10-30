@@ -2,7 +2,7 @@
 description: Handles visual inputs such as screenshots, UI mockups, diagrams,
   and image-based debugging before planning or implementation.
 mode: subagent
-model: mistral/mistral-large-4
+model: mistral/deepseek-v4-1-flash-1017
 temperature: 1
 permission:
   "*": deny

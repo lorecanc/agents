@@ -4,7 +4,7 @@ description: Operational diagnostics, runtime verification, and controlled
   log inspection, infrastructure checks, runtime verification, and
   user-authorized deployments. Cannot modify repository files.
 mode: subagent
-model: mistral/zai-glm-5-3
+model: mistral/deepseek-v4-1-flash-1017
 temperature: 1
 permission:
   "*": deny

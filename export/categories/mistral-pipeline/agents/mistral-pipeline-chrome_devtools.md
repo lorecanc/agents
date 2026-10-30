@@ -4,7 +4,7 @@ description: Frontend debugging and visual validation agent. Uses Chrome
   console error detection. Called in the frontend lane before and after code
   changes. Can start the project's service itself with pipeline_serve.
 mode: subagent
-model: mistral/mistral-large-4
+model: mistral/deepseek-v4-1-flash-1017
 temperature: 1
 permission:
   "*": deny

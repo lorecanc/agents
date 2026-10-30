@@ -4,7 +4,7 @@ description: External research agent. Looks outside the repository (web,
   issues and migration guides, and returns sourced findings. Does not explore
   the repo; that is the explorer's job.
 mode: subagent
-model: mistral/zai-glm-5-3
+model: mistral/deepseek-v4-1-flash-1017
 temperature: 1
 permission:
   "*": deny

@@ -4,7 +4,7 @@ description: Apple/Swift specialist. Uses Cupertino MCP (363K Apple docs, HIG,
   diagnostics tools) to validate plans and code against Apple conventions. Does
   not edit files.
 mode: subagent
-model: mistral/mistral-large-4
+model: mistral/deepseek-v4-1-flash-1017
 temperature: 1
 permission:
   "*": deny

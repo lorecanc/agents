@@ -3,7 +3,7 @@ description: Human-in-the-loop checkpoint agent. Explains repository changes in
   plain Italian with the why, a visual Mermaid map, simple concrete examples,
   and essential diffs—without technical jargon. Informational and non-blocking.
 mode: subagent
-model: mistral/zai-glm-5-3
+model: mistral/deepseek-v4-1-flash-1017
 temperature: 1
 permission:
   "*": deny

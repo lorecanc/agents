@@ -2,7 +2,7 @@
 description: Creates final or checkpoint commits for completed pipeline work.
   Does not update wiki or codebase memory.
 mode: subagent
-model: mistral/zai-glm-5-3
+model: mistral/deepseek-v4-1-flash-1017
 temperature: 1
 permission:
   "*": deny

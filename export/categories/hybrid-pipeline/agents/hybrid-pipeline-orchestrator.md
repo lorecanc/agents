@@ -3,7 +3,7 @@ description: Primary coordinator for the pipeline multi-agent workflow. Assesses
   work size, routes to the smallest effective lane, delegates to specialized
   agents, and evaluates results. Never writes code or solves problems directly.
 mode: primary
-model: mistral/zai-glm-5-3
+model: mistral/mistral-large-4
 temperature: 1
 permission:
   "*": deny
