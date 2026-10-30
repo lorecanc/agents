@@ -49,6 +49,33 @@ permission:
     git config --list*: allow
     git check-ignore*: allow
     git check-attr*: allow
+    git --no-pager status*: allow
+    git --no-pager diff*: allow
+    git --no-pager diff *--output*: deny
+    git --no-pager log*: allow
+    git --no-pager log *--output*: deny
+    git --no-pager show*: allow
+    git --no-pager show *--output*: deny
+    git --no-pager blame*: allow
+    git --no-pager branch*: allow
+    git --no-pager grep*: allow
+    git --no-pager ls-files*: allow
+    git -P status*: allow
+    git -P diff*: allow
+    git -P diff *--output*: deny
+    git -P log*: allow
+    git -P log *--output*: deny
+    git -P show*: allow
+    git -P show *--output*: deny
+    git -C * status*: allow
+    git -C * diff*: allow
+    git -C * diff *--output*: deny
+    git -C * log*: allow
+    git -C * log *--output*: deny
+    git -C * show*: allow
+    git -C * show *--output*: deny
+    git -C * rev-parse*: allow
+    git -C * branch*: allow
     git branch --show-current*: allow
     git branch -l*: allow
     git branch --list*: allow

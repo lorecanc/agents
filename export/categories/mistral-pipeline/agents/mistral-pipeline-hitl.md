@@ -145,6 +145,33 @@ permission:
     git config --list*: allow
     git check-ignore*: allow
     git check-attr*: allow
+    git --no-pager status*: allow
+    git --no-pager diff*: allow
+    git --no-pager diff *--output*: deny
+    git --no-pager log*: allow
+    git --no-pager log *--output*: deny
+    git --no-pager show*: allow
+    git --no-pager show *--output*: deny
+    git --no-pager blame*: allow
+    git --no-pager branch*: allow
+    git --no-pager grep*: allow
+    git --no-pager ls-files*: allow
+    git -P status*: allow
+    git -P diff*: allow
+    git -P diff *--output*: deny
+    git -P log*: allow
+    git -P log *--output*: deny
+    git -P show*: allow
+    git -P show *--output*: deny
+    git -C * status*: allow
+    git -C * diff*: allow
+    git -C * diff *--output*: deny
+    git -C * log*: allow
+    git -C * log *--output*: deny
+    git -C * show*: allow
+    git -C * show *--output*: deny
+    git -C * rev-parse*: allow
+    git -C * branch*: allow
     git blame*: allow
     git branch --show-current*: allow
     git branch -l*: allow
@@ -238,13 +265,22 @@ Prima di scrivere qualsiasi sezione del report, **devi** raccogliere i dati real
 0. Se `pipeline_state` è disponibile, chiamalo per primo: restituisce `base_commit`, `baseline_dirty` e i file modificati dalla sessione (`changed.session`), già separati da quelli preesistenti e non attribuiti.
 
 1. **Panoramica delle modifiche** — usa `base_commit`, `files_changed` e `baseline_dirty` forniti dal chiamante (se mancano, ripiega su `HEAD` e `git status`):
+
+   Esegui ogni comando seguente con una chiamata individuale dello strumento `bash`. Non concatenarli con altri comandi e non aggiungere `&& printf ...`.
+
    ```bash
    git status --porcelain=v1 -uall
+   ```
+
+   ```bash
    git diff --stat <base_commit> -- <files_changed>
    ```
    **Non usare `HEAD~1`**: includerebbe un commit precedente estraneo alla sessione. Ignora i file in `baseline_dirty` a meno che non siano anche in `files_changed`.
 
 2. **Diff completo** — per ogni file tracciato in `files_changed`:
+
+   Esegui un'altra chiamata individuale dello strumento `bash` per ciascun file:
+
    ```bash
    git diff <base_commit> -- path/to/file.ext
    ```

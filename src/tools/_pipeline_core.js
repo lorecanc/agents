@@ -645,8 +645,8 @@ const WRITE_CMDS = new Set([
   "rm", "rmdir", "mkdir", "touch", "truncate", "chmod", "chown", "chgrp", "tee", "unlink", "shred", "mktemp",
   "mv", "cp", "ln", "install", "rsync", "ditto", "dd", "curl", "wget", "tar", "unzip",
 ])
-const DANGEROUS_GIT_ENV = /^GIT_(?:SSH|SSH_COMMAND|ASKPASS|EXEC_PATH|TEMPLATE_DIR|CONFIG|CONFIG_GLOBAL|CONFIG_SYSTEM|CONFIG_NOSYSTEM|CONFIG_COUNT|CONFIG_KEY_\d+|CONFIG_VALUE_\d+|EXTERNAL_DIFF|DIFF_OPTS|DIR|WORK_TREE|INDEX_FILE|OBJECT_DIRECTORY|ALTERNATE_OBJECT_DIRECTORIES|PROXY_COMMAND|UPLOAD_PACK|RECEIVE_PACK)=/i
-const DANGEROUS_EXEC_ENV = /^(?:LD_PRELOAD|LD_LIBRARY_PATH|DYLD_[A-Z0-9_]*|BASH_ENV|ENV|PROMPT_COMMAND|PYTHONSTARTUP|PYTHONINSPECT|RUBYOPT|PERL5OPT)=/i
+const DANGEROUS_GIT_ENV = /^GIT_(?:SSH|SSH_COMMAND|ASKPASS|EXEC_PATH|TEMPLATE_DIR|CONFIG|CONFIG_GLOBAL|CONFIG_SYSTEM|CONFIG_NOSYSTEM|CONFIG_COUNT|CONFIG_KEY_\d+|CONFIG_VALUE_\d+|EXTERNAL_DIFF|DIFF_OPTS|DIR|WORK_TREE|INDEX_FILE|OBJECT_DIRECTORY|ALTERNATE_OBJECT_DIRECTORIES|PROXY_COMMAND|UPLOAD_PACK|RECEIVE_PACK|EDITOR|SEQUENCE_EDITOR|MERGE_AUTOEDIT)\+?=/i
+const DANGEROUS_EXEC_ENV = /^(?:LD_PRELOAD|LD_LIBRARY_PATH|DYLD_[A-Z0-9_]*|BASH_ENV|ENV|PROMPT_COMMAND|PYTHONSTARTUP|PYTHONINSPECT|RUBYOPT|PERL5OPT)\+?=/i
 const ENV_TEMPLATE_FILES = new Set([".env.example", ".env.sample", ".env.template", ".env.test"])
 const ENV_TEMPLATE_COPY_ROLES = new Set(["executor", "fast_lane", "refactorer", "tester", "ops"])
 
@@ -991,10 +991,10 @@ function shellCommandArg(cmd, args) {
 function stripWrappers(tokens) {
   const t = tokens.slice()
   for (;;) {
-    while (t.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(t[0])) t.shift()
+    while (t.length && /^[A-Za-z_][A-Za-z0-9_]*\+?=/.test(t[0])) t.shift()
     if (t.length && WRAPPERS.has(t[0])) {
       const wrapper = t.shift()
-      while (t.length && (t[0].startsWith("-") || /^[A-Za-z_][A-Za-z0-9_]*=/.test(t[0]))) t.shift()
+      while (t.length && (t[0].startsWith("-") || /^[A-Za-z_][A-Za-z0-9_]*\+?=/.test(t[0]))) t.shift()
       if ((wrapper === "timeout" || wrapper === "gtimeout") && t.length) t.shift()
       continue
     }
@@ -1007,11 +1007,11 @@ function takeLeadingAssigns(tokens) {
   const t = tokens.slice()
   const assigns = []
   for (;;) {
-    while (t.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(t[0])) assigns.push(t.shift())
+    while (t.length && /^[A-Za-z_][A-Za-z0-9_]*\+?=/.test(t[0])) assigns.push(t.shift())
     if (t.length && WRAPPERS.has(t[0])) {
       const wrapper = t.shift()
-      while (t.length && (t[0].startsWith("-") || /^[A-Za-z_][A-Za-z0-9_]*=/.test(t[0]))) {
-        if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(t[0])) assigns.push(t[0])
+      while (t.length && (t[0].startsWith("-") || /^[A-Za-z_][A-Za-z0-9_]*\+?=/.test(t[0]))) {
+        if (/^[A-Za-z_][A-Za-z0-9_]*\+?=/.test(t[0])) assigns.push(t[0])
         t.shift()
       }
       if ((wrapper === "timeout" || wrapper === "gtimeout") && t.length) t.shift()
@@ -1023,8 +1023,9 @@ function takeLeadingAssigns(tokens) {
 }
 
 function isDangerousEnvAssignment(assignment) {
+  if (/^GIT_MERGE_AUTOEDIT=(?:true|:|no)$/i.test(assignment)) return false
   return DANGEROUS_GIT_ENV.test(assignment) || DANGEROUS_EXEC_ENV.test(assignment)
-    || (/^NODE_OPTIONS=/i.test(assignment) && /--require|-r|--import|--loader|--experimental-loader/i.test(assignment))
+    || (/^NODE_OPTIONS\+?=/i.test(assignment) && /--require|-r|--import|--loader|--experimental-loader/i.test(assignment))
 }
 
 function inPlaceTargets(cmd, args) {
@@ -1319,8 +1320,8 @@ function checkSegment(tokens, role, ctx, depth = 0, rawSeg = []) {
   const args = t.slice(1)
   if (["export", "declare", "typeset", "env"].includes(cmd)) {
     for (const assignment of args) {
-      if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(assignment) && isDangerousEnvAssignment(assignment)) {
-        return `Pipeline guard: dangerous environment override '${assignment.split("=")[0]}' is blocked.`
+      if (/^[A-Za-z_][A-Za-z0-9_]*\+?=/.test(assignment) && isDangerousEnvAssignment(assignment)) {
+        return `Pipeline guard: dangerous environment override '${assignment.split(/\+?=/, 1)[0]}' is blocked.`
       }
     }
   }

@@ -116,7 +116,8 @@ test("checkBash: unsafe git mutations remain blocked for executor", () => {
     "git status --porcelain=v1 -uall", "git diff HEAD -- a.txt", "git log -1 --format=%H", "git show HEAD:a.txt",
     "git ls-files --others --exclude-standard", "git rev-parse --git-path opencode-scratch",
     "git branch --show-current", "git branch --list 'pipeline/*'", "git stash list", "git worktree list",
-    "git tag", "git config --get user.name", "git -C . status",
+    "git tag", "git config --get user.name", "git -C . status", "git --no-pager diff HEAD~1", "git -P status",
+    "git -C subdir status",
   ]) {
     assert.equal(checkBash(cmd, "executor", ctx), null, `should allow: ${cmd}`)
   }
@@ -260,6 +261,7 @@ test("checkBash: blocks dangerous leading environment assignments", () => {
   const ctx = ctxFor(mkRepo())
   for (const command of [
     "GIT_SSH_COMMAND=evil git status", "GIT_CONFIG_GLOBAL=/tmp/config git status", "GIT_CONFIG_KEY_1=alias.x=y git status",
+    "GIT_SSH_COMMAND+=evil git status",
     "LD_PRELOAD=/tmp/evil.dylib ls", "DYLD_INSERT_LIBRARIES=/tmp/evil.dylib ls", "BASH_ENV=/tmp/evil.sh ls",
     "NODE_OPTIONS=--require=./evil.js node --version", "NODE_OPTIONS=-r ./evil.js node --version",
     "env LD_PRELOAD=/tmp/evil.dylib ls",
@@ -276,6 +278,17 @@ test("checkBash: blocks dangerous exported environment overrides and git startup
     checkBash("export GIT_SSH_COMMAND=evil && git fetch", "executor", ctx),
     "Pipeline guard: dangerous environment override 'GIT_SSH_COMMAND' is blocked.",
   )
+  assert.equal(
+    checkBash("export GIT_SSH_COMMAND+=evil", "executor", ctx),
+    "Pipeline guard: dangerous environment override 'GIT_SSH_COMMAND' is blocked.",
+  )
+  assert.equal(
+    checkBash("GIT_EDITOR=vim git merge origin/main", "fast_lane", ctx),
+    "Pipeline guard: dangerous environment variable assignments are blocked.",
+  )
+  for (const value of ["true", ":", "no"]) {
+    assert.equal(checkBash(`GIT_MERGE_AUTOEDIT=${value} git merge origin/main`, "fast_lane", ctx), null)
+  }
   assert.equal(checkBash("git --config-env=core.sshCommand=EVIL fetch", "executor", ctx), "Pipeline guard: 'git --config-env' is blocked.")
   assert.equal(checkBash("git --exec-path=/tmp fetch", "executor", ctx), "Pipeline guard: 'git --exec-path' is blocked.")
 })
@@ -296,6 +309,10 @@ test("checkBash: read-only roles cannot modify files and secret .env paths are b
     }
     assert.equal(checkBash("cat a.txt", role, ctx), null)
     assert.equal(checkBash("git status", role, ctx), null)
+    assert.equal(checkBash("git --no-pager diff HEAD~1", role, ctx), null)
+    assert.equal(checkBash("git -P status", role, ctx), null)
+    assert.equal(checkBash("git -C subdir status", role, ctx), null)
+    assert.ok(checkBash("git --no-pager diff --output=/tmp/x", role, ctx))
   }
   for (const command of [
     "cat .env", "cat .env.local", "head .env.production", "grep KEY .env.secret", "cat .[e]nv", "cat .env.[l]ocal", "cp .env secrets.txt",

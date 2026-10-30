@@ -99,6 +99,12 @@ test("shell utility and environment-template profiles respect role boundaries", 
     assert.equal(evaluate(role, "cp .env.example .env"), "deny")
   }
 
+  for (const role of ["code_reviewer", "critic"]) {
+    const stack = config.roles[role]
+    assert.ok(stack.includes("test-runners-read"), `${role} should have test-runners-read`)
+    assert.equal(stack[stack.indexOf("test-runners-read") + 1], "secrets-guard", `${role} should apply secrets-guard after test-runners-read`)
+  }
+
   for (const role of writerRoles) {
     const stack = config.roles[role]
     assert.ok(stack.includes("shell-read"), `${role} should have shell-read`)
@@ -239,8 +245,12 @@ const FIXTURES: Record<string, Partial<Record<BashAction, string[]>>> = {
       "ssh user@host", "scp f.txt host:/tmp/", "rsync -a a.txt host:/tmp/", "nmap -p 22 host"]
   },
   reader: {
-    allow: ["git status", "git diff HEAD~1", "git log -n 5", "git blame src/a.ts", "ls -la", "rg -i todo src/", `find src -name "*.ts"`, "cat .env.example"],
-    deny: ["git diff --output=/tmp/x", "git add src/a.ts", "npm test", "rm foo", "cat .env", "env"]
+    allow: ["git status", "git diff HEAD~1", "git log -n 5", "git blame src/a.ts", "git --no-pager diff HEAD~1", "git -P status", "git -C subdir status", "ls -la", "rg -i todo src/", `find src -name "*.ts"`, "cat .env.example"],
+    deny: ["git diff --output=/tmp/x", "git --no-pager diff --output=/tmp/x", "git add src/a.ts", "rm foo", "cat .env", "env"]
+  },
+  reviewer: {
+    allow: ["node --import tsx --test src/utils/bashProfiles.test.ts", "npm test", "npm --prefix manage-agents test"],
+    deny: ["npm install"]
   },
   security_auditor: {
     allow: ["npm audit --json", "semgrep --config auto", "git log -n 5", "rg -i \"(api_key|secret)\" src/", "cat .env.example"],
@@ -253,6 +263,7 @@ const FIXTURE_ROLES: Record<string, string[]> = {
   post_session: ["post_session"],
   ops: ["ops"],
   reader: ["explorer", "code_reviewer", "critic", "hitl"],
+  reviewer: ["code_reviewer", "critic"],
   security_auditor: ["security_auditor"]
 }
 
