@@ -16,6 +16,7 @@ permission:
     "/private/tmp/*": allow
   doom_loop: deny
   read: allow
+  list: allow
   grep: allow
   glob: allow
   lsp: allow

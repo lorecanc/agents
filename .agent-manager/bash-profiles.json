@@ -2,10 +2,15 @@
   "version": 1,
   "description": "Single source of truth for pipeline agents' permission.bash blocks. Each role expands to the concatenation of its profiles, in order (OpenCode: last matching rule wins). Apply with: node manage-agents/manage-agents.mjs pipeline sync-bash",
   "profiles": {
-    "base-deny": {
-      "description": "Deny everything not listed; allow changing directory.",
+    "deny-all": {
+      "description": "Deny everything not listed.",
       "rules": [
-        ["*", "deny"],
+        ["*", "deny"]
+      ]
+    },
+    "cd": {
+      "description": "Allow changing directory.",
+      "rules": [
         ["cd *", "allow"]
       ]
     },
@@ -43,21 +48,262 @@
         ["php *", "allow"],
         ["swift *", "allow"],
         ["xcodebuild *", "allow"],
-        ["xcrun *", "allow"]
+        ["xcrun *", "allow"],
+        [".venv/bin/*", "allow"],
+        ["venv/bin/*", "allow"],
+        ["./node_modules/.bin/*", "allow"],
+        ["node_modules/.bin/*", "allow"],
+        ["tsc*", "allow"],
+        ["tsx *", "allow"],
+        ["ts-node *", "allow"],
+        ["vitest*", "allow"],
+        ["jest*", "allow"],
+        ["mocha*", "allow"],
+        ["ava*", "allow"],
+        ["eslint*", "allow"],
+        ["prettier*", "allow"],
+        ["biome*", "allow"],
+        ["oxlint*", "allow"],
+        ["turbo *", "allow"],
+        ["nx *", "allow"],
+        ["corepack *", "allow"],
+        ["ruff *", "allow"],
+        ["black *", "allow"],
+        ["isort *", "allow"],
+        ["flake8*", "allow"],
+        ["mypy*", "allow"],
+        ["pyright*", "allow"],
+        ["basedpyright*", "allow"],
+        ["pylint*", "allow"],
+        ["tox*", "allow"],
+        ["nox*", "allow"],
+        ["alembic *", "allow"],
+        ["uvicorn *", "allow"],
+        ["gunicorn *", "allow"],
+        ["flask *", "allow"],
+        ["django-admin *", "allow"],
+        ["pdm *", "allow"],
+        ["hatch *", "allow"],
+        ["pipenv *", "allow"],
+        ["conda *", "allow"],
+        ["gofmt*", "allow"],
+        ["golangci-lint*", "allow"],
+        ["rustfmt*", "allow"],
+        ["rustup *", "allow"],
+        ["gcc *", "allow"],
+        ["g++ *", "allow"],
+        ["clang *", "allow"],
+        ["clang++ *", "allow"],
+        ["ninja*", "allow"],
+        ["ctest*", "allow"],
+        ["bazel *", "allow"],
+        ["kotlinc*", "allow"],
+        ["ktlint*", "allow"],
+        ["detekt*", "allow"],
+        ["flutter *", "allow"],
+        ["dart *", "allow"],
+        ["pod *", "allow"],
+        ["fastlane *", "allow"],
+        ["mix *", "allow"],
+        ["elixir *", "allow"],
+        ["zig *", "allow"],
+        ["protoc*", "allow"],
+        ["buf *", "allow"],
+        ["prisma *", "allow"],
+        ["drizzle-kit *", "allow"],
+        ["sh *", "allow"],
+        ["bash *", "allow"],
+        ["zsh *", "allow"],
+        ["./*.sh*", "allow"],
+        ["scripts/*", "allow"],
+        ["./scripts/*", "allow"],
+        ["bin/*", "allow"],
+        ["./bin/*", "allow"],
+        ["NODE_ENV=* *", "allow"],
+        ["CI=* *", "allow"],
+        ["PYTHONPATH=* *", "allow"],
+        ["PYTHONDONTWRITEBYTECODE=* *", "allow"],
+        ["TMPDIR=* *", "allow"],
+        ["TZ=* *", "allow"],
+        ["LANG=* *", "allow"],
+        ["LC_ALL=* *", "allow"],
+        ["RUST_BACKTRACE=* *", "allow"],
+        ["RUSTFLAGS=* *", "allow"],
+        ["CGO_ENABLED=* *", "allow"],
+        ["GOFLAGS=* *", "allow"],
+        ["GOOS=* *", "allow"],
+        ["GOARCH=* *", "allow"],
+        ["PORT=* *", "allow"],
+        ["FORCE_COLOR=* *", "allow"],
+        ["NO_COLOR=* *", "allow"]
       ]
     },
     "fs-basic": {
-      "description": "Create directories; single-file rm asks (rm-guard denies recursive/forced forms).",
+      "description": "Create and remove directories/files inside the repo or scratch (rm-guard and pipeline-guard block root, wildcard, and outside-repo deletions).",
       "rules": [
-        ["mkdir -p *", "allow"],
-        ["rm *", "ask"]
+        ["mkdir *", "allow"],
+        ["rmdir *", "allow"],
+        ["touch *", "allow"],
+        ["chmod *", "allow"],
+        ["mktemp*", "allow"],
+        ["rm *", "allow"]
       ]
     },
     "fs-move": {
-      "description": "Copy and move files.",
+      "description": "Copy, move, and link files.",
       "rules": [
         ["cp *", "allow"],
-        ["mv *", "allow"]
+        ["mv *", "allow"],
+        ["ln *", "allow"]
+      ]
+    },
+    "shell-read": {
+      "description": "Harmless inspection, search, text-processing, and local diagnostic utilities.",
+      "rules": [
+        ["pwd", "allow"],
+        ["pwd *", "allow"],
+        ["ls", "allow"],
+        ["ls *", "allow"],
+        ["tree", "allow"],
+        ["tree *", "allow"],
+        ["which *", "allow"],
+        ["type *", "allow"],
+        ["command -v *", "allow"],
+        ["file *", "allow"],
+        ["stat *", "allow"],
+        ["du *", "allow"],
+        ["df *", "allow"],
+        ["cat *", "allow"],
+        ["head *", "allow"],
+        ["tail *", "allow"],
+        ["wc *", "allow"],
+        ["nl *", "allow"],
+        ["find *", "allow"],
+        ["fd *", "allow"],
+        ["grep *", "allow"],
+        ["egrep *", "allow"],
+        ["fgrep *", "allow"],
+        ["rg *", "allow"],
+        ["sed *", "allow"],
+        ["jq *", "allow"],
+        ["cut *", "allow"],
+        ["tr *", "allow"],
+        ["sort *", "allow"],
+        ["uniq *", "allow"],
+        ["paste *", "allow"],
+        ["column *", "allow"],
+        ["comm *", "allow"],
+        ["diff *", "allow"],
+        ["cmp *", "allow"],
+        ["echo", "allow"],
+        ["echo *", "allow"],
+        ["printf *", "allow"],
+        ["true", "allow"],
+        ["false", "allow"],
+        ["test *", "allow"],
+        ["[ *", "allow"],
+        ["date", "allow"],
+        ["date *", "allow"],
+        ["uname", "allow"],
+        ["uname *", "allow"],
+        ["whoami", "allow"],
+        ["id", "allow"],
+        ["basename *", "allow"],
+        ["dirname *", "allow"],
+        ["realpath *", "allow"],
+        ["readlink *", "allow"],
+        ["shasum *", "allow"],
+        ["sha256sum *", "allow"],
+        ["md5 *", "allow"],
+        ["md5sum *", "allow"],
+        ["base64 *", "allow"],
+        ["xxd *", "allow"],
+        ["hexdump *", "allow"],
+        ["lsof *", "allow"],
+        ["ps", "allow"],
+        ["ps *", "allow"],
+        ["pgrep *", "allow"]
+      ]
+    },
+    "shell-read-guard": {
+      "description": "Deny file-mutating or command-executing flags on find, fd, sed, and sort for read-only roles.",
+      "rules": [
+        ["find -exec*", "deny"],
+        ["find * -exec*", "deny"],
+        ["find -execdir*", "deny"],
+        ["find * -execdir*", "deny"],
+        ["find -ok*", "deny"],
+        ["find * -ok*", "deny"],
+        ["find -delete*", "deny"],
+        ["find * -delete*", "deny"],
+        ["find -fprint*", "deny"],
+        ["find * -fprint*", "deny"],
+        ["find -fls*", "deny"],
+        ["find * -fls*", "deny"],
+        ["find -fprintf*", "deny"],
+        ["find * -fprintf*", "deny"],
+        ["fd -x*", "deny"],
+        ["fd * -x*", "deny"],
+        ["fd -X*", "deny"],
+        ["fd * -X*", "deny"],
+        ["fd --exec*", "deny"],
+        ["fd * --exec*", "deny"],
+        ["sed -i*", "deny"],
+        ["sed * -i*", "deny"],
+        ["sed --in-place*", "deny"],
+        ["sed * --in-place*", "deny"],
+        ["sort -o*", "deny"],
+        ["sort * -o*", "deny"],
+        ["sort --output*", "deny"],
+        ["sort * --output*", "deny"]
+      ]
+    },
+    "shell-build-utils": {
+      "description": "Text-processing, archive, network, and command utilities reserved for coding and test roles.",
+      "rules": [
+        ["awk *", "allow"],
+        ["perl *", "allow"],
+        ["yq *", "allow"],
+        ["patch *", "allow"],
+        ["xargs *", "allow"],
+        ["tee *", "allow"],
+        ["sleep *", "allow"],
+        ["timeout *", "allow"],
+        ["gtimeout *", "allow"],
+        ["time *", "allow"],
+        ["tar *", "allow"],
+        ["unzip *", "allow"],
+        ["zip *", "allow"],
+        ["gzip *", "allow"],
+        ["gunzip *", "allow"],
+        ["curl *", "allow"]
+      ]
+    },
+    "secrets-guard": {
+      "description": "Deny reading .env secret files or dumping environment variables while keeping .env.example/.sample/.template/.test and git status/diff readable.",
+      "rules": [
+        ["env", "deny"],
+        ["env *", "deny"],
+        ["printenv*", "deny"],
+        ["set", "deny"],
+        ["export -p*", "deny"],
+        ["declare -p*", "deny"],
+        ["/usr/bin/env*", "deny"],
+        ["/usr/bin/printenv*", "deny"],
+        ["*.env*", "deny"],
+        ["cat .env.example", "allow"],
+        ["cat .env.sample", "allow"],
+        ["cat .env.template", "allow"],
+        ["cat .env.test", "allow"]
+      ]
+    },
+    "secrets-copy": {
+      "description": "Allow coding and test roles to copy non-secret environment templates.",
+      "rules": [
+        ["cp .env.example *", "allow"],
+        ["cp .env.sample *", "allow"],
+        ["cp .env.template *", "allow"],
+        ["cp .env.test *", "allow"]
       ]
     },
     "git-read": {
@@ -67,7 +313,24 @@
         ["git diff*", "allow"],
         ["git diff *--output*", "deny"],
         ["git log*", "allow"],
-        ["git show*", "allow"]
+        ["git show*", "allow"],
+        ["git log *--output*", "deny"],
+        ["git show *--output*", "deny"],
+        ["git ls-files*", "allow"],
+        ["git grep*", "allow"],
+        ["git shortlog*", "allow"],
+        ["git describe*", "allow"],
+        ["git reflog show*", "allow"],
+        ["git stash list*", "allow"],
+        ["git stash show*", "allow"],
+        ["git worktree list*", "allow"],
+        ["git tag -l*", "allow"],
+        ["git tag --list*", "allow"],
+        ["git remote -v*", "allow"],
+        ["git config --get*", "allow"],
+        ["git config --list*", "allow"],
+        ["git check-ignore*", "allow"],
+        ["git check-attr*", "allow"]
       ]
     },
     "git-blame": {
@@ -89,9 +352,20 @@
       ]
     },
     "git-branch-name": {
-      "description": "Current branch name only.",
+      "description": "Inspect local and remote branch names.",
       "rules": [
-        ["git branch --show-current*", "allow"]
+        ["git branch --show-current*", "allow"],
+        ["git branch -l*", "allow"],
+        ["git branch --list*", "allow"],
+        ["git branch -a*", "allow"],
+        ["git branch --all*", "allow"],
+        ["git branch -r*", "allow"],
+        ["git branch --remotes*", "allow"],
+        ["git branch -v*", "allow"],
+        ["git branch -vv*", "allow"],
+        ["git branch --contains*", "allow"],
+        ["git branch --merged*", "allow"],
+        ["git branch --no-merged*", "allow"]
       ]
     },
     "git-sync": {
@@ -133,6 +407,16 @@
         ["git restore --merge *", "allow"]
       ]
     },
+    "git-conflict": {
+      "description": "Resolve conflicts by choosing a side or restoring a merge state.",
+      "rules": [
+        ["git checkout --ours *", "allow"],
+        ["git checkout --theirs *", "allow"],
+        ["git restore --ours *", "allow"],
+        ["git restore --theirs *", "allow"],
+        ["git restore --merge *", "allow"]
+      ]
+    },
     "git-stage": {
       "description": "Stage explicit paths only; bulk staging is denied.",
       "rules": [
@@ -142,7 +426,17 @@
         ["git add -A*", "deny"],
         ["git add --all*", "deny"],
         ["git add -u*", "deny"],
-        ["git add --update*", "deny"]
+        ["git add --update*", "deny"],
+        ["git mv *", "allow"],
+        ["git rm *", "allow"],
+        ["git rm -r .", "deny"],
+        ["git rm -rf .", "deny"],
+        ["git rm -r ./", "deny"],
+        ["git rm -rf ./", "deny"],
+        ["git rm -r ..*", "deny"],
+        ["git rm -rf ..*", "deny"],
+        ["git rm -r /*", "deny"],
+        ["git rm -rf /*", "deny"]
       ]
     },
     "publish-guard": {
@@ -157,24 +451,40 @@
       ]
     },
     "rm-guard": {
-      "description": "Deny recursive or forced rm in every spelling.",
+      "description": "Deny catastrophic root, home, parent, dot, or .git deletions.",
       "rules": [
-        ["rm -r*", "deny"],
-        ["rm -f*", "deny"],
+        ["rm -rf", "deny"],
+        ["rm -fr", "deny"],
+        ["rm -r", "deny"],
+        ["rm -f", "deny"],
         ["rm -rf /*", "deny"],
         ["rm -fr /*", "deny"],
+        ["rm -r /*", "deny"],
         ["rm -rf ~*", "deny"],
         ["rm -fr ~*", "deny"],
+        ["rm -r ~*", "deny"],
         ["rm -rf ..*", "deny"],
         ["rm -fr ..*", "deny"],
+        ["rm -r ..*", "deny"],
         ["rm -rf .", "deny"],
         ["rm -fr .", "deny"],
+        ["rm -r .", "deny"],
+        ["rm -rf ./", "deny"],
+        ["rm -fr ./", "deny"],
+        ["rm -r ./", "deny"],
+        ["rm -rf .*", "deny"],
+        ["rm -fr .*", "deny"],
+        ["rm -r .*", "deny"],
+        ["rm * .git*", "deny"]
+      ]
+    },
+    "ops-rm-guard": {
+      "description": "Deny recursive or forced rm operations for ops.",
+      "rules": [
         ["rm -rf *", "deny"],
         ["rm -fr *", "deny"],
-        ["rm * -r*", "deny"],
-        ["rm * -f*", "deny"],
-        ["rm --recursive*", "deny"],
-        ["rm * --recursive*", "deny"]
+        ["rm -r*", "deny"],
+        ["rm -f*", "deny"]
       ]
     },
     "ops-trusted-shell": {
@@ -185,8 +495,15 @@
         ["env *", "deny"],
         ["printenv*", "deny"],
         ["*.env*", "deny"],
+        ["* .env *", "deny"],
         ["cat .env.example", "allow"],
         ["cat .env.sample", "allow"],
+        ["cat .env.template", "allow"],
+        ["cat .env.test", "allow"],
+        ["cp .env.example *", "allow"],
+        ["cp .env.sample *", "allow"],
+        ["cp .env.template *", "allow"],
+        ["cp .env.test *", "allow"],
         ["sudo *", "ask"],
         ["psql *", "ask"],
         ["mysql *", "ask"],
@@ -246,7 +563,7 @@
         ["systemctl hibernate*", "deny"]
       ]
     },
-    "audit-tools": {
+    "security-scanners": {
       "description": "Dependency and static security scanners.",
       "rules": [
         ["npm audit*", "allow"],
@@ -281,13 +598,14 @@
         ["git add ./", "deny"],
         ["git add -- .", "deny"],
         ["git add */", "deny"],
-        ["git add *.", "deny"]
+        ["git add *.", "deny"],
+        ["git rm --cached *", "allow"]
       ]
     },
     "post-session-commit": {
-      "description": "Commit with a message; amend/all/no-verify are denied; push asks.",
+      "description": "Commit with a quoted message; amend/all/no-verify are denied; push asks.",
       "rules": [
-        ["git commit -m *", "allow"],
+        ["git commit -m \"*\"", "allow"],
         ["git commit -a*", "deny"],
         ["git commit --all*", "deny"],
         ["git commit * --amend*", "deny"],
@@ -298,16 +616,16 @@
     }
   },
   "roles": {
-    "explorer": ["base-deny", "git-read", "git-blame", "git-rev-parse", "git-merge-base", "git-branch-name"],
-    "code_reviewer": ["base-deny", "git-read", "git-blame", "git-rev-parse", "git-merge-base", "git-branch-name"],
-    "critic": ["base-deny", "git-read", "git-blame", "git-rev-parse", "git-merge-base", "git-branch-name"],
-    "hitl": ["base-deny", "git-read", "git-blame", "git-rev-parse", "git-merge-base", "git-branch-name"],
-    "security_auditor": ["base-deny", "git-read", "git-blame", "git-rev-parse", "git-merge-base", "git-branch-name", "audit-tools"],
-    "executor": ["base-deny", "build-tools", "fs-basic", "fs-move", "git-read", "git-rev-parse", "git-merge-base", "git-branch-name", "git-sync", "git-resolve-checkout", "git-unstage", "git-resolve-restore", "git-stage", "publish-guard", "rm-guard"],
-    "fast_lane": ["base-deny", "build-tools", "fs-basic", "fs-move", "git-read", "git-rev-parse", "git-merge-base", "git-branch-name", "git-sync", "git-resolve-checkout", "git-unstage", "git-resolve-restore", "git-stage", "publish-guard", "rm-guard"],
-    "refactorer": ["base-deny", "build-tools", "fs-basic", "fs-move", "git-read", "git-rev-parse", "git-merge-base", "git-branch-name", "git-sync", "git-resolve-checkout", "git-unstage", "git-resolve-restore", "git-stage", "publish-guard", "rm-guard"],
-    "tester": ["base-deny", "build-tools", "fs-basic", "fs-move", "git-read", "git-rev-parse", "git-merge-base", "git-branch-name", "rm-guard"],
-    "ops": ["ops-trusted-shell", "publish-guard", "rm-guard"],
-    "post_session": ["base-deny", "git-read", "git-rev-parse", "git-branch-name", "git-unstage", "post-session-stage", "post-session-commit"]
+    "explorer": ["deny-all", "cd", "shell-read", "shell-read-guard", "git-read", "git-blame", "git-branch-name", "secrets-guard"],
+    "code_reviewer": ["deny-all", "cd", "shell-read", "shell-read-guard", "git-read", "git-blame", "git-branch-name", "secrets-guard"],
+    "critic": ["deny-all", "cd", "shell-read", "shell-read-guard", "git-read", "git-blame", "git-branch-name", "secrets-guard"],
+    "hitl": ["deny-all", "cd", "shell-read", "shell-read-guard", "git-read", "git-blame", "git-branch-name", "secrets-guard"],
+    "security_auditor": ["deny-all", "cd", "shell-read", "shell-read-guard", "git-read", "git-blame", "git-branch-name", "security-scanners", "secrets-guard"],
+    "executor": ["deny-all", "cd", "build-tools", "shell-read", "shell-build-utils", "fs-basic", "fs-move", "git-read", "git-blame", "git-branch-name", "git-sync", "git-conflict", "git-unstage", "git-stage", "publish-guard", "rm-guard", "secrets-guard", "secrets-copy"],
+    "fast_lane": ["deny-all", "cd", "build-tools", "shell-read", "shell-build-utils", "fs-basic", "fs-move", "git-read", "git-blame", "git-branch-name", "git-sync", "git-conflict", "git-unstage", "git-stage", "publish-guard", "rm-guard", "secrets-guard", "secrets-copy"],
+    "refactorer": ["deny-all", "cd", "build-tools", "shell-read", "shell-build-utils", "fs-basic", "fs-move", "git-read", "git-blame", "git-branch-name", "git-sync", "git-conflict", "git-unstage", "git-stage", "publish-guard", "rm-guard", "secrets-guard", "secrets-copy"],
+    "tester": ["deny-all", "cd", "build-tools", "shell-read", "shell-build-utils", "fs-basic", "fs-move", "git-read", "git-blame", "git-branch-name", "publish-guard", "rm-guard", "secrets-guard", "secrets-copy"],
+    "ops": ["ops-trusted-shell", "publish-guard", "rm-guard", "ops-rm-guard"],
+    "post_session": ["deny-all", "cd", "git-read", "git-branch-name", "git-unstage", "post-session-stage", "post-session-commit", "secrets-guard"]
   }
 }

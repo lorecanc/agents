@@ -16,6 +16,7 @@ permission:
     "/private/tmp/*": allow
   doom_loop: deny
   read: allow
+  list: allow
   grep: allow
   glob: allow
   lsp: allow
@@ -36,7 +37,7 @@ permission:
   skill: allow
   bash: deny
 color: "#E67E22"
-steps: 50
+steps: 75
 hidden: true
 ---
 

@@ -192,18 +192,147 @@ test("checkBash: post_session may add explicit files and commit, nothing broader
   }
 })
 
-test("checkBash: recursive or forced rm is blocked in every whitespace spelling", () => {
+test("checkBash: rm allows scoped targets and blocks unsafe paths", () => {
   const ctx = ctxFor(mkRepo())
-  const blocked = [
-    "rm\t-rf dist", "rm  -rf dist", "rm -fr dist", "rm --recursive dist",
-    "rm dist -rf", "env rm -rf dist", "bash -c 'rm\t-rf x'",
+  const codingRoles = ["executor", "refactorer", "fast_lane", "tester"]
+  const allRoles = [...codingRoles, "ops", "explorer", "post_session", "orchestrator"]
+  const allowed = [
+    "rm -rf build", "rm -f src/old.js", "rm -rf $PIPELINE_SCRATCH/work", "rm -rf /tmp/opencode-test", "rmdir src/empty",
   ]
-  for (const role of ["ops", "executor", "tester"]) {
+  for (const role of codingRoles) {
+    for (const cmd of allowed) {
+      assert.equal(checkBash(cmd, role, ctx), null, `should allow for ${role}: ${cmd}`)
+    }
+  }
+  const blocked = [
+    "rm -rf .", "rm -rf ./", "rm -rf ..", "rm -rf ../x", "rm -rf /", "rm -rf /*", "rm -rf ~", "rm -rf ~/x",
+    "rm -rf *", "rm -rf .*", "rm -rf src/*", "rm src/prefix*", "rmdir src/prefix*", "rm src/file?.txt",
+    "rm -rf .git", "rm -rf .git/hooks", "rm -rf $UNKNOWN_VAR/x", "rm -rf",
+  ]
+  for (const role of allRoles) {
     for (const cmd of blocked) {
       assert.ok(checkBash(cmd, role, ctx), `should block for ${role}: ${JSON.stringify(cmd)}`)
     }
-    for (const cmd of ["rm a.txt", "rm -i a.txt"]) {
-      assert.equal(checkBash(cmd, role, ctx), null, `should allow for ${role}: ${cmd}`)
+  }
+  assert.ok(checkBash("rm -rf build", "ops", ctx))
+  assert.equal(checkBash("rm -rf $PIPELINE_SCRATCH/work", "ops", ctx), null)
+  assert.equal(checkBash("rm src/prefix*", "executor", ctx), "Pipeline guard: 'rm' does not allow wildcard targets.")
+  assert.equal(checkBash("rmdir src/prefix*", "executor", ctx), "Pipeline guard: 'rmdir' does not allow wildcard targets.")
+  for (const cmd of ["rm\t-rf src/old", "rm  -rf src/old", "rm -fr src/old", "rm --recursive src/old", "rm src/old -rf", "env rm -rf src/old", "bash -c 'rm\t-rf src/old'"]) {
+    assert.equal(checkBash(cmd, "executor", ctx), null, `should allow scoped recursive rm: ${JSON.stringify(cmd)}`)
+  }
+})
+
+test("checkBash: git -C mutations stay in the repository and validate paths from the effective directory", () => {
+  const dir = mkRepo()
+  const outside = mkTmp("outside-repo-")
+  sh(outside, "init", "-q", "-b", "main")
+  const sub = path.join(dir, "sub")
+  fs.mkdirSync(sub)
+  fs.writeFileSync(path.join(sub, "file.txt"), "file\n")
+  const ctx = ctxFor(dir)
+  const outsideCommands = [
+    `git -C ${outside} add a.txt`, `git -C${outside} add a.txt`, `git -C ${outside} mv a.txt b.txt`,
+    `git -C ${outside} rm a.txt`, `git -C ${outside} checkout --ours a.txt`, `git -C ${outside} restore --ours a.txt`,
+    `git -C ${outside} fetch`,
+    `git -C ${outside} commit -m x`, `git -C ${outside} pull`, `git -C ${outside} merge main`,
+    `git -C ${outside} rebase main`, `git -C ${outside} cherry-pick HEAD`,
+  ]
+  for (const command of outsideCommands) {
+    assert.equal(
+      checkBash(command, command.includes("commit") ? "post_session" : "executor", ctx),
+      "Pipeline guard: 'git -C' for mutating git commands must stay inside the repository root.",
+      `should reject mutation outside repository: ${command}`,
+    )
+  }
+  assert.equal(checkBash("git -C sub add file.txt", "executor", ctx), null)
+  assert.equal(checkBash("git -Csub add file.txt", "executor", ctx), null)
+  assert.equal(checkBash("git -C sub -C .. add a.txt", "executor", ctx), null)
+  assert.equal(checkBash(`git -C ${outside} status`, "executor", ctx), null)
+  assert.equal(
+    checkBash("git -C /tmp/other-repo fetch", "executor", ctx),
+    "Pipeline guard: 'git -C' for mutating git commands must stay inside the repository root.",
+  )
+  assert.deepEqual(core.bashWriteTargets("git -Csub mv file.txt moved.txt", ctx), ["sub/file.txt", "sub/moved.txt"])
+})
+
+test("checkBash: blocks dangerous leading environment assignments", () => {
+  const ctx = ctxFor(mkRepo())
+  for (const command of [
+    "GIT_SSH_COMMAND=evil git status", "GIT_CONFIG_GLOBAL=/tmp/config git status", "GIT_CONFIG_KEY_1=alias.x=y git status",
+    "LD_PRELOAD=/tmp/evil.dylib ls", "DYLD_INSERT_LIBRARIES=/tmp/evil.dylib ls", "BASH_ENV=/tmp/evil.sh ls",
+    "NODE_OPTIONS=--require=./evil.js node --version", "NODE_OPTIONS=-r ./evil.js node --version",
+    "env LD_PRELOAD=/tmp/evil.dylib ls",
+  ]) {
+    assert.match(checkBash(command, "executor", ctx), /dangerous environment variable assignments/, command)
+  }
+  assert.equal(checkBash("NODE_OPTIONS=--no-warnings node --version", "executor", ctx), null)
+  assert.equal(checkBash("NODE_ENV=test echo ok", "executor", ctx), null)
+})
+
+test("checkBash: blocks dangerous exported environment overrides and git startup options", () => {
+  const ctx = ctxFor(mkRepo())
+  assert.equal(
+    checkBash("export GIT_SSH_COMMAND=evil && git fetch", "executor", ctx),
+    "Pipeline guard: dangerous environment override 'GIT_SSH_COMMAND' is blocked.",
+  )
+  assert.equal(checkBash("git --config-env=core.sshCommand=EVIL fetch", "executor", ctx), "Pipeline guard: 'git --config-env' is blocked.")
+  assert.equal(checkBash("git --exec-path=/tmp fetch", "executor", ctx), "Pipeline guard: 'git --exec-path' is blocked.")
+})
+
+test("checkBash: read-only roles cannot modify files and secret .env paths are blocked", () => {
+  const ctx = ctxFor(mkRepo())
+  const readOnlyRoles = ["explorer", "code_reviewer", "critic", "hitl", "security_auditor"]
+  for (const role of readOnlyRoles) {
+    for (const command of [
+      "echo x > out.txt", "touch out.txt", "mkdir new-dir", "cp .env.example out.txt", "sed -i 's/a/b/' a.txt",
+      "find -delete", "find -exec sh -c 'rm a.txt' {}", "fd -x rm a.txt", "fd --exec rm a.txt",
+    ]) {
+      assert.equal(
+        checkBash(command, role, ctx),
+        `Pipeline guard: role '${role}' is read-only and cannot modify files.`,
+        `${role}: ${command}`,
+      )
+    }
+    assert.equal(checkBash("cat a.txt", role, ctx), null)
+    assert.equal(checkBash("git status", role, ctx), null)
+  }
+  for (const command of [
+    "cat .env", "cat .env.local", "head .env.production", "grep KEY .env.secret", "cat .[e]nv", "cat .env.[l]ocal", "cp .env secrets.txt",
+  ]) {
+    assert.equal(checkBash(command, "executor", ctx), "Pipeline guard: reading or accessing '.env' secret files is blocked.", command)
+  }
+  for (const command of ["cat .env.example", "cat .env.sample", "cat .env.template", "cat .env.test"]) {
+    assert.equal(checkBash(command, "executor", ctx), null, command)
+  }
+  for (const role of ["executor", "fast_lane", "refactorer", "tester", "ops"]) {
+    for (const source of [".env.example", ".env.sample", ".env.template", ".env.test"]) {
+      assert.equal(checkBash(`cp ${source} .env`, role, ctx), null, `${role}: cp ${source} .env`)
+    }
+  }
+  for (const role of ["explorer", "post_session", "orchestrator"]) {
+    assert.equal(checkBash("cp .env.example .env", role, ctx), "Pipeline guard: reading or accessing '.env' secret files is blocked.", role)
+  }
+  assert.equal(checkBash("cp .env .env.example", "executor", ctx), "Pipeline guard: reading or accessing '.env' secret files is blocked.")
+  assert.equal(checkBash("cp .[e]nv .env", "executor", ctx), "Pipeline guard: reading or accessing '.env' secret files is blocked.")
+})
+
+test("checkBash: git mv and rm are limited to sync roles and explicit repo paths", () => {
+  const dir = mkRepo()
+  fs.mkdirSync(path.join(dir, "sub"))
+  const ctx = ctxFor(dir)
+  const syncRoles = ["executor", "refactorer", "fast_lane", "ops"]
+  const allowed = ["git mv a.txt b.txt", "git mv a.txt sub/b.txt", "git mv a.txt sub/", "git mv sub moved-sub", "git rm a.txt", "git rm -r sub"]
+  for (const role of syncRoles) {
+    for (const cmd of allowed) assert.equal(checkBash(cmd, role, ctx), null, `should allow for ${role}: ${cmd}`)
+  }
+  for (const role of ["tester", "explorer", "post_session"]) {
+    for (const cmd of allowed) assert.ok(checkBash(cmd, role, ctx), `should block for ${role}: ${cmd}`)
+  }
+  assert.equal(checkBash("git rm --cached a.txt", "post_session", ctx), null)
+  for (const role of [...syncRoles, "tester", "explorer", "post_session", "orchestrator"]) {
+    for (const cmd of ["git mv a.txt ../out.txt", "git rm .", "git rm -r .", "git rm *"]) {
+      assert.ok(checkBash(cmd, role, ctx), `should block for ${role}: ${cmd}`)
     }
   }
 })
@@ -232,7 +361,7 @@ test("checkBash: writes outside the repository are blocked, scratch and repo pat
     "echo hi > /etc/x.txt", "curl https://example.com -o ~/a.html", "sed -i '' 's/a/b/' ~/x",
     "cat a.txt >> ~/notes.md", "mv a.txt /var/folders/x/a.txt",
     "cd ~/ && ls", "cd ../ && ls", "echo x > ../outside.txt",
-    "sed -i 's/a/b/' /etc/hosts", "sudo ls", "rm -rf /tmp/work", "rm -rf dist",
+    "sed -i 's/a/b/' /etc/hosts", "sudo ls",
     "cp a.txt .git/hooks/pre-commit", "echo x > .git/config",
   ]) {
     assert.ok(checkBash(cmd, "executor", ctx), `should block: ${cmd}`)
@@ -250,6 +379,10 @@ test("checkBash: writes outside the repository are blocked, scratch and repo pat
     assert.equal(checkBash(cmd, "executor", ctx), null, `should allow: ${cmd}`)
   }
   assert.deepEqual(core.bashWriteTargets("echo hi > /tmp/x.txt", ctx), [])
+  assert.deepEqual(core.bashWriteTargets("git mv a.txt b.txt", ctx), ["a.txt", "b.txt"])
+  assert.deepEqual(core.bashWriteTargets("git rm a.txt", ctx), ["a.txt"])
+  assert.deepEqual(core.bashWriteTargets("git -C sub mv a.txt b.txt", ctx), ["sub/a.txt", "sub/b.txt"])
+  assert.deepEqual(core.bashWriteTargets("git checkout --ours a.txt && git restore --staged b.txt", ctx), ["a.txt", "b.txt"])
 })
 
 test("checkBash: unknown variables and unparseable input fail open", () => {
@@ -311,6 +444,11 @@ test("checkWritePath resolves symlinks before comparing roots", () => {
 test("editTargets extracts paths from edit/write/apply_patch calls", () => {
   assert.deepEqual(editTargets("edit", { filePath: "/r/a.ts" }), ["/r/a.ts"])
   assert.deepEqual(editTargets("write", { filePath: "x.ts" }), ["x.ts"])
+  for (const tool of ["edit", "write", "multiedit"]) {
+    assert.deepEqual(editTargets(tool, { filePath: "camel.ts" }), ["camel.ts"])
+    assert.deepEqual(editTargets(tool, { file_path: "snake.ts" }), ["snake.ts"])
+    assert.deepEqual(editTargets(tool, { path: "generic.ts" }), ["generic.ts"])
+  }
   assert.deepEqual(
     editTargets("apply_patch", { patchText: "*** Begin Patch\n*** Update File: src/a.ts\n*** Add File: src/b.ts\n*** Move to: src/c.ts\n*** End Patch" }),
     ["src/a.ts", "src/b.ts", "src/c.ts"],

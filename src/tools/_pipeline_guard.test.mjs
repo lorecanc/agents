@@ -183,6 +183,16 @@ test("tool.execute.before blocks escapes and git state changes with actionable m
   await before(hooks, "ses_child", "read", { filePath: "/etc/hosts" }) // reads are permissions' business
 })
 
+test("tool.execute.before permits scoped cleanup and git file operations but blocks repository-root removal", async () => {
+  const { hooks } = await setup()
+  await before(hooks, "ses_child", "bash", { command: "rm -rf build" })
+  await before(hooks, "ses_child", "bash", { command: "rm -rf $PIPELINE_SCRATCH/work" })
+  await before(hooks, "ses_child", "bash", { command: "git mv a.txt renamed.txt" })
+  await before(hooks, "ses_child", "bash", { command: "git rm -r src/old-dir" })
+  await assert.rejects(before(hooks, "ses_child", "bash", { command: "rm -rf ." }), /explicit path target/)
+  await assert.rejects(before(hooks, "ses_child", "bash", { command: "git rm -r ." }), /git rm requires explicit/)
+})
+
 test("workdir is honored when judging relative writes", async () => {
   const { hooks } = await setup()
   await assert.rejects(before(hooks, "ses_child", "bash", { command: "echo x > out.txt", workdir: "/tmp" }), /outside the repository/)

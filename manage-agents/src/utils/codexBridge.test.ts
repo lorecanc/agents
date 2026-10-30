@@ -208,6 +208,19 @@ test("permissions.shell and permissions.bash produce the same sandbox decision",
   assert.equal(result.plugin.agents[2].sandboxMode, "read-only")
 })
 
+test("file-manipulation permission aliases enable workspace-write", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "codex-bridge-edit-aliases-"))
+  const output = path.join(workspace, "bridges", "codex")
+  const aliases = ["apply_patch", "patch", "multiedit"]
+  const result = bridgeToCodex(
+    aliases.map(key => agent(`${key}.md`, "any", { permission: { [key]: "allow" } }, "")),
+    "sandbox", "", output, workspace,
+    { ...DEFAULT_TRANSLATION_CONFIG, codex: { ...DEFAULT_TRANSLATION_CONFIG.codex, emitSkills: false, emitReadme: false } }
+  )
+
+  assert.deepEqual(result.plugin.agents.map(entry => entry.sandboxMode), ["workspace-write", "workspace-write", "workspace-write"])
+})
+
 test("Codex plugin mirrors enabled MCP servers in a valid companion layer", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "codex-bridge-mcp-"))
   fs.mkdirSync(path.join(workspace, "general"), { recursive: true })
@@ -315,11 +328,18 @@ test("Codex bridge never treats pipeline tool or built-in permission keys as MCP
   fs.mkdirSync(path.join(workspace, "src"), { recursive: true })
   fs.writeFileSync(path.join(workspace, "src", "opencode.json"), JSON.stringify({ mcp: {
     pipeline: { command: ["fake-pipeline"], enabled: false },
+    apply: { command: ["fake-apply"], enabled: false },
+    patch: { command: ["fake-patch"], enabled: false },
+    multiedit: { command: ["fake-multiedit"], enabled: false },
+    list: { command: ["fake-list"], enabled: false },
     external: { command: ["fake-external"], enabled: false },
     "cwe-search": { command: ["cwe"], enabled: false }
   } }))
   const output = path.join(workspace, "bridges", "codex")
-  const auditor = agent("pipeline-security_auditor.md", "any", { permission: { pipeline_env: "allow", external_directory: { "*": "deny" }, "cwe-search_*": "allow" } }, "Tools are prefixed: `cwe-search_get_cwe_weakness`.")
+  const auditor = agent("pipeline-security_auditor.md", "any", { permission: {
+    pipeline_env: "allow", apply_patch: "allow", patch: "allow", multiedit: "allow", list: "allow",
+    external_directory: { "*": "deny" }, "cwe-search_*": "allow"
+  } }, "Tools are prefixed: `cwe-search_get_cwe_weakness`.")
   bridgeToCodex([auditor], "decent-pipeline", "pipeline-", output, workspace)
   const mcp = JSON.parse(fs.readFileSync(path.join(output, ".mcp.json"), "utf8")).mcpServers
   assert.deepEqual(Object.keys(mcp), ["cwe-search"])

@@ -452,6 +452,11 @@ test("never fabricates MCP servers from built-in permission keys", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "claude-builtin-perms-"))
   const agent = fixture("copilot-pipeline-executor.md")
   agent.frontmatter.permission = {
+    apply_patch: "allow",
+    patch: "allow",
+    multiedit: "allow",
+    list: "allow",
+    pipeline_env: "allow",
     pipeline_state: "allow",
     external_directory: { "*": "deny", "~/.local/*": "allow" },
     read_mcp_resource: "allow",
@@ -465,6 +470,10 @@ test("never fabricates MCP servers from built-in permission keys", () => {
   const generated = fs.readFileSync(path.join(output, "agents", "executor.md"), "utf8")
   const tools = generated.match(/^tools: (.*)$/m)?.[1] || ""
   for (const forbidden of [
+    "mcp__apply__*", "mcp__plugin_pipeline_apply__*",
+    "mcp__patch__*", "mcp__plugin_pipeline_patch__*",
+    "mcp__multiedit__*", "mcp__plugin_pipeline_multiedit__*",
+    "mcp__list__*", "mcp__plugin_pipeline_list__*",
     "mcp__pipeline__*", "mcp__plugin_pipeline_pipeline__*",
     "mcp__external__*", "mcp__plugin_pipeline_external__*",
     "mcp__read__*", "mcp__plugin_pipeline_read__*",
@@ -472,7 +481,9 @@ test("never fabricates MCP servers from built-in permission keys", () => {
   ]) {
     assert.equal(tools.includes(forbidden), false, `${forbidden} must not be emitted; got ${tools}`)
   }
-  for (const key of ["pipeline_state", "external_directory", "doom_loop"]) {
+  assert.ok(tools.split(", ").includes("Write"), `file-manipulation permissions should enable Write; got ${tools}`)
+  assert.ok(tools.split(", ").includes("Edit"), `file-manipulation permissions should enable Edit; got ${tools}`)
+  for (const key of ["pipeline_env", "pipeline_state", "external_directory", "doom_loop"]) {
     assert.ok(result.warnings.some(warning => warning.includes(`'${key}'`)), `missing dropped-key warning for ${key}`)
   }
 })

@@ -19,16 +19,16 @@ type ResolvedTargets = Map<string, ResolvedModelTarget>
  * server permission so it cannot fabricate a server for a built-in key.
  */
 const KNOWN_PERMISSION_KEYS = new Set([
-  "read", "write", "edit", "execute", "bash", "shell", "list", "glob", "grep", "task",
+  "read", "write", "edit", "apply_patch", "patch", "multiedit", "execute", "bash", "shell", "list", "glob", "grep", "task",
   "skill", "lsp", "question", "webfetch", "websearch", "todowrite", "external_directory",
-  "doom_loop", "pipeline_state", "pipeline_verify", "pipeline_commit", "pipeline_serve", "pipeline_smoke",
+  "doom_loop", "pipeline_state", "pipeline_verify", "pipeline_commit", "pipeline_serve", "pipeline_smoke", "pipeline_env",
   "read_mcp_resource", "list_mcp_resources", "list_mcp_resource_templates"
 ])
 
 /** OpenCode permission keys with no Claude Code tool equivalent; dropped with a warning. */
 const DROPPED_PERMISSION_KEYS = [
   "doom_loop", "external_directory", "pipeline_state", "pipeline_verify",
-  "pipeline_commit", "pipeline_serve", "pipeline_smoke"
+  "pipeline_commit", "pipeline_serve", "pipeline_smoke", "pipeline_env"
 ]
 
 /** Tools whose `ask` state is promoted to allow when the tool is emitted. */
@@ -286,7 +286,8 @@ function buildToolsString(
   }
 
   // Write/Edit tools
-  if (objectAllowsAny(perms.edit)) {
+  if (objectAllowsAny(perms.edit) || objectAllowsAny(perms.write) || objectAllowsAny(perms.apply_patch) ||
+      objectAllowsAny(perms.patch) || objectAllowsAny(perms.multiedit)) {
     tools.push("Write", "Edit")
   }
 

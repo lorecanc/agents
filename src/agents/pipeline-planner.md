@@ -16,6 +16,7 @@ permission:
   pipeline_state: allow
   pipeline_env: allow
   read: allow
+  list: allow
   grep: allow
   glob: allow
   lsp: allow
@@ -32,7 +33,7 @@ permission:
   websearch: allow
   bash: deny
 color: "#E67E22"
-steps: 50
+steps: 75
 hidden: true
 ---
 

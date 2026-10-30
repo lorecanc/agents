@@ -40,6 +40,18 @@ test("translatePermissionsV1ToV2 converts nested object permissions", () => {
   ])
 })
 
+test("translatePermissionsV1ToV2 maps file-manipulation and list permissions", () => {
+  const v1 = { apply_patch: "allow", patch: "deny", multiedit: "ask", list: "allow", pipeline_env: "allow" }
+  const v2 = translatePermissionsV1ToV2(v1)
+  assert.deepEqual(v2, [
+    { action: "edit", resource: "*", effect: "allow" },
+    { action: "edit", resource: "*", effect: "deny" },
+    { action: "edit", resource: "*", effect: "ask" },
+    { action: "read", resource: "*", effect: "allow" },
+    { action: "pipeline_env", resource: "*", effect: "allow" },
+  ])
+})
+
 test("translatePermissionsV2ToV1 converts array to object", () => {
   const v2 = [
     { action: "shell", resource: "*", effect: "allow" as const },

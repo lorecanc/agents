@@ -48,17 +48,22 @@ Emergency switch for the plugin: `OPENCODE_PIPELINE_GUARD=off`.
   (`<git-common-dir>/opencode-scratch`, or `.opencode-scratch/` in a linked worktree, excluded from git);
   `GIT_EDITOR=:` and `GIT_MERGE_AUTOEDIT=no` keep merge, rebase and pull continuations from hanging on an
   interactive editor.
-- Explicit `/tmp` (and `os.tmpdir()`) paths are also allowed for temporary command outputs and logs. Other
-  `bash` writes (redirections, `cp`, `mv`, `rm`, `tee`, `curl -o`, `cd` ...) outside the repo or into `.git`
-  are blocked. Reads are not restricted here.
-- Blocks `edit` / `write` / `apply_patch` outside the repo or into `.git`.
+- Explicit `/tmp` (and `os.tmpdir()`) paths are also allowed for temporary command outputs and logs. Except for
+  the target-scoped removals below, `bash` writes (redirections, `cp`, `mv`, `tee`, `curl -o`, `cd` ...) outside
+  the repo or into `.git` are blocked. Reads are not restricted here.
+- Path-checks `edit`, `write`, `multiedit`, `apply_patch` and `patch`, blocking writes outside the repo or into
+  `.git`.
+- Target-scoped `rm`, `rm -f`, `rm -rf` and `rmdir` are allowed for coding roles (`executor`, `refactorer`,
+  `fast_lane`, `tester`) on explicit subpaths inside the repo (excluding `.git`), `$PIPELINE_SCRATCH` or `/tmp`.
+  Root targets `.`, `./`, `..`, `/`, `~`, `.git`, paths into `.git`, and wildcard targets are blocked.
 - Git inspection and diagnostic subcommands, plus `git fetch` (without `--upload-pack`), are allowed for all
   roles. `ops`, `fast_lane`, `executor` and `refactorer` may also run `git pull` (without `--upload-pack`) and resolve
   conflicts with `git merge` / `git cherry-pick` (without `-e` / `--edit`), non-interactive `git rebase`
   (without `-i` / `--interactive` / `-x` / `--exec`), `git checkout --ours|--theirs|--merge <files>`,
-  `git restore --staged|-S|--ours|--theirs|--merge <files>` and `git add <explicit-files>`; these commands
-  also allow `-c core.editor=true|:`. `post_session` may additionally run `git commit` (without `--amend`,
-  `-a` or `--no-verify`), `git add <explicit-files>` and `git restore --staged <files>` (prefer `pipeline_commit`).
+  `git restore --staged|-S|--ours|--theirs|--merge <files>`, `git add <explicit-files>`, and `git mv` / `git rm`
+  on explicit repo paths; these commands also allow `-c core.editor=true|:`. `post_session` may additionally run
+  `git commit` (without `--amend`, `-a` or `--no-verify`), `git add <explicit-files>`, `git restore --staged <files>`,
+  and `git rm --cached` (prefer `pipeline_commit`).
   Destructive or workspace-escaping mutations remain blocked for every role: `push`, branch switching via
   `checkout <branch>` / `switch`, branch/worktree/stash/tag creation or deletion, `reset`, `clean` and plain
   working-tree `restore`.

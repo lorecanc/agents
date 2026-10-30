@@ -9,7 +9,8 @@ import { adaptToolReferences, collectBashAllowlist, isOpenCodeCustomToolKey, ren
 
 /** OpenCode permission keys that contain an underscore but do not name an MCP server. */
 const NON_MCP_PERMISSION_KEYS = new Set([
-  "external_directory", "doom_loop", "read_mcp_resource", "list_mcp_resources", "list_mcp_resource_templates"
+  "external_directory", "doom_loop", "apply_patch", "patch", "multiedit", "pipeline_env",
+  "read_mcp_resource", "list_mcp_resources", "list_mcp_resource_templates"
 ])
 
 function isMcpPermissionKey(key: string): boolean {
@@ -125,6 +126,7 @@ function resolveSandboxMode(agent: AgentInfo): "read-only" | "workspace-write" {
     ? translatePermissionsV2ToV1(agent.frontmatter.permissions)
     : agent.frontmatter.permission || {}
   return permissionAllows(permissions.write) || permissionAllows(permissions.edit) ||
+    permissionAllows(permissions.apply_patch) || permissionAllows(permissions.patch) || permissionAllows(permissions.multiedit) ||
     permissionAllows(permissions.bash) || permissionAllows(permissions.shell) || permissionAllows(permissions.execute)
     ? "workspace-write"
     : "read-only"
