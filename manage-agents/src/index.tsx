@@ -116,7 +116,7 @@ async function runCreate(agentNameArg: string | undefined, workspaceRoot: string
   console.log(`\n✨ Create New Agent (Naming Convention: [family-]category-role_with_underscores)`)
   console.log("------------------------------------------")
 
-  const familyInput = await askQuestion("1. 🏷  Family (Optional, e.g. copilot, go, kimi - press enter to skip): ")
+  const familyInput = await askQuestion("1. 🏷  Family (Optional, e.g. go, mistral, hybrid - press enter to skip): ")
   let categoryInput = ""
   while (!categoryInput) {
     categoryInput = await askQuestion("2. 📁 Category (Required, e.g. pipeline, wiki, slides, docs, general): ")
@@ -397,7 +397,7 @@ Subcommands:
   check                   Verify committed bridges match a fresh regeneration
 
 Options:
-  --category, -c <name>   Category to bridge (e.g. copilot-pipeline)
+  --category, -c <name>   Category to bridge (e.g. go-pipeline)
   --target, -t <name>     Translation target: claude (default) or codex
   --output, -o <path>     Output directory (default: export/bridges/<target>/<name>, or bridges/<target>/<name> without export/)
   --name, -n <name>       Plugin name (default: decent-pipeline)

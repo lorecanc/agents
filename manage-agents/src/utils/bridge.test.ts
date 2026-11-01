@@ -15,7 +15,7 @@ function fixture(filename: string, body = ""): AgentInfo {
     filename,
     currentPath: `/tmp/${filename}`,
     targetPath: `/tmp/${filename}`,
-    category: "copilot-pipeline",
+    category: "go-pipeline",
     description: filename,
     model: primary ? "github-copilot/claude-opus-5" : "github-copilot/gpt-5.6-luna-max",
     rawContent: body,
@@ -24,11 +24,11 @@ function fixture(filename: string, body = ""): AgentInfo {
       model: primary ? "github-copilot/claude-opus-5" : "github-copilot/gpt-5.6-luna-max",
       permission: {
         read: "allow",
-        task: primary ? { "*": "deny", "copilot-pipeline-code_reviewer": "allow" } : { "*": "deny" }
+        task: primary ? { "*": "deny", "pipeline-code_reviewer": "allow" } : { "*": "deny" }
       }
     },
     body,
-    allowedSubagents: primary ? ["copilot-pipeline-code_reviewer"] : []
+    allowedSubagents: primary ? ["pipeline-code_reviewer"] : []
   }
 }
 
@@ -38,19 +38,19 @@ function config(overrides: Partial<TranslationConfig> = {}): TranslationConfig {
 }
 
 test("resolves Claude models from roles and per-agent overrides", () => {
-  const planning = fixture("copilot-pipeline-planner.md")
-  const execution = fixture("copilot-pipeline-worker.md")
+  const planning = fixture("pipeline-planner.md")
+  const execution = fixture("pipeline-worker.md")
   const custom = config({ claude: { overrides: { "worker": { model: "haiku" } } } })
-  assert.equal(buildClaudeCodePlugin([planning, execution], "pipeline", "copilot-pipeline-", custom).agents[0].frontmatter.model, "opus")
-  assert.equal(buildClaudeCodePlugin([planning, execution], "pipeline", "copilot-pipeline-", custom).agents[1].frontmatter.model, "haiku")
-  assert.equal(resolveRole(fixture("copilot-pipeline-unknown.md"), custom), "unknown")
+  assert.equal(buildClaudeCodePlugin([planning, execution], "pipeline", "pipeline-", custom).agents[0].frontmatter.model, "opus")
+  assert.equal(buildClaudeCodePlugin([planning, execution], "pipeline", "pipeline-", custom).agents[1].frontmatter.model, "haiku")
+  assert.equal(resolveRole(fixture("pipeline-unknown.md"), custom), "unknown")
 })
 
 test("Claude and Codex previews agree on role, tier, and source", () => {
-  const agents = [fixture("copilot-pipeline-planner.md"), fixture("copilot-pipeline-worker.md")]
+  const agents = [fixture("pipeline-planner.md"), fixture("pipeline-worker.md")]
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "bridge-parity-"))
-  const claude = bridgeToClaudeCode(agents, "pipeline", "copilot-pipeline-", path.join(workspace, "claude"), workspace)
-  const codex = bridgeToCodex(agents, "pipeline", "copilot-pipeline-", path.join(workspace, "codex"), workspace)
+  const claude = bridgeToClaudeCode(agents, "pipeline", "pipeline-", path.join(workspace, "claude"), workspace)
+  const codex = bridgeToCodex(agents, "pipeline", "pipeline-", path.join(workspace, "codex"), workspace)
   assert.deepEqual(claude.preview?.map(({ agent, role, tier, source }) => ({ agent, role, tier, source })), codex.preview.map(({ agent, role, tier, source }) => ({ agent, role, tier, source })))
 })
 
@@ -61,7 +61,7 @@ test("writeClaudeCodePlugin refuses a symlinked output pointing outside the work
   // The icon copy must stay inside the gated .claude-plugin directory.
   fs.mkdirSync(path.join(workspace, "manage-agents", "assets"), { recursive: true })
   fs.writeFileSync(path.join(workspace, "manage-agents", "assets", "plugin-icon.png"), "icon")
-  const plugin = buildClaudeCodePlugin([fixture("copilot-pipeline-orchestrator.md")], "decent-pipeline", "copilot-pipeline-")
+  const plugin = buildClaudeCodePlugin([fixture("pipeline-orchestrator.md")], "decent-pipeline", "pipeline-")
   assert.throws(
     () => writeClaudeCodePlugin(plugin, path.join(workspace, "out"), workspace),
     /outside workspace/i
@@ -77,7 +77,7 @@ test("writeClaudeCodePlugin refuses a symlinked skills directory pointing outsid
   fs.symlinkSync(outside, path.join(output, "skills"), "dir")
   fs.mkdirSync(path.join(workspace, "src", "commands"), { recursive: true })
   fs.writeFileSync(path.join(workspace, "src", "commands", "pipeline-bug.md"), "---\ndescription: Bug triage\n---\nFix the bug.\n")
-  const plugin = buildClaudeCodePlugin([fixture("copilot-pipeline-orchestrator.md")], "decent-pipeline", "copilot-pipeline-")
+  const plugin = buildClaudeCodePlugin([fixture("pipeline-orchestrator.md")], "decent-pipeline", "pipeline-")
 
   assert.throws(
     () => writeClaudeCodePlugin(plugin, output, workspace, "general", {
@@ -97,7 +97,7 @@ test("writeClaudeCodePlugin refuses a symlinked command skill leaf pointing outs
   fs.symlinkSync(outsideFile, path.join(output, "skills", "pipeline-bug"), "file")
   fs.mkdirSync(path.join(workspace, "src", "commands"), { recursive: true })
   fs.writeFileSync(path.join(workspace, "src", "commands", "pipeline-bug.md"), "---\ndescription: Bug triage\n---\nFix the bug.\n")
-  const plugin = buildClaudeCodePlugin([fixture("copilot-pipeline-orchestrator.md")], "decent-pipeline", "copilot-pipeline-")
+  const plugin = buildClaudeCodePlugin([fixture("pipeline-orchestrator.md")], "decent-pipeline", "pipeline-")
 
   assert.throws(
     () => writeClaudeCodePlugin(plugin, output, workspace, "general", {
@@ -125,9 +125,9 @@ test("refuses a symlinked companion command source that escapes the workspace", 
 
   assert.throws(
     () => bridgeToClaudeCode(
-      [fixture("copilot-pipeline-orchestrator.md")],
+      [fixture("pipeline-orchestrator.md")],
       "decent-pipeline",
-      "copilot-pipeline-",
+      "pipeline-",
       output,
       workspace,
       undefined,
@@ -139,7 +139,7 @@ test("refuses a symlinked companion command source that escapes the workspace", 
 })
 
 test("normalizes names to Claude's lower-hyphen form", () => {
-  assert.equal(normalizeClaudeAgentName("copilot-pipeline-code_reviewer.md"), "copilot-pipeline-code-reviewer")
+  assert.equal(normalizeClaudeAgentName("pipeline-code_reviewer.md"), "pipeline-code-reviewer")
   assert.equal(normalizeClaudeAgentName("123_worker"), "agent-123-worker")
   const normalized = normalizeClaudeAgentName("Decent Pipeline")
   assert.equal(normalizeClaudeAgentName(normalized), normalized)
@@ -148,11 +148,11 @@ test("normalizes names to Claude's lower-hyphen form", () => {
 test("normalizes a dirty plugin name when building directly", () => {
   const plugin = buildClaudeCodePlugin(
     [
-      fixture("copilot-pipeline-orchestrator.md", "Delegate to @copilot-pipeline-explorer."),
-      fixture("copilot-pipeline-explorer.md")
+      fixture("pipeline-orchestrator.md", "Delegate to @pipeline-explorer."),
+      fixture("pipeline-explorer.md")
     ],
     "Decent Pipeline",
-    "copilot-pipeline-"
+    "pipeline-"
   )
 
   assert.equal(plugin.pluginName, "decent-pipeline")
@@ -163,7 +163,7 @@ test("normalizes a dirty plugin name when building directly", () => {
 
 test("rejects a degenerate plugin name when building directly", () => {
   assert.throws(
-    () => buildClaudeCodePlugin([fixture("copilot-pipeline-explorer.md")], "---", "copilot-pipeline-"),
+    () => buildClaudeCodePlugin([fixture("pipeline-explorer.md")], "---", "pipeline-"),
     new Error("Invalid Claude plugin name '---': it must contain at least one letter or number.")
   )
 })
@@ -172,26 +172,26 @@ test("rewrites cross-agent references and reports unresolved source refs", () =>
   const plugin = buildClaudeCodePlugin(
     [
       fixture(
-        "copilot-pipeline-orchestrator.md",
-        "Delegate to @copilot-pipeline-code_reviewer and @copilot-pipeline-docs-orchestrator_grounding. Broken: @copilot-pipeline-missing."
+        "pipeline-orchestrator.md",
+        "Delegate to @pipeline-code_reviewer and @pipeline-docs-orchestrator_grounding. Broken: @pipeline-missing."
       ),
-      fixture("copilot-pipeline-code_reviewer.md", "Review the change."),
-      fixture("copilot-pipeline-docs_grounding.md", "Ground the docs.")
+      fixture("pipeline-code_reviewer.md", "Review the change."),
+      fixture("pipeline-docs_grounding.md", "Ground the docs.")
     ],
     "decent-pipeline",
-    "copilot-pipeline-"
+    "pipeline-"
   )
 
   const orchestrator = plugin.agents.find(agent => agent.name === "orchestrator")
   assert.ok(orchestrator)
   assert.match(orchestrator.body, /@decent-pipeline:code-reviewer/)
   assert.match(orchestrator.body, /@decent-pipeline:docs-grounding/)
-  assert.doesNotMatch(orchestrator.body, /@copilot-pipeline-code_reviewer/)
+  assert.doesNotMatch(orchestrator.body, /@pipeline-code_reviewer/)
   assert.equal(orchestrator.frontmatter.tools, "Agent(decent-pipeline:code-reviewer), Read, Grep, Glob")
   assert.equal(orchestrator.frontmatter.name, "orchestrator")
   assert.equal(orchestrator.frontmatter.permissionMode, undefined)
   assert.equal(orchestrator.frontmatter.temperature, undefined)
-  assert.ok(plugin.warnings?.some(warning => warning.includes("copilot-pipeline-missing")))
+  assert.ok(plugin.warnings?.some(warning => warning.includes("pipeline-missing")))
   assert.equal(plugin.orchestratorName, "orchestrator")
 })
 
@@ -199,13 +199,13 @@ test("repairs the legacy docs-orchestrator grounding alias", () => {
   const plugin = buildClaudeCodePlugin(
     [
       fixture(
-        "copilot-pipeline-orchestrator.md",
-        "Use @copilot-pipeline-docs-orchestrator_grounding for documentation checks."
+        "pipeline-orchestrator.md",
+        "Use @pipeline-docs-orchestrator_grounding for documentation checks."
       ),
-      fixture("copilot-pipeline-docs_grounding.md", "Ground the answer in the repository docs.")
+      fixture("pipeline-docs_grounding.md", "Ground the answer in the repository docs.")
     ],
     "pipeline",
-    "copilot-pipeline-"
+    "pipeline-"
   )
   const orchestrator = plugin.agents.find(agent => agent.name === "orchestrator")
   assert.ok(orchestrator)
@@ -216,17 +216,17 @@ test("repairs the legacy docs-orchestrator grounding alias", () => {
 test("keeps unresolved and already-scoped references unchanged", () => {
   const plugin = buildClaudeCodePlugin(
     [
-      fixture("copilot-pipeline-orchestrator.md", "Use @copilot-pipeline-code_reviewer, @decent-pipeline:code-reviewer, and @copilot-pipeline-missing."),
-      fixture("copilot-pipeline-code_reviewer.md")
+      fixture("pipeline-orchestrator.md", "Use @pipeline-code_reviewer, @decent-pipeline:code-reviewer, and @pipeline-missing."),
+      fixture("pipeline-code_reviewer.md")
     ],
     "decent-pipeline",
-    "copilot-pipeline-"
+    "pipeline-"
   )
   const orchestrator = plugin.agents.find(agent => agent.name === "orchestrator")
   assert.ok(orchestrator)
   assert.equal(
     orchestrator.body,
-    "Use @decent-pipeline:code-reviewer, @decent-pipeline:code-reviewer, and @copilot-pipeline-missing."
+    "Use @decent-pipeline:code-reviewer, @decent-pipeline:code-reviewer, and @pipeline-missing."
   )
 })
 
@@ -239,9 +239,9 @@ test("writes Claude MCP and LSP layers from OpenCode config", () => {
   }))
   const output = path.join(workspace, "bridges", "claude")
   const result = bridgeToClaudeCode(
-    [fixture("copilot-pipeline-orchestrator.md", "")],
+    [fixture("pipeline-orchestrator.md", "")],
     "pipeline",
-    "copilot-pipeline-",
+    "pipeline-",
     output,
     workspace,
     DEFAULT_TRANSLATION_CONFIG
@@ -287,9 +287,9 @@ test("normalizes a dirty plugin name for scoped references", () => {
   fs.writeFileSync(path.join(workspace, "general", "opencode.json"), "{}\n")
   const output = path.join(workspace, "bridges", "claude")
   bridgeToClaudeCode(
-    [fixture("copilot-pipeline-orchestrator.md", "Delegate to @copilot-pipeline-code_reviewer."), fixture("copilot-pipeline-code_reviewer.md")],
+    [fixture("pipeline-orchestrator.md", "Delegate to @pipeline-code_reviewer."), fixture("pipeline-code_reviewer.md")],
     "Decent Pipeline",
-    "copilot-pipeline-",
+    "pipeline-",
     output,
     workspace,
     DEFAULT_TRANSLATION_CONFIG
@@ -305,9 +305,9 @@ test("writes exactly one blank line between Claude frontmatter and body", () => 
   const output = path.join(workspace, "bridges", "claude")
 
   bridgeToClaudeCode(
-    [fixture("copilot-pipeline-executor.md", "\n\n\n# Executor\n\nExecute the plan.\n")],
+    [fixture("pipeline-executor.md", "\n\n\n# Executor\n\nExecute the plan.\n")],
     "pipeline",
-    "copilot-pipeline-",
+    "pipeline-",
     output,
     workspace,
     DEFAULT_TRANSLATION_CONFIG
@@ -328,7 +328,7 @@ test("includes disabled MCP servers required by agents and emits setup guidance"
     }
   }))
   const swiftAgent = fixture(
-    "copilot-pipeline-swift_specialist.md",
+    "pipeline-swift_specialist.md",
     "Use Cupertino and the codebase-memory graph to ground the review."
   )
   swiftAgent.frontmatter.permission["cupertino_*"] = "allow"
@@ -337,7 +337,7 @@ test("includes disabled MCP servers required by agents and emits setup guidance"
   const result = bridgeToClaudeCode(
     [swiftAgent],
     "pipeline",
-    "copilot-pipeline-",
+    "pipeline-",
     output,
     workspace,
     DEFAULT_TRANSLATION_CONFIG
@@ -359,45 +359,45 @@ test("includes disabled MCP servers required by agents and emits setup guidance"
 })
 
 test("resolves Claude models from claude.modelMap", () => {
-  const planning = fixture("copilot-pipeline-planner.md")
+  const planning = fixture("pipeline-planner.md")
   planning.model = "github-copilot/claude-opus-5"
   planning.frontmatter.model = "github-copilot/claude-opus-5"
-  const execution = fixture("copilot-pipeline-worker.md")
+  const execution = fixture("pipeline-worker.md")
 
   const fullId = config({ claude: { overrides: {}, modelMap: { "github-copilot/claude-opus-5": "claude-opus-4-1-20250805" } } })
   assert.equal(
-    buildClaudeCodePlugin([planning, execution], "pipeline", "copilot-pipeline-", fullId).agents[0].frontmatter.model,
+    buildClaudeCodePlugin([planning, execution], "pipeline", "pipeline-", fullId).agents[0].frontmatter.model,
     "claude-opus-4-1-20250805"
   )
 
   const bareId = config({ claude: { overrides: {}, modelMap: { "gpt-5.6-luna-max": "haiku" } } })
   assert.equal(
-    buildClaudeCodePlugin([planning, execution], "pipeline", "copilot-pipeline-", bareId).agents[1].frontmatter.model,
+    buildClaudeCodePlugin([planning, execution], "pipeline", "pipeline-", bareId).agents[1].frontmatter.model,
     "haiku"
   )
 
   const catchAll = config({ claude: { overrides: {}, modelMap: { "*": "sonnet" } } })
   assert.deepEqual(
-    buildClaudeCodePlugin([planning, execution], "pipeline", "copilot-pipeline-", catchAll).agents.map(agent => agent.frontmatter.model),
+    buildClaudeCodePlugin([planning, execution], "pipeline", "pipeline-", catchAll).agents.map(agent => agent.frontmatter.model),
     ["sonnet", "sonnet"]
   )
 })
 
 test("previews model-map sources and warns on dead model-map keys", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "claude-model-map-"))
-  const agents = [fixture("copilot-pipeline-planner.md"), fixture("copilot-pipeline-worker.md")]
+  const agents = [fixture("pipeline-planner.md"), fixture("pipeline-worker.md")]
   agents[0].model = "github-copilot/claude-opus-5"
   agents[0].frontmatter.model = "github-copilot/claude-opus-5"
   const mapped = config({ claude: { overrides: {}, modelMap: { "github-copilot/gpt-5.6-luna-max": "sonnet", "missing-model": "opus" } } })
 
-  const result = bridgeToClaudeCode(agents, "pipeline", "copilot-pipeline-", path.join(workspace, "claude"), workspace, mapped)
+  const result = bridgeToClaudeCode(agents, "pipeline", "pipeline-", path.join(workspace, "claude"), workspace, mapped)
 
   assert.deepEqual(result.preview?.map(preview => preview.source), ["role", "model-map"])
   assert.ok(result.warnings.includes('[model-map] entry "missing-model" matches no source agent model in this bridge'))
 })
 
 test("emits Claude tool names for the expanded OpenCode vocabulary", () => {
-  const agent = fixture("copilot-pipeline-executor.md")
+  const agent = fixture("pipeline-executor.md")
   agent.frontmatter.permission = {
     shell: "allow",
     websearch: "allow",
@@ -407,7 +407,7 @@ test("emits Claude tool names for the expanded OpenCode vocabulary", () => {
     todowrite: "allow"
   }
 
-  const tools = String(buildClaudeCodePlugin([agent], "pipeline", "copilot-pipeline-").agents[0].frontmatter.tools).split(", ")
+  const tools = String(buildClaudeCodePlugin([agent], "pipeline", "pipeline-").agents[0].frontmatter.tools).split(", ")
 
   for (const name of ["Bash", "WebSearch", "Skill", "LSP", "AskUserQuestion", "TodoWrite"]) {
     assert.ok(tools.includes(name), `${name} should be emitted, got ${tools.join(", ")}`)
@@ -415,24 +415,24 @@ test("emits Claude tool names for the expanded OpenCode vocabulary", () => {
 })
 
 test("honors last-match-wins for bash and edit permission objects", () => {
-  const bashAgent = fixture("copilot-pipeline-executor.md")
+  const bashAgent = fixture("pipeline-executor.md")
   bashAgent.frontmatter.permission = { bash: { "*": "deny", "node *": "allow" } }
-  const bashTools = String(buildClaudeCodePlugin([bashAgent], "pipeline", "copilot-pipeline-").agents[0].frontmatter.tools)
+  const bashTools = String(buildClaudeCodePlugin([bashAgent], "pipeline", "pipeline-").agents[0].frontmatter.tools)
   assert.ok(bashTools.split(", ").includes("Bash"))
 
-  const editAgent = fixture("copilot-pipeline-executor.md")
+  const editAgent = fixture("pipeline-executor.md")
   editAgent.frontmatter.permission = { edit: { "*": "deny", "docs/*.md": "allow" } }
-  const editTools = String(buildClaudeCodePlugin([editAgent], "pipeline", "copilot-pipeline-").agents[0].frontmatter.tools)
+  const editTools = String(buildClaudeCodePlugin([editAgent], "pipeline", "pipeline-").agents[0].frontmatter.tools)
   assert.ok(editTools.includes("Write, Edit"))
 })
 
 test("honors last-match-wins for webfetch permission objects", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "claude-webfetch-perms-"))
 
-  const denied = fixture("copilot-pipeline-executor.md")
+  const denied = fixture("pipeline-executor.md")
   denied.frontmatter.permission = { webfetch: { "https://trusted/*": "allow", "*": "deny" } }
   const deniedOutput = path.join(workspace, "denied")
-  const deniedResult = bridgeToClaudeCode([denied], "pipeline", "copilot-pipeline-", deniedOutput, workspace)
+  const deniedResult = bridgeToClaudeCode([denied], "pipeline", "pipeline-", deniedOutput, workspace)
   const deniedTools = fs.readFileSync(path.join(deniedOutput, "agents", "executor.md"), "utf8").match(/^tools: (.*)$/m)?.[1] || ""
   assert.equal(deniedTools.includes("WebFetch"), false, `WebFetch must not be emitted after a catch-all deny; got ${deniedTools}`)
   assert.ok(
@@ -440,17 +440,17 @@ test("honors last-match-wins for webfetch permission objects", () => {
     "missing webfetch granularity warning"
   )
 
-  const allowed = fixture("copilot-pipeline-executor.md")
+  const allowed = fixture("pipeline-executor.md")
   allowed.frontmatter.permission = { webfetch: { "https://trusted/*": "allow" } }
   const allowedOutput = path.join(workspace, "allowed")
-  bridgeToClaudeCode([allowed], "pipeline", "copilot-pipeline-", allowedOutput, workspace)
+  bridgeToClaudeCode([allowed], "pipeline", "pipeline-", allowedOutput, workspace)
   const allowedTools = fs.readFileSync(path.join(allowedOutput, "agents", "executor.md"), "utf8").match(/^tools: (.*)$/m)?.[1] || ""
   assert.ok(allowedTools.split(", ").includes("WebFetch"), `WebFetch should be emitted; got ${allowedTools}`)
 })
 
 test("never fabricates MCP servers from built-in permission keys", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "claude-builtin-perms-"))
-  const agent = fixture("copilot-pipeline-executor.md")
+  const agent = fixture("pipeline-executor.md")
   agent.frontmatter.permission = {
     apply_patch: "allow",
     patch: "allow",
@@ -465,7 +465,7 @@ test("never fabricates MCP servers from built-in permission keys", () => {
   }
   const output = path.join(workspace, "claude")
 
-  const result = bridgeToClaudeCode([agent], "pipeline", "copilot-pipeline-", output, workspace)
+  const result = bridgeToClaudeCode([agent], "pipeline", "pipeline-", output, workspace)
 
   const generated = fs.readFileSync(path.join(output, "agents", "executor.md"), "utf8")
   const tools = generated.match(/^tools: (.*)$/m)?.[1] || ""
@@ -490,7 +490,7 @@ test("never fabricates MCP servers from built-in permission keys", () => {
 
 test("warns about granular permission rules lost in translation", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "claude-permission-losses-"))
-  const agent = fixture("copilot-pipeline-executor.md")
+  const agent = fixture("pipeline-executor.md")
   agent.frontmatter.permission = {
     bash: { "*": "deny", "node *": "allow", "rm *": "deny" },
     edit: { "*": "deny", "docs/*.md": "allow" },
@@ -500,7 +500,7 @@ test("warns about granular permission rules lost in translation", () => {
     imagegen: "allow"
   }
 
-  const result = bridgeToClaudeCode([agent], "pipeline", "copilot-pipeline-", path.join(workspace, "claude"), workspace)
+  const result = bridgeToClaudeCode([agent], "pipeline", "pipeline-", path.join(workspace, "claude"), workspace)
 
   const bashWarning = result.warnings.find(warning => warning.includes("bash patterns not representable"))
   assert.ok(bashWarning, "missing bash pattern warning")
@@ -525,7 +525,7 @@ test("warns about granular permission rules lost in translation", () => {
 test("README documents model aliases and connection modes", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "claude-readme-model-"))
   const output = path.join(workspace, "claude")
-  bridgeToClaudeCode([fixture("copilot-pipeline-orchestrator.md")], "pipeline", "copilot-pipeline-", output, workspace)
+  bridgeToClaudeCode([fixture("pipeline-orchestrator.md")], "pipeline", "pipeline-", output, workspace)
 
   const readme = fs.readFileSync(path.join(output, "README.md"), "utf8")
   assert.match(readme, /## Model connection/)
@@ -535,10 +535,10 @@ test("README documents model aliases and connection modes", () => {
 
 test("lists untranspiled OpenCode plugins and tools only when they exist", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "claude-readme-companions-"))
-  const agents = [fixture("copilot-pipeline-orchestrator.md")]
+  const agents = [fixture("pipeline-orchestrator.md")]
 
   const emptyOutput = path.join(workspace, "empty")
-  const empty = bridgeToClaudeCode(agents, "pipeline", "copilot-pipeline-", emptyOutput, workspace)
+  const empty = bridgeToClaudeCode(agents, "pipeline", "pipeline-", emptyOutput, workspace)
   assert.doesNotMatch(fs.readFileSync(path.join(emptyOutput, "README.md"), "utf8"), /## OpenCode plugins and tools/)
   assert.equal(empty.warnings.some(warning => warning.includes("not transpiled")), false)
 
@@ -548,7 +548,7 @@ test("lists untranspiled OpenCode plugins and tools only when they exist", () =>
   fs.writeFileSync(path.join(workspace, "src", "tools", "pipeline_commit.ts"), "")
 
   const output = path.join(workspace, "claude")
-  const result = bridgeToClaudeCode(agents, "pipeline", "copilot-pipeline-", output, workspace)
+  const result = bridgeToClaudeCode(agents, "pipeline", "pipeline-", output, workspace)
   const readme = fs.readFileSync(path.join(output, "README.md"), "utf8")
   assert.match(readme, /## OpenCode plugins and tools/)
   assert.match(readme, /plugins\/pipeline-guard/)
@@ -559,13 +559,13 @@ test("lists untranspiled OpenCode plugins and tools only when they exist", () =>
   assert.ok(result.warnings.some(warning => warning.includes("OpenCode tool 'tools/pipeline_commit.ts' is not transpiled")))
 
   const secondOutput = path.join(workspace, "claude")
-  bridgeToClaudeCode(agents, "pipeline", "copilot-pipeline-", secondOutput, workspace)
+  bridgeToClaudeCode(agents, "pipeline", "pipeline-", secondOutput, workspace)
   assert.equal(fs.readFileSync(path.join(secondOutput, "README.md"), "utf8"), readme)
 })
 
 test("never fabricates MCP tools from custom pipeline tool permissions", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "claude-pipeline-tools-"))
-  const agent = fixture("copilot-pipeline-executor.md")
+  const agent = fixture("pipeline-executor.md")
   agent.frontmatter.permission = {
     pipeline_commit: "allow",
     pipeline_serve: "allow",
@@ -576,7 +576,7 @@ test("never fabricates MCP tools from custom pipeline tool permissions", () => {
   }
   const output = path.join(workspace, "claude")
 
-  const result = bridgeToClaudeCode([agent], "pipeline", "copilot-pipeline-", output, workspace)
+  const result = bridgeToClaudeCode([agent], "pipeline", "pipeline-", output, workspace)
 
   const generated = fs.readFileSync(path.join(output, "agents", "executor.md"), "utf8")
   const tools = generated.match(/^tools: (.*)$/m)?.[1] || ""
@@ -589,15 +589,15 @@ test("never fabricates MCP tools from custom pipeline tool permissions", () => {
     )
   }
 
-  const mcpAgent = fixture("copilot-pipeline-executor.md")
+  const mcpAgent = fixture("pipeline-executor.md")
   mcpAgent.frontmatter.permission = { "codebase-memory-mcp_*": "allow" }
-  const mcpTools = String(buildClaudeCodePlugin([mcpAgent], "pipeline", "copilot-pipeline-").agents[0].frontmatter.tools)
+  const mcpTools = String(buildClaudeCodePlugin([mcpAgent], "pipeline", "pipeline-").agents[0].frontmatter.tools)
   assert.ok(mcpTools.split(", ").includes("mcp__codebase-memory-mcp__*"), `expected real MCP tool, got ${mcpTools}`)
 })
 
 test("withholds the server-wide allow when per-tool MCP denies are present", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "claude-mcp-per-tool-deny-"))
-  const agent = fixture("copilot-pipeline-security_auditor.md")
+  const agent = fixture("pipeline-security_auditor.md")
   agent.frontmatter.permission = {
     "codebase-memory-mcp_*": "allow",
     "codebase-memory-mcp_search_graph": "allow",
@@ -606,9 +606,9 @@ test("withholds the server-wide allow when per-tool MCP denies are present", () 
   }
   const output = path.join(workspace, "claude")
 
-  const result = bridgeToClaudeCode([agent], "pipeline", "copilot-pipeline-", output, workspace)
+  const result = bridgeToClaudeCode([agent], "pipeline", "pipeline-", output, workspace)
 
-  const tools = String(buildClaudeCodePlugin([agent], "pipeline", "copilot-pipeline-").agents[0].frontmatter.tools).split(", ")
+  const tools = String(buildClaudeCodePlugin([agent], "pipeline", "pipeline-").agents[0].frontmatter.tools).split(", ")
   assert.equal(tools.includes("mcp__codebase-memory-mcp__*"), false, `a denied server must not get a wildcard; got ${tools.join(", ")}`)
   assert.equal(tools.includes("mcp__plugin_pipeline_codebase-memory-mcp__*"), false, `a denied server must not get a scoped wildcard; got ${tools.join(", ")}`)
   assert.ok(tools.includes("mcp__codebase-memory-mcp__search_graph"), `expected the explicit tool allow, got ${tools.join(", ")}`)
@@ -635,10 +635,10 @@ test("warns when scalar ask values promote edit, bash, and webfetch", () => {
   ]
 
   for (const { key, tools } of cases) {
-    const agent = fixture("copilot-pipeline-executor.md")
+    const agent = fixture("pipeline-executor.md")
     agent.frontmatter.permission = { [key]: "ask" }
     const output = path.join(workspace, key)
-    const result = bridgeToClaudeCode([agent], "pipeline", "copilot-pipeline-", output, workspace)
+    const result = bridgeToClaudeCode([agent], "pipeline", "pipeline-", output, workspace)
 
     const emitted = fs.readFileSync(path.join(output, "agents", "executor.md"), "utf8").match(/^tools: (.*)$/m)?.[1] || ""
     for (const tool of tools) {
@@ -654,14 +654,14 @@ test("warns when scalar ask values promote edit, bash, and webfetch", () => {
 
 test("emits no promotion or per-tool MCP deny warnings when not needed", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "claude-warning-noise-"))
-  const agent = fixture("copilot-pipeline-executor.md")
+  const agent = fixture("pipeline-executor.md")
   agent.frontmatter.permission = {
     read: "allow",
     "codebase-memory-mcp_*": "allow"
   }
   const output = path.join(workspace, "claude")
 
-  const result = bridgeToClaudeCode([agent], "pipeline", "copilot-pipeline-", output, workspace)
+  const result = bridgeToClaudeCode([agent], "pipeline", "pipeline-", output, workspace)
 
   assert.equal(result.warnings.some(warning => warning.includes("promoted to allow")), false)
   assert.equal(result.warnings.some(warning => warning.includes("MCP per-tool deny rules")), false)
@@ -695,10 +695,10 @@ test("resolves companion links from the bridged category, not the global prefix"
     fs.mkdirSync(path.dirname(fullPath), { recursive: true })
     fs.writeFileSync(fullPath, "")
   }
-  const agents = [fixture("copilot-pipeline-orchestrator.md")]
+  const agents = [fixture("pipeline-orchestrator.md")]
 
   const docsOutput = path.join(workspace, "docs-claude")
-  const docs = bridgeToClaudeCode(agents, "pipeline", "copilot-pipeline-", docsOutput, workspace, undefined, { category: "docs" })
+  const docs = bridgeToClaudeCode(agents, "pipeline", "pipeline-", docsOutput, workspace, undefined, { category: "docs" })
   const docsReadme = fs.readFileSync(path.join(docsOutput, "README.md"), "utf8")
   assert.match(docsReadme, /## OpenCode plugins and tools/)
   assert.match(docsReadme, /tools\/doc_convert\.ts/)
@@ -708,7 +708,7 @@ test("resolves companion links from the bridged category, not the global prefix"
   assert.equal(docs.warnings.some(warning => warning.includes("pipeline-guard") || warning.includes("pipeline_commit.ts")), false)
 
   const pipelineOutput = path.join(workspace, "pipeline-claude")
-  bridgeToClaudeCode(agents, "pipeline", "copilot-pipeline-", pipelineOutput, workspace, undefined, { category: "pipeline" })
+  bridgeToClaudeCode(agents, "pipeline", "pipeline-", pipelineOutput, workspace, undefined, { category: "pipeline" })
   const pipelineReadme = fs.readFileSync(path.join(pipelineOutput, "README.md"), "utf8")
   assert.match(pipelineReadme, /plugins\/pipeline-guard/)
 })
@@ -724,9 +724,9 @@ test("writeClaudeCodePlugin prunes stale generated agents and skills with warnin
   fs.writeFileSync(staleSkill, "stale skill\n")
 
   const result = bridgeToClaudeCode(
-    [fixture("copilot-pipeline-orchestrator.md")],
+    [fixture("pipeline-orchestrator.md")],
     "decent-pipeline",
-    "copilot-pipeline-",
+    "pipeline-",
     output,
     workspace
   )
@@ -754,9 +754,9 @@ test("translates V1 and V2 OpenCode MCP declarations to the same Claude .mcp.jso
     fs.writeFileSync(path.join(workspace, "src", "opencode.json"), JSON.stringify({ mcp }))
     const output = path.join(workspace, "claude")
     bridgeToClaudeCode(
-      [fixture("copilot-pipeline-orchestrator.md", "")],
+      [fixture("pipeline-orchestrator.md", "")],
       "pipeline",
-      "copilot-pipeline-",
+      "pipeline-",
       output,
       workspace,
       DEFAULT_TRANSLATION_CONFIG
@@ -786,12 +786,12 @@ test("keeps MCP permissions declared in V2 permissions arrays", () => {
   fs.writeFileSync(path.join(workspace, "src", "opencode.json"), JSON.stringify({
     mcp: { servers: { cupertino: { type: "local", command: ["cupertino", "serve"], disabled: true } } }
   }))
-  const agent = fixture("copilot-pipeline-swift_specialist.md", "Use Cupertino to ground the review.")
+  const agent = fixture("pipeline-swift_specialist.md", "Use Cupertino to ground the review.")
   delete agent.frontmatter.permission
   agent.frontmatter.permissions = [{ action: "cupertino_*", resource: "*", effect: "allow" }]
   const output = path.join(workspace, "claude")
 
-  const result = bridgeToClaudeCode([agent], "pipeline", "copilot-pipeline-", output, workspace)
+  const result = bridgeToClaudeCode([agent], "pipeline", "pipeline-", output, workspace)
 
   const mcp = JSON.parse(fs.readFileSync(path.join(output, ".mcp.json"), "utf8")).mcpServers
   assert.equal(mcp.cupertino.command, "cupertino")
@@ -809,11 +809,11 @@ test("warns when a disabled MCP server is emitted because agents require it", ()
   fs.writeFileSync(path.join(workspace, "src", "opencode.json"), JSON.stringify({
     mcp: { XcodeBuildMCP: { command: ["xcodebuild-mcp", "serve"], enabled: false } }
   }))
-  const agent = fixture("copilot-pipeline-swift_specialist.md")
+  const agent = fixture("pipeline-swift_specialist.md")
   agent.frontmatter.permission["XcodeBuildMCP_*"] = "allow"
   const output = path.join(workspace, "claude")
 
-  const result = bridgeToClaudeCode([agent], "decent-pipeline", "copilot-pipeline-", output, workspace)
+  const result = bridgeToClaudeCode([agent], "decent-pipeline", "pipeline-", output, workspace)
 
   const mcp = JSON.parse(fs.readFileSync(path.join(output, ".mcp.json"), "utf8")).mcpServers
   assert.ok(mcp.XcodeBuildMCP, `disabled but required server must still be emitted, got ${JSON.stringify(mcp)}`)
@@ -826,7 +826,7 @@ test("warns when a disabled MCP server is emitted because agents require it", ()
 test("emits a self-hosted marketplace.json", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "claude-marketplace-"))
   const output = path.join(workspace, "claude")
-  bridgeToClaudeCode([fixture("copilot-pipeline-orchestrator.md")], "decent-pipeline", "copilot-pipeline-", output, workspace)
+  bridgeToClaudeCode([fixture("pipeline-orchestrator.md")], "decent-pipeline", "pipeline-", output, workspace)
 
   const marketplacePath = path.join(output, ".claude-plugin", "marketplace.json")
   assert.ok(fs.existsSync(marketplacePath), "marketplace.json must be emitted")
@@ -841,9 +841,9 @@ test("emits a self-hosted marketplace.json", () => {
 
   const disabledOutput = path.join(workspace, "claude-no-marketplace")
   bridgeToClaudeCode(
-    [fixture("copilot-pipeline-orchestrator.md")],
+    [fixture("pipeline-orchestrator.md")],
     "decent-pipeline",
-    "copilot-pipeline-",
+    "pipeline-",
     disabledOutput,
     workspace,
     config({ claude: { overrides: {}, emitMarketplace: false } })
@@ -853,7 +853,7 @@ test("emits a self-hosted marketplace.json", () => {
 
 test("emits a non-empty marketplace description", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "claude-marketplace-description-"))
-  const result = bridgeToClaudeCode([fixture("copilot-pipeline-orchestrator.md")], "decent-pipeline", "copilot-pipeline-", path.join(workspace, "claude"), workspace)
+  const result = bridgeToClaudeCode([fixture("pipeline-orchestrator.md")], "decent-pipeline", "pipeline-", path.join(workspace, "claude"), workspace)
 
   const marketplace = JSON.parse(fs.readFileSync(path.join(result.pluginDir, ".claude-plugin", "marketplace.json"), "utf8"))
   assert.equal(typeof marketplace.description, "string")
@@ -862,7 +862,7 @@ test("emits a non-empty marketplace description", () => {
 
 test("copies the shared plugin icon into .claude-plugin when the workspace provides it", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "claude-plugin-icon-"))
-  const plugin = buildClaudeCodePlugin([fixture("copilot-pipeline-orchestrator.md")], "decent-pipeline", "copilot-pipeline-")
+  const plugin = buildClaudeCodePlugin([fixture("pipeline-orchestrator.md")], "decent-pipeline", "pipeline-")
 
   const withoutIcon = writeClaudeCodePlugin(plugin, path.join(workspace, "no-icon"), workspace)
   assert.equal(fs.existsSync(path.join(withoutIcon.pluginDir, ".claude-plugin", "icon.png")), false, "no icon is emitted without the source asset")
@@ -878,7 +878,7 @@ test("copies the shared plugin icon into .claude-plugin when the workspace provi
 test("reports the effective plugin and marketplace names written by the bridge", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "claude-effective-names-"))
   const output = path.join(workspace, "my_layer")
-  const plugin = buildClaudeCodePlugin([fixture("copilot-pipeline-orchestrator.md")], "my_layer", "copilot-pipeline-")
+  const plugin = buildClaudeCodePlugin([fixture("pipeline-orchestrator.md")], "my_layer", "pipeline-")
 
   const result = writeClaudeCodePlugin(plugin, output, workspace)
 
@@ -900,7 +900,7 @@ test("reports the effective plugin and marketplace names written by the bridge",
 
 test("refuses to emit a marketplace whose final name is reserved", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "claude-reserved-marketplace-"))
-  const plugin = buildClaudeCodePlugin([fixture("copilot-pipeline-orchestrator.md")], "claude-layer", "copilot-pipeline-")
+  const plugin = buildClaudeCodePlugin([fixture("pipeline-orchestrator.md")], "claude-layer", "pipeline-")
 
   assert.throws(
     () => writeClaudeCodePlugin(plugin, path.join(workspace, "claude"), workspace),
@@ -921,7 +921,7 @@ test("prune refuses symlinked entries that escape the plugin directory", { skip:
   fs.writeFileSync(path.join(output, "skills", "stale-skill", "SKILL.md"), "stale\n")
   fs.symlinkSync(outside, path.join(output, "agents", "escape.md"), "dir")
 
-  const plugin = buildClaudeCodePlugin([fixture("copilot-pipeline-orchestrator.md")], "decent-pipeline", "copilot-pipeline-")
+  const plugin = buildClaudeCodePlugin([fixture("pipeline-orchestrator.md")], "decent-pipeline", "pipeline-")
 
   assert.throws(
     () => writeClaudeCodePlugin(plugin, output, workspace),
@@ -952,9 +952,9 @@ test("translates pipeline commands into plugin skills", () => {
   const output = path.join(workspace, "claude")
 
   bridgeToClaudeCode(
-    [fixture("copilot-pipeline-orchestrator.md")],
+    [fixture("pipeline-orchestrator.md")],
     "decent-pipeline",
-    "copilot-pipeline-",
+    "pipeline-",
     output,
     workspace,
     undefined,
@@ -979,9 +979,9 @@ test("translates pipeline commands into plugin skills", () => {
 
   const disabledOutput = path.join(workspace, "claude-no-commands")
   bridgeToClaudeCode(
-    [fixture("copilot-pipeline-orchestrator.md")],
+    [fixture("pipeline-orchestrator.md")],
     "decent-pipeline",
-    "copilot-pipeline-",
+    "pipeline-",
     disabledOutput,
     workspace,
     config({ claude: { overrides: {}, emitCommands: false } }),
@@ -1017,9 +1017,9 @@ test("preserves command descriptions containing a colon", () => {
   const output = path.join(workspace, "claude")
 
   bridgeToClaudeCode(
-    [fixture("copilot-pipeline-orchestrator.md")],
+    [fixture("pipeline-orchestrator.md")],
     "decent-pipeline",
-    "copilot-pipeline-",
+    "pipeline-",
     output,
     workspace,
     undefined,
@@ -1053,9 +1053,9 @@ test("scopes sibling pipeline command references to the plugin", () => {
   const output = path.join(workspace, "claude")
 
   bridgeToClaudeCode(
-    [fixture("copilot-pipeline-orchestrator.md")],
+    [fixture("pipeline-orchestrator.md")],
     "decent-pipeline",
-    "copilot-pipeline-",
+    "pipeline-",
     output,
     workspace,
     undefined,
@@ -1090,9 +1090,9 @@ test("copies companion skills into the plugin", () => {
   const output = path.join(workspace, "claude")
 
   bridgeToClaudeCode(
-    [fixture("copilot-pipeline-orchestrator.md")],
+    [fixture("pipeline-orchestrator.md")],
     "decent-pipeline",
-    "copilot-pipeline-",
+    "pipeline-",
     output,
     workspace,
     undefined,
@@ -1113,9 +1113,9 @@ test("copies companion skills into the plugin", () => {
 
   const disabledOutput = path.join(workspace, "claude-no-skills")
   bridgeToClaudeCode(
-    [fixture("copilot-pipeline-orchestrator.md")],
+    [fixture("pipeline-orchestrator.md")],
     "decent-pipeline",
-    "copilot-pipeline-",
+    "pipeline-",
     disabledOutput,
     workspace,
     config({ claude: { overrides: {}, emitSkills: false } }),
@@ -1140,9 +1140,9 @@ test("warns but continues when a copied companion skill has malformed frontmatte
   const output = path.join(workspace, "claude")
 
   const result = bridgeToClaudeCode(
-    [fixture("copilot-pipeline-orchestrator.md")],
+    [fixture("pipeline-orchestrator.md")],
     "decent-pipeline",
-    "copilot-pipeline-",
+    "pipeline-",
     output,
     workspace,
     undefined,
@@ -1175,9 +1175,9 @@ test("refuses a companion skill tree containing symlinks", { skip: process.platf
 
   assert.throws(
     () => bridgeToClaudeCode(
-      [fixture("copilot-pipeline-orchestrator.md")],
+      [fixture("pipeline-orchestrator.md")],
       "decent-pipeline",
-      "copilot-pipeline-",
+      "pipeline-",
       output,
       workspace,
       undefined,
@@ -1193,14 +1193,14 @@ test("refuses a companion skill tree containing symlinks", { skip: process.platf
 // `isMcpPermissionKey` is internal to bridge.ts, so its classification is
 // asserted through the generated agent's parsed `tools` frontmatter field.
 test("opencode_session_rename stays a built-in permission key, not an MCP server", () => {
-  const agent = fixture("copilot-pipeline-executor.md")
+  const agent = fixture("pipeline-executor.md")
   agent.frontmatter.permission = {
     opencode_session_rename: "allow",
     "codebase-memory-mcp_delete_project": "allow",
     "chrome-devtools_click": "allow",
   }
 
-  const tools = String(buildClaudeCodePlugin([agent], "pipeline", "copilot-pipeline-").agents[0].frontmatter.tools || "")
+  const tools = String(buildClaudeCodePlugin([agent], "pipeline", "pipeline-").agents[0].frontmatter.tools || "")
 
   assert.equal(tools.includes("mcp__opencode__*"), false, `a named built-in opencode_* key must not fabricate an MCP server; got ${tools}`)
   assert.ok(tools.split(", ").includes("mcp__codebase-memory-mcp__*"), `a real MCP server must stay; got ${tools}`)
@@ -1210,45 +1210,45 @@ test("opencode_session_rename stays a built-in permission key, not an MCP server
 test("an MCP server named opencode is not swallowed by the built-in opencode_* names", () => {
   // `opencode_search` is the tool `search` of a server named `opencode`: the
   // explicit built-in list must not classify it as a built-in and drop it.
-  const agent = fixture("copilot-pipeline-executor.md")
+  const agent = fixture("pipeline-executor.md")
   agent.frontmatter.permission = { opencode_search: "allow" }
 
-  const tools = String(buildClaudeCodePlugin([agent], "pipeline", "copilot-pipeline-").agents[0].frontmatter.tools || "")
+  const tools = String(buildClaudeCodePlugin([agent], "pipeline", "pipeline-").agents[0].frontmatter.tools || "")
 
   assert.ok(tools.split(", ").includes("mcp__opencode__*"), `an MCP tool key opencode_<tool> must stay an MCP server; got ${tools}`)
 })
 
 test("a V2-authored todowrite permission still emits TodoWrite", () => {
-  const agent = fixture("copilot-pipeline-executor.md")
+  const agent = fixture("pipeline-executor.md")
   delete agent.frontmatter.permission
   agent.frontmatter.permissions = [{ action: "todowrite", resource: "*", effect: "allow" }]
 
-  const tools = String(buildClaudeCodePlugin([agent], "pipeline", "copilot-pipeline-").agents[0].frontmatter.tools || "")
+  const tools = String(buildClaudeCodePlugin([agent], "pipeline", "pipeline-").agents[0].frontmatter.tools || "")
   assert.ok(tools.split(", ").includes("TodoWrite"), `V2 todowrite must emit TodoWrite; got ${tools}`)
 })
 
 test("the Agent tool is emitted for subagent permissions, both V2 actions and the legacy subagent key", () => {
-  const v2Agent = fixture("copilot-pipeline-executor.md")
+  const v2Agent = fixture("pipeline-executor.md")
   delete v2Agent.frontmatter.permission
   v2Agent.frontmatter.permissions = [{ action: "subagent", resource: "*", effect: "allow" }]
-  const v2Tools = String(buildClaudeCodePlugin([v2Agent], "pipeline", "copilot-pipeline-").agents[0].frontmatter.tools || "")
+  const v2Tools = String(buildClaudeCodePlugin([v2Agent], "pipeline", "pipeline-").agents[0].frontmatter.tools || "")
   assert.ok(v2Tools.split(", ").includes("Agent"), `V2 subagent must emit Agent; got ${v2Tools}`)
 
   // A partially migrated frontmatter can still carry the V2 action name as a
   // plain permission key; it must not be ignored while only `task` is read.
-  const legacyKey = fixture("copilot-pipeline-executor.md")
+  const legacyKey = fixture("pipeline-executor.md")
   legacyKey.frontmatter.permission = { subagent: "allow" }
-  const legacyTools = String(buildClaudeCodePlugin([legacyKey], "pipeline", "copilot-pipeline-").agents[0].frontmatter.tools || "")
+  const legacyTools = String(buildClaudeCodePlugin([legacyKey], "pipeline", "pipeline-").agents[0].frontmatter.tools || "")
   assert.ok(legacyTools.split(", ").includes("Agent"), `perms.subagent must emit Agent; got ${legacyTools}`)
 })
 
 test("the legacy subagent key also drives the ask-to-allow warning", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "claude-subagent-ask-"))
-  const agent = fixture("copilot-pipeline-executor.md")
+  const agent = fixture("pipeline-executor.md")
   agent.frontmatter.permission = { subagent: { reviewer: "ask" } }
   agent.allowedSubagents = ["reviewer"]
 
-  const result = bridgeToClaudeCode([agent], "pipeline", "copilot-pipeline-", path.join(workspace, "claude"), workspace)
+  const result = bridgeToClaudeCode([agent], "pipeline", "pipeline-", path.join(workspace, "claude"), workspace)
 
   const generated = fs.readFileSync(path.join(result.pluginDir, "agents", "executor.md"), "utf8")
   assert.match(generated, /^tools: Agent\([^)]*reviewer\)/m, `subagent permissions must emit Agent(reviewer); got ${generated}`)
@@ -1259,7 +1259,7 @@ test("the legacy subagent key also drives the ask-to-allow warning", () => {
 })
 
 test("V1 permission spellings inside a V2 permissions array grant nothing (fail closed)", () => {
-  const agent = fixture("copilot-pipeline-executor.md")
+  const agent = fixture("pipeline-executor.md")
   delete agent.frontmatter.permission
   agent.frontmatter.permissions = [
     { action: "bash", resource: "*", effect: "allow" },
@@ -1269,7 +1269,7 @@ test("V1 permission spellings inside a V2 permissions array grant nothing (fail 
     { action: "list", resource: "*", effect: "allow" },
   ]
 
-  const tools = String(buildClaudeCodePlugin([agent], "pipeline", "copilot-pipeline-").agents[0].frontmatter.tools || "").split(", ")
+  const tools = String(buildClaudeCodePlugin([agent], "pipeline", "pipeline-").agents[0].frontmatter.tools || "").split(", ")
 
   for (const forbidden of ["Bash", "Write", "Edit", "Agent"]) {
     assert.equal(tools.includes(forbidden), false, `${forbidden} must not be granted by a V1 spelling used as a V2 action; got ${tools.join(", ")}`)
@@ -1278,7 +1278,7 @@ test("V1 permission spellings inside a V2 permissions array grant nothing (fail 
 
 test("V2-only permission keys Claude cannot express are reported as dropped", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "claude-v2-only-keys-"))
-  const agent = fixture("copilot-pipeline-executor.md")
+  const agent = fixture("pipeline-executor.md")
   delete agent.frontmatter.permission
   agent.frontmatter.permissions = [
     { action: "artifact", resource: "*", effect: "allow" },
@@ -1286,7 +1286,7 @@ test("V2-only permission keys Claude cannot express are reported as dropped", ()
     { action: "opencode_session_rename", resource: "*", effect: "allow" },
   ]
 
-  const result = bridgeToClaudeCode([agent], "pipeline", "copilot-pipeline-", path.join(workspace, "claude"), workspace)
+  const result = bridgeToClaudeCode([agent], "pipeline", "pipeline-", path.join(workspace, "claude"), workspace)
 
   for (const key of ["artifact", "file-diff", "opencode_session_rename"]) {
     assert.ok(
@@ -1298,13 +1298,13 @@ test("V2-only permission keys Claude cannot express are reported as dropped", ()
 
 test("dropped-key warnings are skipped for denied permissions", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "claude-dropped-deny-"))
-  const denied = fixture("copilot-pipeline-executor.md")
+  const denied = fixture("pipeline-executor.md")
   denied.frontmatter.permission = { artifact: "deny" }
-  const allowed = fixture("copilot-pipeline-executor.md")
+  const allowed = fixture("pipeline-executor.md")
   allowed.frontmatter.permission = { artifact: "allow" }
 
-  const deniedResult = bridgeToClaudeCode([denied], "pipeline", "copilot-pipeline-", path.join(workspace, "denied"), workspace)
-  const allowedResult = bridgeToClaudeCode([allowed], "pipeline", "copilot-pipeline-", path.join(workspace, "allowed"), workspace)
+  const deniedResult = bridgeToClaudeCode([denied], "pipeline", "pipeline-", path.join(workspace, "denied"), workspace)
+  const allowedResult = bridgeToClaudeCode([allowed], "pipeline", "pipeline-", path.join(workspace, "allowed"), workspace)
 
   assert.equal(
     deniedResult.warnings.some(warning => warning.includes("'artifact'")),

@@ -102,7 +102,6 @@ const CATEGORY_DESCRIPTIONS: Record<string, string> = {
   wiki: "Codebase analysis and automatic project wiki page generation & updating.",
   pipeline: "Canonical base pipeline agents (orchestrator, planner, reasoner, executor, tester, reviewer, specialists).",
   "go-pipeline": "Go pipeline agents for code review, planning, testing, and executor loops.",
-  "copilot-pipeline": "Copilot pipeline agents for devtools debugging, Swift specialist tasks, and executor review loops.",
   slides: "PowerPoint slides templating, layout design, composition analysis, and page writer.",
   docs: "HTML documentation structure planning, layout design, and generation.",
   storybook: "Storybook components format and documentation builder.",
@@ -191,7 +190,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
 
   // View Settings
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(
-    new Set(["wiki", "pipeline", "go-pipeline", "copilot-pipeline", "general"])
+    new Set(["wiki", "pipeline", "go-pipeline", "general"])
   )
   const [searchQuery, setSearchQuery] = useState("")
   const [isSearching, setIsSearching] = useState(false)
@@ -3237,7 +3236,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
                 {renameFocusedField === "family" ? "► 1. Family (Optional):" : "  1. Family (Optional):"}
               </text>
               <text style={{ textColor: "white" }}>
-                {renameFamily || "[ e.g. copilot, go, kimi or leave empty ]"}
+                {renameFamily || "[ e.g. go, mistral, hybrid or leave empty ]"}
               </text>
             </box>
 
@@ -3584,7 +3583,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
                 {forkFocusedField === "find" ? "► Find String Pattern:" : "  Find String Pattern:"}
               </text>
               <text style={{ textColor: "white" }}>
-                {forkFindQuery || "[ Type pattern to search, e.g. copilot- ]"}
+                {forkFindQuery || "[ Type pattern to search, e.g. go- ]"}
               </text>
             </box>}
 

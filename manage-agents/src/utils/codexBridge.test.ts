@@ -33,9 +33,9 @@ function agent(
 }
 
 test("Codex roles map planning to Sol/high and execution to Luna/max", () => {
-  const primary = agent("copilot-pipeline-orchestrator.md", "github-copilot/claude-opus-5", { mode: "primary" }, "")
-  const opus = agent("copilot-pipeline-reviewer.md", "github-copilot/claude-opus-5", {}, "")
-  const luna = agent("copilot-pipeline-explorer.md", "github-copilot/gpt-5.6-luna", {}, "")
+  const primary = agent("pipeline-orchestrator.md", "github-copilot/claude-opus-5", { mode: "primary" }, "")
+  const opus = agent("pipeline-reviewer.md", "github-copilot/claude-opus-5", {}, "")
+  const luna = agent("pipeline-explorer.md", "github-copilot/gpt-5.6-luna", {}, "")
 
   assert.deepEqual(resolveCodexModel(primary), { model: "gpt-5.6-sol", reasoningEffort: "high" })
   assert.deepEqual(resolveCodexModel(opus), { model: "gpt-5.6-luna", reasoningEffort: "max" })
@@ -45,17 +45,17 @@ test("Codex roles map planning to Sol/high and execution to Luna/max", () => {
 test("bridge emits manifest, Codex agents, skills and translated links", () => {
   const agents = [
     agent(
-      "copilot-pipeline-orchestrator.md",
+      "pipeline-orchestrator.md",
       "github-copilot/claude-opus-5",
-      { mode: "primary", permission: { task: { "copilot-pipeline-fast_lane": "allow" } } },
-      "Delegate to @copilot-pipeline-fast_lane; do not call @copilot-pipeline-missing.",
-      ["copilot-pipeline-fast_lane"]
+      { mode: "primary", permission: { task: { "pipeline-fast_lane": "allow" } } },
+      "Delegate to @pipeline-fast_lane; do not call @pipeline-missing.",
+      ["pipeline-fast_lane"]
     ),
-    agent("copilot-pipeline-fast_lane.md", "github-copilot/gpt-5.6-luna", {}, "Fast lane")
+    agent("pipeline-fast_lane.md", "github-copilot/gpt-5.6-luna", {}, "Fast lane")
   ]
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "codex-bridge-"))
   const output = path.join(workspace, "bridges", "codex")
-  const result = bridgeToCodex(agents, "Decent Pipeline", "copilot-pipeline-", output, workspace)
+  const result = bridgeToCodex(agents, "Decent Pipeline", "pipeline-", output, workspace)
 
   assert.equal(result.plugin.pluginName, "decent-pipeline")
   assert.equal(result.plugin.orchestratorName, "orchestrator")
@@ -64,7 +64,7 @@ test("bridge emits manifest, Codex agents, skills and translated links", () => {
   assert.equal(result.plugin.agents[0].sandboxMode, "read-only")
   assert.equal(result.plugin.agents[1].model, "gpt-5.6-luna")
   assert.equal(result.plugin.agents[1].modelReasoningEffort, "max")
-  assert.ok(result.warnings.some(warning => warning.includes("unresolved agent reference @copilot-pipeline-missing")))
+  assert.ok(result.warnings.some(warning => warning.includes("unresolved agent reference @pipeline-missing")))
 
   const manifestPath = path.join(output, ".codex-plugin", "plugin.json")
   const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"))

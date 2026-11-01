@@ -205,7 +205,7 @@ Esegui gli esempi dalla radice della repository fonte (`/Users/lorenzo.cancellar
    ./manage-agents.sh sync apply --target /Users/lorenzo.cancellara/dev/Programmazione/agents
    ```
 
-   Il comando aggiorna anche i bundle stamped dei profili locali (per esempio `spark-pipeline` e `copilot-pipeline`) e sincronizza i profili Bash quando presenti. Per saltare questi refresh usa `--no-refresh`. Prima dell’applicazione controlla e risolvi eventuali modifiche locali; non viene creato alcun commit automatico. Al termine verifica la destinazione con `git diff` e `git status`.
+   Il comando aggiorna anche i bundle stamped dei profili locali (per esempio `go-pipeline` e `hybrid-pipeline`) e sincronizza i profili Bash quando presenti. Per saltare questi refresh usa `--no-refresh`. Prima dell’applicazione controlla e risolvi eventuali modifiche locali; non viene creato alcun commit automatico. Al termine verifica la destinazione con `git diff` e `git status`.
 
 4. In alternativa, crea un bundle versionato con `release-index.json` e hash SHA-256, quindi applicalo:
 
@@ -221,13 +221,13 @@ Esegui gli esempi dalla radice della repository fonte (`/Users/lorenzo.cancellar
 Un bridge traduce una categoria del catalogo in un livello per Claude Code o Codex senza modificare il prompt sorgente. Esempio Claude:
 
 ```bash
-node manage-agents/manage-agents.mjs bridge --category copilot-pipeline --target claude
+node manage-agents/manage-agents.mjs bridge --category go-pipeline --target claude
 ```
 
 Esempio Codex:
 
 ```bash
-node manage-agents/manage-agents.mjs bridge --category copilot-pipeline --target codex
+node manage-agents/manage-agents.mjs bridge --category go-pipeline --target codex
 ```
 
 Opzioni disponibili:
@@ -254,12 +254,12 @@ Le opzioni esplicite `--no-validate`, `--no-register` e `--marketplace-name` ven
 Altri esempi:
 
 ```bash
-node manage-agents/manage-agents.mjs bridge -c copilot-pipeline -t codex -n mio-layer -p copilot-pipeline- -s general
+node manage-agents/manage-agents.mjs bridge -c go-pipeline -t codex -n mio-layer -p go-pipeline- -s general
 node manage-agents/manage-agents.mjs bridge --category wiki --output artifacts/wiki-claude --target claude
-node manage-agents/manage-agents.mjs bridge -c copilot-pipeline -t claude --model "zai-glm-5-3=opus" --model "glm-5-3=haiku"
-node manage-agents/manage-agents.mjs bridge -c copilot-pipeline -t claude --marketplace-name acme-tools
-node manage-agents/manage-agents.mjs bridge -c copilot-pipeline -t codex --map-all gpt-5.6-luna
-node manage-agents/manage-agents.mjs bridge --category copilot-pipeline --wizard
+node manage-agents/manage-agents.mjs bridge -c go-pipeline -t claude --model "zai-glm-5-3=opus" --model "glm-5-3=haiku"
+node manage-agents/manage-agents.mjs bridge -c go-pipeline -t claude --marketplace-name acme-tools
+node manage-agents/manage-agents.mjs bridge -c go-pipeline -t codex --map-all gpt-5.6-luna
+node manage-agents/manage-agents.mjs bridge --category go-pipeline --wizard
 ```
 
 Un output personalizzato deve restare dentro il workspace: il bridge verifica il percorso e rifiuta quelli esterni. Scegli un percorso deliberatamente e controlla prima se esiste già. Il wizard salva le impostazioni, ma il bridge scrive anche gli artefatti. Controlla in output la lista dei file, gli avvisi di traduzione e l’esito di validazione e registrazione. Per Claude il manager esegue `claude plugin validate <percorso> --strict` e, se la validazione passa e il marketplace è emesso, registra il plugin in Claude Code; entrambi i passaggi sono attivi per impostazione predefinita. Per Codex indica gli agenti scoped e il manifest del plugin.
@@ -445,7 +445,7 @@ Rispondi `Y` o premi Invio solo dopo aver letto percorso, numero di agenti e bac
 **Directory corrente: radice del repository.** Per prima cosa prova un output di destinazione esplicito e non condiviso; il bridge non riscrive gli agenti canonici, ma crea artefatti:
 
 ```bash
-node manage-agents/manage-agents.mjs bridge --category copilot-pipeline --target claude --output artifacts/copilot-claude
+node manage-agents/manage-agents.mjs bridge --category go-pipeline --target claude --output artifacts/go-claude
 ```
 
 Esamina l’elenco di file, preview e warning. Se devi cambiare il modello di alcuni agenti, usa `--model <sorgente>=<destinazione>`; per usarne uno solo per tutti, `--map-all <destinazione>`. Entrambe le opzioni salvano il mapping, quindi le esecuzioni successive lo riusano anche senza flag. Per tier, ruoli e altri override, ripeti con `--wizard` dopo aver verificato che la configurazione salvata sia quella voluta.

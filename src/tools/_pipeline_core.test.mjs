@@ -44,7 +44,7 @@ test("agent naming helpers", () => {
   assert.equal(roleOf("hybrid-pipeline-executor"), "executor")
   assert.equal(roleOf("mistral-pipeline-post_session"), "post_session")
   assert.equal(roleOf("build"), null)
-  assert.equal(isPipelineAgent("cp_nightly-pipeline-tester"), true)
+  assert.equal(isPipelineAgent("go-pipeline-tester"), true)
   assert.equal(isPipelineAgent("docs-orchestrator"), false)
 })
 

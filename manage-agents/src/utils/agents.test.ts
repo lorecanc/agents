@@ -1226,8 +1226,8 @@ test("export across canonical and multiple stamped pipelines installs each pipel
 
   const sourceFiles: Record<string, string> = {
     "commands/pipeline-bug.md": "canonical pipeline command\n",
-    "commands/copilot-bug.md": "copilot pipeline command\n",
-    "commands/cp_nightly-bug.md": "nightly pipeline command\n",
+    "commands/go-bug.md": "go pipeline command\n",
+    "commands/hybrid-bug.md": "hybrid pipeline command\n",
     "plugins/pipeline-guard.js": "canonical pipeline guard\n",
     "skills/code-review-antipatterns/SKILL.md": "shared review skill\n",
     "tools/pipeline_state.ts": 'import "./_pipeline_core.js";\nexport const state = true\n',
@@ -1248,20 +1248,20 @@ test("export across canonical and multiple stamped pipelines installs each pipel
     ...sharedLinks,
     commands: ["commands/pipeline-bug.md"]
   })
-  updateCategoryCompanionLinks(workspace, "copilot-pipeline", {
+  updateCategoryCompanionLinks(workspace, "go-pipeline", {
     ...sharedLinks,
-    commands: ["commands/copilot-bug.md"]
+    commands: ["commands/go-bug.md"]
   })
-  updateCategoryCompanionLinks(workspace, "cp_nightly-pipeline", {
+  updateCategoryCompanionLinks(workspace, "hybrid-pipeline", {
     ...sharedLinks,
-    commands: ["commands/cp_nightly-bug.md"]
+    commands: ["commands/hybrid-bug.md"]
   })
 
   const canonicalAgent = fixtureAgent(path.join(sourceRoot, "agents", "pipeline-orchestrator.md"), workspace, "test/model")
-  const copilotAgent = fixtureAgent(path.join(workspace, "export/categories/copilot-pipeline/agents/copilot-pipeline-orchestrator.md"), workspace, "test/model")
-  const nightlyAgent = fixtureAgent(path.join(workspace, "export/categories/cp_nightly-pipeline/agents/cp_nightly-pipeline-orchestrator.md"), workspace, "test/model")
+  const goAgent = fixtureAgent(path.join(workspace, "export/categories/go-pipeline/agents/go-pipeline-orchestrator.md"), workspace, "test/model")
+  const hybridAgent = fixtureAgent(path.join(workspace, "export/categories/hybrid-pipeline/agents/hybrid-pipeline-orchestrator.md"), workspace, "test/model")
 
-  const staleStampedPlugin = path.join(workspace, "export/categories/copilot-pipeline/plugins/pipeline-guard.js")
+  const staleStampedPlugin = path.join(workspace, "export/categories/go-pipeline/plugins/pipeline-guard.js")
   fs.mkdirSync(path.dirname(staleStampedPlugin), { recursive: true })
   fs.writeFileSync(staleStampedPlugin, "stale stamped pipeline guard\n")
 
@@ -1273,13 +1273,13 @@ test("export across canonical and multiple stamped pipelines installs each pipel
   ]
   const cases = [
     {
-      agents: [canonicalAgent, copilotAgent, nightlyAgent],
-      commands: ["commands/pipeline-bug.md", "commands/copilot-bug.md", "commands/cp_nightly-bug.md"],
+      agents: [canonicalAgent, goAgent, hybridAgent],
+      commands: ["commands/pipeline-bug.md", "commands/go-bug.md", "commands/hybrid-bug.md"],
       absentCommands: [] as string[]
     },
     {
-      agents: [copilotAgent, nightlyAgent],
-      commands: ["commands/copilot-bug.md", "commands/cp_nightly-bug.md"],
+      agents: [goAgent, hybridAgent],
+      commands: ["commands/go-bug.md", "commands/hybrid-bug.md"],
       absentCommands: ["commands/pipeline-bug.md"]
     }
   ]
@@ -2331,8 +2331,8 @@ test("lean ontology orchestrator discovers its explicitly allowed tools and comp
 
 test("v2 pipeline references resolve for canonical and stamped agents", { skip: !fs.existsSync(path.join(ontologyAgentsRoot, "ontology-orchestrator.md")) }, () => {
   for (const [prefix, root] of [
-    ["copilot-pipeline", path.join(ontologySourceRoot, "export/categories/copilot-pipeline/agents")],
-    ["cp_nightly-pipeline", path.join(ontologySourceRoot, "export/categories/cp_nightly-pipeline/agents")]
+    ["go-pipeline", path.join(ontologySourceRoot, "export/categories/go-pipeline/agents")],
+    ["hybrid-pipeline", path.join(ontologySourceRoot, "export/categories/hybrid-pipeline/agents")]
   ]) {
     const orchestrator = fs.readFileSync(path.join(root, `${prefix}-orchestrator.md`), "utf8")
     assert.match(orchestrator, new RegExp(`@${prefix}-docs_grounding`))

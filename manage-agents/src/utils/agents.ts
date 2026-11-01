@@ -1064,7 +1064,7 @@ export function auditSecurityPermissions(agents: AgentInfo[]) {
 
 /**
  * Computes recurring prefixes across filenames to identify known categories or family-category pairs.
- * E.g., 'copilot-pipeline', 'go-pipeline', 'slides', 'docs', 'wiki'.
+ * E.g., 'go-pipeline', 'hybrid-pipeline', 'slides', 'docs', 'wiki'.
  */
 export function getKnownPrefixes(filenames: string[]): string[] {
   const prefixCounts: Record<string, number> = {}

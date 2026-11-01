@@ -45,9 +45,9 @@ while :; do
   [ $(( $(date +%s) - START )) -ge "$TTL" ] && break
 done
 trap '' TERM
-kill -TERM -- "-$$" 2>/dev/null
+kill -TERM -"$$" 2>/dev/null
 sleep 2
-kill -KILL -- "-$$" 2>/dev/null
+kill -KILL -"$$" 2>/dev/null
 exit 0
 `
 

@@ -77,10 +77,7 @@
     "pipeline-reasoner": "planning",
     "pipeline-chrome_devtools": "execution",
     "pipeline-frontend_specialist": "execution",
-    "pipeline-multimodal": "execution",
-    "cp_nightly-pipeline-orchestrator": "planning",
-    "cp_nightly-pipeline-planner": "planning",
-    "cp_nightly-pipeline-reasoner": "planning"
+    "pipeline-multimodal": "execution"
   },
   "claude": {
     "overrides": {},

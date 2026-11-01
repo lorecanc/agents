@@ -532,7 +532,7 @@ function collectCheckStatusViolations(): string[] {
   return v
 }
 
-const collectors: Array<[string, () => string[]]> = [
+const checks: Array<[string, () => string[]]> = [
   ["agents", collectAgentViolations],
   ["config", collectConfigViolations],
   ["plugins", collectPluginsViolations],
@@ -591,7 +591,7 @@ test("cli: check/status never refresh pipelines without a dry-run flag", () => {
 
 test("summary: zero V2-native contract violations", () => {
   const all: string[] = []
-  for (const [area, collect] of collectors) {
+  for (const [area, collect] of checks) {
     for (const line of collect()) all.push(`[${area}] ${line}`)
   }
   assert.equal(all.length, 0, `${all.length} V2-native contract violation(s):\n${all.map((line) => `- ${line}`).join("\n")}`)

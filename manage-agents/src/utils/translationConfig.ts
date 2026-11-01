@@ -72,7 +72,7 @@ export const DEFAULT_TRANSLATION_CONFIG: TranslationConfig = {
   version: 2,
   target: "claude",
   pluginName: "decent-pipeline",
-  prefix: "copilot-pipeline-",
+  prefix: "pipeline-",
   sourceDir: "general",
   inference: true,
   defaultTier: "execution",

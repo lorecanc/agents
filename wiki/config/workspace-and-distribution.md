@@ -26,7 +26,7 @@ Workspace behavior is configured across OpenCode's local server definitions, age
 
 ## Pipeline model profiles
 
-`.agent-manager/pipeline-profiles.json` uses version `1`, sets `pipeline` as the base category, and defines profile descriptions and role defaults. Profiles include `hybrid`, `go`, `mistral`, `collector`, `free`, `copilot`, and `cp_nightly`. Defaults may target `all` roles or specify `orchestration`, `planning`, `execution`, `fast`, and `specialist`; some profiles also assign model variants such as `high`, `medium`, and `low`.
+`.agent-manager/pipeline-profiles.json` uses version `1`, sets `pipeline` as the base category, and defines profile descriptions and role defaults. Profiles include `hybrid`, `go`, `mistral`, and `free`. Defaults may target `all` roles or specify `orchestration`, `planning`, `execution`, `fast`, and `specialist`.
 
 ## Companion links and translation
 

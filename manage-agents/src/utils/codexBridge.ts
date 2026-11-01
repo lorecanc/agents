@@ -163,13 +163,15 @@ function rewriteReferences(
   body: string,
   aliases: Map<string, string>,
   sourceName: string,
-  warnings: string[]
+  warnings: string[],
+  prefix: string
 ): string {
   return body.replace(/@([a-zA-Z0-9][a-zA-Z0-9_-]*)/g, (match, reference: string) => {
     const target = aliases.get(reference) || aliases.get(reference.toLowerCase())
     if (target) return `@${target}`
     // Ignore email addresses and ordinary handles that are not agent-like.
-    if (reference.includes("-pipeline") || reference.includes("_")) {
+    const prefixed = Boolean(prefix && reference.toLowerCase().startsWith(prefix.toLowerCase()))
+    if (prefixed || reference.includes("-pipeline") || reference.includes("_")) {
       warnings.push(`${sourceName}: unresolved agent reference @${reference}`)
     }
     return match
@@ -220,7 +222,7 @@ export function convertCodexAgent(
   const name = normalizeCodexAgentName(agent.filename, prefix)
   const target = (resolvedTargets.get(agent.filename) || resolveTargets([agent], config).get(agent.filename)!).model
   const delegated = translateAllowedSubagents(agent, aliases, warnings)
-  const referenced = rewriteReferences(agent.body.trim(), aliases, agent.filename, warnings)
+  const referenced = rewriteReferences(agent.body.trim(), aliases, agent.filename, warnings, prefix)
   // Translate OpenCode tool names and flag OpenCode-only tools near the top.
   const rewritten = adaptToolReferences(referenced, "codex", agent.frontmatter, {
     mcpServers: agentMcpServers(agent).filter(server => referenced.includes(`${server}_`))

@@ -34,6 +34,8 @@ test("translation defaults define the planning, execution and light tiers", () =
   assert.deepEqual(DEFAULT_TRANSLATION_CONFIG.tiers.light.codex, { model: "gpt-5.6-luna", reasoningEffort: "max" })
   assert.equal(DEFAULT_TRANSLATION_CONFIG.roles.executor, "light")
   assert.equal(DEFAULT_TRANSLATION_CONFIG.roles.explorer, "light")
+  assert.equal(DEFAULT_TRANSLATION_CONFIG.prefix, "pipeline-")
+  assert.equal(resolveRole(agent("pipeline-orchestrator.md"), DEFAULT_TRANSLATION_CONFIG), "orchestrator")
 })
 
 test("authorName falls back to the default and honors AGENT_AUTHOR_NAME", () => {
@@ -67,13 +69,13 @@ test("authorName rejects unsafe or oversized AGENT_AUTHOR_NAME overrides", () =>
 })
 
 test("agent names normalize extensions, prefixes and case", () => {
-  assert.equal(normalizeAgentName("copilot-pipeline-PlAnNeR.md", "copilot-pipeline-"), "planner")
-  assert.equal(normalizeAgentName("planner", "copilot-pipeline-"), "planner")
-  assert.equal(normalizeAgentName("other.md", "copilot-pipeline-"), "other")
+  assert.equal(normalizeAgentName("go-pipeline-PlAnNeR.md", "go-pipeline-"), "planner")
+  assert.equal(normalizeAgentName("planner", "go-pipeline-"), "planner")
+  assert.equal(normalizeAgentName("other.md", "go-pipeline-"), "other")
 })
 
 test("resolveRole and resolveModelTarget apply role and override precedence", () => {
-  assert.equal(resolveRole(agent("copilot-pipeline-planner.md"), DEFAULT_TRANSLATION_CONFIG), "planner")
+  assert.equal(resolveRole(agent("go-pipeline-planner.md"), { ...DEFAULT_TRANSLATION_CONFIG, prefix: "go-pipeline-" }), "planner")
   assert.equal(resolveRole(agent("planner.md"), DEFAULT_TRANSLATION_CONFIG), "planner")
   const config = { ...DEFAULT_TRANSLATION_CONFIG, roles: { ...DEFAULT_TRANSLATION_CONFIG.roles, illustrator: "execution" }, claude: { overrides: { planner: { model: "custom" } } } }
   assert.deepEqual(resolveModelTarget(agent("illustrator.md"), buildInferenceIndex([agent("illustrator.md")], config), config, "claude"), {
@@ -209,7 +211,7 @@ test("a v2 config without claude marketplace fields loads unchanged with default
       version: 2,
       target: "claude",
       pluginName: "legacy-plugin",
-      prefix: "copilot-pipeline-",
+      prefix: "go-pipeline-",
       sourceDir: "general",
       inference: false,
       defaultTier: "execution",

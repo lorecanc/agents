@@ -63,10 +63,20 @@ test("apply updates matching base pipeline agents and synchronizes model variant
   const planner = agent(root, "pipeline", "planner")
   const executor = agent(root, "pipeline", "executor", { variant: "old" })
   agent(root, "other-pipeline", "executor")
-  const result = applyPipelineProfile(root, "cp_nightly")
+  const config = structuredClone(DEFAULT_PIPELINE_PROFILES)
+  config.profiles.tiered = {
+    description: "Tiered model variants",
+    defaults: {
+      orchestration: { model: "test/opus", variant: "high" },
+      planning: { model: "test/opus", variant: "high" },
+      execution: { model: "test/sonnet", variant: "medium" }
+    }
+  }
+  savePipelineProfiles(root, config)
+  const result = applyPipelineProfile(root, "tiered")
   assert.equal(result.updated.length, 3)
   assert.equal(parseAgentFile(orchestrator, root)!.frontmatter.variant, "high")
-  assert.equal(parseAgentFile(planner, root)!.frontmatter.model, "github-copilot/gemini-4-argon")
+  assert.equal(parseAgentFile(planner, root)!.frontmatter.model, "test/opus")
   assert.equal(parseAgentFile(executor, root)!.frontmatter.variant, "medium")
   assert.throws(() => applyPipelineProfile(root, "missing"), /Unknown pipeline profile/)
 })
@@ -120,7 +130,7 @@ test("sync forks base agents, applies selected profile, and copies companion lin
 })
 
 test("sync stamps command orchestrator references with exactly one profile prefix", () => {
-  for (const family of ["copilot", "cp_nightly"]) {
+  for (const family of ["go", "mistral"]) {
     const root = workspace()
     agent(root, "pipeline", "orchestrator")
     const commandPath = path.join(root, "src", "commands", "pipeline-bug.md")
@@ -141,7 +151,7 @@ test("sync rejects path-traversal pipeline categories before creating output", (
   agent(root, "pipeline", "orchestrator")
   const outside = path.join(root, "outside-pipeline")
 
-  assert.throws(() => syncPipelineProfile(root, "copilot", "../../outside"), /Invalid pipeline category/)
+  assert.throws(() => syncPipelineProfile(root, "go", "../../outside"), /Invalid pipeline category/)
   assert.equal(fs.existsSync(outside), false)
   assert.equal(fs.existsSync(path.join(root, "export", "categories", "outside-pipeline")), false)
 })
@@ -155,7 +165,7 @@ test("sync rejects a symlinked pipeline category target before writing", () => {
   fs.mkdirSync(path.dirname(target), { recursive: true })
   fs.symlinkSync(outside, target)
 
-  assert.throws(() => syncPipelineProfile(root, "copilot", "linked"), /Invalid fork destination/)
+  assert.throws(() => syncPipelineProfile(root, "go", "linked"), /Invalid fork destination/)
   assert.equal(fs.readFileSync(path.join(outside, "keep.txt"), "utf8"), "keep\n")
   assert.deepEqual(fs.readdirSync(outside), ["keep.txt"])
 })

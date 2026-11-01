@@ -127,7 +127,7 @@ function normalizeAndValidateClaudePluginName(pluginName: string): string {
 
 /**
  * Strip the pipeline prefix from an agent filename.
- * e.g. "copilot-pipeline-explorer.md" with prefix "copilot-pipeline-" → "explorer.md"
+ * e.g. "go-pipeline-explorer.md" with prefix "go-pipeline-" → "explorer.md"
  */
 function stripPrefix(filename: string, prefix: string): string {
   if (prefix && filename.startsWith(prefix)) {
