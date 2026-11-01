@@ -67,6 +67,32 @@ test("manifest is the source of truth and the Wiki distribution is complete", ()
   assert.deepEqual(regularFiles(output(root)), [...new Set(expected)].sort())
 })
 
+test("generated category config uses the V2 MCP shape and omits plugins when none ship", () => {
+  const root = fixture()
+  buildCategoryDistribution(root, "wiki")
+  const config = JSON.parse(fs.readFileSync(path.join(output(root), "opencode.json"), "utf8"))
+  assert.deepEqual(config, {
+    mcp: { servers: { "codebase-memory-mcp": { type: "local", command: ["codebase-memory-mcp"], codemode: false } } }
+  })
+})
+
+test("generated category config lists shipped plugin directories relative to itself", () => {
+  const root = fixture()
+  const manifestPath = path.join(root, "agents/.agent-manager/categories/wiki.json")
+  const pluginDir = path.join(root, "agents/src/tools/wiki-plugin")
+  fs.mkdirSync(pluginDir, { recursive: true })
+  fs.writeFileSync(path.join(pluginDir, "index.ts"), "export {}\n")
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"))
+  manifest.resources.push({ kind: "directory", source: "src/tools/wiki-plugin", target: "plugins/wiki-plugin", policy: "text", primary: true })
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest))
+
+  buildCategoryDistribution(root, "wiki")
+
+  const config = JSON.parse(fs.readFileSync(path.join(output(root), "opencode.json"), "utf8"))
+  assert.deepEqual(config.plugins, ["./plugins/wiki-plugin"])
+  assert.equal(config.mcp.servers["codebase-memory-mcp"].codemode, false)
+})
+
 test("category README escapes adversarial text and inline paths deterministically", () => {
   const root = fixture(), manifestPath = path.join(root, "agents/.agent-manager/categories/wiki.json")
   const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"))
@@ -165,6 +191,26 @@ test("manifest rejects unsafe paths, forbidden generated inputs, collisions, and
     (m: any) => { m.resources[0].target = "agents"; m.resources[1].target = "agents/x" },
     (m: any) => { m.generated[0].id = "unknown" },
   ]) { const m = structuredClone(base); mutate(m); assert.throws(() => validateCategoryManifest(m, repo), /Invalid category distribution/) }
+})
+
+test("manifest accepts plugin sources under src/ and general/ but rejects sources outside the allowlist", () => {
+  const root = fixture(), workspace = path.join(root, "agents")
+  try {
+    const manifestPath = path.join(workspace, ".agent-manager/categories/wiki.json")
+    const base = JSON.parse(fs.readFileSync(manifestPath, "utf8"))
+    for (const prefix of ["src", "general"]) {
+      fs.mkdirSync(path.join(workspace, prefix, "plugins/wiki-plugin"), { recursive: true })
+      fs.writeFileSync(path.join(workspace, prefix, "plugins/wiki-plugin/index.ts"), "export {}\n")
+      const manifest = structuredClone(base)
+      manifest.resources.push({ kind: "directory", source: `${prefix}/plugins/wiki-plugin`, target: `plugins/${prefix}-wiki-plugin`, policy: "text" })
+      assert.doesNotThrow(() => validateCategoryManifest(manifest, workspace))
+    }
+    for (const source of ["plugins/wiki-plugin", "dist/plugins/wiki-plugin"]) {
+      const manifest = structuredClone(base)
+      manifest.resources.push({ kind: "directory", source, target: "plugins/wiki-plugin", policy: "text" })
+      assert.throws(() => validateCategoryManifest(manifest, workspace), /outside the canonical allowlist/)
+    }
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
 
 test("manifest rejects every generator-reserved target, case-insensitively", () => {

@@ -32,6 +32,13 @@ OpenCode tool names in prompts are translated where Codex has an equivalent (`to
 - `cupertino`: install `cupertino` and verify with `command -v cupertino`; see https://aleahim.com/blog/cupertino-09-release/.
 - `axiom`: runs as `npx -y axiom-mcp` (Node.js, npm, and network required).
 - `cwe-search`: runs as `npx -y cwe-search-mcp@latest` (Node.js, npm, and network required).
+- `bigquery`: install `` and verify with `command -v `.
+- `cloud-run`: install `` and verify with `command -v `.
+- `cloud-logging`: install `` and verify with `command -v `.
+- `cloud-monitoring`: install `` and verify with `command -v `.
+- `cloud-sql`: install `` and verify with `command -v `.
+- `cloud-storage`: install `` and verify with `command -v `.
+- `cloud-cli`: install `` and verify with `command -v `.
 
 Verify the resulting connections from Codex before invoking MCP-dependent agents.
 
@@ -119,3 +126,15 @@ Codex agent files set only `sandbox_mode`: agents whose OpenCode `bash` or `edit
 </details>
 
 Primary agent: @orchestrator
+
+## Translation warnings
+
+- [mcp] disabled server 'XcodeBuildMCP' in src/opencode.json is required by translated agents; emitted because the agents require it
+- [mcp] disabled server 'cupertino' in src/opencode.json is required by translated agents; emitted because the agents require it
+- [mcp] disabled server 'bigquery' in src/opencode.json is required by translated agents; emitted because the agents require it
+- [mcp] disabled server 'cloud-run' in src/opencode.json is required by translated agents; emitted because the agents require it
+- [mcp] disabled server 'cloud-logging' in src/opencode.json is required by translated agents; emitted because the agents require it
+- [mcp] disabled server 'cloud-monitoring' in src/opencode.json is required by translated agents; emitted because the agents require it
+- [mcp] disabled server 'cloud-sql' in src/opencode.json is required by translated agents; emitted because the agents require it
+- [mcp] disabled server 'cloud-storage' in src/opencode.json is required by translated agents; emitted because the agents require it
+- [mcp] disabled server 'cloud-cli' in src/opencode.json is required by translated agents; emitted because the agents require it

@@ -33,7 +33,10 @@
       "include": [
         "src/agents/pipeline-*.md",
         "src/commands/pipeline-*.md",
-        "src/plugins/pipeline-guard.js",
+        "src/plugins/pipeline-guard/**",
+        "src/plugins/pipeline-tools/**",
+        "src/plugins/doc-tools/**",
+        "src/plugins/slide-tools/**",
         "src/plugins/README.md",
         "src/tools/*pipeline*",
         "src/tools/_guards*",

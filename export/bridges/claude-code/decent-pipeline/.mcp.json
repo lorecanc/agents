@@ -55,6 +55,27 @@
         "-y",
         "cwe-search-mcp@latest"
       ]
+    },
+    "bigquery": {
+      "url": "https://bigquery.googleapis.com/mcp"
+    },
+    "cloud-run": {
+      "url": "https://run.googleapis.com/mcp"
+    },
+    "cloud-logging": {
+      "url": "https://logging.googleapis.com/mcp"
+    },
+    "cloud-monitoring": {
+      "url": "https://monitoring.googleapis.com/mcp"
+    },
+    "cloud-sql": {
+      "url": "https://sqladmin.googleapis.com/mcp"
+    },
+    "cloud-storage": {
+      "url": "https://storage.googleapis.com/storage/mcp"
+    },
+    "cloud-cli": {
+      "url": "https://cloudcli.googleapis.com/mcp"
     }
   }
 }

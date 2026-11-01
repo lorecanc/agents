@@ -1,4 +1,4 @@
-import { tool } from "@opencode-ai/plugin"
+import { tool } from "./_tool.js"
 import { safeProjectSegment } from "./_safeName.js"
 
 export default tool({

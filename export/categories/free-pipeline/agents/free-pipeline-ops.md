@@ -4,171 +4,473 @@ description: Operational diagnostics, runtime verification, and controlled
   log inspection, infrastructure checks, runtime verification, and
   user-authorized deployments. Cannot modify repository files.
 mode: subagent
-model: opencode/deepseek-v4.1-flash-free
-temperature: 1
-permission:
-  "*": deny
-  external_directory:
-    "*": ask
-    ~/.local/share/opencode/tool-output/*: allow
-    ~/.config/opencode/skills/*: allow
-    /tmp/*: allow
-    /private/tmp/*: allow
-  doom_loop: deny
-  pipeline_smoke: allow
-  pipeline_verify: allow
-  pipeline_state: allow
-  pipeline_env: allow
-  pipeline_serve: allow
-  skill: allow
-  webfetch: allow
-  websearch: allow
-  read_mcp_resource: allow
-  list_mcp_resources: allow
-  list_mcp_resource_templates: allow
-  codebase-memory-mcp_*: allow
-  codebase-memory-mcp_delete_project: deny
-  codebase-memory-mcp_ingest_traces: deny
-  codebase-memory-mcp_manage_adr: deny
-  bigquery_*: allow
-  cloud-run_*: allow
-  cloud-run_deploy_service_from_image: deny
-  cloud-run_deploy_service_from_archive: deny
-  cloud-run_deploy_service_from_file_contents: deny
-  cloud-run_deploy_service_from_source: deny
-  cloud-logging_*: allow
-  cloud-monitoring_*: allow
-  cloud-sql_*: allow
-  cloud-sql_execute_sql: ask
-  cloud-sql_create_instance: deny
-  cloud-sql_update_instance: deny
-  cloud-sql_clone_instance: deny
-  cloud-sql_create_user: deny
-  cloud-sql_update_user: deny
-  cloud-sql_restore_backup: deny
-  cloud-sql_import_data: deny
-  cloud-storage_*: allow
-  cloud-storage_create_bucket: deny
-  cloud-storage_delete_bucket: deny
-  cloud-storage_write_text: deny
-  cloud-storage_delete_object: deny
-  cloud-storage_read_text: deny
-  cloud-cli_*: allow
-  codebase-memory-mcp_index_repository: deny
-  read: allow
-  list: allow
-  grep: allow
-  glob: allow
-  lsp: allow
-  bash:
-    "*": allow
-    env: deny
-    env *: deny
-    printenv*: deny
-    "*.env*": deny
-    "* .env *": deny
-    cat .env.example: allow
-    cat .env.sample: allow
-    cat .env.template: allow
-    cat .env.test: allow
-    cp .env.example *: allow
-    cp .env.sample *: allow
-    cp .env.template *: allow
-    cp .env.test *: allow
-    sudo *: ask
-    psql *: ask
-    mysql *: ask
-    mongosh *: ask
-    redis-cli *: ask
-    rm *: ask
-    "* install*": ask
-    "* deploy*": ask
-    "* apply*": ask
-    "* submit*": ask
-    "* push*": ask
-    "* release create*": ask
-    "* workflow run*": ask
-    "* upgrade*": ask
-    "* rollback*": ask
-    "* patch*": ask
-    "* scale*": ask
-    "* rollout*": ask
-    vercel *: ask
-    ssh *: ask
-    scp *: ask
-    sftp *: ask
-    rsync *: ask
-    telnet *: ask
-    mosh *: ask
-    socat *: ask
-    nmap *: ask
-    "* rm *": deny
-    "* delete*": deny
-    "*--delete*": deny
-    "* destroy*": deny
-    "* prune*": deny
-    "* uninstall*": deny
-    "* down -v*": deny
-    "* terminate*": deny
-    terraform import*: deny
-    terraform * import*: deny
-    kubectl edit*: deny
-    kubectl * edit*: deny
-    set: deny
-    export -p*: deny
-    declare -p*: deny
-    /usr/bin/env*: deny
-    /usr/bin/printenv*: deny
-    shutdown*: deny
-    sudo shutdown*: deny
-    reboot*: deny
-    poweroff*: deny
-    halt*: deny
-    init 0*: deny
-    init 6*: deny
-    mkfs*: deny
-    systemctl reboot*: deny
-    systemctl poweroff*: deny
-    systemctl halt*: deny
-    systemctl suspend*: deny
-    systemctl hibernate*: deny
-    npm publish*: deny
-    pnpm publish*: deny
-    yarn publish*: deny
-    bun publish*: deny
-    cargo publish*: deny
-    twine upload*: deny
-    rm -rf: deny
-    rm -fr: deny
-    rm -r: deny
-    rm -f: deny
-    rm -rf /*: deny
-    rm -fr /*: deny
-    rm -r /*: deny
-    rm -rf ~*: deny
-    rm -fr ~*: deny
-    rm -r ~*: deny
-    rm -rf ..*: deny
-    rm -fr ..*: deny
-    rm -r ..*: deny
-    rm -rf .: deny
-    rm -fr .: deny
-    rm -r .: deny
-    rm -rf ./: deny
-    rm -fr ./: deny
-    rm -r ./: deny
-    rm -rf .*: deny
-    rm -fr .*: deny
-    rm -r .*: deny
-    rm * .git*: deny
-    rm -rf *: deny
-    rm -fr *: deny
-    rm -r*: deny
-    rm -f*: deny
+model: opencode/deepseek-v4.1-flash-free#high
 color: success
 hidden: true
-variant: high
 steps: 50
+request:
+  body:
+    temperature: 1
+permissions:
+  - action: "*"
+    resource: "*"
+    effect: deny
+  - action: external_directory
+    resource: "*"
+    effect: ask
+  - action: external_directory
+    resource: ~/.local/share/opencode/tool-output/*
+    effect: allow
+  - action: external_directory
+    resource: ~/.config/opencode/skills/*
+    effect: allow
+  - action: external_directory
+    resource: /tmp/*
+    effect: allow
+  - action: external_directory
+    resource: /private/tmp/*
+    effect: allow
+  - action: pipeline_smoke
+    resource: "*"
+    effect: allow
+  - action: pipeline_verify
+    resource: "*"
+    effect: allow
+  - action: pipeline_state
+    resource: "*"
+    effect: allow
+  - action: pipeline_env
+    resource: "*"
+    effect: allow
+  - action: pipeline_serve
+    resource: "*"
+    effect: allow
+  - action: skill
+    resource: "*"
+    effect: allow
+  - action: webfetch
+    resource: "*"
+    effect: allow
+  - action: websearch
+    resource: "*"
+    effect: allow
+  - action: opencode_read_mcp_resource
+    resource: "*"
+    effect: allow
+  - action: opencode_list_mcp_resources
+    resource: "*"
+    effect: allow
+  - action: codebase-memory-mcp_*
+    resource: "*"
+    effect: allow
+  - action: codebase-memory-mcp_delete_project
+    resource: "*"
+    effect: deny
+  - action: codebase-memory-mcp_ingest_traces
+    resource: "*"
+    effect: deny
+  - action: codebase-memory-mcp_manage_adr
+    resource: "*"
+    effect: deny
+  - action: bigquery_*
+    resource: "*"
+    effect: allow
+  - action: cloud-run_*
+    resource: "*"
+    effect: allow
+  - action: cloud-run_deploy_service_from_image
+    resource: "*"
+    effect: deny
+  - action: cloud-run_deploy_service_from_archive
+    resource: "*"
+    effect: deny
+  - action: cloud-run_deploy_service_from_file_contents
+    resource: "*"
+    effect: deny
+  - action: cloud-run_deploy_service_from_source
+    resource: "*"
+    effect: deny
+  - action: cloud-logging_*
+    resource: "*"
+    effect: allow
+  - action: cloud-monitoring_*
+    resource: "*"
+    effect: allow
+  - action: cloud-sql_*
+    resource: "*"
+    effect: allow
+  - action: cloud-sql_execute_sql
+    resource: "*"
+    effect: ask
+  - action: cloud-sql_create_instance
+    resource: "*"
+    effect: deny
+  - action: cloud-sql_update_instance
+    resource: "*"
+    effect: deny
+  - action: cloud-sql_clone_instance
+    resource: "*"
+    effect: deny
+  - action: cloud-sql_create_user
+    resource: "*"
+    effect: deny
+  - action: cloud-sql_update_user
+    resource: "*"
+    effect: deny
+  - action: cloud-sql_restore_backup
+    resource: "*"
+    effect: deny
+  - action: cloud-sql_import_data
+    resource: "*"
+    effect: deny
+  - action: cloud-storage_*
+    resource: "*"
+    effect: allow
+  - action: cloud-storage_create_bucket
+    resource: "*"
+    effect: deny
+  - action: cloud-storage_delete_bucket
+    resource: "*"
+    effect: deny
+  - action: cloud-storage_write_text
+    resource: "*"
+    effect: deny
+  - action: cloud-storage_delete_object
+    resource: "*"
+    effect: deny
+  - action: cloud-storage_read_text
+    resource: "*"
+    effect: deny
+  - action: cloud-cli_*
+    resource: "*"
+    effect: allow
+  - action: codebase-memory-mcp_index_repository
+    resource: "*"
+    effect: deny
+  - action: read
+    resource: "*"
+    effect: allow
+  - action: grep
+    resource: "*"
+    effect: allow
+  - action: glob
+    resource: "*"
+    effect: allow
+  - action: lsp
+    resource: "*"
+    effect: allow
+  - action: shell
+    resource: "*"
+    effect: allow
+  - action: shell
+    resource: env
+    effect: deny
+  - action: shell
+    resource: env *
+    effect: deny
+  - action: shell
+    resource: printenv*
+    effect: deny
+  - action: shell
+    resource: "*.env*"
+    effect: deny
+  - action: shell
+    resource: "* .env *"
+    effect: deny
+  - action: shell
+    resource: cat .env.example
+    effect: allow
+  - action: shell
+    resource: cat .env.sample
+    effect: allow
+  - action: shell
+    resource: cat .env.template
+    effect: allow
+  - action: shell
+    resource: cat .env.test
+    effect: allow
+  - action: shell
+    resource: cp .env.example *
+    effect: allow
+  - action: shell
+    resource: cp .env.sample *
+    effect: allow
+  - action: shell
+    resource: cp .env.template *
+    effect: allow
+  - action: shell
+    resource: cp .env.test *
+    effect: allow
+  - action: shell
+    resource: sudo *
+    effect: ask
+  - action: shell
+    resource: psql *
+    effect: ask
+  - action: shell
+    resource: mysql *
+    effect: ask
+  - action: shell
+    resource: mongosh *
+    effect: ask
+  - action: shell
+    resource: redis-cli *
+    effect: ask
+  - action: shell
+    resource: rm *
+    effect: ask
+  - action: shell
+    resource: "* install*"
+    effect: ask
+  - action: shell
+    resource: "* deploy*"
+    effect: ask
+  - action: shell
+    resource: "* apply*"
+    effect: ask
+  - action: shell
+    resource: "* submit*"
+    effect: ask
+  - action: shell
+    resource: "* push*"
+    effect: ask
+  - action: shell
+    resource: "* release create*"
+    effect: ask
+  - action: shell
+    resource: "* workflow run*"
+    effect: ask
+  - action: shell
+    resource: "* upgrade*"
+    effect: ask
+  - action: shell
+    resource: "* rollback*"
+    effect: ask
+  - action: shell
+    resource: "* patch*"
+    effect: ask
+  - action: shell
+    resource: "* scale*"
+    effect: ask
+  - action: shell
+    resource: "* rollout*"
+    effect: ask
+  - action: shell
+    resource: vercel *
+    effect: ask
+  - action: shell
+    resource: ssh *
+    effect: ask
+  - action: shell
+    resource: scp *
+    effect: ask
+  - action: shell
+    resource: sftp *
+    effect: ask
+  - action: shell
+    resource: rsync *
+    effect: ask
+  - action: shell
+    resource: telnet *
+    effect: ask
+  - action: shell
+    resource: mosh *
+    effect: ask
+  - action: shell
+    resource: socat *
+    effect: ask
+  - action: shell
+    resource: nmap *
+    effect: ask
+  - action: shell
+    resource: "* rm *"
+    effect: deny
+  - action: shell
+    resource: "* delete*"
+    effect: deny
+  - action: shell
+    resource: "*--delete*"
+    effect: deny
+  - action: shell
+    resource: "* destroy*"
+    effect: deny
+  - action: shell
+    resource: "* prune*"
+    effect: deny
+  - action: shell
+    resource: "* uninstall*"
+    effect: deny
+  - action: shell
+    resource: "* down -v*"
+    effect: deny
+  - action: shell
+    resource: "* terminate*"
+    effect: deny
+  - action: shell
+    resource: terraform import*
+    effect: deny
+  - action: shell
+    resource: terraform * import*
+    effect: deny
+  - action: shell
+    resource: kubectl edit*
+    effect: deny
+  - action: shell
+    resource: kubectl * edit*
+    effect: deny
+  - action: shell
+    resource: set
+    effect: deny
+  - action: shell
+    resource: export -p*
+    effect: deny
+  - action: shell
+    resource: declare -p*
+    effect: deny
+  - action: shell
+    resource: /usr/bin/env*
+    effect: deny
+  - action: shell
+    resource: /usr/bin/printenv*
+    effect: deny
+  - action: shell
+    resource: shutdown*
+    effect: deny
+  - action: shell
+    resource: sudo shutdown*
+    effect: deny
+  - action: shell
+    resource: reboot*
+    effect: deny
+  - action: shell
+    resource: poweroff*
+    effect: deny
+  - action: shell
+    resource: halt*
+    effect: deny
+  - action: shell
+    resource: init 0*
+    effect: deny
+  - action: shell
+    resource: init 6*
+    effect: deny
+  - action: shell
+    resource: mkfs*
+    effect: deny
+  - action: shell
+    resource: systemctl reboot*
+    effect: deny
+  - action: shell
+    resource: systemctl poweroff*
+    effect: deny
+  - action: shell
+    resource: systemctl halt*
+    effect: deny
+  - action: shell
+    resource: systemctl suspend*
+    effect: deny
+  - action: shell
+    resource: systemctl hibernate*
+    effect: deny
+  - action: shell
+    resource: npm publish*
+    effect: deny
+  - action: shell
+    resource: pnpm publish*
+    effect: deny
+  - action: shell
+    resource: yarn publish*
+    effect: deny
+  - action: shell
+    resource: bun publish*
+    effect: deny
+  - action: shell
+    resource: cargo publish*
+    effect: deny
+  - action: shell
+    resource: twine upload*
+    effect: deny
+  - action: shell
+    resource: rm -rf
+    effect: deny
+  - action: shell
+    resource: rm -fr
+    effect: deny
+  - action: shell
+    resource: rm -r
+    effect: deny
+  - action: shell
+    resource: rm -f
+    effect: deny
+  - action: shell
+    resource: rm -rf /*
+    effect: deny
+  - action: shell
+    resource: rm -fr /*
+    effect: deny
+  - action: shell
+    resource: rm -r /*
+    effect: deny
+  - action: shell
+    resource: rm -rf ~*
+    effect: deny
+  - action: shell
+    resource: rm -fr ~*
+    effect: deny
+  - action: shell
+    resource: rm -r ~*
+    effect: deny
+  - action: shell
+    resource: rm -rf ..*
+    effect: deny
+  - action: shell
+    resource: rm -fr ..*
+    effect: deny
+  - action: shell
+    resource: rm -r ..*
+    effect: deny
+  - action: shell
+    resource: rm -rf .
+    effect: deny
+  - action: shell
+    resource: rm -fr .
+    effect: deny
+  - action: shell
+    resource: rm -r .
+    effect: deny
+  - action: shell
+    resource: rm -rf ./
+    effect: deny
+  - action: shell
+    resource: rm -fr ./
+    effect: deny
+  - action: shell
+    resource: rm -r ./
+    effect: deny
+  - action: shell
+    resource: rm -rf .*
+    effect: deny
+  - action: shell
+    resource: rm -fr .*
+    effect: deny
+  - action: shell
+    resource: rm -r .*
+    effect: deny
+  - action: shell
+    resource: rm * .git*
+    effect: deny
+  - action: shell
+    resource: rm -rf *
+    effect: deny
+  - action: shell
+    resource: rm -fr *
+    effect: deny
+  - action: shell
+    resource: rm -r*
+    effect: deny
+  - action: shell
+    resource: rm -f*
+    effect: deny
 ---
 
 # free-pipeline-ops

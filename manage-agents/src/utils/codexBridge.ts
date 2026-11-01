@@ -5,6 +5,7 @@ import { buildInferenceIndex, DEFAULT_TRANSLATION_CONFIG, resolveModelTarget, au
 import type { TranslationConfig } from "./translationConfig.js"
 import { assertInsideRealWorkspace, realpathThroughExistingAncestor } from "./pathValidation.js"
 import { isKnownPermissionKey, translatePermissionsV2ToV1 } from "./v2Compat.js"
+import { isServerDisabled, readMcpServers } from "./opencodeMcp.js"
 import { adaptToolReferences, collectBashAllowlist, isOpenCodeCustomToolKey, renderBashAllowlistSection, type BashAllowlist } from "./bridgeToolReferences.js"
 
 /** A key containing an underscore that is not a built-in tool permission names an MCP server. */
@@ -301,19 +302,50 @@ function requiredMcpServers(agents: AgentInfo[]): Set<string> {
   return new Set(agents.flatMap(agentMcpServers))
 }
 
-function buildCodexMcpConfig(workspaceRoot: string, requiredServers: Set<string> = new Set()): {
+/** Servers carrying a whole-server (`${server}_*`) deny. */
+function serverScopedDeniedServers(agents: AgentInfo[]): Set<string> {
+  const denied = new Set<string>()
+  for (const agent of agents) {
+    for (const [key, value] of Object.entries(agentPermissions(agent))) {
+      if (!isMcpPermissionKey(key) || (value !== "deny" && value !== false)) continue
+      const server = key.replace(/_.*$/, "")
+      if (server && key === `${server}_*`) denied.add(server)
+    }
+  }
+  return denied
+}
+
+function buildCodexMcpConfig(
+  workspaceRoot: string,
+  requiredServers: Set<string> = new Set(),
+  serverScopedDenies: ReadonlySet<string> = new Set()
+): {
   config: Record<string, any> | null
   warnings: string[]
 } {
   const sourcePath = [path.join(workspaceRoot, "src", "opencode.json"), path.join(workspaceRoot, "general", "opencode.json")].find(file => fs.existsSync(file)) || path.join(workspaceRoot, "src", "opencode.json")
   if (!fs.existsSync(sourcePath)) return { config: null, warnings: [] }
+
+  // A deny must never be traded for availability, so this fails the bridge
+  // before any file is written instead of being swallowed by the parse catch.
+  for (const name of requiredServers) {
+    if (serverScopedDenies.has(name)) {
+      throw new Error(`MCP server '${name}' is required by translated agents but denied server-wide in their permissions; refusing to emit a whole-server allow`)
+    }
+  }
+
   try {
     const source = JSON.parse(fs.readFileSync(sourcePath, "utf-8")) as Record<string, any>
     const servers: Record<string, any> = {}
-    for (const [name, value] of Object.entries(source.mcp || {})) {
+    const warnings: string[] = []
+    for (const [name, value] of Object.entries(readMcpServers(source))) {
       if (!value || typeof value !== "object") continue
       const server = value as Record<string, any>
-      if (server.enabled === false && !requiredServers.has(name)) continue
+      const disabled = isServerDisabled(server)
+      if (disabled && !requiredServers.has(name)) continue
+      if (disabled) {
+        warnings.push(`[mcp] disabled server '${name}' in ${path.relative(workspaceRoot, sourcePath) || sourcePath} is required by translated agents; emitted because the agents require it`)
+      }
       const commandParts = Array.isArray(server.command)
         ? server.command.map(String)
         : typeof server.command === "string" ? server.command.trim().split(/\s+/) : []
@@ -336,8 +368,8 @@ function buildCodexMcpConfig(workspaceRoot: string, requiredServers: Set<string>
       servers[name] = translated
     }
     return Object.keys(servers).length > 0
-      ? { config: { mcpServers: servers }, warnings: [] }
-      : { config: null, warnings: [] }
+      ? { config: { mcpServers: servers }, warnings }
+      : { config: null, warnings }
   } catch (error: any) {
     return {
       config: null,
@@ -439,7 +471,7 @@ export function writeCodexPlugin(
   const aliases = buildAgentAliasMap(agents, prefix)
   const translatedAgents = agents.map(agent => convertCodexAgent(agent, prefix, aliases, config, warnings, agents, resolvedTargets))
   const emitSkills = config.codex.emitSkills !== false
-  const mcpResult = buildCodexMcpConfig(workspaceRoot, requiredMcpServers(agents))
+  const mcpResult = buildCodexMcpConfig(workspaceRoot, requiredMcpServers(agents), serverScopedDeniedServers(agents))
   const emitMcp = config.codex.emitMcp !== false && Boolean(mcpResult.config)
   warnings.push(...mcpResult.warnings)
   const plugin = buildPlugin(translatedAgents, normalizedPluginName, emitSkills)

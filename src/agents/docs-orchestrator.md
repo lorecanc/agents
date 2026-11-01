@@ -1,28 +1,52 @@
 ---
-description: Professional Document Engineer specializing in creating, editing,
-  and converting files to multiple formats (PDF, DOCX, Markdown, TXT). Handles
-  document structure, styling, research, and multi-format export.
+description: Professional Document Engineer specializing in creating, editing, and converting files to multiple formats (PDF, DOCX, Markdown, TXT). Handles document structure, styling, research, and multi-format export.
 mode: primary
-temperature: 0.2
-permission:
-  edit: allow
-  bash: allow
-  read: allow
-  write: allow
-  glob: allow
-  grep: allow
-  webfetch: allow
-  websearch: allow
-  question: allow
-  skill:
-    docx: allow
-    docs-html: allow
-    docs-design: allow
-  task:
-    docs-planner: allow
-    general: allow
-    explore: allow
-    docs-html_writer: allow
+permissions:
+  - action: edit
+    resource: "*"
+    effect: allow
+  - action: shell
+    resource: "*"
+    effect: allow
+  - action: read
+    resource: "*"
+    effect: allow
+  - action: glob
+    resource: "*"
+    effect: allow
+  - action: grep
+    resource: "*"
+    effect: allow
+  - action: webfetch
+    resource: "*"
+    effect: allow
+  - action: websearch
+    resource: "*"
+    effect: allow
+  - action: question
+    resource: "*"
+    effect: allow
+  - action: skill
+    resource: docx
+    effect: allow
+  - action: skill
+    resource: docs-html
+    effect: allow
+  - action: skill
+    resource: docs-design
+    effect: allow
+  - action: subagent
+    resource: docs-planner
+    effect: allow
+  - action: subagent
+    resource: general
+    effect: allow
+  - action: subagent
+    resource: explore
+    effect: allow
+  - action: subagent
+    resource: docs-html_writer
+    effect: allow
 ---
 
 # Docs Agent

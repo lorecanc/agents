@@ -1,17 +1,25 @@
 ---
-description: Orchestrates wiki generation and updates. Decides flow and
-  delegates to specialized subagents.
+description: Orchestrates wiki generation and updates. Decides flow and delegates to specialized subagents.
 mode: primary
-permission:
-  edit: allow
-  bash:
-    "*": allow
-    git *: allow
-  task: allow
-  skill: allow
 hidden: true
 color: "#2C3E87"
 steps: 45
+permissions:
+  - action: edit
+    resource: "*"
+    effect: allow
+  - action: shell
+    resource: "*"
+    effect: allow
+  - action: shell
+    resource: git *
+    effect: allow
+  - action: subagent
+    resource: "*"
+    effect: allow
+  - action: skill
+    resource: "*"
+    effect: allow
 ---
 
 You are the wiki orchestrator. You coordinate the generation or update of a project wiki.

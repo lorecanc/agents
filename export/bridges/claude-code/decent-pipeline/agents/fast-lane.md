@@ -3,15 +3,11 @@ name: fast-lane
 description: Fast low-cost agent for trivial or small, clear, low-risk coding
   tasks and obvious local bug fixes.
 model: sonnet
-tools: Read, Grep, Glob, Write, Edit, Bash, Skill, LSP,
-  mcp__codebase-memory-mcp__*,
-  mcp__plugin_decent-pipeline_codebase-memory-mcp__*, mcp__bigquery__*,
-  mcp__plugin_decent-pipeline_bigquery__*, mcp__cloud-run__*,
-  mcp__plugin_decent-pipeline_cloud-run__*, mcp__cloud-logging__*,
+maxTurns: 75
+tools: Read, Grep, Glob, Write, Edit, Bash, Skill, LSP, mcp__bigquery__*,
+  mcp__plugin_decent-pipeline_bigquery__*, mcp__cloud-logging__*,
   mcp__plugin_decent-pipeline_cloud-logging__*, mcp__cloud-monitoring__*,
-  mcp__plugin_decent-pipeline_cloud-monitoring__*, mcp__cloud-sql__*,
-  mcp__plugin_decent-pipeline_cloud-sql__*, mcp__cloud-storage__*,
-  mcp__plugin_decent-pipeline_cloud-storage__*
+  mcp__plugin_decent-pipeline_cloud-monitoring__*
 ---
 
 # pipeline-fast_lane

@@ -5,16 +5,12 @@ description: Operational diagnostics, runtime verification, and controlled
   log inspection, infrastructure checks, runtime verification, and
   user-authorized deployments. Cannot modify repository files.
 model: sonnet
+maxTurns: 80
 tools: Read, Grep, Glob, Bash, WebFetch, WebSearch, Skill, LSP,
-  mcp__codebase-memory-mcp__*,
-  mcp__plugin_decent-pipeline_codebase-memory-mcp__*, mcp__bigquery__*,
-  mcp__plugin_decent-pipeline_bigquery__*, mcp__cloud-run__*,
-  mcp__plugin_decent-pipeline_cloud-run__*, mcp__cloud-logging__*,
-  mcp__plugin_decent-pipeline_cloud-logging__*, mcp__cloud-monitoring__*,
-  mcp__plugin_decent-pipeline_cloud-monitoring__*, mcp__cloud-sql__*,
-  mcp__plugin_decent-pipeline_cloud-sql__*, mcp__cloud-storage__*,
-  mcp__plugin_decent-pipeline_cloud-storage__*, mcp__cloud-cli__*,
-  mcp__plugin_decent-pipeline_cloud-cli__*
+  mcp__bigquery__*, mcp__plugin_decent-pipeline_bigquery__*,
+  mcp__cloud-logging__*, mcp__plugin_decent-pipeline_cloud-logging__*,
+  mcp__cloud-monitoring__*, mcp__plugin_decent-pipeline_cloud-monitoring__*,
+  mcp__cloud-cli__*, mcp__plugin_decent-pipeline_cloud-cli__*
 ---
 
 # pipeline-ops

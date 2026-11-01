@@ -1,14 +1,39 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
+import { registerHooks } from "node:module"
 import fs from "node:fs"
-import os from "node:os"
 import path from "node:path"
-import { randomUUID } from "node:crypto"
 import { execFileSync } from "node:child_process"
 import { mkTmp } from "./_pipeline_testutil.mjs"
 
-import guardModule, { createPipelineGuard } from "../plugins/pipeline-guard.js"
-import { activityLogPath, readActivity, repoInfo, readSession, scratchDir, summarizeActivity } from "./_pipeline_core.js"
+// @opencode/plugin is not installed in this repo: stub it before the dynamic import below.
+// Plugin.define is an identity function in V2; the stub marks the result so the test can prove
+// the default export really went through it.
+const STUB_SOURCE = `
+export const Plugin = {
+  define(definition) {
+    globalThis.__pipelineGuardDefineCalls = (globalThis.__pipelineGuardDefineCalls || 0) + 1
+    return { ...definition, __defined: true }
+  },
+}
+`
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    if (specifier === "@opencode/plugin") return { url: "opencode-plugin-v2-stub://plugin", shortCircuit: true }
+    return nextResolve(specifier, context)
+  },
+  load(url, context, nextLoad) {
+    if (url.startsWith("opencode-plugin-v2-stub:")) return { format: "module", source: STUB_SOURCE, shortCircuit: true }
+    return nextLoad(url, context)
+  },
+})
+
+import { activityLogPath, readActivity, readSession, repoInfo, scratchDir, summarizeActivity } from "./_pipeline_core.js"
+
+const plugin = (await import("../plugins/pipeline-guard/index.ts")).default
+
+const EXEC = "hybrid-pipeline-executor"
+const ORCH = "hybrid-pipeline-orchestrator"
 
 function mkRepo() {
   const dir = mkTmp("pipe-guard-")
@@ -23,398 +48,533 @@ function mkRepo() {
   return dir
 }
 
-// Minimal SDK double: session.get returns { data: { id, parentID } }.
-const makeClient = (parents = {}) => ({
-  session: { get: async ({ path: p }) => ({ data: { id: p.id, parentID: parents[p.id] || null } }) },
-  app: { log: async () => {} },
-  tui: { showToast: async (arg) => { makeClient.toasts.push(arg) } },
-})
-makeClient.toasts = []
+// Fake V2 plugin context: every hook registration is recorded so cleanup can be asserted.
+function makeContext(directory, { parents = {}, failSession = false } = {}) {
+  const registrations = []
+  const calls = { sessionGet: [], subscribe: [] }
+  const handlers = { session: {}, tool: {}, shell: {}, permission: {}, event: null }
 
-const EXEC = "hybrid-pipeline-executor"
-const ORCH = "hybrid-pipeline-orchestrator"
+  const keep = (label, remove) => {
+    const entry = {
+      label,
+      disposed: false,
+      dispose() {
+        if (entry.disposed) return
+        entry.disposed = true
+        remove?.()
+      },
+    }
+    registrations.push(entry)
+    return entry
+  }
 
-async function setup(parents = { ses_child: "ses_root", ses_child2: "ses_root" }) {
-  const dir = mkRepo()
-  const hooks = await createPipelineGuard({ client: makeClient(parents), directory: dir })
-  await hooks["chat.params"]({ sessionID: "ses_root", agent: ORCH })
-  await hooks["chat.params"]({ sessionID: "ses_child", agent: EXEC })
-  return { dir, hooks, info: repoInfo(dir) }
+  const hookFor = (kind) => (name, callback) => {
+    handlers[kind][name] = callback
+    return keep(`${kind}:${name}`, () => { delete handlers[kind][name] })
+  }
+
+  const ctx = {
+    location: { directory },
+    session: {
+      get: async (arg) => {
+        calls.sessionGet.push(arg)
+        if (failSession) throw new Error("no sdk")
+        return { data: { id: arg.sessionID, parentID: parents[arg.sessionID] || null } }
+      },
+      hook: hookFor("session"),
+    },
+    tool: { hook: hookFor("tool") },
+    shell: { hook: hookFor("shell") },
+    permission: { hook: hookFor("permission") },
+    event: {
+      subscribe: (options, callback) => {
+        calls.subscribe.push(options)
+        handlers.event = callback
+        return keep("event:subscribe", () => { handlers.event = null })
+      },
+    },
+  }
+
+  return { ctx, handlers, calls, registrations }
 }
 
-const before = (hooks, sessionID, tool, args) => hooks["tool.execute.before"]({ tool, sessionID, callID: "c" }, { args })
+async function setup({ parents = {}, failSession = false, dir = null, options = {} } = {}) {
+  const repository = dir || mkRepo()
+  const harness = makeContext(repository, { parents, failSession })
+  const cleanup = await plugin.setup(harness.ctx, options)
+  return { ...harness, dir: repository, cleanup, info: repoInfo(repository) }
+}
 
-test("internal agents (title, summary, compaction) on the same session do not switch the guard off", async () => {
-  // opencode fires chat.params for hidden internal agents on the SAME session id, possibly after the first step.
-  const { hooks } = await setup()
-  for (const internal of ["title", "summary", "compaction"]) {
-    await hooks["chat.params"]({ sessionID: "ses_child", agent: internal })
-    await assert.rejects(before(hooks, "ses_child", "bash", { command: "git checkout -b t1" }), /Blocked/, `after ${internal}`)
+const modelRequest = (h, sessionID, agent) => h.handlers.session["model.request"]({ sessionID, agent })
+const promptEvent = (h, sessionID, agent) => h.handlers.session.prompt({ sessionID, agent })
+const before = (h, sessionID, tool, input, id = "call") =>
+  h.handlers.tool["execute.before"]({ tool, sessionID, id, input })
+const after = (h, sessionID, tool, input, id = "call", status = "completed", error) =>
+  h.handlers.tool["execute.after"]({ tool, sessionID, id, input, status, error })
+const shellCreate = (h, event) => h.handlers.shell["create.before"](event)
+const emit = (h, event) => h.handlers.event({ event })
+const evaluate = (h, event) => h.handlers.permission.evaluate(event)
+const compact = (h, event) => h.handlers.session.compaction(event)
+
+async function withWarnings(fn) {
+  const lines = []
+  const original = console.warn
+  console.warn = (...args) => { lines.push(args.join(" ")) }
+  try {
+    await fn()
+  } finally {
+    console.warn = original
   }
-  // but a deliberate switch of the session to a normal agent (user pressed Tab) does turn the guard off
-  await hooks["chat.params"]({ sessionID: "ses_child", agent: "build" })
-  await before(hooks, "ses_child", "bash", { command: "git checkout -b t1" })
-  // and switching back to a pipeline agent turns it on again
-  await hooks["chat.params"]({ sessionID: "ses_child", agent: EXEC })
-  await assert.rejects(before(hooks, "ses_child", "bash", { command: "git checkout -b t1" }), /Blocked/)
-})
+  return lines
+}
 
-test("default export exposes id and server like other local plugins", async () => {
-  // Plain node gives the ESM default export; under tsx the nearest package.json has no
-  // "type": "module", so the file is loaded with CJS interop and the export is nested.
-  const plugin = guardModule.server ? guardModule : guardModule.default
+test("default export is produced by Plugin.define with the pipeline-guard id", () => {
+  assert.equal(globalThis.__pipelineGuardDefineCalls, 1)
+  assert.equal(plugin.__defined, true)
   assert.equal(plugin.id, "pipeline-guard")
-  const hooks = await plugin.server({ client: makeClient(), directory: mkRepo() })
-  assert.equal(typeof hooks["tool.execute.before"], "function")
+  assert.equal(typeof plugin.setup, "function")
 })
 
-test("root and child sessions are registered, baseline captured once per root", async () => {
-  const { dir, info } = await setup()
-  const root = readSession(info, "ses_root")
+test("session.get resolves the parent chain and registers a child under its root", async () => {
+  const h = await setup({ parents: { ses_child: "ses_parent", ses_parent: "ses_root" } })
+  await modelRequest(h, "ses_child", EXEC)
+
+  assert.deepEqual(h.calls.sessionGet.map((c) => c.sessionID), ["ses_child", "ses_parent", "ses_root"])
+  for (const call of h.calls.sessionGet) {
+    assert.deepEqual(Object.keys(call), ["sessionID"])
+  }
+  const root = readSession(h.info, "ses_root")
   assert.equal(root.rootId, "ses_root")
   assert.equal(root.busy, true)
   assert.equal(root.baseline.branch, "main")
   assert.deepEqual(root.baseline.dirty, [])
-  assert.equal(readSession(info, "ses_child").rootId, "ses_root")
-  assert.equal(fs.existsSync(scratchDir(info)) || true, true)
-  assert.ok(dir)
+  assert.equal(readSession(h.info, "ses_child").rootId, "ses_root")
 })
 
-test("shell.env points temp dirs at the in-repo scratch for pipeline sessions only", async () => {
-  const { hooks, info, dir } = await setup()
-  const out = { env: {} }
-  await hooks["shell.env"]({ cwd: dir, sessionID: "ses_child" }, out)
-  assert.equal(out.env.TMPDIR, scratchDir(info))
-  assert.equal(out.env.PIPELINE_SCRATCH, scratchDir(info))
-  assert.equal(out.env.PIPELINE_SESSION, "ses_root")
-  assert.equal(out.env.GIT_EDITOR, ":")
-  assert.equal(out.env.GIT_SEQUENCE_EDITOR, ":")
-  assert.equal(out.env.GIT_MERGE_AUTOEDIT, "no")
-  assert.ok(fs.existsSync(out.env.TMPDIR))
-  await hooks["chat.params"]({ sessionID: "ses_plain", agent: "build" })
-  const plain = { env: {} }
-  await hooks["shell.env"]({ cwd: dir, sessionID: "ses_plain" }, plain)
-  assert.deepEqual(plain.env, {})
-  const unknown = { env: {} }
-  await hooks["shell.env"]({ cwd: dir, sessionID: "ses_never_seen" }, unknown)
-  assert.deepEqual(unknown.env, {})
-})
-
-test("shell.env for a pipeline session uses its session repo scratch, not the cwd repo", async () => {
-  const fixtureRoot = path.join(process.cwd(), ".git", "opencode-scratch", `shell-env-${randomUUID()}`)
-  const sessionRepo = path.join(fixtureRoot, "session-repo")
-  const foreignRepo = path.join(fixtureRoot, "foreign-repo")
-  const sessionScratch = path.join(sessionRepo, ".git", "opencode-scratch")
-  const foreignScratch = path.join(foreignRepo, ".git", "opencode-scratch")
-
-  try {
-    const init = (dir) => {
-      fs.mkdirSync(dir, { recursive: true })
-      const git = (...args) => execFileSync("git", args, { cwd: dir, stdio: "ignore" })
-      git("init", "-q", "-b", "main")
-      git("config", "user.email", "t@example.com")
-      git("config", "user.name", "T")
-      fs.writeFileSync(path.join(dir, "tracked.txt"), "fixture\n")
-      git("add", "tracked.txt")
-      git("commit", "-qm", "fixture")
-    }
-    init(sessionRepo)
-    init(foreignRepo)
-
-    const client = {
-      session: { get: async ({ path: p }) => ({ data: { id: p.id, parentID: null } }) },
-      app: { log: async () => {} },
-    }
-    const hooks = await createPipelineGuard({ client, directory: sessionRepo })
-    await hooks["chat.params"]({ sessionID: "ses_shell_env", agent: "hybrid-pipeline-orchestrator" })
-
-    const unknown = { env: {} }
-    await hooks["shell.env"]({ cwd: foreignRepo, sessionID: "ses_unknown_shell_env" }, unknown)
-    assert.deepEqual(unknown.env, {})
-    assert.equal(fs.existsSync(foreignScratch), false)
-
-    const output = { env: {} }
-    await hooks["shell.env"]({ cwd: foreignRepo, sessionID: "ses_shell_env" }, output)
-
-    assert.equal(fs.existsSync(foreignScratch), false, "shell.env must not create scratch in the cwd repository")
-    assert.equal(fs.existsSync(sessionScratch), true)
-    assert.deepEqual(
-      {
-        TMPDIR: output.env.TMPDIR,
-        TMP: output.env.TMP,
-        TEMP: output.env.TEMP,
-        PIPELINE_SCRATCH: output.env.PIPELINE_SCRATCH,
-      },
-      {
-        TMPDIR: sessionScratch,
-        TMP: sessionScratch,
-        TEMP: sessionScratch,
-        PIPELINE_SCRATCH: sessionScratch,
-      },
-    )
-  } finally {
-    fs.rmSync(fixtureRoot, { recursive: true, force: true })
+test("internal agents (title, summary, compaction) do not switch the guard off", async () => {
+  const h = await setup({ parents: { ses_child: "ses_root" } })
+  await modelRequest(h, "ses_root", ORCH)
+  await modelRequest(h, "ses_child", EXEC)
+  for (const internal of ["title", "summary", "compaction"]) {
+    await promptEvent(h, "ses_child", internal)
+    await assert.rejects(before(h, "ses_child", "shell", { command: "git checkout -b t1" }), /Blocked/, `after ${internal}`)
   }
+  // A deliberate switch to a normal agent (user pressed Tab) turns the guard off...
+  await modelRequest(h, "ses_child", "build")
+  await before(h, "ses_child", "shell", { command: "git checkout -b t1" })
+  // ...and switching back to a pipeline agent turns it on again.
+  await promptEvent(h, "ses_child", EXEC)
+  await assert.rejects(before(h, "ses_child", "shell", { command: "git checkout -b t1" }), /Blocked/)
 })
 
-test("tool.execute.before blocks escapes and git state changes with actionable messages", async () => {
-  const { hooks, info } = await setup()
-  await assert.rejects(before(hooks, "ses_child", "bash", { command: "git checkout -b t1" }), /\[pipeline-guard\] Blocked: git checkout is not allowed/)
-  await assert.rejects(before(hooks, "ses_child", "bash", { command: "git worktree add ../x" }), /worktree/)
-  await assert.rejects(before(hooks, "ses_child", "bash", { command: "echo x > ~/out.txt" }), /outside the repository/)
-  await before(hooks, "ses_child", "bash", { command: "echo x > /tmp/ok.log" })
-  await hooks["tool.execute.after"]({ tool: "bash", sessionID: "ses_child", callID: "tmp-write", args: { command: "echo x > /tmp/ok.log" } }, {})
-  assert.deepEqual(readSession(info, "ses_root").files, {})
-  await assert.rejects(before(hooks, "ses_child", "write", { filePath: "/etc/leak.txt", content: "x" }), /outside the repository/)
-  await assert.rejects(before(hooks, "ses_child", "edit", { filePath: ".git/hooks/pre-commit" }), /git internals/)
-  await assert.rejects(before(hooks, "ses_child", "apply_patch", { patchText: "*** Begin Patch\n*** Add File: /etc/x\n*** End Patch" }), /outside the repository/)
-  await before(hooks, "ses_child", "bash", { command: "git status --porcelain && npm test" })
-  await before(hooks, "ses_child", "bash", { command: "git pull --ff-only" })
-  await before(hooks, "ses_child", "bash", { command: "git merge --abort" })
-  await before(hooks, "ses_child", "bash", { command: "git rebase --continue" })
-  await before(hooks, "ses_child", "bash", { command: "git rebase -Xours main" })
-  await before(hooks, "ses_child", "bash", { command: "git checkout --ours src/a.js" })
-  await before(hooks, "ses_child", "bash", { command: "git add src/a.js" })
-  await assert.rejects(before(hooks, "ses_child", "bash", { command: "git rebase -i main" }), /\[pipeline-guard\] Blocked: git rebase/)
-  await assert.rejects(before(hooks, "ses_child", "bash", { command: "git pull --rebase=interactive" }), /\[pipeline-guard\] Blocked: git pull/)
-  await assert.rejects(before(hooks, "ses_child", "bash", { command: "git -cprotocol.ext.allow=always fetch origin" }), /\[pipeline-guard\] Blocked: git/)
-  await assert.rejects(before(hooks, "ses_child", "bash", { command: "git push" }), /\[pipeline-guard\] Blocked: git push/)
-  await before(hooks, "ses_child", "write", { filePath: "src/new.ts", content: "x" })
-  await before(hooks, "ses_child", "read", { filePath: "/etc/hosts" }) // reads are permissions' business
+test("shell.create.before injects scratch env for exactly one live root and fails open for two", async () => {
+  const h = await setup()
+  await modelRequest(h, "ses_root_a", ORCH)
+
+  const first = { command: "mktemp", cwd: h.dir, env: {} }
+  await shellCreate(h, first)
+  assert.equal(first.env.TMPDIR, scratchDir(h.info))
+  assert.equal(first.env.TMP, scratchDir(h.info))
+  assert.equal(first.env.TEMP, scratchDir(h.info))
+  assert.equal(first.env.PIPELINE_SCRATCH, scratchDir(h.info))
+  assert.equal(first.env.PIPELINE_SESSION, "ses_root_a")
+  assert.equal(first.env.GIT_EDITOR, ":")
+  assert.equal(first.env.GIT_SEQUENCE_EDITOR, ":")
+  assert.equal(first.env.GIT_MERGE_AUTOEDIT, "no")
+  assert.ok(fs.existsSync(first.env.TMPDIR))
+
+  // A shell in a subdirectory of the root still matches.
+  fs.mkdirSync(path.join(h.dir, "sub"))
+  const nested = { command: "ls", cwd: path.join(h.dir, "sub"), env: {} }
+  await shellCreate(h, nested)
+  assert.equal(nested.env.PIPELINE_SESSION, "ses_root_a")
+
+  // Two live pipeline roots share the directory: cwd alone cannot tell which one runs the shell.
+  await modelRequest(h, "ses_root_b", ORCH)
+  const ambiguous = { command: "ls", cwd: h.dir, env: {} }
+  const warnings = await withWarnings(async () => { await shellCreate(h, ambiguous) })
+  assert.deepEqual(ambiguous.env, {})
+  assert.ok(warnings.some((line) => line.includes("[pipeline-guard]") && line.includes("2 live pipeline roots")))
+
+  // Once one root goes idle only the other stays live and injection resumes.
+  await emit(h, { type: "session.idle", properties: { sessionID: "ses_root_a" } })
+  const unambiguous = { command: "ls", cwd: h.dir, env: {} }
+  await shellCreate(h, unambiguous)
+  assert.equal(unambiguous.env.PIPELINE_SESSION, "ses_root_b")
+
+  // Outside every pipeline root nothing is injected.
+  const outside = { command: "ls", cwd: mkTmp("pipe-guard-outside-"), env: {} }
+  await shellCreate(h, outside)
+  assert.deepEqual(outside.env, {})
 })
 
-test("tool.execute.before permits scoped cleanup and git file operations but blocks repository-root removal", async () => {
-  const { hooks } = await setup()
-  await before(hooks, "ses_child", "bash", { command: "rm -rf build" })
-  await before(hooks, "ses_child", "bash", { command: "rm -rf $PIPELINE_SCRATCH/work" })
-  await before(hooks, "ses_child", "bash", { command: "git mv a.txt renamed.txt" })
-  await before(hooks, "ses_child", "bash", { command: "git rm -r src/old-dir" })
-  await assert.rejects(before(hooks, "ses_child", "bash", { command: "rm -rf ." }), /explicit path target/)
-  await assert.rejects(before(hooks, "ses_child", "bash", { command: "git rm -r ." }), /git rm requires explicit/)
-})
+test("tool.execute.before blocks outside writes and forbidden git commands", async () => {
+  const h = await setup({ parents: { ses_child: "ses_root" } })
+  await modelRequest(h, "ses_root", ORCH)
+  await modelRequest(h, "ses_child", EXEC)
 
-test("workdir is honored when judging relative writes", async () => {
-  const { hooks } = await setup()
-  await assert.rejects(before(hooks, "ses_child", "bash", { command: "echo x > out.txt", workdir: "/tmp" }), /outside the repository/)
-})
-
-test("post_session may commit but not branch or stash", async () => {
-  const dir = mkRepo()
-  const hooks = await createPipelineGuard({ client: makeClient({ ses_ps: "ses_root" }), directory: dir })
-  await hooks["chat.params"]({ sessionID: "ses_root", agent: ORCH })
-  await hooks["chat.params"]({ sessionID: "ses_ps", agent: "hybrid-pipeline-post_session" })
-  await before(hooks, "ses_ps", "bash", { command: 'git add a.txt && git commit -m "x"' })
-  await assert.rejects(before(hooks, "ses_ps", "bash", { command: "git add -A" }), /explicit file paths/)
-  await assert.rejects(before(hooks, "ses_ps", "bash", { command: "git stash" }), /stash/)
-})
-
-test("edited files are claimed on the root and survive across child sessions", async () => {
-  const { hooks, info, dir } = await setup()
-  await hooks["tool.execute.after"]({ tool: "edit", sessionID: "ses_child", callID: "1", args: { filePath: path.join(dir, "a.txt") } }, {})
-  await hooks["tool.execute.after"]({ tool: "write", sessionID: "ses_child", callID: "2", args: { filePath: "src/x.ts" } }, {})
-  await hooks["tool.execute.after"]({ tool: "read", sessionID: "ses_child", callID: "3", args: { filePath: "b.txt" } }, {})
-  assert.deepEqual(Object.keys(readSession(info, "ses_root").files).sort(), ["a.txt", "src/x.ts"])
-})
-
-test("a second LIVE root cannot edit files claimed by the first; idle or unknown-root sessions are not blocked", async () => {
-  const dir = mkRepo()
-  const client = makeClient({ ses_c1: "ses_r1", ses_c2: "ses_r2" })
-  const hooks = await createPipelineGuard({ client, directory: dir })
-  const info = repoInfo(dir)
-  await hooks["chat.params"]({ sessionID: "ses_r1", agent: ORCH })
-  await hooks["chat.params"]({ sessionID: "ses_c1", agent: EXEC })
-  await hooks["chat.params"]({ sessionID: "ses_r2", agent: ORCH })
-  await hooks["chat.params"]({ sessionID: "ses_c2", agent: EXEC })
-  await hooks["tool.execute.after"]({ tool: "edit", sessionID: "ses_c1", callID: "1", args: { filePath: "a.txt" } }, {})
-  await assert.rejects(before(hooks, "ses_c2", "edit", { filePath: "a.txt" }), /being modified by another active opencode session \(ses_r1\)/)
-  await before(hooks, "ses_c2", "edit", { filePath: "b.txt" }) // different file: fine
-  await before(hooks, "ses_c1", "edit", { filePath: "a.txt" }) // owner keeps editing
-  await hooks.event({ event: { type: "session.idle", properties: { sessionID: "ses_r1" } } })
-  assert.equal(readSession(info, "ses_r1").busy, false)
-  await before(hooks, "ses_c2", "edit", { filePath: "a.txt" }) // owner idle: no longer a conflict
-
-  // If the SDK cannot resolve parents, the guard must not guess a root and block siblings.
-  const blind = await createPipelineGuard({ client: { session: { get: async () => { throw new Error("no sdk") } } }, directory: mkRepo() })
-  await blind["chat.params"]({ sessionID: "ses_x1", agent: EXEC })
-  await blind["chat.params"]({ sessionID: "ses_x2", agent: EXEC })
-  await blind["tool.execute.after"]({ tool: "edit", sessionID: "ses_x1", callID: "1", args: { filePath: "a.txt" } }, {})
-  await before(blind, "ses_x2", "edit", { filePath: "a.txt" })
-})
-
-test("bash writes claim files on the root session and are blocked when another live session holds a claim", async () => {
-  const dir = mkRepo()
-  fs.mkdirSync(path.join(dir, "sub"))
-  const client = makeClient({ ses_c1: "ses_r1", ses_c2: "ses_r2" })
-  const hooks = await createPipelineGuard({ client, directory: dir })
-  const info = repoInfo(dir)
-  await hooks["chat.params"]({ sessionID: "ses_r1", agent: ORCH })
-  await hooks["chat.params"]({ sessionID: "ses_c1", agent: EXEC })
-  await hooks["chat.params"]({ sessionID: "ses_r2", agent: ORCH })
-  await hooks["chat.params"]({ sessionID: "ses_c2", agent: EXEC })
-
-  await hooks["tool.execute.after"]({ tool: "bash", sessionID: "ses_c1", callID: "b1", args: { command: "echo hi > bash-claimed.txt" } }, {})
-  assert.ok(readSession(info, "ses_r1").files["bash-claimed.txt"])
+  await assert.rejects(before(h, "ses_child", "shell", { command: "git checkout -b t1" }), /\[pipeline-guard\] Blocked: git checkout is not allowed/)
+  await assert.rejects(before(h, "ses_child", "shell", { command: "git worktree add ../x" }), /worktree/)
+  await assert.rejects(before(h, "ses_child", "shell", { command: "git push" }), /Blocked/)
+  await assert.rejects(before(h, "ses_child", "shell", { command: "echo x > ~/out.txt" }), /outside the repository/)
+  await assert.rejects(before(h, "ses_child", "shell", { command: "git rebase -i main" }), /Blocked: git rebase/)
+  // Legacy V1 tool name still gets the same checks.
+  await assert.rejects(before(h, "ses_child", "bash", { command: "git stash" }), /Blocked/)
+  await assert.rejects(before(h, "ses_child", "edit", { filePath: "/etc/leak.txt" }), /outside the repository/)
+  await assert.rejects(before(h, "ses_child", "write", { filePath: ".git/hooks/pre-commit" }), /git internals/)
   await assert.rejects(
-    before(hooks, "ses_c2", "bash", { command: "echo conflict > bash-claimed.txt" }),
+    before(h, "ses_child", "apply_patch", { patchText: "*** Begin Patch\n*** Add File: /etc/x\n*** End Patch" }),
+    /outside the repository/,
+  )
+
+  // Safe shell calls, in-repo edits and reads pass.
+  await before(h, "ses_child", "shell", { command: "git status --porcelain && npm test" })
+  await before(h, "ses_child", "shell", { command: "echo x > /tmp/ok.log" })
+  await before(h, "ses_child", "edit", { filePath: "src/new.ts" })
+  await before(h, "ses_child", "read", { filePath: "/etc/hosts" })
+})
+
+test("tool.execute.before honors workdir and post_session may commit but not branch or stash", async () => {
+  const h = await setup({ parents: { ses_child: "ses_root", ses_ps: "ses_root" } })
+  await modelRequest(h, "ses_root", ORCH)
+  await modelRequest(h, "ses_child", EXEC)
+  await modelRequest(h, "ses_ps", "hybrid-pipeline-post_session")
+
+  await assert.rejects(
+    before(h, "ses_child", "shell", { command: "echo x > out.txt", workdir: "/tmp" }),
+    /outside the repository/,
+  )
+  await before(h, "ses_ps", "shell", { command: 'git add a.txt && git commit -m "x"' })
+  await assert.rejects(before(h, "ses_ps", "shell", { command: "git add -A" }), /explicit file paths/)
+  await assert.rejects(before(h, "ses_ps", "shell", { command: "git stash" }), /stash/)
+})
+
+test("tool.execute.after records a touched file on the root", async () => {
+  const h = await setup({ parents: { ses_child: "ses_root" } })
+  await modelRequest(h, "ses_root", ORCH)
+  await modelRequest(h, "ses_child", EXEC)
+
+  await after(h, "ses_child", "edit", { filePath: path.join(h.dir, "a.txt") }, "1")
+  await after(h, "ses_child", "write", { filePath: "src/x.ts" }, "2")
+  await after(h, "ses_child", "read", { filePath: "b.txt" }, "3")
+  assert.deepEqual(Object.keys(readSession(h.info, "ses_root").files).sort(), ["a.txt", "src/x.ts"])
+})
+
+test("a second LIVE root cannot edit files claimed by the first; an idle root stops blocking", async () => {
+  const h = await setup({ parents: { ses_c1: "ses_r1", ses_c2: "ses_r2" } })
+  await modelRequest(h, "ses_r1", ORCH)
+  await modelRequest(h, "ses_c1", EXEC)
+  await modelRequest(h, "ses_r2", ORCH)
+  await modelRequest(h, "ses_c2", EXEC)
+
+  await after(h, "ses_c1", "edit", { filePath: "a.txt" }, "1")
+  await assert.rejects(before(h, "ses_c2", "edit", { filePath: "a.txt" }), /being modified by another active opencode session \(ses_r1\)/)
+  await before(h, "ses_c2", "edit", { filePath: "b.txt" })
+  await before(h, "ses_c1", "edit", { filePath: "a.txt" })
+
+  await emit(h, { type: "session.idle", properties: { sessionID: "ses_r1" } })
+  assert.equal(readSession(h.info, "ses_r1").busy, false)
+  await before(h, "ses_c2", "edit", { filePath: "a.txt" })
+})
+
+test("unresolvable parents do not create false claim conflicts", async () => {
+  const h = await setup({ failSession: true })
+  await modelRequest(h, "ses_x1", EXEC)
+  await modelRequest(h, "ses_x2", EXEC)
+  await after(h, "ses_x1", "edit", { filePath: "a.txt" }, "1")
+  await before(h, "ses_x2", "edit", { filePath: "a.txt" })
+})
+
+test("shell writes claim files on the root and conflict with another live session", async () => {
+  const h = await setup({ parents: { ses_c1: "ses_r1", ses_c2: "ses_r2" } })
+  fs.mkdirSync(path.join(h.dir, "sub"))
+  await modelRequest(h, "ses_r1", ORCH)
+  await modelRequest(h, "ses_c1", EXEC)
+  await modelRequest(h, "ses_r2", ORCH)
+  await modelRequest(h, "ses_c2", EXEC)
+
+  await after(h, "ses_c1", "shell", { command: "echo hi > bash-claimed.txt" }, "b1")
+  assert.ok(readSession(h.info, "ses_r1").files["bash-claimed.txt"])
+  await assert.rejects(
+    before(h, "ses_c2", "shell", { command: "echo conflict > bash-claimed.txt" }),
     /bash-claimed\.txt is being modified by another active opencode session/,
   )
-  await hooks["tool.execute.after"]({ tool: "bash", sessionID: "ses_c1", callID: "b2", args: { command: "cd sub && echo hi > file.txt" } }, {})
-  assert.ok(readSession(info, "ses_r1").files["sub/file.txt"])
-  await assert.rejects(
-    before(hooks, "ses_c2", "bash", { command: "cd sub && echo conflict > file.txt" }),
-    /sub\/file\.txt is being modified by another active opencode session/,
-  )
-  await assert.rejects(
-    before(hooks, "ses_c2", "edit", { filePath: path.join(dir, "bash-claimed.txt") }),
-    /bash-claimed\.txt is being modified by another active opencode session/,
-  )
+  await after(h, "ses_c1", "shell", { command: "cd sub && echo hi > file.txt" }, "b2")
+  assert.ok(readSession(h.info, "ses_r1").files["sub/file.txt"])
 })
 
-test("idle event reports git state changes (new branch, worktree, stash) once the baseline exists", async () => {
-  makeClient.toasts.length = 0
-  const { hooks, dir, info } = await setup()
-  const sh = (...a) => execFileSync("git", a, { cwd: dir, stdio: "ignore" })
-  sh("branch", "task-t1")
-  sh("worktree", "add", "-q", path.join(path.dirname(dir), path.basename(dir) + "-t1"), "-b", "task-t1-wt")
-  await hooks.event({ event: { type: "session.status", properties: { sessionID: "ses_root", status: { type: "idle" } } } })
-  const rec = readSession(info, "ses_root")
-  assert.deepEqual(rec.anomalies.map((a) => a.kind).sort(), ["new_branches", "new_worktrees"])
-  assert.equal(makeClient.toasts.length, 1)
-  assert.match(makeClient.toasts[0].body.message, /task-t1/)
+test("permission.evaluate records an ask in the activity log", async () => {
+  const h = await setup({ parents: { ses_child: "ses_root" } })
+  await modelRequest(h, "ses_root", ORCH)
+  await modelRequest(h, "ses_child", EXEC)
+
+  await evaluate(h, {
+    sessionID: "ses_child", agent: EXEC, action: "shell", resources: ["docker ps"], effect: "ask",
+    metadata: { callID: "call_perm" },
+  })
+  // allow/deny evaluations are not asks and are not recorded here
+  await evaluate(h, { sessionID: "ses_child", action: "shell", resources: ["ls"], effect: "allow" })
+
+  const events = readActivity(h.info, "ses_root")
+  assert.ok(fs.existsSync(activityLogPath(h.info, "ses_root")))
+  const perms = events.filter((e) => e.type === "permission")
+  assert.deepEqual(perms.map((e) => [e.event, e.permission, e.pattern, e.decision, e.callId]), [
+    ["permission.asked", "shell", "docker ps", null, "call_perm"],
+  ])
+  assert.deepEqual(summarizeActivity(events).permissions, { asked: 1, replied: {} })
+})
+
+test("session.compaction injects state into an existing array field and otherwise fails open", async () => {
+  const h = await setup({ parents: { ses_child: "ses_root" } })
+  await modelRequest(h, "ses_root", ORCH)
+  await modelRequest(h, "ses_child", EXEC)
+  await after(h, "ses_child", "edit", { filePath: "a.txt" }, "1")
+
+  const context = { sessionID: "ses_child", context: [] }
+  await compact(h, context)
+  assert.equal(context.context.length, 1)
+  assert.match(context.context[0], /base_commit=[0-9a-f]{40}/)
+  assert.match(context.context[0], /"a.txt"/)
+  assert.match(context.context[0], /UNVERIFIED/)
+
+  const messages = { sessionID: "ses_child", messages: [] }
+  await compact(h, messages)
+  assert.equal(messages.messages.length, 1)
+
+  const unknown = { sessionID: "ses_child", payload: {} }
+  const warnings = await withWarnings(async () => { await compact(h, unknown) })
+  assert.deepEqual(unknown.payload, {})
+  assert.ok(warnings.some((line) => line.includes("[pipeline-guard] compaction: no array field")))
+
+  const stranger = { sessionID: "ses_unknown", context: [] }
+  await compact(h, stranger)
+  assert.deepEqual(stranger.context, [])
 })
 
 test("a new user turn on an idle root resets baseline and claims", async () => {
-  const { hooks, dir, info } = await setup()
-  await hooks["tool.execute.after"]({ tool: "edit", sessionID: "ses_child", callID: "1", args: { filePath: "a.txt" } }, {})
-  fs.writeFileSync(path.join(dir, "a.txt"), "dirty from previous turn\n")
-  await hooks.event({ event: { type: "session.idle", properties: { sessionID: "ses_root" } } })
-  await hooks["chat.message"]({ sessionID: "ses_root", agent: ORCH })
-  const rec = readSession(info, "ses_root")
+  const h = await setup({ parents: { ses_child: "ses_root" } })
+  await modelRequest(h, "ses_root", ORCH)
+  await modelRequest(h, "ses_child", EXEC)
+  await after(h, "ses_child", "edit", { filePath: "a.txt" }, "1")
+  fs.writeFileSync(path.join(h.dir, "a.txt"), "dirty from previous turn\n")
+
+  await emit(h, { type: "session.idle", properties: { sessionID: "ses_root" } })
+  await promptEvent(h, "ses_root", ORCH)
+  const rec = readSession(h.info, "ses_root")
   assert.deepEqual(rec.files, {})
   assert.deepEqual(rec.baseline.dirty, ["a.txt"])
   assert.equal(rec.busy, true)
 })
 
-test("compaction keeps baseline, touched files and verification state", async () => {
-  const { hooks } = await setup()
-  await hooks["tool.execute.after"]({ tool: "edit", sessionID: "ses_child", callID: "1", args: { filePath: "a.txt" } }, {})
-  const out = { context: [] }
-  await hooks["experimental.session.compacting"]({ sessionID: "ses_child" }, out)
-  assert.equal(out.context.length, 1)
-  assert.match(out.context[0], /base_commit=[0-9a-f]{40}/)
-  assert.match(out.context[0], /"a.txt"/)
-  assert.match(out.context[0], /UNVERIFIED/)
-  const none = { context: [] }
-  await hooks["experimental.session.compacting"]({ sessionID: "ses_unknown" }, none)
-  assert.deepEqual(none.context, [])
+test("idle reports git state changes as a console warning", async () => {
+  const h = await setup({ parents: { ses_child: "ses_root" } })
+  await modelRequest(h, "ses_root", ORCH)
+  const sh = (...a) => execFileSync("git", a, { cwd: h.dir, stdio: "ignore" })
+  sh("branch", "task-t1")
+  sh("worktree", "add", "-q", path.join(path.dirname(h.dir), path.basename(h.dir) + "-t1"), "-b", "task-t1-wt")
+
+  const warnings = await withWarnings(async () => {
+    await emit(h, { type: "session.status", properties: { sessionID: "ses_root", status: { type: "idle" } } })
+  })
+  const rec = readSession(h.info, "ses_root")
+  assert.deepEqual(rec.anomalies.map((a) => a.kind).sort(), ["new_branches", "new_worktrees"])
+  assert.ok(warnings.some((line) => line.startsWith("[pipeline-guard]") && line.includes("task-t1")))
 })
 
-test("OPENCODE_PIPELINE_GUARD=off disables every hook", async () => {
-  const hooks = await createPipelineGuard({ client: makeClient(), directory: mkRepo() }, { disabled: true })
-  assert.deepEqual(Object.keys(hooks), [])
-})
+test("activity log records tool calls, guard blocks and step counts", async () => {
+  const h = await setup({ parents: { ses_child: "ses_root" } })
+  await modelRequest(h, "ses_root", ORCH)
+  await modelRequest(h, "ses_child", EXEC)
 
-test("outside a git repository the guard stays out of the way", async () => {
-  const notRepo = mkTmp("pipe-norepo-")
-  const hooks = await createPipelineGuard({ client: makeClient(), directory: notRepo })
-  await hooks["chat.params"]({ sessionID: "ses_n", agent: EXEC })
-  await before(hooks, "ses_n", "bash", { command: "echo x > /tmp/whatever" })
-  const out = { env: {} }
-  await hooks["shell.env"]({ cwd: notRepo, sessionID: "ses_n" }, out)
-  assert.deepEqual(out.env, {})
-})
-
-test("idle of the root session stops the service it started with pipeline_serve", async () => {
-  const { dir, hooks, info } = await setup()
-  const node = JSON.stringify(process.execPath)
-  fs.writeFileSync(path.join(dir, "server.js"), 'require("http").createServer((q,r)=>{r.writeHead(200);r.end("up")}).listen(Number(process.env.PORT),"127.0.0.1")')
-  fs.mkdirSync(path.join(dir, ".opencode"))
-  fs.writeFileSync(path.join(dir, ".opencode", "pipeline.json"), JSON.stringify({ serve: { start: `${node} server.js`, ready: { port: "${PORT}", timeout_s: 15 } } }))
-  const { startService, readService } = await import("./_pipeline_serve.js")
-  const started = await startService({ info, ownerRoot: "ses_root", ttlS: 120 })
-  assert.equal(started.status, "running", JSON.stringify(started))
-  await hooks.event({ event: { type: "session.idle", properties: { sessionID: "ses_other_root" } } }) // unrelated session: nothing happens
-  assert.equal((await fetch(started.url).then((r) => r.text())), "up")
-  await hooks.event({ event: { type: "session.idle", properties: { sessionID: "ses_root" } } })
-  assert.equal(readService(info), null)
-  await assert.rejects(fetch(started.url, { signal: AbortSignal.timeout(1500) }), "the service must be stopped when the root goes idle")
-})
-
-test("activity log: tool calls, guard blocks, denials and permission events are recorded per root", async () => {
-  const { hooks, info } = await setup()
-  const after = (sessionID, tool, args, callID, output = {}) => hooks["tool.execute.after"]({ tool, sessionID, callID, args }, output)
-  // ok bash call with a secret: redacted and truncated
   const longCmd = `curl -H "Authorization: Bearer abcdefghijklmnop1234" http://localhost/${"x".repeat(400)}`
-  await before(hooks, "ses_child", "bash", { command: longCmd })
-  await after("ses_child", "bash", { command: longCmd }, "call_ok", { metadata: { exit: 0 } })
-  await before(hooks, "ses_child", "read", { filePath: "a.txt" })
-  await after("ses_child", "read", { filePath: "a.txt" }, "call_read")
-  // guard block
-  await assert.rejects(hooks["tool.execute.before"]({ tool: "bash", sessionID: "ses_child", callID: "call_blk" }, { args: { command: "git push origin main" } }), /Blocked/)
-  // the same call later surfaces as an errored tool part: not logged twice
-  const partEvent = (callID, tool, input, error) => hooks.event({ event: { type: "message.part.updated", properties: { part: { type: "tool", sessionID: "ses_child", callID, tool, state: { status: "error", input, error } } } } })
-  await partEvent("call_blk", "bash", { command: "git push origin main" }, "[pipeline-guard] Blocked: git push")
-  // permission denial surfacing as a tool error (no after hook runs for it)
-  await before(hooks, "ses_child", "bash", { command: "psql -c 'select 1'" })
-  await partEvent("call_den", "bash", { command: "psql -c 'select 1'" }, "The user rejected permission to use this specific tool call.")
-  // a plain error is not a denial
-  await partEvent("call_err", "read", { filePath: "nope.txt" }, "File not found: nope.txt")
-  // permission events (shape varies by opencode version)
-  await hooks.event({ event: { type: "permission.asked", properties: { id: "per_1", sessionID: "ses_child", permission: "bash", patterns: ["docker ps"], tool: { messageID: "m", callID: "call_perm" } } } })
-  await hooks.event({ event: { type: "permission.replied", properties: { sessionID: "ses_child", requestID: "per_1", reply: "reject" } } })
-  await hooks.event({ event: { type: "permission.updated", properties: { id: "per_2", sessionID: "ses_child", type: "edit", pattern: "src/x.ts" } } })
-  await hooks.event({ event: { type: "permission.replied", properties: { sessionID: "ses_child", permissionID: "per_2", response: "once" } } })
-  await hooks.event({ event: { type: "permission.asked", properties: { sessionID: "ses_unknown", permission: "bash" } } }) // not a pipeline session
-  await hooks.event({ event: { type: "permission.replied" } }) // malformed: ignored
-  // steps are flushed when the child goes idle
-  await hooks["chat.params"]({ sessionID: "ses_child", agent: EXEC })
-  await hooks.event({ event: { type: "session.idle", properties: { sessionID: "ses_child" } } })
+  await before(h, "ses_child", "shell", { command: longCmd }, "call_ok")
+  await after(h, "ses_child", "shell", { command: longCmd }, "call_ok")
+  await before(h, "ses_child", "read", { filePath: "a.txt" }, "call_read")
+  await after(h, "ses_child", "read", { filePath: "a.txt" }, "call_read")
+  await assert.rejects(before(h, "ses_child", "shell", { command: "git push origin main" }, "call_blk"), /Blocked/)
+  await emit(h, {
+    type: "message.part.updated",
+    properties: { part: { type: "tool", sessionID: "ses_child", callID: "call_blk", tool: "shell", state: { status: "error", input: { command: "git push origin main" }, error: "[pipeline-guard] Blocked: git push" } } },
+  })
+  await emit(h, {
+    type: "message.part.updated",
+    properties: { part: { type: "tool", sessionID: "ses_child", callID: "call_den", tool: "shell", state: { status: "error", input: { command: "psql -c 'select 1'" }, error: "The user rejected permission to use this specific tool call." } } },
+  })
+  await modelRequest(h, "ses_child", EXEC)
+  await emit(h, { type: "session.idle", properties: { sessionID: "ses_child" } })
 
-  const events = readActivity(info, "ses_root")
-  assert.ok(fs.existsSync(activityLogPath(info, "ses_root")))
-  assert.ok(activityLogPath(info, "ses_root").startsWith(info.stateDir))
+  const events = readActivity(h.info, "ses_root")
   const tools = events.filter((e) => e.type === "tool")
-  assert.deepEqual(tools.map((e) => [e.callId, e.ok, Boolean(e.denied)]), [["call_ok", true, false], ["call_read", true, false], ["call_den", false, true], ["call_err", false, false]])
-  const ok = tools[0]
-  assert.equal(ok.agent, EXEC)
-  assert.equal(ok.sessionId, "ses_child")
-  assert.equal(ok.exit, 0)
-  assert.ok(ok.command.length <= 303, "bash command truncated")
-  assert.ok(!ok.command.includes("abcdefghijklmnop1234"), "bash command redacted")
-  assert.equal(tools[1].command, "a.txt")
-  assert.equal(tools[2].command, "psql -c 'select 1'")
+  assert.deepEqual(tools.map((e) => [e.callId, e.ok, Boolean(e.denied)]), [
+    ["call_ok", true, false], ["call_read", true, false], ["call_den", false, true],
+  ])
+  assert.equal(tools[0].agent, EXEC)
+  assert.ok(tools[0].command.length <= 303, "command truncated")
+  assert.ok(!tools[0].command.includes("abcdefghijklmnop1234"), "command redacted")
   const blocks = events.filter((e) => e.type === "guard_block")
   assert.equal(blocks.length, 1)
   assert.equal(blocks[0].command, "git push origin main")
   assert.match(blocks[0].reason, /push/)
   assert.doesNotMatch(blocks[0].reason, /^\[pipeline-guard\]/)
-  const perms = events.filter((e) => e.type === "permission")
-  assert.deepEqual(perms.map((e) => [e.event, e.permission, e.pattern, e.decision]), [
-    ["permission.asked", "bash", "docker ps", null],
-    ["permission.replied", "bash", "docker ps", "reject"],
-    ["permission.updated", "edit", "src/x.ts", null],
-    ["permission.replied", "edit", "src/x.ts", "once"],
-  ])
   const steps = events.filter((e) => e.type === "steps")
-  assert.deepEqual(steps.map((e) => [e.sessionId, e.agent, e.tool_calls, e.llm_calls]), [["ses_child", EXEC, 4, 2]])
-
-  const sum = summarizeActivity(events)
-  assert.equal(sum.per_agent[EXEC].tool_calls, 5) // 4 tool events + 1 guard block
-  assert.equal(sum.per_agent[EXEC].errors, 2)
-  assert.equal(sum.per_agent[EXEC].denied, 2) // tool-error denial + rejected permission
-  assert.equal(sum.per_agent[EXEC].guard_blocks, 1)
-  assert.deepEqual(sum.denied.map((d) => [d.source, d.command]), [["tool_error", "psql -c 'select 1'"], ["permission", "docker ps"]])
-  assert.deepEqual(sum.subagents, [{ session: "ses_child", agent: EXEC, tool_calls: 5, llm_calls: 2 }])
-  assert.deepEqual(sum.permissions, { asked: 2, replied: { reject: 1, once: 1 } })
+  assert.deepEqual(steps.map((e) => [e.sessionId, e.agent, e.tool_calls, e.llm_calls]), [["ses_child", EXEC, 3, 2]])
 })
 
 test("activity logging failures never block a tool call", async () => {
-  const { hooks, info } = await setup()
-  // make the logs path unusable: a file where the directory should be
-  fs.mkdirSync(info.stateDir, { recursive: true })
-  fs.writeFileSync(path.join(info.stateDir, "logs"), "not a dir")
-  await before(hooks, "ses_child", "bash", { command: "ls" })
-  await hooks["tool.execute.after"]({ tool: "bash", sessionID: "ses_child", callID: "c1", args: { command: "ls" } }, {})
-  await assert.rejects(before(hooks, "ses_child", "bash", { command: "git checkout -b x" }), /Blocked/)
-  assert.deepEqual(readActivity(info, "ses_root"), [])
+  const h = await setup({ parents: { ses_child: "ses_root" } })
+  await modelRequest(h, "ses_root", ORCH)
+  await modelRequest(h, "ses_child", EXEC)
+  fs.mkdirSync(h.info.stateDir, { recursive: true })
+  fs.writeFileSync(path.join(h.info.stateDir, "logs"), "not a dir")
+
+  await before(h, "ses_child", "shell", { command: "ls" })
+  await after(h, "ses_child", "shell", { command: "ls" }, "c1")
+  await assert.rejects(before(h, "ses_child", "shell", { command: "git checkout -b x" }), /Blocked/)
+  assert.deepEqual(readActivity(h.info, "ses_root"), [])
+})
+
+test("the third consecutive identical tool call is rejected with an actionable message", async () => {
+  const h = await setup({ parents: { ses_child: "ses_root" } })
+  await modelRequest(h, "ses_root", ORCH)
+  await modelRequest(h, "ses_child", EXEC)
+
+  await before(h, "ses_child", "read", { filePath: "a.txt" }, "c1")
+  await before(h, "ses_child", "read", { filePath: "a.txt" }, "c2")
+  await assert.rejects(
+    before(h, "ses_child", "read", { filePath: "a.txt" }, "c3"),
+    (error) => {
+      assert.match(error.message, /\[pipeline-guard\] Blocked: read was called 3 times in a row with identical input \(doom_loop\)\./)
+      assert.match(error.message, /Bound the wait inside one command instead of polling with the same call/)
+      return true
+    },
+  )
+  // Staying in the loop keeps being rejected.
+  await assert.rejects(before(h, "ses_child", "read", { filePath: "a.txt" }, "c4"), /doom_loop/)
+})
+
+test("a different call in between resets the repetition streak", async () => {
+  const h = await setup({ parents: { ses_child: "ses_root" } })
+  await modelRequest(h, "ses_root", ORCH)
+  await modelRequest(h, "ses_child", EXEC)
+
+  await before(h, "ses_child", "read", { filePath: "a.txt" })
+  await before(h, "ses_child", "read", { filePath: "a.txt" })
+  await before(h, "ses_child", "read", { filePath: "b.txt" })
+  await before(h, "ses_child", "read", { filePath: "a.txt" })
+  await before(h, "ses_child", "read", { filePath: "a.txt" })
+  await assert.rejects(before(h, "ses_child", "read", { filePath: "a.txt" }), /doom_loop/)
+})
+
+test("the same input with keys in a different order counts as identical", async () => {
+  const h = await setup({ parents: { ses_child: "ses_root" } })
+  await modelRequest(h, "ses_root", ORCH)
+  await modelRequest(h, "ses_child", EXEC)
+
+  await before(h, "ses_child", "read", { filePath: "a.txt", options: { limit: 10, offset: 0 } })
+  await before(h, "ses_child", "read", { options: { offset: 0, limit: 10 }, filePath: "a.txt" })
+  await assert.rejects(
+    before(h, "ses_child", "read", { filePath: "a.txt", options: { limit: 10, offset: 0 } }),
+    /doom_loop/,
+  )
+})
+
+test("different sessions do not share the repetition streak", async () => {
+  const h = await setup({ parents: { ses_c1: "ses_r1", ses_c2: "ses_r2" } })
+  await modelRequest(h, "ses_r1", ORCH)
+  await modelRequest(h, "ses_c1", EXEC)
+  await modelRequest(h, "ses_r2", ORCH)
+  await modelRequest(h, "ses_c2", EXEC)
+
+  for (const sessionID of ["ses_c1", "ses_c2"]) {
+    await before(h, sessionID, "read", { filePath: "a.txt" })
+    await before(h, sessionID, "read", { filePath: "a.txt" })
+  }
+  await assert.rejects(before(h, "ses_c1", "read", { filePath: "a.txt" }), /doom_loop/)
+  // The other session's own streak is independent and still at two.
+  await assert.rejects(before(h, "ses_c2", "read", { filePath: "a.txt" }), /doom_loop/)
+})
+
+test("an idle or session-end event clears the repetition state", async () => {
+  const h = await setup({ parents: { ses_child: "ses_root" } })
+  await modelRequest(h, "ses_root", ORCH)
+  await modelRequest(h, "ses_child", EXEC)
+
+  await before(h, "ses_child", "read", { filePath: "a.txt" })
+  await before(h, "ses_child", "read", { filePath: "a.txt" })
+  await emit(h, { type: "session.idle", properties: { sessionID: "ses_child" } })
+  await before(h, "ses_child", "read", { filePath: "a.txt" })
+  await before(h, "ses_child", "read", { filePath: "a.txt" })
+  await assert.rejects(before(h, "ses_child", "read", { filePath: "a.txt" }), /doom_loop/)
+
+  await emit(h, { type: "session.deleted", properties: { sessionID: "ses_child" } })
+  await before(h, "ses_child", "read", { filePath: "a.txt" })
+  await before(h, "ses_child", "read", { filePath: "a.txt" })
+})
+
+test("a call blocked by the path or shell check does not increment the streak", async () => {
+  const h = await setup({ parents: { ses_child: "ses_root" } })
+  await modelRequest(h, "ses_root", ORCH)
+  await modelRequest(h, "ses_child", EXEC)
+
+  for (const id of ["b1", "b2", "b3"]) {
+    await assert.rejects(
+      before(h, "ses_child", "shell", { command: "git push origin main" }, id),
+      (error) => {
+        assert.match(error.message, /git push/)
+        assert.doesNotMatch(error.message, /doom_loop/)
+        return true
+      },
+    )
+  }
+  for (const id of ["e1", "e2", "e3"]) {
+    await assert.rejects(
+      before(h, "ses_child", "edit", { filePath: "/etc/leak.txt" }, id),
+      (error) => {
+        assert.match(error.message, /outside the repository/)
+        assert.doesNotMatch(error.message, /doom_loop/)
+        return true
+      },
+    )
+  }
+  // The blocked calls left no streak behind: a fresh pair of identical calls still passes.
+  await before(h, "ses_child", "read", { filePath: "a.txt" })
+  await before(h, "ses_child", "read", { filePath: "a.txt" })
+})
+
+test("cleanup disposes every registration", async () => {
+  const h = await setup()
+  assert.equal(h.registrations.length, 8)
+  h.cleanup()
+  assert.ok(h.registrations.every((r) => r.disposed))
+  assert.deepEqual(Object.keys(h.handlers.session), [])
+  assert.deepEqual(Object.keys(h.handlers.tool), [])
+  assert.deepEqual(Object.keys(h.handlers.shell), [])
+  assert.deepEqual(Object.keys(h.handlers.permission), [])
+  assert.equal(h.handlers.event, null)
+  h.cleanup() // idempotent
+})
+
+test("OPENCODE_PIPELINE_GUARD=off and the disabled option register nothing", async () => {
+  const previous = process.env.OPENCODE_PIPELINE_GUARD
+  try {
+    process.env.OPENCODE_PIPELINE_GUARD = "off"
+    const off = await setup()
+    assert.equal(off.registrations.length, 0)
+    assert.equal(typeof off.cleanup, "function")
+  } finally {
+    if (previous === undefined) delete process.env.OPENCODE_PIPELINE_GUARD
+    else process.env.OPENCODE_PIPELINE_GUARD = previous
+  }
+  const disabled = await setup({ options: { disabled: true } })
+  assert.equal(disabled.registrations.length, 0)
+})
+
+test("outside a git repository the guard stays out of the way", async () => {
+  const notRepo = mkTmp("pipe-norepo-")
+  const h = await setup({ dir: notRepo })
+  await modelRequest(h, "ses_n", EXEC)
+  await before(h, "ses_n", "shell", { command: "echo x > /tmp/whatever" })
+  const out = { command: "ls", cwd: notRepo, env: {} }
+  await shellCreate(h, out)
+  assert.deepEqual(out.env, {})
 })

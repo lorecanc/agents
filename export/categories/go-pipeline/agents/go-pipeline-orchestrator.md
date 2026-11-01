@@ -3,65 +3,152 @@ description: Primary coordinator for the pipeline multi-agent workflow. Assesses
   work size, routes to the smallest effective lane, delegates to specialized
   agents, and evaluates results. Never writes code or solves problems directly.
 mode: primary
-model: opencode-go/deepseek-v4.1-flash
-temperature: 1
-permission:
-  "*": deny
-  external_directory:
-    "*": ask
-    ~/.local/share/opencode/tool-output/*: allow
-    ~/.config/opencode/skills/*: allow
-    /tmp/*: allow
-    /private/tmp/*: allow
-  doom_loop: deny
-  pipeline_state: allow
-  pipeline_env: allow
-  read: allow
-  list: allow
-  grep: allow
-  glob: allow
-  skill: allow
-  read_mcp_resource: allow
-  list_mcp_resources: allow
-  list_mcp_resource_templates: allow
-  mcp-resource: allow
-  todowrite: allow
-  question: allow
-  task:
-    "*": deny
-    go-pipeline-explorer: allow
-    go-pipeline-planner: allow
-    go-pipeline-reasoner: allow
-    go-pipeline-executor: allow
-    go-pipeline-tester: allow
-    go-pipeline-refactorer: allow
-    go-pipeline-researcher: allow
-    go-pipeline-multimodal: allow
-    go-pipeline-ops: allow
-    go-pipeline-critic: allow
-    go-pipeline-hitl: allow
-    go-pipeline-chrome_devtools: allow
-    go-pipeline-code_reviewer: allow
-    go-pipeline-docs_grounding: allow
-    go-pipeline-fast_lane: allow
-    go-pipeline-frontend_specialist: allow
-    go-pipeline-post_session: allow
-    go-pipeline-security_auditor: allow
-    go-pipeline-swift_specialist: allow
-    go-pipeline-kotlin_specialist: allow
-  codebase-memory-mcp_*: allow
-  codebase-memory-mcp_delete_project: deny
-  codebase-memory-mcp_ingest_traces: deny
-  codebase-memory-mcp_manage_adr: deny
-  codebase-memory-mcp_index_repository: deny
-  bash: deny
-  webfetch: deny
-  websearch: deny
-  lsp: deny
+model: opencode-go/deepseek-v4.1-flash#high
 color: "#BDC3C7"
 hidden: false
-variant: high
 steps: 120
+request:
+  body:
+    temperature: 1
+permissions:
+  - action: "*"
+    resource: "*"
+    effect: deny
+  - action: external_directory
+    resource: "*"
+    effect: ask
+  - action: external_directory
+    resource: ~/.local/share/opencode/tool-output/*
+    effect: allow
+  - action: external_directory
+    resource: ~/.config/opencode/skills/*
+    effect: allow
+  - action: external_directory
+    resource: /tmp/*
+    effect: allow
+  - action: external_directory
+    resource: /private/tmp/*
+    effect: allow
+  - action: pipeline_state
+    resource: "*"
+    effect: allow
+  - action: pipeline_env
+    resource: "*"
+    effect: allow
+  - action: read
+    resource: "*"
+    effect: allow
+  - action: grep
+    resource: "*"
+    effect: allow
+  - action: glob
+    resource: "*"
+    effect: allow
+  - action: skill
+    resource: "*"
+    effect: allow
+  - action: opencode_read_mcp_resource
+    resource: "*"
+    effect: allow
+  - action: opencode_list_mcp_resources
+    resource: "*"
+    effect: allow
+  - action: todowrite
+    resource: "*"
+    effect: allow
+  - action: question
+    resource: "*"
+    effect: allow
+  - action: subagent
+    resource: "*"
+    effect: deny
+  - action: subagent
+    resource: go-pipeline-explorer
+    effect: allow
+  - action: subagent
+    resource: go-pipeline-planner
+    effect: allow
+  - action: subagent
+    resource: go-pipeline-reasoner
+    effect: allow
+  - action: subagent
+    resource: go-pipeline-executor
+    effect: allow
+  - action: subagent
+    resource: go-pipeline-tester
+    effect: allow
+  - action: subagent
+    resource: go-pipeline-refactorer
+    effect: allow
+  - action: subagent
+    resource: go-pipeline-researcher
+    effect: allow
+  - action: subagent
+    resource: go-pipeline-multimodal
+    effect: allow
+  - action: subagent
+    resource: go-pipeline-ops
+    effect: allow
+  - action: subagent
+    resource: go-pipeline-critic
+    effect: allow
+  - action: subagent
+    resource: go-pipeline-hitl
+    effect: allow
+  - action: subagent
+    resource: go-pipeline-chrome_devtools
+    effect: allow
+  - action: subagent
+    resource: go-pipeline-code_reviewer
+    effect: allow
+  - action: subagent
+    resource: go-pipeline-docs_grounding
+    effect: allow
+  - action: subagent
+    resource: go-pipeline-fast_lane
+    effect: allow
+  - action: subagent
+    resource: go-pipeline-frontend_specialist
+    effect: allow
+  - action: subagent
+    resource: go-pipeline-post_session
+    effect: allow
+  - action: subagent
+    resource: go-pipeline-security_auditor
+    effect: allow
+  - action: subagent
+    resource: go-pipeline-swift_specialist
+    effect: allow
+  - action: subagent
+    resource: go-pipeline-kotlin_specialist
+    effect: allow
+  - action: codebase-memory-mcp_*
+    resource: "*"
+    effect: allow
+  - action: codebase-memory-mcp_delete_project
+    resource: "*"
+    effect: deny
+  - action: codebase-memory-mcp_ingest_traces
+    resource: "*"
+    effect: deny
+  - action: codebase-memory-mcp_manage_adr
+    resource: "*"
+    effect: deny
+  - action: codebase-memory-mcp_index_repository
+    resource: "*"
+    effect: deny
+  - action: shell
+    resource: "*"
+    effect: deny
+  - action: webfetch
+    resource: "*"
+    effect: deny
+  - action: websearch
+    resource: "*"
+    effect: deny
+  - action: lsp
+    resource: "*"
+    effect: deny
 ---
 
 # go-pipeline-orchestrator

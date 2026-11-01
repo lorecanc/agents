@@ -19,23 +19,23 @@
     },
     {
       "target": "agents/wiki-analyzer.md",
-      "hash": "8dc93586d76430d826bbf5c317c5d822fd0e2888de748f06eff480d4aa907fa4"
+      "hash": "d63fa33c7b9d6e424134afc17c6f5c164302e24a3a103c4fef5e650c6eb0ca2e"
     },
     {
       "target": "agents/wiki-indexer.md",
-      "hash": "aa438bcd80217860304611a41d53b96bf56aa34bedae80a26c65197d02984d9e"
+      "hash": "ba49fa3a81cc54c2243e8fc6053212b2a9e1e5ca9550e8cf2eb908cf7563fcfd"
     },
     {
       "target": "agents/wiki-orchestrator.md",
-      "hash": "ecb1ef4f7e6e5783c6fe913294680213684370b4b5fce0a62a0a3c972e1dcba6"
+      "hash": "c7915e1e339bdae7113d5346944170b206a08b286b327d5a3e42336d1bd8ec54"
     },
     {
       "target": "agents/wiki-updater.md",
-      "hash": "30b7075cf1f6efe9ba6c8b872a4f28d733451b065ef1bb91b64b637287b36817"
+      "hash": "68b4a0c3c8c9628fb55a0beaa242bbbebf0dca5d532792e693637a2b7000cbc7"
     },
     {
       "target": "agents/wiki-writer.md",
-      "hash": "c41427b33c478770e5a29c4452128f2a192c1b6f6d2df06d64465ff38e2b03cd"
+      "hash": "2a2772912919b5324875ccb9a70dc9782b38809f320353c39d680642246d70fd"
     },
     {
       "target": "commands/wiki.md",
@@ -43,7 +43,7 @@
     },
     {
       "target": "opencode.json",
-      "hash": "15111fab6d5571a3a9adc63527bbee2200d22123bced27d4be7724c7fee3ed0d"
+      "hash": "335a3f61b7ac14590337ef626f00f1efbd9af4ecfca5d660d389258516f0d0ff"
     },
     {
       "target": "skills/wiki-conventions/SKILL.md",

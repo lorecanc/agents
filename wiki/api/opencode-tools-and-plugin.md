@@ -24,7 +24,10 @@ source_files:
   - "src/tools/pipeline_smoke.ts"
   - "src/tools/pipeline_state.ts"
   - "src/tools/pipeline_verify.ts"
-  - "src/plugins/pipeline-guard.js"
+  - "src/plugins/pipeline-guard/index.ts"
+  - "src/plugins/pipeline-tools/index.ts"
+  - "src/plugins/doc-tools/index.ts"
+  - "src/plugins/slide-tools/index.ts"
   - "src/opencode.json"
 created: "2026-10-16"
 last_updated: "2026-10-16"
@@ -32,7 +35,9 @@ last_updated: "2026-10-16"
 
 # OpenCode Tools and Plugin Hooks
 
-This repository primarily extends OpenCode through custom tools and a plugin that participates in session and tool-execution lifecycle hooks. It does not expose a conventional HTTP API with repository-defined routes and request/response endpoints. OpenCode tools declare validated arguments with `tool.schema` and implement an `execute(args, context)` function.
+This repository primarily extends OpenCode through custom tools and plugins that participate in session and tool-execution lifecycle hooks. It does not expose a conventional HTTP API with repository-defined routes and request/response endpoints. OpenCode tools declare validated arguments with `tool.schema` and implement an `execute(args, context)` function.
+
+In OpenCode V2, `tools/*.ts` is not discovered automatically: every tool is registered by a plugin through `ctx.tool.transform`. The `src/plugins/*/index.ts` directories are the plugin-provided tool registries, and `src/tools/*.ts` holds the tool definitions they import.
 
 ## Custom tool groups
 
@@ -46,16 +51,17 @@ Arguments are tool-specific. For example, `pipeline_verify` accepts an ordered `
 
 ## Pipeline guard plugin
 
-`src/plugins/pipeline-guard.js` exports `createPipelineGuard` and the default plugin descriptor with ID `pipeline-guard`. It limits its behavior to sessions whose agent name matches `pipeline-*` or `*-pipeline-*`; other sessions are left untouched. Set `OPENCODE_PIPELINE_GUARD=off` to disable it.
+`src/plugins/pipeline-guard/index.ts` exports `createPipelineGuard` and the default plugin descriptor with ID `pipeline-guard`. It limits its behavior to sessions whose agent name matches `pipeline-*` or `*-pipeline-*`; other sessions are left untouched. Set `OPENCODE_PIPELINE_GUARD=off` to disable it.
 
-The plugin registers lifecycle hooks to maintain pipeline session state and enforce workspace constraints:
+The guard is one of four V2 plugin directories: `plugins/pipeline-guard`, `plugins/pipeline-tools`, `plugins/doc-tools`, and `plugins/slide-tools`. It registers V2 lifecycle hooks to maintain pipeline session state and enforce workspace constraints:
 
-- `chat.params` and `chat.message` register sessions, resolve root sessions, and mark work busy.
-- `shell.env` redirects temporary-file variables to a repository-local scratch directory and sets pipeline-specific Git/session environment values.
-- `tool.execute.before` checks shell commands and file-write targets. It blocks disallowed repository/path operations and edits that conflict with another live session's claimed files.
-- `tool.execute.after` records files changed through write tools or shell commands.
-- `event` tracks idle/busy status. On idle it stops a service owned by that session and checks for Git-state anomalies.
-- `experimental.session.compacting` preserves pipeline baseline, changed-file, task, and verification context in the compacted session.
+- `session.hook("model.request")` and `session.hook("prompt")` register sessions, resolve root sessions, and mark work busy.
+- `shell.hook("create.before")` redirects temporary-file variables to a repository-local scratch directory and sets pipeline-specific Git/session environment values.
+- `tool.hook("execute.before")` checks shell commands and file-write targets. It blocks disallowed repository/path operations and edits that conflict with another live session's claimed files.
+- `tool.hook("execute.after")` records files changed through write tools or shell commands.
+- `event.subscribe` tracks idle/busy status. On idle it stops a service owned by that session and checks for Git-state anomalies.
+- `session.hook("compaction")` preserves pipeline baseline, changed-file, task, and verification context in the compacted session.
+- `permission.hook("evaluate")` applies the pipeline permission policy before a tool call is evaluated.
 
 The guard is defense in depth and intentionally fails open on unexpected inspection errors; its source comments identify agent permissions as the primary control. The source also registers process-exit handling to mark owned session records idle.
 

@@ -8,7 +8,7 @@ import YAML from "yaml"
 import { extractFrontmatter } from "./agents.js"
 import {
   bashRulesOf, checkAgentsAgainstBashProfiles, diffBashRules, evaluateAgentBash, evaluateBashCommand, expandBashRole,
-  loadBashProfiles, matchBashRule, replaceBashBlock, splitCompoundCommand, syncBashProfiles, validateBashProfiles,
+  loadBashProfiles, matchBashRule, rewriteBashRules, splitCompoundCommand, syncBashProfiles, validateBashProfiles,
   type BashAction, type BashProfilesConfig, type BashRule
 } from "./bashProfiles.js"
 import { refreshStampedPipelinesFromSource } from "./pipelineProfiles.js"
@@ -159,18 +159,20 @@ temperature: 1
 Run \`npm test\`.
 `
 
-test("replaceBashBlock rewrites only the bash lines and round-trips through YAML", () => {
+test("rewriteBashRules replaces only the shell rules, keeps the body bytes, and is idempotent", () => {
   const rules: BashRule[] = [["*", "deny"], ["cd *", "allow"], ["git add *", "allow"], ["git add .", "deny"]]
-  const next = replaceBashBlock(SAMPLE, rules)!
-  const before = SAMPLE.split("\n"), after = next.split("\n")
-  assert.deepEqual(after.slice(0, 9), before.slice(0, 9))
-  assert.deepEqual(after.slice(9 + rules.length), before.slice(9 + 3))
+  const next = rewriteBashRules(SAMPLE, rules)!
   const parsed = YAML.parse(extractFrontmatter(next).yamlText!)
   assert.deepEqual(bashRulesOf(parsed), rules)
-  assert.equal(parsed.permission.webfetch, "deny")
-  assert.equal(parsed.temperature, 1)
-  assert.equal(replaceBashBlock(next, rules), next, "idempotent")
-  assert.equal(replaceBashBlock(SAMPLE.replace(/  bash:\n(?:    .*\n)+/, "  bash: deny\n"), rules), null, "scalar bash is left alone")
+  assert.equal(parsed.permission, undefined, "V2 output no longer uses the singular permission key")
+  assert.deepEqual(parsed.permissions[0], { action: "*", resource: "*", effect: "deny" })
+  const before = YAML.parse(extractFrontmatter(SAMPLE).yamlText!)
+  const after = YAML.parse(extractFrontmatter(next).yamlText!)
+  assert.equal(after.mode, before.mode)
+  assert.equal(after.request?.body?.temperature, before.temperature)
+  assert.equal(extractFrontmatter(next).body, extractFrontmatter(SAMPLE).body, "body bytes are untouched")
+  assert.equal(rewriteBashRules(next, rules), next, "idempotent once the file is V2")
+  assert.equal(rewriteBashRules("no frontmatter", rules), null)
 })
 
 function syncWorkspace(): string {
@@ -202,8 +204,10 @@ test("syncBashProfiles rewrites drifted agents, skips unprofiled ones, and is th
   const applied = syncBashProfiles(root)
   assert.deepEqual(applied.changed, ["src/agents/pipeline-executor.md"])
   assert.deepEqual(applied.skipped, ["src/agents/pipeline-planner.md"])
-  assert.match(fs.readFileSync(executor, "utf8"), /  # keep this comment\n/)
-  assert.deepEqual(syncBashProfiles(root).changed, [])
+  const rewritten = YAML.parse(extractFrontmatter(fs.readFileSync(executor, "utf8")).yamlText!)
+  assert.deepEqual(bashRulesOf(rewritten), expandBashRole(config, "executor"))
+  assert.equal(rewritten.request.body.temperature, 1, "non-bash frontmatter is preserved")
+  assert.deepEqual(syncBashProfiles(root), { changed: [], unchanged: ["src/agents/pipeline-executor.md"], skipped: ["src/agents/pipeline-planner.md"] })
 })
 
 test("refresh replaces a stamped bash block instead of merging stale rules into it", () => {

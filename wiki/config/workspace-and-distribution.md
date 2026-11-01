@@ -13,7 +13,7 @@ source_files:
   - "manage-agents/package.json"
   - "manage-agents/tsconfig.json"
 created: "2026-10-16"
-last_updated: "2026-10-26"
+last_updated: "2026-11-01"
 ---
 
 # Workspace and Distribution Configuration
@@ -22,7 +22,7 @@ Workspace behavior is configured across OpenCode's local server definitions, age
 
 ## OpenCode workspace configuration
 
-`src/opencode.json` declares local MCP servers and LSP processes. MCP entries use a `command` array and an `enabled` flag; `magic` also maps `API_KEY` to `{env:TWENTYFIRST_API_KEY}`. The file enables Chrome DevTools, codebase-memory, shadcn, Magic, Axiom, and CWE search, and leaves XcodeBuildMCP and Cupertino disabled. LSP entries map server commands to file extensions for Python, HTML/Vue, CSS, SQL, and Markdown. The custom tools and plugin hooks are covered in the [OpenCode API reference](../api/opencode-tools-and-plugin.md).
+`src/opencode.json` declares MCP servers, plugin directories, and LSP processes. MCP entries live under `mcp.servers` with a `type` and a `command` array; local servers carry `codemode: false`, and a server is turned off with `disabled: true` rather than an `enabled` flag. `magic` also maps `API_KEY` to `{env:TWENTYFIRST_API_KEY}`. The file enables Chrome DevTools, codebase-memory, shadcn, Magic, Axiom, and CWE search, and leaves XcodeBuildMCP, Cupertino, BigQuery, and the Cloud MCP endpoints disabled. The `plugins` key lists V2 plugin directories as config-relative paths: `./plugins/pipeline-guard`, `./plugins/pipeline-tools`, `./plugins/doc-tools`, and `./plugins/slide-tools`. V2 plugins are directories, so a file path in that list is skipped. The guard itself is the module `src/plugins/pipeline-guard/index.ts`, declared with `Plugin.define`. LSP entries map server commands to file extensions for Python, HTML/Vue, CSS, SQL, and Markdown. The custom tools and plugin hooks are covered in the [OpenCode API reference](../api/opencode-tools-and-plugin.md).
 
 ## Pipeline model profiles
 
@@ -30,7 +30,7 @@ Workspace behavior is configured across OpenCode's local server definitions, age
 
 ## Companion links and translation
 
-`.agent-manager/companion-links.json` connects categories to related plugin, command, skill, and tool paths. Its `docs`, `pipeline`, and `slides` entries list category-specific companions; pipeline links the `plugins/pipeline-guard.js` plugin and pipeline tools, while docs and slides have empty plugin lists.
+`.agent-manager/companion-links.json` connects categories to related plugin, command, skill, and tool paths. Its `docs`, `pipeline`, and `slides` entries list category-specific companions; pipeline links the plugin directories `plugins/doc-tools`, `plugins/pipeline-guard`, `plugins/pipeline-tools`, and `plugins/slide-tools`, plus pipeline tools, while docs and slides have empty plugin lists.
 
 `.agent-manager/translation-config.json` is version `2`, targets `claude`, uses plugin name `decent-pipeline`, prefix `pipeline-`, source directory `src`, and enables inference. The default tier is `execution`; the `planning`, `execution`, and `light` tiers hold target-specific model settings, while `roles` maps agent names to tiers. `light` uses `haiku` on Claude, is at parity with `execution` on Codex, and is assigned to the base pipeline `executor` and `explorer` roles. Target-specific options include the Codex `reasoningEffort` setting and `emitSkills`/`emitReadme` flags.
 

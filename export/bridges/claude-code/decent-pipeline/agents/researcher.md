@@ -5,6 +5,7 @@ description: External research agent. Looks outside the repository (web,
   issues and migration guides, and returns sourced findings. Does not explore
   the repo; that is the explorer's job.
 model: sonnet
+maxTurns: 50
 tools: Read, Grep, Glob, WebFetch, WebSearch, Skill
 ---
 

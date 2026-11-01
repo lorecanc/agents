@@ -1,12 +1,6 @@
 ---
-description: >-
-  Use this agent when: - User needs to create or update Storybook stories for
-  any UI component - User wants to document component variants, props, or
-  interactions - User has existing stories with inconsistent formatting or
-  outdated patterns - User wants to generate autodocs for a shadcn/ui component
-  - User provides a new or modified component and needs full Storybook coverage
-  - User asks generically about "documenting a component" or "showing all
-  variants" — translate to Storybook stories Examples: - <example>
+description: |-
+  Use this agent when: - User needs to create or update Storybook stories for any UI component - User wants to document component variants, props, or interactions - User has existing stories with inconsistent formatting or outdated patterns - User wants to generate autodocs for a shadcn/ui component - User provides a new or modified component and needs full Storybook coverage - User asks generically about "documenting a component" or "showing all variants" — translate to Storybook stories Examples: - <example>
     Context: User has created a new shadcn/ui Button component and needs Storybook integration.
     user: "I need stories for the Button component."
     assistant: "I'll use the storybook-docs-format agent to generate complete Button stories with autodocs, all variants, and interaction tests."
@@ -31,6 +25,7 @@ description: >-
     <commentary>Generic questions about component states are always answered as Storybook stories, not ad-hoc demos or READMEs.</commentary>
     </example>
 mode: subagent
+permissions: []
 ---
 
 # Storybook Docs & Format Agent

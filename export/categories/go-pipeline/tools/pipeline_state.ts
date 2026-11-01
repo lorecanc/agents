@@ -1,4 +1,4 @@
-import { tool } from "@opencode-ai/plugin"
+import { tool } from "./_tool.js"
 import { activityLogPath, changedFiles, gitAnomalies, isLive, listSessions, readActivity, repoInfo, rootRecordFor, scratchDir, snapshot, summarizeActivity } from "./_pipeline_core.js"
 
 const statusOf = (i: any) => (i.untracked ? "new" : i.deleted ? "deleted" : i.orig ? "renamed" : "modified")

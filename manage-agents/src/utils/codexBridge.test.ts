@@ -263,6 +263,31 @@ test("Codex plugin mirrors enabled MCP servers in a valid companion layer", () =
   assert.ok(result.files.some(file => file.split(path.sep).join("/").endsWith("/.mcp.json")))
 })
 
+test("translates V1 and V2 OpenCode MCP declarations to the same Codex .mcp.json", () => {
+  const build = (mcp: Record<string, any>) => {
+    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "codex-bridge-mcp-shape-"))
+    fs.mkdirSync(path.join(workspace, "src"), { recursive: true })
+    fs.writeFileSync(path.join(workspace, "src", "opencode.json"), JSON.stringify({ mcp }))
+    const output = path.join(workspace, "codex")
+    bridgeToCodex([agent("orchestrator.md", "any", { mode: "primary" }, "")], "configured", "", output, workspace)
+    return JSON.parse(fs.readFileSync(path.join(output, ".mcp.json"), "utf8"))
+  }
+
+  const v1 = build({
+    "codebase-memory-mcp": { type: "local", command: ["codebase-memory-mcp"], enabled: true },
+    "remote-tool": { type: "remote", url: "https://example.test/mcp", enabled: true }
+  })
+  const v2 = build({
+    servers: {
+      "codebase-memory-mcp": { type: "local", command: ["codebase-memory-mcp"] },
+      "remote-tool": { type: "remote", url: "https://example.test/mcp" }
+    }
+  })
+
+  assert.deepEqual(v1, v2)
+  assert.deepEqual(Object.keys(v1.mcpServers), ["codebase-memory-mcp", "remote-tool"])
+})
+
 test("writeCodexPlugin rejects output directories escaping the workspace root", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "codex-bridge-ws-"))
   const tmpParent = path.dirname(workspace)

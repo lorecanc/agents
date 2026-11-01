@@ -24,7 +24,18 @@ const SCHEMA_VERSION = 2
 const RESERVED = new Set(["license", "readme.md", "category.json", "provenance.json", "opencode.json"])
 const TEXT_EXTENSIONS = new Set([".md", ".markdown", ".txt", ".json", ".yaml", ".yml", ".toml", ".css", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".py", ".xml", ".xsd", ".html"])
 const ROOT_LICENSE = `MIT License\n\nCopyright (c) 2026 Lorenzo Cancellara\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the "Software"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n\nThird-party software and services retain their own licenses and terms. This\nlicense covers project-owned code, prompts, agents, skills, commands, and\ndocumentation only.\n`
-const GENERATED_OPENCODE = JSON.stringify({ mcp: { "codebase-memory-mcp": { type: "local", command: ["codebase-memory-mcp"], enabled: true } } }, null, 2) + "\n"
+const GENERATED_OPENCODE = (manifest: CategoryManifest): string => {
+  const plugins = [...new Set(manifest.resources
+    .filter(resource => resource.kind === "directory")
+    .map(resource => resource.target)
+    .filter(target => target.startsWith("plugins/"))
+    .map(target => `./${target}`))]
+  const config = {
+    mcp: { servers: { "codebase-memory-mcp": { type: "local", command: ["codebase-memory-mcp"], codemode: false } } },
+    ...(plugins.length ? { plugins } : {})
+  }
+  return `${JSON.stringify(config, null, 2)}\n`
+}
 const fail = (message: string): never => { throw new Error(`Invalid category distribution: ${message}`) }
 const digest = (value: Buffer | string) => crypto.createHash("sha256").update(value).digest("hex")
 const treeHash = (directory: string): string | null => {
@@ -59,9 +70,9 @@ function assertSafeTree(root: string, candidate: string, recurse = false): void 
 }
 function sourceAllowed(source: string): boolean {
   return source === "src/AGENTS.md" || source === "src/requirements.txt" ||
-    /^(src)\/(agents|commands|skills|tools|resources|office)(\/|$)/.test(source) ||
+    /^(src)\/(agents|commands|skills|tools|resources|office|plugins)(\/|$)/.test(source) ||
     source === "general/AGENTS.md" || source === "general/requirements.txt" ||
-    /^(general)\/(agents|commands|skills|tools|resources|office)(\/|$)/.test(source) ||
+    /^(general)\/(agents|commands|skills|tools|resources|office|plugins)(\/|$)/.test(source) ||
     /^(office)\/(docs|slides)(\/|$)/.test(source)
 }
 function sourcePath(workspaceRoot: string, source: string) {
@@ -113,7 +124,7 @@ function manifestPath(repoRoot: string, id: string): string {
 export function loadCategoryManifest(repoRoot: string, id: string): CategoryManifest { safeRelative(id, "category"); const root = resolveDistributionRoot(repoRoot), file = manifestPath(repoRoot, id); if (!fs.existsSync(file)) fail(`manifest not found: ${id}`); let parsed: unknown; try { parsed = JSON.parse(text(fs.readFileSync(file) as Buffer).toString("utf8")) } catch (e: any) { fail(`manifest is not valid UTF-8 JSON: ${e.message}`) }; validateCategoryManifest(parsed, root); return parsed }
 const manifestHash = (manifest: CategoryManifest) => digest(JSON.stringify(manifest) + "\n")
 function filesFor(resource: CategoryResource, workspaceRoot: string): Array<[string, Buffer]> { const source = sourcePath(workspaceRoot, resource.source), base = resource.kind === "file" ? path.dirname(source) : source; const items: string[] = []; const visit = (file: string) => { const stat = fs.lstatSync(file); if (stat.isDirectory()) for (const child of fs.readdirSync(file).sort((a, b) => a.codePointAt(0)! - b.codePointAt(0)!)) visit(path.join(file, child)); else if (stat.isFile()) items.push(file) }; visit(source); return items.map(file => { const relative = resource.kind === "file" ? path.basename(file) : path.relative(base, file).split(path.sep).join("/"); const target = resource.kind === "file" ? resource.target : path.posix.join(resource.target, relative); const bytes = fs.readFileSync(file); const isText = resource.policy === "text" || resource.policy === "mixed" && (resource.extensions || []).includes(path.extname(file).toLowerCase()); return [target, isText ? text(bytes) : bytes] }) }
-function expected(workspaceRoot: string, manifest: CategoryManifest) { const out = new Map<string, Buffer>([["LICENSE", text(Buffer.from(ROOT_LICENSE))]]); for (const resource of manifest.resources) for (const [target, bytes] of filesFor(resource, workspaceRoot)) out.set(target, bytes); for (const generated of manifest.generated) out.set(generated.target, Buffer.from(GENERATED_OPENCODE)); return out }
+function expected(workspaceRoot: string, manifest: CategoryManifest) { const out = new Map<string, Buffer>([["LICENSE", text(Buffer.from(ROOT_LICENSE))]]); for (const resource of manifest.resources) for (const [target, bytes] of filesFor(resource, workspaceRoot)) out.set(target, bytes); for (const generated of manifest.generated) out.set(generated.target, Buffer.from(GENERATED_OPENCODE(manifest))); return out }
 function contentsFor(workspaceRoot: string, manifest: CategoryManifest) {
   const contents = expected(workspaceRoot, manifest)
   const inventory = manifest.resources.map(resource => `- ${markdownCode(resource.source)} → ${markdownCode(resource.target)}`)

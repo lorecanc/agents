@@ -1,9 +1,9 @@
 import fs from "node:fs"
 import path from "node:path"
 import YAML from "yaml"
-import { checkPipelineResources, discoverCompanionResourcePaths, findAgentFiles, getExportDestination, resolveCategoriesSubdir, resolveSourceSubdir, saveAgentFile, type AgentInfo, type PipelineResourceProblem } from "./agents.js"
+import { checkPipelineResources, composeModelVariant, discoverCompanionResourcePaths, findAgentFiles, getExportDestination, resolveCategoriesSubdir, resolveSourceSubdir, saveAgentFile, type AgentInfo, type PipelineResourceProblem } from "./agents.js"
 import { copyCategoryCompanionLinks, getCompanionLinksConfigPath, loadCompanionLinks, saveCompanionLinks } from "./companionLinks.js"
-import { translateFrontmatterV1ToV2 } from "./v2Compat.js"
+import { translateFrontmatterV1ToV2, translatePermissionsV1ToV2, translatePermissionsV2ToV1, type V2PermissionRule } from "./v2Compat.js"
 
 export const PIPELINE_ROLES = [
   "orchestrator", "planner", "reasoner", "executor", "tester", "refactorer", "code_reviewer", "critic", "ops",
@@ -194,8 +194,29 @@ export interface RefreshStampedPipelinesResult {
   updatedCompanions: string[]
 }
 
-function renderPipelineAgent(frontmatter: Record<string, any>, body: string, version?: AgentInfo["frontmatterVersion"]): string {
-  const frontmatterToWrite = version === "v2" ? translateFrontmatterV1ToV2(frontmatter) : frontmatter
+type PermissionMap = Record<string, any>
+
+function isPermissionMap(value: unknown): value is PermissionMap {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+/**
+ * Render V1 permission maps as the V2 `permissions` array at the write
+ * boundary. `v2Compat` owns the action-level `"*"` lift, so the global rule
+ * keeps its first position without a local copy of that logic.
+ */
+function translatePipelineFrontmatter(frontmatter: Record<string, any>): Record<string, any> {
+  return translateFrontmatterV1ToV2(frontmatter)
+}
+
+function writePipelineAgent(filePath: string, frontmatter: Record<string, any>, body: string, version?: AgentInfo["frontmatterVersion"]): void {
+  // saveAgentFile renders V2 and keeps the ordered `permissions` array the
+  // translation produces, global rule included.
+  saveAgentFile(filePath, frontmatter, body, version)
+}
+
+function renderPipelineAgent(frontmatter: Record<string, any>, body: string): string {
+  const frontmatterToWrite = translatePipelineFrontmatter(frontmatter)
   const yamlText = YAML.stringify(frontmatterToWrite).trim()
   const normalizedBody = body.replace(/^(?:[ \t]*\r?\n)+/, "")
   return normalizedBody ? `---\n${yamlText}\n---\n\n${normalizedBody}` : `---\n${yamlText}\n---\n`
@@ -214,6 +235,68 @@ function keepWildcardFirst(value: Record<string, any>): Record<string, any> {
   if (!Object.prototype.hasOwnProperty.call(normalized, "*")) return normalized
   const { "*": wildcard, ...rest } = normalized
   return { "*": wildcard, ...rest }
+}
+
+const GROUP_SEPARATOR = "\u0000"
+
+/**
+ * Merge a canonical permission map over a stamped copy. Both sides stay in the
+ * V1 ordered-map representation; the merge runs on V2 `(action, resource)`
+ * pairs so aliases (`write`/`edit`, `bash`/`execute`) and rule order behave the
+ * way the V2 runtime evaluates them.
+ *
+ * - `shell` rules are fully base-owned: target shell rules never survive.
+ * - Base rules come first and win duplicate `(action, resource)` pairs.
+ * - Target-only rules are appended in authored order; target duplicates keep
+ *   their first position but the last value wins.
+ * - `external_directory` keeps its broad `"*"` rule first, then allows.
+ */
+export function mergePermission(base: PermissionMap, target: PermissionMap = {}): PermissionMap {
+  const baseMap = isPermissionMap(base) ? base : {}
+  const targetMap = isPermissionMap(target) ? target : {}
+  const { "*": baseWildcard, ...baseRules } = baseMap
+  const { "*": targetWildcard, ...targetRules } = targetMap
+  const wildcard = baseWildcard !== undefined ? baseWildcard : targetWildcard
+
+  const order: string[] = []
+  const rules = new Map<string, V2PermissionRule>()
+  const baseKeys = new Set<string>()
+  const add = (rule: V2PermissionRule, fromBase: boolean) => {
+    const key = `${rule.action}${GROUP_SEPARATOR}${rule.resource}`
+    if (fromBase) baseKeys.add(key)
+    if (rules.has(key)) {
+      if (!fromBase) rules.set(key, rule)
+      return
+    }
+    rules.set(key, rule)
+    order.push(key)
+  }
+
+  for (const rule of translatePermissionsV1ToV2(baseRules)) add(rule, true)
+  for (const rule of translatePermissionsV1ToV2(targetRules)) {
+    if (BASE_OWNED_PERMISSION_KEYS.has(rule.action) || baseKeys.has(`${rule.action}${GROUP_SEPARATOR}${rule.resource}`)) continue
+    add(rule, false)
+  }
+
+  const merged = order.map(key => rules.get(key)!)
+  // Every action group is last-match-wins, so its broad "*" rule must come
+  // first; specific resources keep their authored order behind it.
+  const actionOrder: string[] = []
+  const byAction = new Map<string, V2PermissionRule[]>()
+  for (const rule of merged) {
+    let group = byAction.get(rule.action)
+    if (!group) { group = []; byAction.set(rule.action, group); actionOrder.push(rule.action) }
+    group.push(rule)
+  }
+  const ordered = actionOrder.flatMap(action => {
+    const group = byAction.get(action)!
+    const broad = group.findIndex(rule => rule.resource === "*")
+    if (broad > 0) group.unshift(...group.splice(broad, 1))
+    return group
+  })
+
+  const permission = translatePermissionsV2ToV1(ordered)
+  return keepWildcardFirst(wildcard === undefined ? permission : { "*": wildcard, ...permission })
 }
 
 export function refreshStampedPipelinesFromSource(workspaceRoot: string, targetCategory?: string): RefreshStampedPipelinesResult {
@@ -261,10 +344,10 @@ export function refreshStampedPipelinesFromSource(workspaceRoot: string, targetC
         ...structuredClone(existing?.frontmatter ?? {}),
         ...structuredClone(baseAgent.frontmatter)
       }
-      const basePermission = frontmatter.permission && typeof frontmatter.permission === "object" && !Array.isArray(frontmatter.permission)
-        ? frontmatter.permission as Record<string, any>
+      const basePermission = isPermissionMap(frontmatter.permission)
+        ? { ...frontmatter.permission }
         : {}
-      if (basePermission.task && typeof basePermission.task === "object" && !Array.isArray(basePermission.task)) {
+      if (isPermissionMap(basePermission.task)) {
         basePermission.task = rewritePipelineTaskPermissions(basePermission.task, resolvedTarget, baseCategory)
       }
       if (existing) {
@@ -280,25 +363,26 @@ export function refreshStampedPipelinesFromSource(workspaceRoot: string, targetC
           delete frontmatter.max_steps
           frontmatter[existingStepKey] = existing.frontmatter[existingStepKey]
         }
-        const existingPermission = existing.frontmatter.permission && typeof existing.frontmatter.permission === "object" && !Array.isArray(existing.frontmatter.permission)
-          ? existing.frontmatter.permission as Record<string, any>
+        const existingPermission = isPermissionMap(existing.frontmatter.permission)
+          ? { ...existing.frontmatter.permission }
           : {}
-        const mergedPermission: Record<string, any> = { ...basePermission }
-        for (const [key, value] of Object.entries(existingPermission)) {
-          // bash/shell rule lists are ordered (last match wins) and generated from
-          // .agent-manager/bash-profiles.json: the canonical list replaces the
-          // stamped one so removed or reordered rules cannot linger.
-          if (BASE_OWNED_PERMISSION_KEYS.has(key) && Object.prototype.hasOwnProperty.call(basePermission, key)) continue
-          if (!Object.prototype.hasOwnProperty.call(basePermission, key)) mergedPermission[key] = value
-          else if (value && typeof value === "object" && !Array.isArray(value) && basePermission[key] && typeof basePermission[key] === "object" && !Array.isArray(basePermission[key])) {
-            mergedPermission[key] = keepWildcardFirst({ ...value, ...basePermission[key] })
-          }
+        const baseMap: PermissionMap = { ...basePermission }
+        const targetMap: PermissionMap = { ...existingPermission }
+        if (isPermissionMap(basePermission.task) || isPermissionMap(existingPermission.task)) {
+          const mergedTask = mergePermission(
+            { task: isPermissionMap(basePermission.task) ? basePermission.task : {} },
+            { task: isPermissionMap(existingPermission.task) ? existingPermission.task : {} }
+          ).task
+          if (isPermissionMap(mergedTask) && Object.keys(mergedTask).length > 0) baseMap.task = mergedTask
+          else delete baseMap.task
+          delete targetMap.task
         }
-        if (basePermission.task && existingPermission.task && typeof existingPermission.task === "object" && !Array.isArray(existingPermission.task)) {
-          mergedPermission.task = rewritePipelineTaskPermissions({ ...existingPermission.task, ...basePermission.task }, resolvedTarget, baseCategory)
-        }
-        frontmatter.permission = keepWildcardFirst(mergedPermission)
+        // bash/shell rule lists are ordered (last match wins) and generated from
+        // .agent-manager/bash-profiles.json: the canonical list replaces the
+        // stamped one so removed or reordered rules cannot linger.
+        frontmatter.permission = mergePermission(baseMap, targetMap)
       } else {
+        if (isPermissionMap(frontmatter.permission)) frontmatter.permission = basePermission
         const profile = config.profiles[profilePrefix]
         const spec = profile && resolveProfileRoleSpec(profile, role)
         if (spec) {
@@ -308,10 +392,11 @@ export function refreshStampedPipelinesFromSource(workspaceRoot: string, targetC
         }
       }
 
+      composeModelVariant(frontmatter)
       const targetPath = path.join(outputDir, "agents", `${resolvedTarget}-${role}.md`)
-      const rendered = renderPipelineAgent(frontmatter, body, existing?.frontmatterVersion ?? baseAgent.frontmatterVersion)
+      const rendered = renderPipelineAgent(frontmatter, body)
       if (!fs.existsSync(targetPath) || fs.readFileSync(targetPath, "utf8") !== rendered) {
-        saveAgentFile(targetPath, frontmatter, body, existing?.frontmatterVersion ?? baseAgent.frontmatterVersion)
+        writePipelineAgent(targetPath, frontmatter, body, existing?.frontmatterVersion ?? baseAgent.frontmatterVersion)
         result.updatedAgents.push(targetPath)
       }
     }
@@ -466,36 +551,17 @@ export function forkStampedPipeline(
       const targetPath = path.join(agentsDir, targetFilename)
       const existing = fs.existsSync(targetPath) ? findAgentFiles(workspaceRoot, path.join(resolveCategoriesSubdir(workspaceRoot), resolvedTarget)).find(candidate => candidate.currentPath === targetPath) : undefined
       if (existing && !options.profileName) {
-        const sourcePermission = frontmatter.permission && typeof frontmatter.permission === "object" && !Array.isArray(frontmatter.permission)
-          ? frontmatter.permission as Record<string, any>
-          : {}
-        const existingPermission = existing.frontmatter.permission && typeof existing.frontmatter.permission === "object" && !Array.isArray(existing.frontmatter.permission)
-          ? existing.frontmatter.permission as Record<string, any>
+        const sourcePermission = isPermissionMap(frontmatter.permission) ? frontmatter.permission : {}
+        const existingPermission = isPermissionMap(existing.frontmatter.permission)
+          ? { ...existing.frontmatter.permission }
           : {}
         const targetOwnedFields = new Set(["model", "variant", "temperature", "steps", "max_steps", "mode", "hidden", "color"])
         for (const [key, value] of Object.entries(existing.frontmatter)) {
           if (key !== "permission" && (!Object.prototype.hasOwnProperty.call(agent.frontmatter, key) || targetOwnedFields.has(key))) frontmatter[key] = value
         }
-        const normalizePermissionMap = (value: any): any => {
-          if (Array.isArray(value)) return value.map(normalizePermissionMap)
-          if (!value || typeof value !== "object") return value
-          const normalized = Object.fromEntries(Object.entries(value).map(([key, child]) => [key, normalizePermissionMap(child)]))
-          if (!Object.prototype.hasOwnProperty.call(normalized, "*")) return normalized
-          const { "*": wildcard, ...rest } = normalized
-          return { "*": wildcard, ...rest }
-        }
-        const mergePermission = (source: any, target: any): any => {
-          if (!source || typeof source !== "object" || Array.isArray(source) || !target || typeof target !== "object" || Array.isArray(target)) return normalizePermissionMap(structuredClone(target))
-          const merged = structuredClone(source)
-          for (const [key, value] of Object.entries(target)) {
-            merged[key] = Object.prototype.hasOwnProperty.call(source, key)
-              ? mergePermission(source[key], value)
-              : normalizePermissionMap(structuredClone(value))
-          }
-          return normalizePermissionMap(merged)
-        }
         const mergedPermission = mergePermission(sourcePermission, existingPermission)
         if (Object.keys(mergedPermission).length > 0) frontmatter.permission = mergedPermission
+        else delete frontmatter.permission
       }
       let body = rewritePipelineBody(agent.body, resolvedTarget, sourceCategory)
       const taskPermissions = frontmatter.permission?.task
@@ -508,7 +574,7 @@ export function forkStampedPipeline(
           .filter(reference => !body.includes(reference))
         if (missingReferences.length > 0) body = `${body.trimEnd()}\n\n${missingReferences.join("\n")}`
       }
-      saveAgentFile(targetPath, frontmatter, body, agent.frontmatterVersion)
+      writePipelineAgent(targetPath, composeModelVariant(frontmatter), body, agent.frontmatterVersion)
       result.copied.push(`${agent.filename} -> ${targetFilename}`)
     }
 
@@ -564,7 +630,7 @@ export function applyPipelineProfile(
     const frontmatter: Record<string, any> = { ...agent.frontmatter, model: spec.model }
     if (typeof spec.variant === "string" && spec.variant.length > 0) frontmatter.variant = spec.variant
     else delete frontmatter.variant
-    saveAgentFile(agent.currentPath, frontmatter, agent.body, agent.frontmatterVersion)
+    saveAgentFile(agent.currentPath, composeModelVariant(frontmatter), agent.body, agent.frontmatterVersion)
     updated.push(agent.currentPath)
   }
   return { updated, profileName, targetCategory: category }
@@ -620,7 +686,8 @@ export function syncPipelineProfile(
     const frontmatter: Record<string, any> = { ...agent.frontmatter, model: spec.model }
     if (typeof spec.variant === "string" && spec.variant.length > 0) frontmatter.variant = spec.variant
     else delete frontmatter.variant
-    if (frontmatter.permission?.task && typeof frontmatter.permission.task === "object" && !Array.isArray(frontmatter.permission.task)) {
+    composeModelVariant(frontmatter)
+    if (isPermissionMap(frontmatter.permission?.task)) {
       frontmatter.permission = { ...frontmatter.permission, task: Object.fromEntries(Object.entries(frontmatter.permission.task).map(([key, value]) => [
         key.startsWith("pipeline-") ? `${resolvedTarget}-${key.slice("pipeline-".length)}` : key, value
       ])) }
@@ -630,7 +697,7 @@ export function syncPipelineProfile(
       .replace(/# pipeline-/g, `# ${resolvedTarget}-`)
       .replace(/pipeline-([a-z0-9_-]+)(?=["']?\s*:)/gi, `${resolvedTarget}-$1`)
       .replace(/\/pipeline-/g, `/${profilePrefix}-`)
-    saveAgentFile(targetPath, frontmatter, updatedBody, agent.frontmatterVersion)
+    writePipelineAgent(targetPath, frontmatter, updatedBody, agent.frontmatterVersion)
     synced.push(targetPath)
   }
 

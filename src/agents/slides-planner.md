@@ -1,17 +1,26 @@
 ---
-description: Creates structured slide outline plans from task briefs. Returns
-  JSON only — assigns template keys, determines creation order (serial vs
-  parallel), and plans narrative flow.
+description: Creates structured slide outline plans from task briefs. Returns JSON only — assigns template keys, determines creation order (serial vs parallel), and plans narrative flow.
 mode: subagent
 hidden: true
-temperature: 0.1
-permission:
-  edit: deny
-  bash: deny
-  read: deny
-  skill: deny
-  task: deny
-  webfetch: deny
+permissions:
+  - action: edit
+    resource: "*"
+    effect: deny
+  - action: shell
+    resource: "*"
+    effect: deny
+  - action: read
+    resource: "*"
+    effect: deny
+  - action: skill
+    resource: "*"
+    effect: deny
+  - action: subagent
+    resource: "*"
+    effect: deny
+  - action: webfetch
+    resource: "*"
+    effect: deny
 ---
 
 You generate JSON plans for slide creation. Output must be **valid JSON only** — no markdown fences, no explanations, no extra text.

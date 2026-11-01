@@ -1,5 +1,7 @@
 # Guida alla Configurazione MCP e LSP (`opencode.json`)
 
+> **Nota:** i documenti vendorizzati sotto `src/docs/docs-opencode/` sono ritagli di riferimento V1, non il contratto corrente.
+
 Questo documento illustra la struttura del blueprint di configurazione `src/opencode.json` per **OpenCode**, progettato per essere **portabile e multipiattaforma** (macOS, Linux, Windows / WSL).
 
 ---
@@ -11,7 +13,7 @@ Il file `src/opencode.json` serve da configurazione di riferimento per attivare 
 ### Principi del Blueprint
 1. **Comandi portabili**: Utilizzo dei binari registrati nel `PATH` di sistema o esecuzione tramite `npx -y` anziché percorsi assoluti specifici per un utente o un OS (`/Users/...`, `/opt/homebrew/...`).
 2. **Gestione Variabili d'Ambiente**: Sintassi standard OpenCode (`{env:NOME_VAR}`) per iniettare chiavi API senza esporle nel file di configurazione.
-3. **Attivazione Selettiva**: I server specifici per un determinato OS o toolchain (es. Xcode su macOS) sono disabilitati di default (`"enabled": false`) per evitare errori all'avvio su altri ambienti (es. Linux o Windows).
+3. **Attivazione Selettiva**: I server specifici per un determinato OS o toolchain (es. Xcode su macOS) sono disabilitati di default (`"disabled": true` nella voce sotto `mcp.servers`) per evitare errori all'avvio su altri ambienti (es. Linux o Windows).
 
 ---
 
@@ -39,7 +41,7 @@ Il file `src/opencode.json` serve da configurazione di riferimento per attivare 
 
 ## Server MCP Remoti Google Cloud (GCP)
 
-I sette server remoti sono già descritti nel blueprint `src/opencode.json`; non richiedono l'installazione di un pacchetto locale. Prima di usarli, abilita le API necessarie, assegna i ruoli IAM e configura l'autenticazione. Nel blueprint sono disabilitati di default.
+I sette server remoti sono già descritti nel blueprint `src/opencode.json`; non richiedono l'installazione di un pacchetto locale. Prima di usarli, abilita le API necessarie, assegna i ruoli IAM e configura l'autenticazione. Nel blueprint sono disabilitati di default con `"disabled": true`.
 
 ### Gestione Multi-Progetto GCP
 
@@ -128,7 +130,7 @@ Il token Bearer scade dopo un'ora: per continuare a usare i server, genera ed es
 
 ### Attivazione in OpenCode
 
-Attiva i server che vuoi usare tramite `manage-agents`: apri Resource Manager con `r` e abilita i server MCP desiderati. L'operazione copia la relativa voce in `~/.config/opencode/opencode.json` e la imposta con `"enabled": true`. In alternativa, imposta direttamente `"enabled": true` nella voce del server MCP remoto in quel file.
+Attiva i server che vuoi usare tramite `manage-agents`: apri Resource Manager con `r` e abilita i server MCP desiderati. L'operazione copia la relativa voce sotto `mcp.servers` in `~/.config/opencode/opencode.json` e ne rimuove `"disabled"` (in V2 un server è attivo quando `disabled` è assente). In alternativa, modifica direttamente la voce del server MCP remoto sotto `mcp.servers` in quel file e rimuovi `"disabled": true`.
 
 ---
 
@@ -221,13 +223,17 @@ ln -sf $(pwd)/src/opencode.json ~/.config/opencode/opencode.json
 ## 🔧 Personalizzazione e Abilitazione Server
 
 ### Attivare un Server disabilitato (es. XcodeBuildMCP su macOS)
-Apri il file `opencode.json` e modifica la proprietà `"enabled"` da `false` a `true`:
+Apri il file `opencode.json` e, nella voce del server sotto `mcp.servers`, rimuovi `"disabled": true`:
 
 ```json
-"XcodeBuildMCP": {
-    "type": "local",
-    "command": ["npx", "-y", "xcodebuildmcp@latest", "mcp"],
-    "enabled": true
+"mcp": {
+  "servers": {
+    "XcodeBuildMCP": {
+        "type": "local",
+        "command": ["npx", "-y", "xcodebuildmcp@latest", "mcp"],
+        "codemode": false
+    }
+  }
 }
 ```
 
@@ -235,9 +241,16 @@ Apri il file `opencode.json` e modifica la proprietà `"enabled"` da `false` a `
 Se non desideri caricare un determinato server per ridurre il numero di token o evitare conflitti:
 
 ```json
-"chrome-devtools": {
-    "type": "local",
-    "command": ["npx", "-y", "chrome-devtools-mcp@latest"],
-    "enabled": false
+"mcp": {
+  "servers": {
+    "chrome-devtools": {
+        "type": "local",
+        "command": ["npx", "-y", "chrome-devtools-mcp@latest"],
+        "codemode": false,
+        "disabled": true
+    }
+  }
 }
 ```
+
+`codemode` è valido solo sui server locali; i server remoti non lo accettano. Sui server locali `codemode: false` è obbligatorio, perché gli agenti pipeline negano `execute` (Code Mode) e un server che abilitasse Code Mode non sarebbe utilizzabile.

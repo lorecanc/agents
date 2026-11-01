@@ -2,6 +2,7 @@ import fs from "node:fs"
 import path from "node:path"
 import YAML from "yaml"
 import { extractFrontmatter, findAgentFiles, resolveCategoriesSubdir, resolveSourceSubdir, type AgentInfo } from "./agents.js"
+import { translateFrontmatterV1ToV2, translateFrontmatterV2ToV1, type V2PermissionRule } from "./v2Compat.js"
 
 /**
  * Bash allowlists of pipeline agents are generated from named, ordered rule
@@ -78,8 +79,16 @@ export function expandBashRole(config: BashProfilesConfig, role: string): BashRu
   return names.flatMap(name => config.profiles[name].rules.map(([pattern, action]) => [pattern, action] as BashRule))
 }
 
-/** The agent's current `permission.bash`: ordered rules, a scalar action, or undefined. */
+/** The agent's current `permission.bash` / V2 `shell` rules: ordered rules, a scalar action, or undefined. */
 export function bashRulesOf(frontmatter: Record<string, any> | undefined): BashRule[] | string | undefined {
+  if (Array.isArray(frontmatter?.permissions)) {
+    const rules = frontmatter.permissions
+      .filter((rule: any) => rule && typeof rule === "object" && !Array.isArray(rule) && rule.action === "shell" && typeof rule.resource === "string")
+      .map((rule: any) => [rule.resource, String(rule.effect) as BashAction] as BashRule)
+    // A lone "*" shell rule is the V2 form of `bash: <action>`.
+    if (rules.length === 1 && rules[0][0] === "*") return rules[0][1]
+    return rules.length > 0 ? rules : undefined
+  }
   const bash = frontmatter?.permission?.bash
   if (bash === undefined || bash === null) return undefined
   if (typeof bash !== "object" || Array.isArray(bash)) return String(bash)
@@ -161,41 +170,56 @@ export function checkBashProfiles(workspaceRoot: string): BashDrift[] {
   return checkAgentsAgainstBashProfiles(config, agents, workspaceRoot)
 }
 
-/** Render rules as the indented YAML lines used under `  bash:` in agent frontmatter. */
-export function renderBashBlock(rules: BashRule[], indent = "    "): string[] {
-  return rules.map(rule => `${indent}${renderRule(rule)}`)
+function shellRules(rules: BashRule[]): V2PermissionRule[] {
+  return rules.map(([resource, effect]) => ({ action: "shell", resource, effect }))
 }
 
 /**
- * Replace only the lines of the frontmatter `permission.bash` mapping. Other
- * keys, comments, and the body are untouched. Returns null when the file has
- * no `bash:` rule block under `permission:` (scalar values are left alone).
+ * Replace the ordered bash/shell expansion while leaving every other
+ * frontmatter field and the body bytes untouched. Returns null when the file
+ * has no frontmatter.
  */
-export function replaceBashBlock(content: string, rules: BashRule[]): string | null {
-  const newline = content.includes("\r\n") ? "\r\n" : "\n"
-  const lines = content.split(/\r?\n/)
-  if (lines[0] !== "---") return null
-  const end = lines.indexOf("---", 1)
-  if (end < 0) return null
-  let inPermission = false
-  for (let index = 1; index < end; index++) {
-    const line = lines[index]
-    if (/^permission:\s*$/.test(line)) { inPermission = true; continue }
-    if (inPermission && /^\S/.test(line)) inPermission = false
-    if (!inPermission || !/^ {2}bash:\s*$/.test(line)) continue
-    let stop = index + 1
-    while (stop < end && (/^ {4,}\S/.test(lines[stop]) || lines[stop].trim() === "")) stop++
-    while (stop > index + 1 && lines[stop - 1].trim() === "") stop--
-    const indent = lines[index + 1]?.match(/^( {4,})\S/)?.[1] ?? "    "
-    return [...lines.slice(0, index + 1), ...renderBashBlock(rules, indent), ...lines.slice(stop)].join(newline)
+export function rewriteBashRules(content: string, rules: BashRule[]): string | null {
+  const { yamlText, body } = extractFrontmatter(content)
+  if (yamlText === null) return null
+  let parsed: unknown
+  try { parsed = YAML.parse(yamlText) } catch { return null }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null
+  const frontmatter = parsed as Record<string, any>
+
+  let next: Record<string, any>
+  if (Array.isArray(frontmatter.permissions)) {
+    const permissions: any[] = []
+    let inserted = false
+    for (const rule of frontmatter.permissions) {
+      if (rule && typeof rule === "object" && !Array.isArray(rule) && rule.action === "shell") {
+        if (!inserted) { permissions.push(...shellRules(rules)); inserted = true }
+        continue
+      }
+      permissions.push(rule)
+    }
+    if (!inserted) permissions.push(...shellRules(rules))
+    next = { ...frontmatter, permissions }
+  } else {
+    const permission = frontmatter.permission && typeof frontmatter.permission === "object" && !Array.isArray(frontmatter.permission)
+      ? frontmatter.permission as Record<string, any>
+      : {}
+    next = translateFrontmatterV1ToV2({ ...frontmatter, permission: { ...permission, bash: Object.fromEntries(rules) } })
   }
-  return null
+
+  return `---\n${YAML.stringify(next).trim()}\n---\n${body}`
 }
 
 export interface SyncBashResult {
   changed: string[]
   unchanged: string[]
   skipped: string[]
+}
+
+function canonicalJson(value: any): any {
+  if (Array.isArray(value)) return value.map(canonicalJson)
+  if (!value || typeof value !== "object") return value
+  return Object.fromEntries(Object.keys(value).sort().map(key => [key, canonicalJson(value[key])]))
 }
 
 /** Rewrite canonical pipeline agents' bash blocks from the profiles. */
@@ -213,14 +237,24 @@ export function syncBashProfiles(workspaceRoot: string, options: { dryRun?: bool
     const stat = fs.lstatSync(agent.currentPath)
     if (stat.isSymbolicLink() || !stat.isFile()) throw new Error(`Refusing to rewrite non-regular agent file: ${agent.currentPath}`)
     const content = fs.readFileSync(agent.currentPath, "utf8")
-    const next = replaceBashBlock(content, expected)
-    if (next === null) throw new Error(`${relative}: role '${role}' is profiled but the file has no permission.bash rule block`)
-    // Round-trip guard: only the bash block may change.
-    const before = extractFrontmatter(content), after = extractFrontmatter(next)
-    const parsedBefore = YAML.parse(before.yamlText ?? ""), parsedAfter = YAML.parse(after.yamlText ?? "")
+    const before = extractFrontmatter(content)
+    const parsedBefore = YAML.parse(before.yamlText ?? "")
+    if (JSON.stringify(bashRulesOf(parsedBefore)) === JSON.stringify(expected)) { result.unchanged.push(relative); continue }
+    const next = rewriteBashRules(content, expected)
+    if (next === null) throw new Error(`${relative}: role '${role}' is profiled but the file has no frontmatter`)
+    // Round-trip guard: only permission.bash may change, and the body must keep
+    // its bytes. Compare parsed YAML, not the rendered lines.
+    const after = extractFrontmatter(next)
+    const parsedAfter = YAML.parse(after.yamlText ?? "")
     if (JSON.stringify(bashRulesOf(parsedAfter)) !== JSON.stringify(expected)) throw new Error(`${relative}: rewritten bash block does not parse back to the profile expansion`)
-    parsedBefore.permission.bash = parsedAfter.permission.bash
-    if (JSON.stringify(parsedBefore) !== JSON.stringify(parsedAfter) || before.body !== after.body) throw new Error(`${relative}: sync would change more than permission.bash`)
+    const normalizedBefore = Array.isArray(parsedBefore.permissions) ? translateFrontmatterV2ToV1(parsedBefore) : parsedBefore
+    const normalizedAfter = Array.isArray(parsedAfter.permissions) ? translateFrontmatterV2ToV1(parsedAfter) : parsedAfter
+    delete normalizedBefore.permission?.["*"]
+    delete normalizedAfter.permission?.["*"]
+    normalizedBefore.permission = { ...(normalizedBefore.permission ?? {}), bash: normalizedAfter.permission?.bash }
+    if (JSON.stringify(canonicalJson(normalizedBefore)) !== JSON.stringify(canonicalJson(normalizedAfter)) || before.body !== after.body) {
+      throw new Error(`${relative}: sync would change more than permission.bash`)
+    }
     if (next === content) result.unchanged.push(relative)
     else { result.changed.push(relative); plans.push({ file: agent.currentPath, next }) }
   }

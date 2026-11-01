@@ -1,7 +1,7 @@
 // Shared, dependency-free core for the *-pipeline-* agent family.
 //
 // Used by:
-//   - plugins/pipeline-guard.js   (hooks: env, write guards, session registry)
+//   - plugins/pipeline-guard/index.ts   (hooks: env, write guards, session registry)
 //   - tools/pipeline_state.ts     (read-only change-set / baseline report)
 //   - tools/pipeline_commit.ts    (deterministic, scoped commit)
 //   - tools/_pipeline_run.js      (verify / smoke runners)
@@ -1528,3 +1528,10 @@ export function editTargets(tool, args) {
 }
 
 export const FILE_WRITE_TOOLS = new Set(["edit", "write", "multiedit", "apply_patch", "patch"])
+
+/** Tools that run a shell command: `bash` in V1, `shell` in V2. */
+export const SHELL_TOOLS = new Set(["bash", "shell"])
+
+export function isShellTool(tool) {
+  return SHELL_TOOLS.has(tool)
+}

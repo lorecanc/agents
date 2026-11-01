@@ -1,4 +1,4 @@
-import { tool } from "@opencode-ai/plugin"
+import { tool } from "./_tool.js"
 import { executeCommit, planCommit, repoInfo, rootRecordFor } from "./_pipeline_core.js"
 
 export default tool({

@@ -1,4 +1,4 @@
-import { tool } from "@opencode-ai/plugin"
+import { tool } from "./_tool.js"
 import { collectEnv } from "./_pipeline_env.js"
 
 export default tool({

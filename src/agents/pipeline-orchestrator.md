@@ -1,67 +1,149 @@
 ---
-description: Primary coordinator for the pipeline multi-agent workflow.
-  Assesses work size, routes to the smallest effective lane, delegates to
-  specialized agents, and evaluates results. Never writes code or solves
-  problems directly.
+description: Primary coordinator for the pipeline multi-agent workflow. Assesses work size, routes to the smallest effective lane, delegates to specialized agents, and evaluates results. Never writes code or solves problems directly.
 mode: primary
 model: mistral/zai-glm-5-3
-temperature: 1
-permission:
-  "*": deny
-  external_directory:
-    "*": ask
-    "~/.local/share/opencode/tool-output/*": allow
-    "~/.config/opencode/skills/*": allow
-    "/tmp/*": allow
-    "/private/tmp/*": allow
-  doom_loop: deny
-  pipeline_state: allow
-  pipeline_env: allow
-  read: allow
-  list: allow
-  grep: allow
-  glob: allow
-  skill: allow
-  read_mcp_resource: allow
-  list_mcp_resources: allow
-  list_mcp_resource_templates: allow
-  mcp-resource: allow
-  todowrite: allow
-  question: allow
-  task:
-    "*": deny
-    pipeline-explorer: allow
-    pipeline-planner: allow
-    pipeline-reasoner: allow
-    pipeline-executor: allow
-    pipeline-tester: allow
-    pipeline-refactorer: allow
-    pipeline-researcher: allow
-    pipeline-multimodal: allow
-    pipeline-ops: allow
-    pipeline-critic: allow
-    pipeline-hitl: allow
-    pipeline-chrome_devtools: allow
-    pipeline-code_reviewer: allow
-    pipeline-docs_grounding: allow
-    pipeline-fast_lane: allow
-    pipeline-frontend_specialist: allow
-    pipeline-post_session: allow
-    pipeline-security_auditor: allow
-    pipeline-swift_specialist: allow
-    pipeline-kotlin_specialist: allow
-  codebase-memory-mcp_*: allow
-  codebase-memory-mcp_delete_project: deny
-  codebase-memory-mcp_ingest_traces: deny
-  codebase-memory-mcp_manage_adr: deny
-  codebase-memory-mcp_index_repository: deny
-  bash: deny
-  webfetch: deny
-  websearch: deny
-  lsp: deny
 color: "#E67E22"
 steps: 150
 hidden: false
+permissions:
+  - action: "*"
+    resource: "*"
+    effect: deny
+  - action: external_directory
+    resource: "*"
+    effect: ask
+  - action: external_directory
+    resource: ~/.local/share/opencode/tool-output/*
+    effect: allow
+  - action: external_directory
+    resource: ~/.config/opencode/skills/*
+    effect: allow
+  - action: external_directory
+    resource: /tmp/*
+    effect: allow
+  - action: external_directory
+    resource: /private/tmp/*
+    effect: allow
+  - action: pipeline_state
+    resource: "*"
+    effect: allow
+  - action: pipeline_env
+    resource: "*"
+    effect: allow
+  - action: read
+    resource: "*"
+    effect: allow
+  - action: grep
+    resource: "*"
+    effect: allow
+  - action: glob
+    resource: "*"
+    effect: allow
+  - action: skill
+    resource: "*"
+    effect: allow
+  - action: opencode_read_mcp_resource
+    resource: "*"
+    effect: allow
+  - action: opencode_list_mcp_resources
+    resource: "*"
+    effect: allow
+  - action: todowrite
+    resource: "*"
+    effect: allow
+  - action: question
+    resource: "*"
+    effect: allow
+  - action: subagent
+    resource: "*"
+    effect: deny
+  - action: subagent
+    resource: pipeline-explorer
+    effect: allow
+  - action: subagent
+    resource: pipeline-planner
+    effect: allow
+  - action: subagent
+    resource: pipeline-reasoner
+    effect: allow
+  - action: subagent
+    resource: pipeline-executor
+    effect: allow
+  - action: subagent
+    resource: pipeline-tester
+    effect: allow
+  - action: subagent
+    resource: pipeline-refactorer
+    effect: allow
+  - action: subagent
+    resource: pipeline-researcher
+    effect: allow
+  - action: subagent
+    resource: pipeline-multimodal
+    effect: allow
+  - action: subagent
+    resource: pipeline-ops
+    effect: allow
+  - action: subagent
+    resource: pipeline-critic
+    effect: allow
+  - action: subagent
+    resource: pipeline-hitl
+    effect: allow
+  - action: subagent
+    resource: pipeline-chrome_devtools
+    effect: allow
+  - action: subagent
+    resource: pipeline-code_reviewer
+    effect: allow
+  - action: subagent
+    resource: pipeline-docs_grounding
+    effect: allow
+  - action: subagent
+    resource: pipeline-fast_lane
+    effect: allow
+  - action: subagent
+    resource: pipeline-frontend_specialist
+    effect: allow
+  - action: subagent
+    resource: pipeline-post_session
+    effect: allow
+  - action: subagent
+    resource: pipeline-security_auditor
+    effect: allow
+  - action: subagent
+    resource: pipeline-swift_specialist
+    effect: allow
+  - action: subagent
+    resource: pipeline-kotlin_specialist
+    effect: allow
+  - action: codebase-memory-mcp_*
+    resource: "*"
+    effect: allow
+  - action: codebase-memory-mcp_delete_project
+    resource: "*"
+    effect: deny
+  - action: codebase-memory-mcp_ingest_traces
+    resource: "*"
+    effect: deny
+  - action: codebase-memory-mcp_manage_adr
+    resource: "*"
+    effect: deny
+  - action: codebase-memory-mcp_index_repository
+    resource: "*"
+    effect: deny
+  - action: shell
+    resource: "*"
+    effect: deny
+  - action: webfetch
+    resource: "*"
+    effect: deny
+  - action: websearch
+    resource: "*"
+    effect: deny
+  - action: lsp
+    resource: "*"
+    effect: deny
 ---
 
 # pipeline-orchestrator

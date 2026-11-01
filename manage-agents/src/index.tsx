@@ -21,7 +21,7 @@ import {
 import { AUTO_COMMIT_MESSAGES, isRepositoryLocalPath, repositoryTransaction, parseAutoCommitArgs } from "./utils/repositoryTransaction.js"
 import { buildCategoryDistribution, buildAllCategoryDistributions, recoverBuildAllCategoryDistributions, checkCategoryDistribution, loadCategoryManifest, packageCategoryDistributions, parseCategoryArgs } from "./utils/categoryDistribution.js"
 import { loadUiConfig } from "./utils/uiConfig.js"
-import { loadPipelineProfiles, applyPipelineProfile, syncPipelineProfile, deleteStampedPipeline, resolveProfileRoleSpec, PIPELINE_ROLES, loadStampedPipelineAgents, refreshStampedPipelinesFromSource, checkPipelineBundles } from "./utils/pipelineProfiles.js"
+import { loadPipelineProfiles, applyPipelineProfile, syncPipelineProfile, deleteStampedPipeline, resolveProfileRoleSpec, PIPELINE_ROLES, loadStampedPipelineAgents, refreshStampedPipelinesFromSource, checkPipelineBundles, type RefreshStampedPipelinesResult } from "./utils/pipelineProfiles.js"
 import { getCompanionLinksConfigPath } from "./utils/companionLinks.js"
 import { BASH_PROFILES_FILE, checkBashProfiles, syncBashProfiles } from "./utils/bashProfiles.js"
 import { claudeNextSteps } from "./utils/claudeNextSteps.js"
@@ -1287,24 +1287,63 @@ async function runCategory(workspaceRoot: string) {
   // them from the canonical pipeline and `check` verifies their OpenCode
   // tools/plugin. `--all` covers every stamped bundle as well as the manifests.
   const isPipelineId = (id: string) => id === "pipeline" || id.endsWith("-pipeline")
-  const pipelineIds = ids.filter(isPipelineId)
-  const manifestIds = ids.filter(id => !isPipelineId(id))
   const all = !parsed.id
-  const refreshPipelines = (category?: string) => repositoryMutation(repoRoot, [path.join(repoRoot, resolveCategoriesSubdir(repoRoot)), getCompanionLinksConfigPath(repoRoot)], AUTO_COMMIT_MESSAGES.pipeline, () =>
-    refreshStampedPipelinesFromSource(repoRoot, category)
-  )
+  const categoriesRoot = path.join(repoRoot, resolveCategoriesSubdir(repoRoot))
+  // `--all` also covers stamped bundles: manifest ids never include them.
+  const pipelineIds = all
+    ? fs.existsSync(categoriesRoot)
+      ? fs.readdirSync(categoriesRoot, { withFileTypes: true }).filter(entry => entry.isDirectory() && entry.name.endsWith("-pipeline")).map(entry => entry.name)
+      : []
+    : ids.filter(isPipelineId)
+  const manifestIds = ids.filter(id => !isPipelineId(id))
+  // `check`/`status` are read-only: run the refresh renderer against a throwaway
+  // copy of the bundle so drift can be reported without persisting it.
+  const previewStampedPipelines = (category?: string): RefreshStampedPipelinesResult => {
+    const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "manage-agents-category-check-"))
+    const categoriesSubdir = resolveCategoriesSubdir(repoRoot)
+    try {
+      for (const relative of [".agent-manager", resolveSourceSubdir(repoRoot)]) {
+        const source = path.join(repoRoot, relative)
+        if (fs.existsSync(source)) fs.cpSync(source, path.join(temporary, relative), { recursive: true })
+      }
+      const categoriesRootPath = path.join(temporary, categoriesSubdir)
+      const names = category ? [category] : fs.existsSync(categoriesRoot)
+        ? fs.readdirSync(categoriesRoot, { withFileTypes: true }).filter(entry => entry.isDirectory() && entry.name.endsWith("-pipeline")).map(entry => entry.name)
+        : []
+      for (const name of names) {
+        const source = path.join(categoriesRoot, name)
+        if (fs.existsSync(source)) fs.cpSync(source, path.join(categoriesRootPath, name), { recursive: true })
+      }
+      const result = refreshStampedPipelinesFromSource(temporary, category)
+      const rebase = (file: string) => path.join(repoRoot, path.relative(temporary, file))
+      return { ...result, updatedAgents: result.updatedAgents.map(rebase), updatedCompanions: result.updatedCompanions.map(rebase) }
+    } finally {
+      fs.rmSync(temporary, { recursive: true, force: true })
+    }
+  }
+  const refreshPipelines = (category?: string, options: { dryRun?: boolean } = {}) =>
+    options.dryRun === true
+      ? previewStampedPipelines(category)
+      : repositoryMutation(repoRoot, [path.join(repoRoot, resolveCategoriesSubdir(repoRoot)), getCompanionLinksConfigPath(repoRoot)], AUTO_COMMIT_MESSAGES.pipeline, () =>
+        refreshStampedPipelinesFromSource(repoRoot, category)
+      )
+  const pipelineDrifts: Array<{ category: string; updatedAgents: string[]; updatedCompanions: string[] }> = []
   if (parsed.action === "build") {
     if (all) refreshPipelines()
     else for (const id of pipelineIds) if (id !== "pipeline") refreshPipelines(id)
   } else if (parsed.action === "check" || parsed.action === "status") {
-    for (const id of pipelineIds) if (id !== "pipeline") refreshPipelines(id)
+    for (const id of pipelineIds) if (id !== "pipeline") {
+      const drift = refreshPipelines(id, { dryRun: true })
+      pipelineDrifts.push({ category: id, updatedAgents: drift.updatedAgents, updatedCompanions: drift.updatedCompanions })
+    }
   }
   const results = parsed.action === "build" && all
     ? buildAllCategoryDistributions(repoRoot)
     : manifestIds.map(id => parsed.action === "check" || parsed.action === "status" ? checkCategoryDistribution(repoRoot, id) : repositoryMutation(repoRoot, [path.join(repoRoot, resolveCategoriesSubdir(repoRoot), id)], `chore(agent-manager): build ${id} category`, () => buildCategoryDistribution(repoRoot, id)))
   const resultIds = parsed.action === "build" && all ? ids : manifestIds
   const pipelineChecks = all || pipelineIds.length > 0 ? checkPipelineBundles(repoRoot, all ? undefined : pipelineIds) : []
-  if (parsed.json) console.log(JSON.stringify(pipelineChecks.length ? { categories: results, pipelines: pipelineChecks } : results))
+  const pipelineDriftFiles = pipelineDrifts.flatMap(drift => [...drift.updatedAgents, ...drift.updatedCompanions]).sort()
+  if (parsed.json) console.log(JSON.stringify(pipelineChecks.length || pipelineDriftFiles.length ? { categories: results, pipelines: pipelineChecks, ...(pipelineDriftFiles.length ? { pipelineDrift: pipelineDrifts } : {}) } : results))
   else {
     results.forEach((result, index) => console.log(result.status === "current" ? `Category ${resultIds[index]} is current.` : `Category ${resultIds[index]} is stale.\nMissing: ${result.missing.join(", ") || "none"}\nChanged: ${result.changed.join(", ") || "none"}\nExtra: ${result.extra.join(", ") || "none"}`))
     for (const check of pipelineChecks) {
@@ -1312,13 +1351,17 @@ async function runCategory(workspaceRoot: string) {
       else if (check.problems.length === 0) console.log(`Pipeline ${check.category} ships its OpenCode tools and plugin.`)
       else console.log(`Pipeline ${check.category} is incomplete:\n${check.problems.map(problem => `  - [${problem.kind}] ${problem.detail}`).join("\n")}`)
     }
+    for (const drift of pipelineDrifts) {
+      const outOfDate = drift.updatedAgents.length + drift.updatedCompanions.length
+      if (outOfDate > 0) console.log(`Pipeline ${drift.category} needs a refresh (${drift.updatedAgents.length} agent(s), ${drift.updatedCompanions.length} companion(s) out of date); run \`category build --all\`.`)
+    }
   }
   const bashDrifts = all || pipelineIds.length > 0
     ? checkBashProfiles(repoRoot).filter(drift => all || pipelineIds.some(id => id === "pipeline" ? drift.file.startsWith(`${resolveSourceSubdir(repoRoot)}/`) : drift.file.includes(`/${id}/`)))
     : []
   if (!parsed.json) for (const drift of bashDrifts) console.log(`Bash allowlist drift in ${drift.file} (role ${drift.role}, ${drift.problem}); fix with \`pipeline sync-bash\` then \`category build --all\`:\n${drift.diff.map(line => `    ${line}`).join("\n")}`)
   else if (bashDrifts.length) console.log(JSON.stringify({ bashDrifts }))
-  const pipelineFailed = pipelineChecks.some(check => check.problems.length > 0) || bashDrifts.length > 0
+  const pipelineFailed = pipelineChecks.some(check => check.problems.length > 0) || pipelineDriftFiles.length > 0 || bashDrifts.length > 0
   if ((parsed.action === "check" || parsed.action === "status") && (results.some(result => result.status !== "current") || pipelineFailed)) process.exitCode = 1
   if (parsed.action === "build" && pipelineFailed) process.exitCode = 1
 }

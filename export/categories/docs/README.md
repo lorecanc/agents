@@ -17,7 +17,17 @@ This portable package is an inventory-driven projection of the canonical OpenCod
 - `src/commands/convert-doc.md` → `commands/convert-doc.md`
 - `src/commands/web-audit.md` → `commands/web-audit.md`
 - `src/skills/docx` → `skills/docx`
+- `src/plugins/doc-tools` → `plugins/doc-tools`
 - `src/tools/docx` → `tools/docx`
+- `src/tools/_safeName.js` → `tools/_safeName.js`
+- `src/tools/_tool.ts` → `tools/_tool.ts`
+- `src/tools/doc_compile_theme.ts` → `tools/doc_compile_theme.ts`
+- `src/tools/doc_convert.ts` → `tools/doc_convert.ts`
+- `src/tools/doc_create.ts` → `tools/doc_create.ts`
+- `src/tools/doc_list.ts` → `tools/doc_list.ts`
+- `src/tools/doc_modify.ts` → `tools/doc_modify.ts`
+- `src/tools/doc_restore.ts` → `tools/doc_restore.ts`
+- `src/tools/doc_view.ts` → `tools/doc_view.ts`
 - `src/requirements.txt` → `requirements.txt`
 - `opencode.json` (generated configuration)
 

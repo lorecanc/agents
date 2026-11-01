@@ -31,10 +31,16 @@ export const DEFAULT_COMPANION_LINKS: CompanionLinksConfig = {
   version: 1,
   categories: {
     pipeline: {
-      plugins: ["plugins/pipeline-guard.js"],
+      plugins: [
+        "plugins/doc-tools",
+        "plugins/pipeline-guard",
+        "plugins/pipeline-tools",
+        "plugins/slide-tools"
+      ],
       commands: [
         "commands/pipeline-bug.md",
         "commands/pipeline-feature.md",
+        "commands/pipeline-init.md",
         "commands/pipeline-ops.md",
         "commands/pipeline-refactor.md",
         "commands/pipeline-research.md"
@@ -42,6 +48,7 @@ export const DEFAULT_COMPANION_LINKS: CompanionLinksConfig = {
       skills: ["skills/code-review-antipatterns"],
       tools: [
         "tools/pipeline_commit.ts",
+        "tools/pipeline_env.ts",
         "tools/pipeline_serve.ts",
         "tools/pipeline_smoke.ts",
         "tools/pipeline_state.ts",
@@ -49,7 +56,7 @@ export const DEFAULT_COMPANION_LINKS: CompanionLinksConfig = {
       ]
     },
     slides: {
-      plugins: [],
+      plugins: ["plugins/slide-tools"],
       commands: ["commands/new-slides.md", "commands/fix-slide.md", "commands/polish-slides.md"],
       skills: [
         "skills/pptx",
@@ -73,7 +80,7 @@ export const DEFAULT_COMPANION_LINKS: CompanionLinksConfig = {
       ]
     },
     docs: {
-      plugins: [],
+      plugins: ["plugins/doc-tools"],
       commands: ["commands/new-doc.md", "commands/edit-doc.md", "commands/convert-doc.md"],
       skills: ["skills/docx", "skills/docs-design", "skills/docs-html"],
       tools: [
@@ -333,8 +340,13 @@ export function discoverAvailableCategoryCompanionItems(workspaceRoot: string, c
   }
   const pluginDir = path.join(sourceRoot, "plugins")
   for (const entry of entries(pluginDir)) {
-    if (!entry.isFile() || isExcludedFile(entry.name) || !/\.(js|ts|mjs)$/i.test(entry.name) || entry.name === "README.md") continue
     const relativePath = `plugins/${entry.name}`
+    if (entry.isDirectory()) {
+      if (!fs.existsSync(path.join(pluginDir, entry.name, "index.ts"))) continue
+      items.push(selectableItem("plugin", relativePath, entry.name, linked.plugin))
+      continue
+    }
+    if (!entry.isFile() || isExcludedFile(entry.name) || !/\.(js|ts|mjs)$/i.test(entry.name) || entry.name === "README.md") continue
     items.push(selectableItem("plugin", relativePath, path.basename(entry.name, path.extname(entry.name)), linked.plugin))
   }
   const commandDir = path.join(sourceRoot, "commands")

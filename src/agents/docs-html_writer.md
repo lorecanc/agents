@@ -1,19 +1,29 @@
 ---
-description: Generates complete, production-quality HTML documents (A4 format)
-  from task briefs and design context. Isolated — all content must be provided
-  in the prompt.
+description: Generates complete, production-quality HTML documents (A4 format) from task briefs and design context. Isolated — all content must be provided in the prompt.
 mode: subagent
 hidden: true
-temperature: 0.3
-permission:
-  edit: deny
-  bash: deny
-  read: deny
-  task: deny
-  skill:
-    docs-html: allow
-    docs-design: allow
-  webfetch: deny
+permissions:
+  - action: edit
+    resource: "*"
+    effect: deny
+  - action: shell
+    resource: "*"
+    effect: deny
+  - action: read
+    resource: "*"
+    effect: deny
+  - action: subagent
+    resource: "*"
+    effect: deny
+  - action: skill
+    resource: docs-html
+    effect: allow
+  - action: skill
+    resource: docs-design
+    effect: allow
+  - action: webfetch
+    resource: "*"
+    effect: deny
 ---
 
 You generate HTML documents. Return ONLY the complete HTML — no markdown fences, no explanations, no tool calls.

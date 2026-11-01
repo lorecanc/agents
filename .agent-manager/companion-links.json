@@ -2,7 +2,9 @@
   "version": 1,
   "categories": {
     "docs": {
-      "plugins": [],
+      "plugins": [
+        "plugins/doc-tools"
+      ],
       "commands": [
         "commands/convert-doc.md",
         "commands/edit-doc.md",
@@ -26,11 +28,15 @@
     },
     "pipeline": {
       "plugins": [
-        "plugins/pipeline-guard.js"
+        "plugins/doc-tools",
+        "plugins/pipeline-guard",
+        "plugins/pipeline-tools",
+        "plugins/slide-tools"
       ],
       "commands": [
         "commands/pipeline-bug.md",
         "commands/pipeline-feature.md",
+        "commands/pipeline-init.md",
         "commands/pipeline-ops.md",
         "commands/pipeline-refactor.md",
         "commands/pipeline-research.md"
@@ -40,6 +46,7 @@
       ],
       "tools": [
         "tools/pipeline_commit.ts",
+        "tools/pipeline_env.ts",
         "tools/pipeline_serve.ts",
         "tools/pipeline_smoke.ts",
         "tools/pipeline_state.ts",
@@ -47,7 +54,9 @@
       ]
     },
     "slides": {
-      "plugins": [],
+      "plugins": [
+        "plugins/slide-tools"
+      ],
       "commands": [
         "commands/fix-slide.md",
         "commands/new-slides.md",

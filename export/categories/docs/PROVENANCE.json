@@ -2,9 +2,9 @@
   "schemaVersion": 2,
   "distributionVersion": "2.0.0",
   "category": "docs",
-  "manifestHash": "e38b515397fa6ca04c1887112d7622e2e64efdce4cf7762e7bdb7f8eec2c8cc8",
+  "manifestHash": "1de18863a57f08b21de21020dd7042f821f8970ef8201558722c730e58226bba",
   "generatorVersion": "2.0.0",
-  "bundleDigest": "ae70039ad0205b8573864b189d85fa09f8f87d9e34792ae3ed05e17867f777dc",
+  "bundleDigest": "07f8d8fdd9c47a72d721a0023998be0d684a4dd07093780e06434e4880a4a535",
   "entries": [
     {
       "target": "AGENTS.md",
@@ -16,19 +16,19 @@
     },
     {
       "target": "README.md",
-      "hash": "862d12c1d70cf393b87402756fdad782f068f42518f7d8b1368955092c3c5525"
+      "hash": "828953dc6e2547605c6d5470fd1b50730d6c69375385d3de83d6e99fecea8250"
     },
     {
       "target": "agents/docs-html_writer.md",
-      "hash": "0306204895456450c602caee713ed946e02f422c60414764da3b703f5c2d8227"
+      "hash": "cbd6e5f97e6fc217689bb959cc54784272f539210d43f80d0318cbf8e461d61c"
     },
     {
       "target": "agents/docs-orchestrator.md",
-      "hash": "e42ba34d4443e1b235505cfe6713e4acc4c08b6661067659d6f510861ee65925"
+      "hash": "76009e2c1b64f737c8c7c7e9a207bd60f7960282fd6343f4582cb6c5ad6549d3"
     },
     {
       "target": "agents/docs-planner.md",
-      "hash": "c428a94e009b00e7f3015a8804f49ba8ee204856031f516fa148cc7bc09a6ba5"
+      "hash": "f19fc7100f8b29dd4c4df27c26ae6c12e4f166552ec45a9f03bf967f0fc342a5"
     },
     {
       "target": "commands/convert-doc.md",
@@ -48,7 +48,11 @@
     },
     {
       "target": "opencode.json",
-      "hash": "15111fab6d5571a3a9adc63527bbee2200d22123bced27d4be7724c7fee3ed0d"
+      "hash": "f0017d99c62057fc1aa94c95473315a6ab20f264dd6075f024407e3ddf778ff2"
+    },
+    {
+      "target": "plugins/doc-tools/index.ts",
+      "hash": "2485a8f59757435bde6c40e58d9799ec8b8413255ff9e2b5c57fefeba514f4ae"
     },
     {
       "target": "requirements.txt",
@@ -57,6 +61,42 @@
     {
       "target": "skills/docx/SKILL.md",
       "hash": "69fac555a1866f0bd678c80e6392a2636be698ecc146ff53787676c2b8632383"
+    },
+    {
+      "target": "tools/_safeName.js",
+      "hash": "525d8704ebaa3ea347d916fa302227bfc07d2ae149196dd4dbefa7b51b4399a6"
+    },
+    {
+      "target": "tools/_tool.ts",
+      "hash": "7f896bb01b2b27559e6c693d8393a1372afa60de9b279e13e885b17c02f091f4"
+    },
+    {
+      "target": "tools/doc_compile_theme.ts",
+      "hash": "e480092b9b53d22f43caed337d5818896d894b79771226a4702055d04044d175"
+    },
+    {
+      "target": "tools/doc_convert.ts",
+      "hash": "a4d5bc04b6e204ae0778c424fb217a49bb250a9014fc7afbb7b7acf78419b792"
+    },
+    {
+      "target": "tools/doc_create.ts",
+      "hash": "4e599e663fcd34c6a9b5fd07bb11bc06392ebbe5a5473cea7044d0e6336bf900"
+    },
+    {
+      "target": "tools/doc_list.ts",
+      "hash": "fc094b2f0dbfe0854d225bd0de6a33549d00477b694f99570d6e2ba04a07d501"
+    },
+    {
+      "target": "tools/doc_modify.ts",
+      "hash": "7a23570422b5fd5128df86706a165b276f651d575750e7c15e5e78afba140fde"
+    },
+    {
+      "target": "tools/doc_restore.ts",
+      "hash": "1f4afe854e5a1000279a26970339461369bc1dd55964c33f426a866ee55c60a1"
+    },
+    {
+      "target": "tools/doc_view.ts",
+      "hash": "1992c72d46ebcd0e3d1c186c6f045012ecff44090203c4e8296b5bc56e05972b"
     },
     {
       "target": "tools/docx/scripts/__init__.py",

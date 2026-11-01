@@ -3,7 +3,9 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { test } from "node:test"
-import { parseAgentFile, saveAgentFile } from "./agents.js"
+import YAML from "yaml"
+import { extractFrontmatter, parseAgentFile, saveAgentFile } from "./agents.js"
+import { DEFAULT_COMPANION_LINKS } from "./companionLinks.js"
 import * as profilesMod from "./pipelineProfiles.js"
 import {
   applyPipelineProfile,
@@ -74,7 +76,7 @@ test("sync forks base agents, applies selected profile, and copies companion lin
   agent(root, "pipeline", "orchestrator")
   agent(root, "pipeline", "executor")
   const sourceFiles: Record<string, string> = {
-    "plugins/pipeline-guard.js": "pipeline plugin\n",
+    "plugins/pipeline-guard/index.ts": "pipeline plugin\n",
     "commands/pipeline-bug.md": "Pipeline: use @pipeline-orchestrator\n",
     "skills/code-review-antipatterns/SKILL.md": "review skill\n",
     "tools/pipeline_commit.ts": "commit tool\n",
@@ -93,7 +95,7 @@ test("sync forks base agents, applies selected profile, and copies companion lin
   fs.writeFileSync(path.join(manager, "companion-links.json"), JSON.stringify({
     version: 1,
     categories: {
-      pipeline: { plugins: ["plugins/pipeline-guard.js"], commands: ["commands/pipeline-bug.md"], skills: ["skills/code-review-antipatterns"], tools: ["tools/pipeline_commit.ts", "tools/pipeline_serve.ts", "tools/pipeline_smoke.ts", "tools/pipeline_state.ts", "tools/pipeline_verify.ts"] },
+      pipeline: { plugins: ["plugins/pipeline-guard"], commands: ["commands/pipeline-bug.md"], skills: ["skills/code-review-antipatterns"], tools: ["tools/pipeline_commit.ts", "tools/pipeline_serve.ts", "tools/pipeline_smoke.ts", "tools/pipeline_state.ts", "tools/pipeline_verify.ts"] },
       "go-pipeline": { plugins: [], commands: [], skills: [], tools: [] }
     }
   }))
@@ -106,13 +108,13 @@ test("sync forks base agents, applies selected profile, and copies companion lin
   assert.equal(target.model, "opencode-go/deepseek-v4.1-flash")
   assert.equal(target.body.trim(), "Body for executor")
   const links = JSON.parse(fs.readFileSync(path.join(manager, "companion-links.json"), "utf8"))
-  assert.deepEqual(links.categories["go-pipeline"].plugins, ["plugins/pipeline-guard.js"])
+  assert.deepEqual(links.categories["go-pipeline"].plugins, ["plugins/pipeline-guard"])
   assert.deepEqual(links.categories["go-pipeline"].commands, ["commands/pipeline-bug.md"])
   assert.deepEqual(links.categories["go-pipeline"].skills, ["skills/code-review-antipatterns"])
   assert.deepEqual(links.categories["go-pipeline"].tools, ["tools/pipeline_commit.ts", "tools/pipeline_serve.ts", "tools/pipeline_smoke.ts", "tools/pipeline_state.ts", "tools/pipeline_verify.ts"])
   for (const relative of [
     "agents/go-pipeline-orchestrator.md", "agents/go-pipeline-executor.md", "commands/go-bug.md",
-    "plugins/pipeline-guard.js", "skills/code-review-antipatterns/SKILL.md", ...Object.keys(sourceFiles).filter(file => file.startsWith("tools/"))
+    "plugins/pipeline-guard/index.ts", "skills/code-review-antipatterns/SKILL.md", ...Object.keys(sourceFiles).filter(file => file.startsWith("tools/"))
   ]) assert.equal(fs.readFileSync(path.join(result.outputDir, relative), "utf8").length > 0, true, `${relative} should be stamped`)
   assert.match(fs.readFileSync(path.join(result.outputDir, "commands/go-bug.md"), "utf8"), /go-pipeline-orchestrator/)
 })
@@ -165,7 +167,8 @@ test("sync inherits default companion links and persists them when no config exi
   assert.equal(fs.existsSync(path.join(manager, "companion-links.json")), false)
 
   for (const relative of [
-    "plugins/pipeline-guard.js", "commands/pipeline-bug.md", "commands/pipeline-feature.md", "commands/pipeline-ops.md",
+    "plugins/doc-tools/index.ts", "plugins/pipeline-guard/index.ts", "plugins/pipeline-tools/index.ts", "plugins/slide-tools/index.ts",
+    "commands/pipeline-bug.md", "commands/pipeline-feature.md", "commands/pipeline-ops.md",
     "commands/pipeline-refactor.md", "commands/pipeline-research.md", "skills/code-review-antipatterns/SKILL.md",
     "tools/pipeline_commit.ts", "tools/pipeline_serve.ts", "tools/pipeline_smoke.ts", "tools/pipeline_state.ts", "tools/pipeline_verify.ts"
   ]) {
@@ -177,13 +180,8 @@ test("sync inherits default companion links and persists them when no config exi
   const result = syncPipelineProfile(root, "go", "go")
 
   const links = JSON.parse(fs.readFileSync(path.join(manager, "companion-links.json"), "utf8"))
-  assert.deepEqual(links.categories.pipeline, {
-    plugins: ["plugins/pipeline-guard.js"],
-    commands: ["commands/pipeline-bug.md", "commands/pipeline-feature.md", "commands/pipeline-ops.md", "commands/pipeline-refactor.md", "commands/pipeline-research.md"],
-    skills: ["skills/code-review-antipatterns"],
-    tools: ["tools/pipeline_commit.ts", "tools/pipeline_serve.ts", "tools/pipeline_smoke.ts", "tools/pipeline_state.ts", "tools/pipeline_verify.ts"]
-  })
-  assert.equal(fs.readFileSync(path.join(result.outputDir, "plugins/pipeline-guard.js"), "utf8"), "plugins/pipeline-guard.js\n")
+  assert.deepEqual(links.categories.pipeline, DEFAULT_COMPANION_LINKS.categories.pipeline)
+  assert.equal(fs.readFileSync(path.join(result.outputDir, "plugins/pipeline-guard/index.ts"), "utf8"), "plugins/pipeline-guard/index.ts\n")
   assert.equal(fs.readFileSync(path.join(result.outputDir, "commands/go-bug.md"), "utf8").includes("commands/pipeline-bug.md"), false)
   assert.equal(fs.readFileSync(path.join(result.outputDir, "skills/code-review-antipatterns/SKILL.md"), "utf8"), "skills/code-review-antipatterns/SKILL.md\n")
   for (const tool of ["pipeline_commit.ts", "pipeline_serve.ts", "pipeline_smoke.ts", "pipeline_state.ts", "pipeline_verify.ts"]) {
@@ -346,7 +344,7 @@ test("refreshStampedPipelinesFromSource updates body, permissions, and companion
 
   for (const [relative, contents] of [
     ["commands/pipeline-bug.md", "Use @pipeline-orchestrator to fix bugs.\n"],
-    ["plugins/pipeline-guard.js", "original pipeline guard\n"],
+    ["plugins/pipeline-guard/index.ts", "original pipeline guard\n"],
     ["tools/pipeline_state.ts", "export const state = 'original'\n"]
   ]) {
     const filePath = path.join(root, "src", relative)
@@ -380,7 +378,7 @@ test("refreshStampedPipelinesFromSource updates body, permissions, and companion
     }
   }
   saveAgentFile(orchestratorPath, sourceOrchestrator.frontmatter, `${sourceOrchestrator.body}\nNew verification prompt for @pipeline-executor.\n`)
-  fs.writeFileSync(path.join(root, "src", "plugins", "pipeline-guard.js"), "updated pipeline guard\n")
+  fs.writeFileSync(path.join(root, "src", "plugins", "pipeline-guard", "index.ts"), "updated pipeline guard\n")
 
   const res1 = (profilesMod as any).refreshStampedPipelinesFromSource(root)
 
@@ -392,11 +390,11 @@ test("refreshStampedPipelinesFromSource updates body, permissions, and companion
   assert.equal((refreshed.frontmatter.permission as Record<string, unknown>).pipeline_verify, "allow")
   assert.equal(refreshed.frontmatter.model, "custom/model-x")
   assert.equal(refreshed.frontmatter.variant, "high")
-  assert.equal(refreshed.frontmatter.steps, 150)
+  assert.equal(refreshed.frontmatter.max_steps, 150)
   assert.equal(refreshed.frontmatter.temperature, 0.7)
   assert.equal(refreshed.frontmatter.custom_target_note, "keep this value")
   assert.equal((refreshed.frontmatter.permission as Record<string, unknown>)["custom_mcp_*"], "allow")
-  assert.equal(fs.readFileSync(path.join(stamped.outputDir, "plugins", "pipeline-guard.js"), "utf8"), "updated pipeline guard\n")
+  assert.equal(fs.readFileSync(path.join(stamped.outputDir, "plugins", "pipeline-guard", "index.ts"), "utf8"), "updated pipeline guard\n")
 
   const res2 = (profilesMod as any).refreshStampedPipelinesFromSource(root)
   assert.equal(res2.updatedAgents.length, 0)
@@ -404,16 +402,12 @@ test("refreshStampedPipelinesFromSource updates body, permissions, and companion
   assert.equal(parseAgentFile(stampedOrchestratorPath, root)!.frontmatter.custom_target_note, "keep this value")
 })
 
-test("refreshStampedPipelinesFromSource places wildcard permission keys first recursively", () => {
+test("refreshStampedPipelinesFromSource places wildcard permission resources first", () => {
   const root = workspace()
   const sourcePath = agent(root, "pipeline", "executor", {
     permission: {
-      access: {
-        nested: { "source-rule": "allow", "*": "ask" },
-        "*": "allow"
-      },
-      sourceMap: { nested: { "source-only": "allow", "*": "ask" } },
-      "*": "ask"
+      custom_access: { "*": "allow", "source-rule": "allow" },
+      source_map: { "*": "ask", "source-only": "allow" }
     }
   })
   agent(root, "pipeline", "orchestrator")
@@ -421,37 +415,133 @@ test("refreshStampedPipelinesFromSource places wildcard permission keys first re
   const stampedPath = path.join(root, "export", "categories", "go-pipeline", "agents", "go-pipeline-executor.md")
   const target = parseAgentFile(stampedPath, root)!
   target.frontmatter.permission = {
-    access: {
-      nested: { "target-rule": "deny", "*": "deny" },
-      "*": "deny"
-    },
-    customMap: { nested: { "custom-rule": "allow", "*": "ask" } },
-    "*": "deny"
+    custom_access: { "*": "deny", "target-rule": "deny" },
+    custom_map: { "*": "ask", "custom-rule": "allow" }
   }
   saveAgentFile(stampedPath, target.frontmatter, target.body)
 
   const source = parseAgentFile(sourcePath, root)!
   source.frontmatter.permission = {
-    access: {
-      nested: { "source-rule": "allow", "*": "ask" },
-      "*": "allow"
-    },
-    sourceMap: { nested: { "source-only": "allow", "*": "ask" } },
-    "*": "ask"
+    custom_access: { "*": "allow", "source-rule": "allow" },
+    source_map: { "*": "ask", "source-only": "allow" }
   }
   saveAgentFile(sourcePath, source.frontmatter, source.body)
 
   profilesMod.refreshStampedPipelinesFromSource(root, "go")
 
   const permission = parseAgentFile(stampedPath, root)!.frontmatter.permission
-  assert.deepEqual(Object.keys(permission), ["*", "access", "sourceMap", "customMap"], JSON.stringify(permission))
-  assert.deepEqual(Object.keys(permission.access), ["*", "nested"])
-  assert.deepEqual(Object.keys(permission.access.nested), ["*", "source-rule"])
-  assert.deepEqual(Object.keys(permission.sourceMap), ["nested"])
-  assert.deepEqual(Object.keys(permission.sourceMap.nested), ["*", "source-only"])
-  assert.deepEqual(Object.keys(permission.customMap.nested), ["*", "custom-rule"])
-  assert.equal(permission.access.nested["source-rule"], "allow")
-  assert.equal(permission.customMap.nested["custom-rule"], "allow")
+  assert.deepEqual(Object.keys(permission), ["custom_access", "source_map", "custom_map"], JSON.stringify(permission))
+  assert.deepEqual(Object.keys(permission.custom_access), ["*", "source-rule", "target-rule"])
+  assert.deepEqual(Object.keys(permission.source_map), ["*", "source-only"])
+  assert.deepEqual(Object.keys(permission.custom_map), ["*", "custom-rule"])
+  assert.equal(permission.custom_access["target-rule"], "deny")
+  assert.equal(permission.custom_access["source-rule"], "allow")
+  assert.equal(permission.custom_map["custom-rule"], "allow")
+})
+
+test("mergePermission keeps base shell rules and drops every target shell rule", () => {
+  const base = { bash: { "*": "deny", "git status": "allow", "git push*": "ask" } }
+  const target = { bash: { "*": "deny", "git status": "deny", "npm *": "allow", "git add .": "deny" } }
+  const merged = profilesMod.mergePermission(base, target)
+  assert.deepEqual(merged, base, "added, removed and reordered target rules must not linger")
+  assert.deepEqual(profilesMod.mergePermission(merged, target), merged, "idempotent")
+})
+
+test("mergePermission keeps target-only rules and lets base win duplicate action/resource pairs", () => {
+  const merged = profilesMod.mergePermission(
+    { write: { "*": "deny" }, edit: { "docs/*": "allow" }, pipeline_env: "allow" },
+    {
+      edit: { "*": "allow", "docs/*": "deny", "src/*": "allow" },
+      multiedit: { "*": "allow" },
+      "custom_mcp_*": "allow"
+    }
+  )
+  assert.deepEqual(merged, {
+    edit: { "*": "deny", "docs/*": "allow", "src/*": "allow" },
+    pipeline_env: "allow",
+    "custom_mcp_*": "allow"
+  })
+  assert.deepEqual(profilesMod.mergePermission(merged, { edit: { "*": "allow" } }), merged, "idempotent")
+})
+
+test("mergePermission keeps external_directory broad ask first in authored order", () => {
+  const merged = profilesMod.mergePermission(
+    { external_directory: { "/tmp/*": "allow", "*": "ask", "~/.config/opencode/skills/*": "allow" } },
+    { external_directory: { "/tmp/*": "deny", "*": "deny", "~/dev/*": "allow" } }
+  )
+  assert.deepEqual(Object.keys(merged.external_directory), ["*", "/tmp/*", "~/.config/opencode/skills/*", "~/dev/*"])
+  assert.deepEqual(merged.external_directory, {
+    "*": "ask",
+    "/tmp/*": "allow",
+    "~/.config/opencode/skills/*": "allow",
+    "~/dev/*": "allow"
+  })
+})
+
+test("mergePermission keeps the global deny first", () => {
+  const merged = profilesMod.mergePermission({ "*": "deny", read: "allow" }, { pipeline_state: "allow" })
+  assert.deepEqual(Object.keys(merged), ["*", "read", "pipeline_state"])
+  assert.equal(merged["*"], "deny")
+})
+
+test("refreshStampedPipelinesFromSource is byte-idempotent and keeps shell base-owned", () => {
+  const root = workspace()
+  const sourcePath = agent(root, "pipeline", "executor", {
+    permission: {
+      "*": "deny",
+      bash: { "*": "deny", "git status": "allow" },
+      external_directory: { "*": "ask", "/tmp/*": "allow" },
+      pipeline_env: "allow"
+    }
+  })
+  agent(root, "pipeline", "orchestrator")
+
+  syncPipelineProfile(root, "go", "go")
+  const stampedPath = path.join(root, "export", "categories", "go-pipeline", "agents", "go-pipeline-executor.md")
+  const stamped = parseAgentFile(stampedPath, root)!
+  stamped.frontmatter.permission = {
+    ...stamped.frontmatter.permission,
+    bash: { "*": "deny", "stale *": "allow", "git add .": "deny" },
+    "custom_mcp_*": "allow"
+  }
+  saveAgentFile(stampedPath, stamped.frontmatter, stamped.body)
+
+  const res1 = profilesMod.refreshStampedPipelinesFromSource(root, "go")
+  assert.ok(res1.updatedAgents.includes(stampedPath))
+  const first = fs.readFileSync(stampedPath, "utf8")
+  const res2 = profilesMod.refreshStampedPipelinesFromSource(root, "go")
+  assert.deepEqual(fs.readFileSync(stampedPath, "utf8"), first, "second refresh is byte-identical")
+  assert.deepEqual(res2.updatedAgents, [])
+
+  const permission = parseAgentFile(stampedPath, root)!.frontmatter.permission
+  assert.deepEqual(permission.bash, { "*": "deny", "git status": "allow" }, "target shell rules are fully replaced")
+  assert.equal(permission["custom_mcp_*"], "allow", "target-only non-shell rules survive")
+  assert.deepEqual(Object.keys(permission.external_directory), ["*", "/tmp/*"], "broad ask precedes allows")
+  const written = YAML.parse(extractFrontmatter(first).yamlText!)
+  assert.deepEqual(written.permissions[0], { action: "*", resource: "*", effect: "deny" })
+})
+
+test("forkStampedPipeline keeps source shell rules over a drifted target", () => {
+  const root = workspace()
+  agent(root, "pipeline", "executor", {
+    permission: { bash: { "*": "deny", "git status": "allow" }, pipeline_env: "allow" }
+  })
+  agent(root, "pipeline", "orchestrator")
+  profilesMod.forkStampedPipeline(root, "pipeline", "go")
+  const stampedPath = path.join(root, "export", "categories", "go-pipeline", "agents", "go-pipeline-executor.md")
+  const stamped = parseAgentFile(stampedPath, root)!
+  stamped.frontmatter.permission = {
+    ...stamped.frontmatter.permission,
+    bash: { "*": "deny", "git push*": "allow", "stale *": "allow" },
+    "custom_mcp_*": "allow"
+  }
+  saveAgentFile(stampedPath, stamped.frontmatter, stamped.body)
+
+  profilesMod.forkStampedPipeline(root, "pipeline", "go")
+
+  const permission = parseAgentFile(stampedPath, root)!.frontmatter.permission
+  assert.deepEqual(permission.bash, { "*": "deny", "git status": "allow" })
+  assert.equal(permission["custom_mcp_*"], "allow")
 })
 
 test("forkStampedPipeline forks from base pipeline or stamped pipeline into export/categories without writing to src/agents", () => {
@@ -465,7 +555,7 @@ test("forkStampedPipeline forks from base pipeline or stamped pipeline into expo
   const pipelineConfig = path.join(root, "src", ".opencode", "pipeline.json")
   fs.mkdirSync(path.dirname(pipelineConfig), { recursive: true })
   fs.writeFileSync(pipelineConfig, '{"name":"pipeline"}\n')
-  const pluginPath = path.join(root, "src", "plugins", "pipeline-guard.js")
+  const pluginPath = path.join(root, "src", "plugins", "pipeline-guard", "index.ts")
   fs.mkdirSync(path.dirname(pluginPath), { recursive: true })
   fs.writeFileSync(pluginPath, "pipeline guard\n")
   const toolPath = path.join(root, "src", "tools", "pipeline_state.ts")
@@ -475,7 +565,7 @@ test("forkStampedPipeline forks from base pipeline or stamped pipeline into expo
   fs.mkdirSync(manager, { recursive: true })
   fs.writeFileSync(path.join(manager, "companion-links.json"), JSON.stringify({
     version: 1,
-    categories: { pipeline: { plugins: ["plugins/pipeline-guard.js"], commands: [], skills: [], tools: ["tools/pipeline_state.ts"] } }
+    categories: { pipeline: { plugins: ["plugins/pipeline-guard"], commands: [], skills: [], tools: ["tools/pipeline_state.ts"] } }
   }))
 
   ;(profilesMod as any).forkStampedPipeline(root, "pipeline", ["deepseek", "qwen-pipeline"])
@@ -497,9 +587,11 @@ test("forkStampedPipeline forks from base pipeline or stamped pipeline into expo
 
   ;(profilesMod as any).forkStampedPipeline(root, "deepseek-pipeline", "deepseek2")
 
-  const deepseek2 = parseAgentFile(path.join(root, "export", "categories", "deepseek2-pipeline", "agents", "deepseek2-pipeline-orchestrator.md"), root)!
+  const deepseek2Path = path.join(root, "export", "categories", "deepseek2-pipeline", "agents", "deepseek2-pipeline-orchestrator.md")
+  const deepseek2 = parseAgentFile(deepseek2Path, root)!
   assert.equal(deepseek2.frontmatter.model, "deepseek/r1")
   assert.equal(deepseek2.frontmatter.variant, "max")
+  assert.equal((fs.readFileSync(deepseek2Path, "utf8").match(/#/g) ?? []).length, 1, "model#variant is composed exactly once")
   assert.match(deepseek2.body, /@deepseek2-pipeline-executor/)
 
   const qwenPath = path.join(root, "export", "categories", "qwen-pipeline", "agents", "qwen-pipeline-orchestrator.md")
@@ -509,11 +601,11 @@ test("forkStampedPipeline forks from base pipeline or stamped pipeline into expo
     model: "custom/qwen",
     variant: "high",
       temperature: 0.9,
-      steps: 42,
+      max_steps: 42,
       custom_target_note: "keep qwen",
       permission: {
         ...(qwen.frontmatter.permission as Record<string, unknown>),
-        task: { "qwen-pipeline-planner": "allow", "qwen-pipeline-executor": "deny", "*": "ask" }
+        task: { "*": "ask", "qwen-pipeline-planner": "allow", "qwen-pipeline-executor": "deny" }
       }
   }
   saveAgentFile(qwenPath, qwen.frontmatter, qwen.body)
@@ -536,11 +628,11 @@ test("forkStampedPipeline forks from base pipeline or stamped pipeline into expo
   assert.equal(reforkedQwen.frontmatter.model, "custom/qwen")
   assert.equal(reforkedQwen.frontmatter.variant, "high")
   assert.equal(reforkedQwen.frontmatter.temperature, 0.9)
-  assert.equal(reforkedQwen.frontmatter.steps, 42)
+  assert.equal(reforkedQwen.frontmatter.max_steps, 42)
   assert.equal(reforkedQwen.frontmatter.custom_target_note, "keep qwen")
   assert.equal(reforkedQwen.frontmatter.description, "Refreshed orchestrator")
   assert.equal(reforkedQwen.frontmatter.permission.pipeline_verify, "allow")
-  assert.deepEqual(reforkedQwen.frontmatter.permission.task, { "*": "ask", "qwen-pipeline-executor": "deny", "qwen-pipeline-planner": "allow" })
+  assert.deepEqual(reforkedQwen.frontmatter.permission.task, { "*": "ask", "qwen-pipeline-executor": "ask", "qwen-pipeline-planner": "deny" })
   assert.deepEqual(Object.keys(reforkedQwen.frontmatter.permission.task), ["*", "qwen-pipeline-executor", "qwen-pipeline-planner"])
   assert.match(reforkedQwen.body, /Refreshed body for @qwen-pipeline-executor/)
 })
@@ -589,4 +681,35 @@ test("forkStampedPipeline rejects conflicting target files without modifying exi
   assert.throws(() => (profilesMod as any).forkStampedPipeline(root, "pipeline", "conflict"), /Invalid fork destination/)
   assert.equal(fs.readFileSync(targetDir, "utf8"), "keep existing bytes\n")
   assert.deepEqual(fs.readdirSync(path.dirname(targetDir)), ["conflict-pipeline"])
+})
+
+function writtenPermissions(filePath: string): any[] {
+  return YAML.parse(extractFrontmatter(fs.readFileSync(filePath, "utf8")).yamlText!).permissions
+}
+
+test("applyPipelineProfile keeps the base category's V2 global deny first", () => {
+  const root = workspace()
+  const filePath = agent(root, "pipeline", "executor", {
+    permission: { "*": "deny", read: "allow" }
+  })
+
+  applyPipelineProfile(root, "go")
+
+  const permissions = writtenPermissions(filePath)
+  assert.deepEqual(permissions[0], { action: "*", resource: "*", effect: "deny" })
+  assert.equal(permissions.filter(rule => rule.action === "*").length, 1)
+})
+
+test("syncPipelineProfile to the base category keeps the V2 global deny first", () => {
+  const root = workspace()
+  const filePath = agent(root, "pipeline", "executor", {
+    permission: { "*": "deny", read: "allow" }
+  })
+
+  const result = syncPipelineProfile(root, "go", "pipeline")
+
+  assert.equal(result.targetCategory, "pipeline")
+  const permissions = writtenPermissions(filePath)
+  assert.deepEqual(permissions[0], { action: "*", resource: "*", effect: "deny" })
+  assert.equal(permissions.filter(rule => rule.action === "*").length, 1)
 })

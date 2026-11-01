@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url"
 import { execFileSync, spawnSync } from "node:child_process"
 import test from "node:test"
 import YAML from "yaml"
-import { extractFrontmatter, exportAgents, getExportDestination, getGlobalOpenCodeConfigPath, isInGeneralAgents, parseAgentFile, saveAgentFile, repairAgentModels, updateAgentsModel, forkCategory, parseForkReplacements, compareCompanionResources, previewImport, importAgents, discoverAgentResources, updateAgentResourcesAndMcp, updateAgentParams, AGENT_EFFORT_VARIANTS, detectOntologyStackDirectory, isValidOntologyStackCheckout } from "./agents.js"
+import { extractFrontmatter, exportAgents, findAgentFiles, getExportDestination, getGlobalOpenCodeConfigPath, isInGeneralAgents, parseAgentFile, renameAgent, saveAgentFile, repairAgentModels, updateAgentsModel, forkCategory, parseForkReplacements, compareCompanionResources, previewImport, importAgents, discoverAgentResources, updateAgentResourcesAndMcp, updateAgentParams, applySafetyPreset, AGENT_EFFORT_VARIANTS, detectOntologyStackDirectory, isValidOntologyStackCheckout } from "./agents.js"
 import * as agentsMod from "./agents.js"
 import { AUTO_COMMIT_MESSAGES, repositoryTransaction } from "./repositoryTransaction.js"
 import { updateCategoryCompanionLinks } from "./companionLinks.js"
@@ -25,6 +25,26 @@ function fixtureAgent(filePath: string, workspace: string, model: unknown) {
   if (model !== undefined) frontmatter.model = model
   saveAgentFile(filePath, frontmatter, "body")
   return parseAgentFile(filePath, workspace)!
+}
+
+function globalDenyAgent(workspace: string, name = "pipeline-executor", body = "Agent body.") {
+  const filePath = path.join(workspace, "general", "agents", `${name}.md`)
+  fs.mkdirSync(path.dirname(filePath), { recursive: true })
+  saveAgentFile(filePath, {
+    description: "Global deny",
+    model: "test/model",
+    permissions: [
+      { action: "*", resource: "*", effect: "deny" },
+      { action: "read", resource: "*", effect: "allow" }
+    ]
+  }, body)
+  return { filePath, agent: parseAgentFile(filePath, workspace)! }
+}
+
+function assertGlobalDenyFirst(filePath: string) {
+  const permissions = YAML.parse(extractFrontmatter(fs.readFileSync(filePath, "utf8")).yamlText!).permissions
+  assert.deepEqual(permissions[0], { action: "*", resource: "*", effect: "deny" })
+  assert.equal(permissions.filter((rule: any) => rule.action === "*").length, 1)
 }
 
 function git(root: string, ...args: string[]) {
@@ -383,6 +403,135 @@ test("agent save is idempotent and keeps one blank line after frontmatter", () =
   ].join("\n"))
 })
 
+test("V1 frontmatter renders as V2 at the write boundary", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "agent-v1-to-v2-"))
+  const filePath = path.join(workspace, "general/agents/v1-source.md")
+  fs.mkdirSync(path.dirname(filePath), { recursive: true })
+  fs.writeFileSync(filePath, [
+    "---",
+    "description: V1 source",
+    "model: test/model",
+    "max_steps: 7",
+    "temperature: 0.3",
+    "permission:",
+    "  read: allow",
+    "variant: high",
+    "---",
+    "",
+    "Agent body."
+  ].join("\n"))
+
+  const agent = parseAgentFile(filePath, workspace)!
+  assert.equal(agent.frontmatterVersion, "v1")
+  saveAgentFile(filePath, agent.frontmatter, agent.body, agent.frontmatterVersion)
+
+  const content = fs.readFileSync(filePath, "utf8")
+  assert.match(content, /\npermissions:\n  - action: read\n/)
+  assert.doesNotMatch(content, /\npermission:/)
+  assert.doesNotMatch(content, /\ntemperature:/)
+  assert.doesNotMatch(content, /\nvariant:/)
+  assert.match(content, /\nsteps: 7\n/)
+  assert.match(content, /\nrequest:\n  body:\n    temperature: 0\.3\n/)
+  assert.match(content, /\nmodel: test\/model#high\n/)
+})
+
+test("V2 frontmatter round-trips without losing V2 fields", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "agent-v2-roundtrip-"))
+  const filePath = path.join(workspace, "general/agents/v2-source.md")
+  fs.mkdirSync(path.dirname(filePath), { recursive: true })
+  const permissions = [
+    { action: "read", resource: "*", effect: "allow" },
+    { action: "shell", resource: "*", effect: "deny" }
+  ]
+  saveAgentFile(filePath, {
+    description: "V2 source",
+    model: "test/model",
+    steps: 8,
+    request: { body: { temperature: 0.2, top_p: 0.8 } },
+    system: "Keep this prompt",
+    permissions
+  }, "V2 agent body.")
+
+  const agent = parseAgentFile(filePath, workspace)!
+  assert.equal(agent.frontmatterVersion, "v2")
+  saveAgentFile(filePath, agent.frontmatter, agent.body)
+
+  const saved = parseAgentFile(filePath, workspace)!
+  assert.equal(saved.frontmatterVersion, "v2")
+  assert.equal(saved.frontmatter.max_steps, 8)
+  assert.equal(saved.frontmatter.temperature, 0.2)
+  assert.equal(saved.frontmatter.top_p, 0.8)
+  assert.equal(saved.frontmatter.prompt, "Keep this prompt")
+  assert.deepEqual(saved.frontmatter.permission, {
+    read: "allow",
+    bash: "deny"
+  })
+})
+
+test("variant composition appends model#variant exactly once", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "agent-variant-once-"))
+  const filePath = path.join(workspace, "general/agents/a.md")
+  fs.mkdirSync(path.dirname(filePath), { recursive: true })
+  saveAgentFile(filePath, { description: "Example", model: "test/model", variant: "high" }, "Agent body.")
+
+  let content = fs.readFileSync(filePath, "utf8")
+  assert.equal(content.match(/test\/model#high/g)?.length, 1)
+  assert.doesNotMatch(content, /#high#/)
+
+  const agent = parseAgentFile(filePath, workspace)!
+  updateAgentParams([agent], { variant: "high" })
+  updateAgentParams([agent], { variant: "high" })
+  content = fs.readFileSync(filePath, "utf8")
+  assert.equal((content.match(/#/g) ?? []).length, 1)
+  assert.match(content, /\nmodel: test\/model#high\n/)
+})
+
+test("rename keeps V2 frontmatter instead of downgrading it", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "agent-rename-v2-"))
+  const oldPath = path.join(workspace, "general/agents/old.md")
+  const refPath = path.join(workspace, "general/agents/ref.md")
+  fs.mkdirSync(path.dirname(oldPath), { recursive: true })
+  for (const filePath of [oldPath, refPath]) {
+    saveAgentFile(filePath, {
+      description: "V2 agent",
+      model: "test/model",
+      steps: 5,
+      request: { body: { temperature: 0.1 } },
+      permissions: [{ action: "read", resource: "*", effect: "allow" }]
+    }, filePath === refPath ? "Call @old for help." : "Agent body.")
+  }
+  const agents = findAgentFiles(workspace)
+
+  const result = renameAgent(workspace, oldPath, "new.md", agents)
+  assert.equal(result.success, true)
+
+  const refContent = fs.readFileSync(refPath, "utf8")
+  assert.match(refContent, /\npermissions:\n/)
+  assert.doesNotMatch(refContent, /\npermission:/)
+  assert.match(refContent, /@new/)
+  assert.equal(parseAgentFile(refPath, workspace)!.frontmatterVersion, "v2")
+})
+
+test("fork keeps V2 frontmatter instead of downgrading it", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "agent-fork-v2-"))
+  fs.mkdirSync(path.join(workspace, "general/agents"), { recursive: true })
+  for (const suffix of ["one", "two"]) {
+    saveAgentFile(path.join(workspace, `general/agents/foo-${suffix}.md`), {
+      description: "V2 source",
+      model: "test/model",
+      steps: 6,
+      permissions: [{ action: "read", resource: "*", effect: "allow" }]
+    }, "foo body")
+  }
+
+  forkCategory(workspace, "foo", "foo", "bar")
+
+  const targetContent = fs.readFileSync(path.join(workspace, "general/agents/bar-one.md"), "utf8")
+  assert.match(targetContent, /\npermissions:\n/)
+  assert.doesNotMatch(targetContent, /\npermission:/)
+  assert.equal(parseAgentFile(path.join(workspace, "general/agents/bar-one.md"), workspace)!.frontmatterVersion, "v2")
+})
+
 test("export destination always uses XDG_CONFIG_HOME, regardless of platform", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-destination-"))
   const xdg = path.join(root, "xdg")
@@ -705,7 +854,7 @@ test("fork rejects a case-equivalent existing target without overwrite or siblin
   assert.deepEqual(backupDirectories(workspace), [])
 })
 
-test("forkCategory on pipeline preserves pipeline_* tools, pipeline.json, and pipeline-guard.js", () => {
+test("forkCategory on pipeline preserves pipeline_* tools, pipeline.json, and pipeline-guard/index.ts", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-fork-pipeline-"))
   const sourcePath = path.join(root, "src", "agents", "pipeline-orchestrator.md")
   fs.mkdirSync(path.dirname(sourcePath), { recursive: true })
@@ -716,7 +865,7 @@ test("forkCategory on pipeline preserves pipeline_* tools, pipeline.json, and pi
       pipeline_verify: "allow",
       task: { "pipeline-executor": "allow" }
     }
-  }, "Use @pipeline-executor with .opencode/pipeline.json, PIPELINE_SCRATCH, and plugins/pipeline-guard.js.")
+  }, "Use @pipeline-executor with .opencode/pipeline.json, PIPELINE_SCRATCH, and plugins/pipeline-guard/index.ts.")
 
   forkCategory(root, "pipeline", "pipeline", "custom")
 
@@ -730,7 +879,7 @@ test("forkCategory on pipeline preserves pipeline_* tools, pipeline.json, and pi
   assert.equal(permission.pipeline_verify, "allow")
   assert.match(forked.body, /\.opencode\/pipeline\.json/)
   assert.match(forked.body, /PIPELINE_SCRATCH/)
-  assert.match(forked.body, /plugins\/pipeline-guard\.js/)
+  assert.match(forked.body, /plugins\/pipeline-guard\/index\.ts/)
 })
 
 test("agent params set effort variants and preserve other frontmatter and body", () => {
@@ -751,7 +900,7 @@ test("agent params set effort variants and preserve other frontmatter and body",
   assert.throws(() => updateAgentParams([agent], { variant: "extreme" }), /Invalid agent variant/)
 })
 
-test("legacy V1 max_steps survives parsing and tuning updates", () => {
+test("legacy V1 max_steps survives parsing and writes V2 on tuning updates", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "agent-legacy-steps-"))
   const filePath = path.join(workspace, "general/agents/legacy-agent.md")
   fs.mkdirSync(path.dirname(filePath), { recursive: true })
@@ -773,16 +922,17 @@ test("legacy V1 max_steps survives parsing and tuning updates", () => {
 
   updateAgentParams([agent], { temperature: 0.5 })
   let content = fs.readFileSync(filePath, "utf8")
-  assert.match(content, /\nmax_steps: 12\n/)
-  assert.doesNotMatch(content, /\nsteps:/)
-  assert.equal(parseAgentFile(filePath, workspace)!.frontmatterVersion, "v1")
+  assert.match(content, /\nsteps: 12\n/)
+  assert.doesNotMatch(content, /\nmax_steps:/)
+  assert.match(content, /\nrequest:\n  body:\n    temperature: 0\.5\n/)
+  assert.equal(parseAgentFile(filePath, workspace)!.frontmatterVersion, "v2")
 
   updateAgentParams([agent], { steps: 20 })
   content = fs.readFileSync(filePath, "utf8")
-  assert.match(content, /\nmax_steps: 20\n/)
-  assert.doesNotMatch(content, /\nsteps:/)
+  assert.match(content, /\nsteps: 20\n/)
+  assert.doesNotMatch(content, /\nmax_steps:/)
   const updated = parseAgentFile(filePath, workspace)!
-  assert.equal(updated.frontmatterVersion, "v1")
+  assert.equal(updated.frontmatterVersion, "v2")
   assert.equal(updated.frontmatter.max_steps, 20)
   assert.equal(Object.hasOwn(updated.frontmatter, "steps"), false)
 })
@@ -1802,15 +1952,16 @@ test("resource discovery lists skills, tool families and tools, MCP servers, and
   for (const [tool, contents] of Object.entries({
     "slide_build.ts": "export default {}\n",
     "slide_preview.ts": "export default {}\n",
-    "doc_render.ts": "export default {}\n"
+    "doc_render.ts": "export default {}\n",
+    "_tool.ts": "export default {}\n"
   })) fs.writeFileSync(path.join(workspace, "general/tools", tool), contents)
 
   const opencodePath = getGlobalOpenCodeConfigPath()
   fs.mkdirSync(path.dirname(opencodePath), { recursive: true })
-  const opencodeRawContent = JSON.stringify({ mcp: {
-    "chrome-devtools": { type: "local", command: ["devtools"], enabled: false },
-    "another-server": { type: "local", command: ["another"], enabled: true }
-  } }, null, 2)
+  const opencodeRawContent = JSON.stringify({ mcp: { servers: {
+    "chrome-devtools": { type: "local", command: ["devtools"], disabled: true },
+    "another-server": { type: "local", command: ["another"] }
+  } } }, null, 2)
   fs.writeFileSync(opencodePath, opencodeRawContent)
 
   const catalog = discoverAgentResources(workspace, updatedAgent, [updatedAgent])
@@ -1853,6 +2004,7 @@ test("resource discovery lists skills, tool families and tools, MCP servers, and
   assert.equal(unconfiguredMcp.configuredInOpencode, false)
   assert.equal(unconfiguredMcp.allowed, false)
   assert.equal(catalog.opencodeRawContent, opencodeRawContent)
+  assert.equal(catalog.tools.some(resource => resource.name === "_tool"), false, "underscore-prefixed helper modules are not resources")
   assert.ok(catalog.companionFiles.some(file => file.replace(/\\/g, "/").endsWith("tools/slide_build.ts")))
 }))
 
@@ -1887,8 +2039,11 @@ test("MCP discovery reads global JSONC and recommended repo servers seed the glo
   })
 
   const globalConfig = JSON.parse(fs.readFileSync(globalOpencodePath, "utf8"))
-  assert.deepEqual(globalConfig.mcp["recommended-server"], {
-    type: "local", command: ["npx", "-y", "recommended-mcp"], enabled: true
+  assert.deepEqual(globalConfig.mcp.servers["recommended-server"], {
+    type: "local", command: ["npx", "-y", "recommended-mcp"]
+  })
+  assert.deepEqual(globalConfig.mcp.servers.XcodeBuildMCP, {
+    type: "local", command: ["npx", "-y", "xcodebuildmcp"]
   })
   assert.deepEqual(fs.readFileSync(repoOpencodePath, "utf8"), repoOpencodeContent)
   assert.ok(result.changedPaths.includes(globalOpencodePath))
@@ -1896,7 +2051,7 @@ test("MCP discovery reads global JSONC and recommended repo servers seed the glo
 
 test("resource updates preserve the supported skill wildcard permission forms", () => withTemporaryXdgConfigHome(() => {
   const cases = [
-    { all: true, skillNames: [], allowedNames: [], expected: { "*": "allow" } },
+    { all: true, skillNames: [], allowedNames: [], expected: "allow" },
     { all: true, skillNames: ["checked", "unchecked"], allowedNames: ["checked"], expected: { "*": "allow", unchecked: "deny" } },
     { all: false, allowedNames: ["checked"], expected: { "*": "deny", checked: "allow" } },
     { all: false, allowedNames: [], expected: "deny" }
@@ -1943,7 +2098,7 @@ test("resource updates order tool family rules before overrides and update confi
   fs.writeFileSync(path.join(workspace, "general/tools/slide_build.ts"), "export default {}\n")
   const opencodePath = getGlobalOpenCodeConfigPath()
   fs.mkdirSync(path.dirname(opencodePath), { recursive: true })
-  fs.writeFileSync(opencodePath, JSON.stringify({ mcp: { "chrome-devtools": { enabled: false } } }))
+  fs.writeFileSync(opencodePath, JSON.stringify({ mcp: { servers: { "chrome-devtools": { type: "local", disabled: true } } } }))
   const catalog = discoverAgentResources(workspace, updatedAgent)
 
   const result = updateAgentResourcesAndMcp(workspace, updatedAgent, catalog, {
@@ -1962,7 +2117,7 @@ test("resource updates order tool family rules before overrides and update confi
   assert.deepEqual(saved.frontmatter.permission.task, { helper: "allow" })
   assert.equal(saved.frontmatter.permission.read, "allow")
   assert.equal(saved.frontmatter.permission.bash, "deny")
-  assert.deepEqual(JSON.parse(fs.readFileSync(opencodePath, "utf8")).mcp["chrome-devtools"], { enabled: true })
+  assert.deepEqual(JSON.parse(fs.readFileSync(opencodePath, "utf8")).mcp.servers["chrome-devtools"], { type: "local" })
   assert.ok(result.changedPaths.includes(agent.currentPath))
   assert.ok(result.changedPaths.includes(opencodePath))
 }))
@@ -2651,4 +2806,46 @@ test("exportAgents degrades a plugin config write failure to a provisioning warn
   assert.ok(result.exported.includes(agent.filename), "agents must stay exported when provisioning fails")
   assert.ok(result.pluginProvisioning?.failed.length, "the provisioning failure must be reported")
   assert.match(result.pluginProvisioning!.failed[0].error, /symlink/i)
+})
+
+test("updateAgentParams keeps the V2 global deny first", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "agent-global-params-"))
+  const { filePath, agent } = globalDenyAgent(workspace)
+
+  updateAgentParams([agent], { temperature: 0.5 })
+
+  assertGlobalDenyFirst(filePath)
+})
+
+test("renameAgent keeps the V2 global deny first", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "agent-global-rename-"))
+  const { filePath } = globalDenyAgent(workspace, "old", "Call @old for help.")
+  const agents = findAgentFiles(workspace)
+
+  const result = renameAgent(workspace, filePath, "new.md", agents)
+
+  assert.equal(result.success, true)
+  assertGlobalDenyFirst(result.newPath)
+})
+
+test("updateAgentResourcesAndMcp keeps the V2 global deny first", () => withTemporaryXdgConfigHome(() => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "agent-global-resources-"))
+  const toolsDirectory = path.join(workspace, "general", "tools")
+  fs.mkdirSync(toolsDirectory, { recursive: true })
+  fs.writeFileSync(path.join(toolsDirectory, "example_tool.ts"), "export default {}\n")
+  const { filePath, agent } = globalDenyAgent(workspace)
+  const catalog = discoverAgentResources(workspace, agent)
+
+  updateAgentResourcesAndMcp(workspace, agent, catalog, { permissions: { example_tool: true } })
+
+  assertGlobalDenyFirst(filePath)
+}))
+
+test("applySafetyPreset keeps the V2 global deny first", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "agent-global-preset-"))
+  const { filePath, agent } = globalDenyAgent(workspace)
+
+  applySafetyPreset([agent], "safe_builder")
+
+  assertGlobalDenyFirst(filePath)
 })

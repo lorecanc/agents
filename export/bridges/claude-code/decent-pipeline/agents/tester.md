@@ -3,9 +3,8 @@ name: tester
 description: Designs, writes, and evaluates tests for changed behavior. Focuses
   on minimal meaningful coverage and regression prevention.
 model: sonnet
-tools: Read, Grep, Glob, Write, Edit, Bash, Skill, LSP,
-  mcp__codebase-memory-mcp__*,
-  mcp__plugin_decent-pipeline_codebase-memory-mcp__*
+maxTurns: 100
+tools: Read, Grep, Glob, Write, Edit, Bash, Skill, LSP
 ---
 
 # pipeline-tester

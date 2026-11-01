@@ -154,6 +154,42 @@ test("pipeline_env probes docker with a bounded call and sees the guard registra
   assert.equal(reg.pipeline.root_session, "ses_root")
 })
 
+test("pipeline_env reads V1 and V2 MCP configs and detects the pipeline-guard plugin directory", async () => {
+  const dir = mkRepo({
+    "opencode.json": JSON.stringify({ mcp: {
+      "legacy-on": { type: "local" },
+      "legacy-off": { type: "local", enabled: false }
+    } }),
+    ".opencode/opencode.json": JSON.stringify({ mcp: { servers: {
+      "nested-on": { type: "remote", url: "https://example.test/mcp" },
+      "nested-disabled": { type: "local", disabled: true },
+      "nested-enabled-false": { type: "local", enabled: false }
+    } } })
+  })
+  const cfgHome = mkTmp("pipe-env-xdg-")
+  const guardTools = path.join(mkTmp("pipe-env-guard-"), "tools")
+  fs.mkdirSync(guardTools, { recursive: true })
+  fs.mkdirSync(path.join(guardTools, "..", "plugins", "pipeline-guard"), { recursive: true })
+  fs.writeFileSync(path.join(guardTools, "..", "plugins", "pipeline-guard", "index.ts"), "export {}\n")
+
+  const r = await collectEnv({ directory: dir, toolsDir: guardTools, env: { PATH: "", XDG_CONFIG_HOME: cfgHome } })
+  const servers = Object.fromEntries(r.mcp.servers.map((server) => [server.name, server]))
+  assert.equal(servers["legacy-on"].enabled, true)
+  assert.equal(servers["legacy-off"].enabled, false)
+  assert.equal(servers["nested-on"].enabled, true)
+  assert.equal(servers["nested-on"].type, "remote")
+  assert.equal(servers["nested-disabled"].enabled, false)
+  assert.equal(servers["nested-enabled-false"].enabled, false)
+  assert.equal(r.pipeline.guard_plugin_file, true)
+
+  const legacyTools = path.join(mkTmp("pipe-env-guard-legacy-"), "tools")
+  fs.mkdirSync(legacyTools, { recursive: true })
+  fs.mkdirSync(path.join(legacyTools, "..", "plugins"), { recursive: true })
+  fs.writeFileSync(path.join(legacyTools, "..", "plugins", "pipeline-guard.js"), "export {}\n")
+  const legacy = await collectEnv({ directory: dir, toolsDir: legacyTools, env: { PATH: "", XDG_CONFIG_HOME: cfgHome } })
+  assert.equal(legacy.pipeline.guard_plugin_file, false)
+})
+
 test("env template parsing keeps names only", () => {
   const dir = mkTmp("pipe-env-tpl-")
   fs.writeFileSync(path.join(dir, ".env.sample"), "A=1\n  export B = 2\n#C=3\nnot a var\nA=dup\n")

@@ -63,24 +63,53 @@ export interface V2Frontmatter {
  */
 export function translatePermissionsV1ToV2(perm: V1PermissionObject): V2PermissionRule[] {
   const rules: V2PermissionRule[] = []
+  const seen = new Set<string>()
+
+  // V2 rules are last-match-wins, so iteration order must follow the V1 object
+  // exactly. Identical rules are dropped: the legacy `mcp-resource` key expands
+  // to the same actions as the explicit resource keys.
+  const push = (action: string, resource: string, effect: V2PermissionRule["effect"]) => {
+    const id = `${action}\u0000${resource}\u0000${effect}`
+    if (seen.has(id)) return
+    seen.add(id)
+    rules.push({ action, resource, effect })
+  }
+
+  // The V1 action-level `"*"` is the global rule. Emit it first, whatever its
+  // position in the V1 object, so V2 last-match-wins sees it as the fallback.
+  const globalValue = Object.hasOwn(perm, "*") ? perm["*"] : undefined
+  if (typeof globalValue === "string" || typeof globalValue === "boolean") {
+    push("*", "*", toEffect(globalValue))
+  }
+
+  const emit = (key: string, resource: string, effect: V2PermissionRule["effect"]) => {
+    const expanded = Object.hasOwn(V1_ACTION_EXPANSIONS, key) ? V1_ACTION_EXPANSIONS[key] : null
+    if (expanded) {
+      for (const action of expanded) push(action, resource, effect)
+      return
+    }
+    const action = resolveV1PermissionKey(key)
+    if (!action) return
+    push(action, resource, effect)
+  }
 
   for (const [key, value] of Object.entries(perm)) {
     if (typeof value === "string" || typeof value === "boolean") {
-      const effect = (value === "allow" || value === true) ? "allow" as const
-        : (value === "deny" || value === false) ? "deny" as const
-        : "ask" as const
-      rules.push({ action: mapPermissionKeyToAction(key), resource: "*", effect })
+      emit(key, "*", toEffect(value))
     } else if (typeof value === "object" && value !== null && !Array.isArray(value)) {
       for (const [resource, effectValue] of Object.entries(value as Record<string, string | boolean>)) {
-        const effect = (effectValue === "allow" || effectValue === true) ? "allow" as const
-          : (effectValue === "deny" || effectValue === false) ? "deny" as const
-          : "ask" as const
-        rules.push({ action: mapPermissionKeyToAction(key), resource, effect })
+        emit(key, resource, toEffect(effectValue))
       }
     }
   }
 
   return rules
+}
+
+function toEffect(value: string | boolean): V2PermissionRule["effect"] {
+  return (value === "allow" || value === true) ? "allow"
+    : (value === "deny" || value === false) ? "deny"
+    : "ask"
 }
 
 /**
@@ -89,9 +118,13 @@ export function translatePermissionsV1ToV2(perm: V1PermissionObject): V2Permissi
  * V1: { bash: "allow" }
  */
 export function translatePermissionsV2ToV1(perms: V2PermissionRule[]): V1PermissionObject {
-  const result: V1PermissionObject = {}
+  // A global `{action:"*", resource:"*"}` rule maps back to the V1 `"*"` key
+  // and always comes first, mirroring the write-side ordering.
+  const globalRule = perms.find(rule => rule.action === "*" && rule.resource === "*")
+  const result: V1PermissionObject = globalRule ? { "*": globalRule.effect } : {}
 
   for (const rule of perms) {
+    if (rule.action === "*" && rule.resource === "*") continue
     // Fail closed: an action outside the V2 vocabulary is dropped instead of
     // copied verbatim, so a V1 spelling cannot smuggle a permission through.
     const key = resolveV2PermissionKey(rule.action)
@@ -117,9 +150,10 @@ export function translatePermissionsV2ToV1(perms: V2PermissionRule[]): V1Permiss
 }
 
 /**
- * V2 action vocabulary provenance: OpenCode v2.1, the config schema published
- * at https://opencode.ai/config.json plus the permissions documentation,
- * verified against `opencode debug agents` on v2.1.3.
+ * V2 action vocabulary provenance: OpenCode v2.2.5. The config schema published
+ * at https://opencode.ai/config.json leaves `permissions[].action` as a plain
+ * string, so the concrete names below are taken from the runtime permission
+ * assertions (`action:"opencode_*"`) in the v2.2.5 binary.
  *
  * INTENTIONAL, irreversible collapses between V2 actions and V1 permission
  * keys. The V2 runtime carries no action that could map back to the finer V1
@@ -127,10 +161,12 @@ export function translatePermissionsV2ToV1(perms: V2PermissionRule[]): V1Permiss
  * - V2 `read` covers V1 `read` and `list`.
  * - V2 `edit` covers V1 `write`, `patch`, `apply_patch` and `multiedit`.
  * - V2 `shell` covers V1 `bash` and `execute`.
+ * - V2 `opencode_list_mcp_resources` covers V1 `list_mcp_resources` and
+ *   `list_mcp_resource_templates`.
  * V2 `subagent` similarly covers V1 `task`. The existing tests pin these
  * collapses.
  */
-function mapPermissionKeyToAction(key: string): string {
+function mapPermissionKeyToAction(key: string): string | null {
   const map: Record<string, string> = {
     bash: "shell",
     execute: "shell",
@@ -147,10 +183,13 @@ function mapPermissionKeyToAction(key: string): string {
     webfetch: "webfetch",
     task: "subagent",
     question: "question",
+    read_mcp_resource: "opencode_read_mcp_resource",
+    list_mcp_resources: "opencode_list_mcp_resources",
+    list_mcp_resource_templates: "opencode_list_mcp_resources",
   }
   // Own-property reads only: `constructor`, `toString` and friends must not
   // resolve to inherited Object members.
-  return Object.hasOwn(map, key) ? map[key] : key
+  return Object.hasOwn(map, key) ? map[key] : null
 }
 
 function mapActionToPermissionKey(action: string): string | null {
@@ -165,12 +204,19 @@ function mapActionToPermissionKey(action: string): string | null {
     subagent: "task",
     question: "question",
     external_directory: "external_directory",
+    opencode_read_mcp_resource: "read_mcp_resource",
+    opencode_list_mcp_resources: "list_mcp_resources",
   }
   return Object.hasOwn(map, action) ? map[action] : null
 }
 
-/** Permission key names are lowercase identifiers; anything else is rejected. */
-const PERMISSION_KEY_NAME = /^[a-z][a-z0-9_-]*$/
+/**
+ * V1 keys that expand to more than one V2 action. `mcp-resource` was the
+ * legacy shorthand for the two MCP resource tools.
+ */
+const V1_ACTION_EXPANSIONS: Record<string, string[]> = {
+  "mcp-resource": ["opencode_read_mcp_resource", "opencode_list_mcp_resources"],
+}
 
 /**
  * V2-only action names with no V1 spelling. Only these reach the V1 layer
@@ -184,14 +230,40 @@ const V2_PASSTHROUGH_ACTIONS = new Set([
   "opencode_worktree_create", "opencode_worktree_list", "opencode_worktree_remove",
 ])
 
+/**
+ * V1-only spellings that also look like `<server>_<tool>`. They must fail
+ * closed on the V2 side and must not be forwarded as MCP actions from V1.
+ */
+const V1_ONLY_PERMISSION_KEYS = new Set([
+  "bash", "execute", "write", "patch", "apply_patch", "multiedit", "list",
+  "task", "doom_loop", "read_mcp_resource", "list_mcp_resources",
+  "list_mcp_resource_templates",
+])
+
 /** Repository custom tools (`src/tools/pipeline_*.ts`) are V2-only as well. */
 const PIPELINE_TOOL_ACTION = /^pipeline_[a-z][a-z0-9_]*$/
+
+/**
+ * MCP tool action: `<server>_<tool>` or the `<server>_*` wildcard. The server
+ * prefix must start with an alphanumeric so inherited names such as
+ * `__proto__` cannot pass as an MCP server.
+ */
+const MCP_ACTION_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*_(?:\*|[A-Za-z0-9][A-Za-z0-9._-]*)$/
 
 function resolveV2PermissionKey(action: string): string | null {
   const mapped = mapActionToPermissionKey(action)
   if (mapped) return mapped
-  if (!PERMISSION_KEY_NAME.test(action)) return null
-  return V2_PASSTHROUGH_ACTIONS.has(action) || PIPELINE_TOOL_ACTION.test(action) ? action : null
+  if (V1_ONLY_PERMISSION_KEYS.has(action)) return null
+  if (V2_PASSTHROUGH_ACTIONS.has(action) || PIPELINE_TOOL_ACTION.test(action)) return action
+  return MCP_ACTION_NAME.test(action) ? action : null
+}
+
+function resolveV1PermissionKey(key: string): string | null {
+  const mapped = mapPermissionKeyToAction(key)
+  if (mapped) return mapped
+  if (V1_ONLY_PERMISSION_KEYS.has(key)) return null
+  if (V2_PASSTHROUGH_ACTIONS.has(key) || PIPELINE_TOOL_ACTION.test(key)) return key
+  return MCP_ACTION_NAME.test(key) ? key : null
 }
 
 /**
@@ -250,9 +322,12 @@ export function translateFrontmatterV1ToV2(fm: V1Frontmatter): V2Frontmatter {
     }
   }
 
-  // permission → permissions
+  // permission → permissions. An existing V2 `permissions` array wins: the
+  // translation is idempotent and never rebuilt from the singular legacy key.
   if (fm.permission !== undefined) {
-    result.permissions = translatePermissionsV1ToV2(fm.permission)
+    if (fm.permissions === undefined) {
+      result.permissions = translatePermissionsV1ToV2(fm.permission)
+    }
     delete result.permission
   }
 
@@ -268,10 +343,10 @@ export function translateFrontmatterV1ToV2(fm: V1Frontmatter): V2Frontmatter {
     delete result.prompt
   }
 
-  // variant → model#variant
+  // variant → model#variant, composed at most once so `#` never doubles.
   if (fm.variant !== undefined) {
     const baseModel = fm.model || ""
-    result.model = fm.variant ? `${baseModel}#${fm.variant}` : baseModel
+    result.model = fm.variant && !baseModel.includes("#") ? `${baseModel}#${fm.variant}` : baseModel
     delete result.variant
   }
 
@@ -342,10 +417,44 @@ export function translateFrontmatterV2ToV1(fm: V2Frontmatter): V1Frontmatter {
 
 // --- Config translation ---
 
+function isPlainObject(value: unknown): value is Record<string, any> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+/**
+ * V1 mcp server `enabled` inverts to V2 `disabled`; every other field is kept.
+ *
+ * `codemode` is a V2 local-only policy (default false). The translator must
+ * not decide that policy: the caller applies it. Here an existing `codemode`
+ * value (including an explicit `false`) is preserved and no value is ever
+ * invented, so a remote server cannot gain `codemode` through translation.
+ */
+function mcpServerV1ToV2(server: unknown): any {
+  if (!isPlainObject(server)) return server
+  const result = { ...server }
+  if ("enabled" in result) {
+    result.disabled = !result.enabled
+    delete result.enabled
+  }
+  if ("codemode" in server) result.codemode = server.codemode
+  return result
+}
+
+/** V2 mcp server `disabled` inverts to V1 `enabled`; every other field is kept. */
+function mcpServerV2ToV1(server: unknown): any {
+  if (!isPlainObject(server)) return server
+  const result = { ...server }
+  if ("disabled" in result) {
+    result.enabled = !result.disabled
+    delete result.disabled
+  }
+  return result
+}
+
 /**
  * Translate V1 opencode.json config to V2 format.
- * V1: { agent: {...}, mode: {...}, command: {...}, subtask: {...} }
- * V2: { agents: {...}, commands: {...}, subagent: {...} }
+ * V1: { agent: {...}, mode: {...}, command: {...}, subtask: {...}, mcp: {...} }
+ * V2: { agents: {...}, commands: {...}, subagent: {...}, mcp: { servers: {...} } }
  */
 export function translateConfigV1ToV2(config: Record<string, any>): Record<string, any> {
   const result: Record<string, any> = { ...config }
@@ -375,6 +484,31 @@ export function translateConfigV1ToV2(config: Record<string, any>): Record<strin
   if (config.subtask !== undefined) {
     result.subagent = config.subtask
     delete result.subtask
+  }
+
+  // Flat mcp.<name> → mcp.servers.<name>
+  if (isPlainObject(config.mcp)) {
+    const { servers: existingServers, ...entries } = config.mcp
+    const servers: Record<string, any> = {}
+    for (const [name, server] of Object.entries(isPlainObject(existingServers) ? existingServers : {})) {
+      servers[name] = mcpServerV1ToV2(server)
+    }
+    const rest: Record<string, any> = {}
+    let moved = false
+
+    for (const [name, server] of Object.entries(entries)) {
+      // `timeout` is an mcp-level setting, not a server.
+      if (name === "timeout") {
+        rest[name] = server
+        continue
+      }
+      servers[name] = mcpServerV1ToV2(server)
+      moved = true
+    }
+
+    if (moved || isPlainObject(existingServers)) {
+      result.mcp = { ...rest, servers }
+    }
   }
 
   // Provider filters → policies (V2 uses internal policies)
@@ -417,6 +551,16 @@ export function translateConfigV2ToV1(config: Record<string, any>): Record<strin
   if (config.subagent !== undefined) {
     result.subtask = config.subagent
     delete result.subagent
+  }
+
+  // mcp.servers.<name> → flat mcp.<name>
+  if (isPlainObject(config.mcp) && isPlainObject(config.mcp.servers)) {
+    const { servers, ...rest } = config.mcp
+    const flat: Record<string, any> = { ...rest }
+    for (const [name, server] of Object.entries(servers)) {
+      flat[name] = mcpServerV2ToV1(server)
+    }
+    result.mcp = flat
   }
 
   return result

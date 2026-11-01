@@ -1,34 +1,70 @@
 ---
-description: PowerPoint presentation specialist for creating, editing, and
-  analyzing .pptx files. Handles slide design, HTML generation, theme
-  management, image assets, and PPTX export.
+description: PowerPoint presentation specialist for creating, editing, and analyzing .pptx files. Handles slide design, HTML generation, theme management, image assets, and PPTX export.
 mode: primary
-temperature: 0.2
-permission:
-  edit: allow
-  bash: allow
-  read: allow
-  write: allow
-  glob: allow
-  grep: allow
-  webfetch: allow
-  websearch: allow
-  question: allow
-  skill:
-    pptx: allow
-    slides-html: allow
-    slides-template-html: allow
-    slides-design: allow
-    slides-theming: allow
-    slides-composition: allow
-  task:
-    slides-planner: allow
-    general: allow
-    explore: allow
-    slides-composition_resolver: allow
-    slides-html_writer: allow
-    slides-template_planner: allow
-    slides-template_writer: allow
+permissions:
+  - action: edit
+    resource: "*"
+    effect: allow
+  - action: shell
+    resource: "*"
+    effect: allow
+  - action: read
+    resource: "*"
+    effect: allow
+  - action: glob
+    resource: "*"
+    effect: allow
+  - action: grep
+    resource: "*"
+    effect: allow
+  - action: webfetch
+    resource: "*"
+    effect: allow
+  - action: websearch
+    resource: "*"
+    effect: allow
+  - action: question
+    resource: "*"
+    effect: allow
+  - action: skill
+    resource: pptx
+    effect: allow
+  - action: skill
+    resource: slides-html
+    effect: allow
+  - action: skill
+    resource: slides-template-html
+    effect: allow
+  - action: skill
+    resource: slides-design
+    effect: allow
+  - action: skill
+    resource: slides-theming
+    effect: allow
+  - action: skill
+    resource: slides-composition
+    effect: allow
+  - action: subagent
+    resource: slides-planner
+    effect: allow
+  - action: subagent
+    resource: general
+    effect: allow
+  - action: subagent
+    resource: explore
+    effect: allow
+  - action: subagent
+    resource: slides-composition_resolver
+    effect: allow
+  - action: subagent
+    resource: slides-html_writer
+    effect: allow
+  - action: subagent
+    resource: slides-template_planner
+    effect: allow
+  - action: subagent
+    resource: slides-template_writer
+    effect: allow
 ---
 
 # Slides Agent

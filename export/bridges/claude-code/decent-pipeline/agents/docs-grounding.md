@@ -3,9 +3,8 @@ name: docs-grounding
 description: Fetches and summarizes external library documentation to ground the
   planner and executor in real APIs. Does not edit files.
 model: sonnet
-tools: Read, Grep, Glob, WebFetch, WebSearch, Skill,
-  mcp__codebase-memory-mcp__*,
-  mcp__plugin_decent-pipeline_codebase-memory-mcp__*
+maxTurns: 50
+tools: Read, Grep, Glob, WebFetch, WebSearch, Skill
 ---
 
 # `pipeline-docs_grounding`

@@ -1,18 +1,26 @@
 ---
-description: Generates complete slide HTML from task briefs within the
-  constraints of a corporate template layout skeleton. Isolated — all content
-  and the layout skeleton must be provided in the prompt.
+description: Generates complete slide HTML from task briefs within the constraints of a corporate template layout skeleton. Isolated — all content and the layout skeleton must be provided in the prompt.
 mode: subagent
 hidden: true
-temperature: 0.3
-permission:
-  edit: deny
-  bash: deny
-  read: deny
-  task: deny
-  skill:
-    slides-template-html: allow
-  webfetch: deny
+permissions:
+  - action: edit
+    resource: "*"
+    effect: deny
+  - action: shell
+    resource: "*"
+    effect: deny
+  - action: read
+    resource: "*"
+    effect: deny
+  - action: subagent
+    resource: "*"
+    effect: deny
+  - action: skill
+    resource: slides-template-html
+    effect: allow
+  - action: webfetch
+    resource: "*"
+    effect: deny
 ---
 
 You generate slide HTML documents filling in predefined layout skeletons with strict spatial constraints. Return ONLY the complete HTML — no markdown fences, no explanations, no tool calls.

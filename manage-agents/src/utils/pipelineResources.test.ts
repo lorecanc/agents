@@ -3,7 +3,7 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import test from "node:test"
-import { checkPipelineResources, discoverCompanionResourcePaths, exportAgents, findAgentFiles } from "./agents.js"
+import { checkPipelineResources, discoverCompanionResourcePaths, exportAgents, findAgentFiles, mergeOpenCodePluginsConfig } from "./agents.js"
 import { checkPipelineBundles, refreshStampedPipelinesFromSource } from "./pipelineProfiles.js"
 
 function write(file: string, content: string) {
@@ -16,7 +16,7 @@ function agentFile(permission: Record<string, string>) {
   return `---\ndescription: test agent\nmode: subagent\nmodel: x/y\npermission:\n${lines.join("\n")}\n---\n\nBody.\n`
 }
 
-/** A workspace whose canonical pipeline uses a tool (`pipeline_env`) no agent permits yet. */
+/** A workspace whose canonical pipeline uses V2 plugin directories and tools no agent permits yet. */
 function workspace(): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pipeline-resources-"))
   write(path.join(root, "src", "agents", "pipeline-orchestrator.md"), agentFile({ pipeline_state: "allow" }))
@@ -32,12 +32,18 @@ function workspace(): string {
   write(path.join(root, "src", "tools", "_pipeline_core.test.mjs"), `// test\n`)
   write(path.join(root, "src", "tools", "_pipeline_testutil.mjs"), `// util\n`)
   write(path.join(root, "src", "tools", "doc_view.ts"), `export default 1\n`)
-  write(path.join(root, "src", "plugins", "pipeline-guard.js"), `import { a } from "../tools/_pipeline_core.js"\nexport default a\n`)
+  write(path.join(root, "src", "plugins", "pipeline-guard", "index.ts"), `import { a } from "../../tools/_pipeline_core.js"\nexport default a\n`)
+  write(path.join(root, "src", "plugins", "pipeline-tools", "index.ts"), `import { c } from "../../tools/pipeline_env.js"\nexport default c\n`)
+  write(path.join(root, "src", "plugins", "doc-tools", "index.ts"), `export default 1\n`)
+  write(path.join(root, "src", "plugins", "slide-tools", "index.ts"), `export default 1\n`)
   return root
 }
 
 const PIPELINE_PAYLOAD = [
-  "plugins/pipeline-guard.js",
+  "plugins/doc-tools/index.ts",
+  "plugins/pipeline-guard/index.ts",
+  "plugins/pipeline-tools/index.ts",
+  "plugins/slide-tools/index.ts",
   "tools/_pipeline_core.js",
   "tools/_pipeline_env.js",
   "tools/_pipeline_run.js",
@@ -48,14 +54,14 @@ const PIPELINE_PAYLOAD = [
   "tools/pipeline_verify.ts"
 ]
 
-test("pipeline companions include every pipeline_*.ts tool and traced helpers, never tests", () => {
+test("pipeline companions include V2 plugin directory files, tools and traced helpers, never tests", () => {
   const root = workspace()
   const agents = findAgentFiles(root, "src").filter(agent => agent.category === "pipeline")
   const found = discoverCompanionResourcePaths(path.join(root, "src"), ["pipeline"], undefined, agents)
   assert.deepEqual(found.filter(file => /^(?:tools|plugins)\//.test(file)), PIPELINE_PAYLOAD)
 })
 
-test("OpenCode export installs the guard plugin and all pipeline tools as siblings", () => {
+test("OpenCode export installs the V2 plugin directories and all pipeline tools as siblings", () => {
   const root = workspace()
   const config = fs.mkdtempSync(path.join(os.tmpdir(), "pipeline-resources-xdg-"))
   const previous = process.env.XDG_CONFIG_HOME
@@ -83,7 +89,30 @@ test("checkPipelineResources reports permitted tools and helper imports that are
   ])
 })
 
-test("stamped pipelines are refreshed with new tools and checked against the canonical copy", () => {
+test("checkPipelineResources reports a plugin directory without index.ts", () => {
+  const root = workspace()
+  fs.rmSync(path.join(root, "src", "plugins", "pipeline-guard", "index.ts"))
+  const agents = findAgentFiles(root, "src").filter(agent => agent.category === "pipeline")
+  const problems = checkPipelineResources(path.join(root, "src"), agents)
+  assert.ok(problems.some(problem => problem.kind === "missing-companion" && problem.path === "plugins/pipeline-guard/index.ts"))
+})
+
+test("checkPipelineResources compares plugin directories byte-for-byte and reports extra files", () => {
+  const root = workspace()
+  const stamped = path.join(root, "export", "categories", "go-pipeline")
+  fs.cpSync(path.join(root, "src"), stamped, { recursive: true })
+  fs.writeFileSync(path.join(stamped, "plugins", "pipeline-guard", "index.ts"), "drifted\n")
+  fs.rmSync(path.join(stamped, "plugins", "slide-tools", "index.ts"))
+  write(path.join(stamped, "plugins", "pipeline-guard", "extra.ts"), "export default 1\n")
+
+  const agents = findAgentFiles(root, "src").filter(agent => agent.category === "pipeline")
+  const problems = checkPipelineResources(stamped, agents, { root: path.join(root, "src"), agents })
+  assert.ok(problems.some(problem => problem.kind === "stale-companion" && problem.path === "plugins/pipeline-guard/index.ts"))
+  assert.ok(problems.some(problem => problem.kind === "extra-companion" && problem.path === "plugins/pipeline-guard/extra.ts"))
+  assert.ok(problems.some(problem => problem.kind === "missing-companion" && problem.path === "plugins/slide-tools/index.ts"))
+})
+
+test("stamped pipelines are refreshed with new plugin directories and checked against the canonical copy", () => {
   const root = workspace()
   const stamped = path.join(root, "export", "categories", "go-pipeline")
   write(path.join(stamped, "agents", "go-pipeline-orchestrator.md"), agentFile({ pipeline_state: "allow" }))
@@ -94,7 +123,7 @@ test("stamped pipelines are refreshed with new tools and checked against the can
   const go = before.find(check => check.category === "go-pipeline")!
   assert.ok(go.problems.some(problem => problem.kind === "stale-companion" && problem.path === "tools/pipeline_state.ts"))
   assert.ok(go.problems.some(problem => problem.kind === "missing-companion" && problem.path === "tools/pipeline_env.ts"))
-  assert.ok(go.problems.some(problem => problem.kind === "missing-companion" && problem.path === "plugins/pipeline-guard.js"))
+  assert.ok(go.problems.some(problem => problem.kind === "missing-companion" && problem.path === "plugins/pipeline-guard/index.ts"))
   assert.deepEqual(before.find(check => check.category === "kimi-pipeline"), { category: "kimi-pipeline", resourceRoot: path.join(root, "export", "categories", "kimi-pipeline"), orphan: true, problems: [] })
   assert.deepEqual(before.find(check => check.category === "pipeline")?.problems, [])
 
@@ -105,4 +134,32 @@ test("stamped pipelines are refreshed with new tools and checked against the can
   for (const file of PIPELINE_PAYLOAD) assert.ok(fs.existsSync(path.join(stamped, ...file.split("/"))), file)
   assert.equal(fs.existsSync(path.join(stamped, "tools", "_pipeline_testutil.mjs")), false)
   assert.equal(fs.existsSync(path.join(stamped, "tools", "_pipeline_core.test.mjs")), false)
+})
+
+test("mergeOpenCodePluginsConfig emits deduped config-relative plugin directories", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pipeline-plugin-merge-"))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const opencodeRoot = path.join(root, "opencode")
+  for (const name of ["pipeline-guard", "doc-tools"]) {
+    write(path.join(opencodeRoot, "plugins", name, "index.ts"), "export default 1\n")
+  }
+  fs.writeFileSync(path.join(opencodeRoot, "opencode.json"), JSON.stringify({
+    $schema: "https://opencode.ai/config.json",
+    timeout: 123,
+    plugins: ["./plugins/pipeline-guard/index.ts", "third-party-plugin"]
+  }, null, 2) + "\n")
+
+  mergeOpenCodePluginsConfig(opencodeRoot, [
+    "./plugins/pipeline-guard",
+    "./plugins/doc-tools/index.ts",
+    "./plugins/doc-tools",
+    "./plugins/pipeline-guard" + ".js"
+  ])
+  const config = JSON.parse(fs.readFileSync(path.join(opencodeRoot, "opencode.json"), "utf8"))
+  assert.deepEqual(config.plugins, ["./plugins/pipeline-guard", "third-party-plugin", "./plugins/doc-tools"])
+  assert.equal(config.timeout, 123)
+  assert.equal(Object.prototype.hasOwnProperty.call(config, "plugin"), false)
+  for (const plugin of config.plugins) {
+    assert.equal(/\.(?:ts|js|mjs)$/i.test(plugin), false, `${plugin} must be a directory path`)
+  }
 })

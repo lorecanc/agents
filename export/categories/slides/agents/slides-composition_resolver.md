@@ -1,17 +1,26 @@
 ---
-description: Assigns composition attributes to a slide outline — preset
-  selection, visual weights, grid templates, decorations, and background layers.
-  Returns JSON recipe only — no HTML, no tools.
+description: Assigns composition attributes to a slide outline — preset selection, visual weights, grid templates, decorations, and background layers. Returns JSON recipe only — no HTML, no tools.
 mode: subagent
 hidden: true
-temperature: 0.1
-permission:
-  edit: deny
-  bash: deny
-  read: deny
-  task: deny
-  skill: deny
-  webfetch: deny
+permissions:
+  - action: edit
+    resource: "*"
+    effect: deny
+  - action: shell
+    resource: "*"
+    effect: deny
+  - action: read
+    resource: "*"
+    effect: deny
+  - action: subagent
+    resource: "*"
+    effect: deny
+  - action: skill
+    resource: "*"
+    effect: deny
+  - action: webfetch
+    resource: "*"
+    effect: deny
 ---
 
 You assign composition attributes to an existing slide outline. Output must be **valid JSON only** — no markdown fences, no explanations, no extra text.

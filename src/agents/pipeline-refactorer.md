@@ -1,396 +1,1133 @@
 ---
-description: Performs behavior-preserving simplification and cleanup. No new
-  features, no speculative architecture.
+description: Performs behavior-preserving simplification and cleanup. No new features, no speculative architecture.
 mode: subagent
 model: opencode-go/deepseek-v4.1-flash
-temperature: 1
-permission:
-  "*": deny
-  external_directory:
-    "*": ask
-    "~/.local/share/opencode/tool-output/*": allow
-    "~/.config/opencode/skills/*": allow
-    "/tmp/*": allow
-    "/private/tmp/*": allow
-  doom_loop: deny
-  pipeline_verify: allow
-  pipeline_state: allow
-  skill: allow
-  read_mcp_resource: allow
-  list_mcp_resources: allow
-  list_mcp_resource_templates: allow
-  codebase-memory-mcp_*: allow
-  codebase-memory-mcp_delete_project: deny
-  codebase-memory-mcp_ingest_traces: deny
-  codebase-memory-mcp_manage_adr: deny
-  codebase-memory-mcp_index_repository: deny
-  read: allow
-  grep: allow
-  glob: allow
-  lsp: allow
-  edit: allow
-  write: allow
-  apply_patch: allow
-  patch: allow
-  multiedit: allow
-  list: allow
-  bash:
-    "*": deny
-    "cd *": allow
-    "node *": allow
-    "npm *": allow
-    "npx *": allow
-    "pnpm *": allow
-    "yarn *": allow
-    "bun *": allow
-    "deno *": allow
-    "python *": allow
-    "python3 *": allow
-    "pytest*": allow
-    "uv *": allow
-    "poetry *": allow
-    "pip *": allow
-    "pip3 *": allow
-    "go *": allow
-    "cargo *": allow
-    "rustc *": allow
-    "make*": allow
-    "cmake *": allow
-    "gradle *": allow
-    "./gradlew*": allow
-    "mvn *": allow
-    "./mvnw*": allow
-    "dotnet *": allow
-    "bundle *": allow
-    "rake*": allow
-    "rspec*": allow
-    "composer *": allow
-    "php *": allow
-    "swift *": allow
-    "xcodebuild *": allow
-    "xcrun *": allow
-    ".venv/bin/*": allow
-    "venv/bin/*": allow
-    "./node_modules/.bin/*": allow
-    "node_modules/.bin/*": allow
-    "tsc*": allow
-    "tsx *": allow
-    "ts-node *": allow
-    "vitest*": allow
-    "jest*": allow
-    "mocha*": allow
-    "ava*": allow
-    "eslint*": allow
-    "prettier*": allow
-    "biome*": allow
-    "oxlint*": allow
-    "turbo *": allow
-    "nx *": allow
-    "corepack *": allow
-    "ruff *": allow
-    "black *": allow
-    "isort *": allow
-    "flake8*": allow
-    "mypy*": allow
-    "pyright*": allow
-    "basedpyright*": allow
-    "pylint*": allow
-    "tox*": allow
-    "nox*": allow
-    "alembic *": allow
-    "uvicorn *": allow
-    "gunicorn *": allow
-    "flask *": allow
-    "django-admin *": allow
-    "pdm *": allow
-    "hatch *": allow
-    "pipenv *": allow
-    "conda *": allow
-    "gofmt*": allow
-    "golangci-lint*": allow
-    "rustfmt*": allow
-    "rustup *": allow
-    "gcc *": allow
-    "g++ *": allow
-    "clang *": allow
-    "clang++ *": allow
-    "ninja*": allow
-    "ctest*": allow
-    "bazel *": allow
-    "kotlinc*": allow
-    "ktlint*": allow
-    "detekt*": allow
-    "flutter *": allow
-    "dart *": allow
-    "pod *": allow
-    "fastlane *": allow
-    "mix *": allow
-    "elixir *": allow
-    "zig *": allow
-    "protoc*": allow
-    "buf *": allow
-    "prisma *": allow
-    "drizzle-kit *": allow
-    "sh *": allow
-    "bash *": allow
-    "zsh *": allow
-    "./*.sh*": allow
-    "scripts/*": allow
-    "./scripts/*": allow
-    "bin/*": allow
-    "./bin/*": allow
-    "NODE_ENV=* *": allow
-    "CI=* *": allow
-    "PYTHONPATH=* *": allow
-    "PYTHONDONTWRITEBYTECODE=* *": allow
-    "TMPDIR=* *": allow
-    "TZ=* *": allow
-    "LANG=* *": allow
-    "LC_ALL=* *": allow
-    "RUST_BACKTRACE=* *": allow
-    "RUSTFLAGS=* *": allow
-    "CGO_ENABLED=* *": allow
-    "GOFLAGS=* *": allow
-    "GOOS=* *": allow
-    "GOARCH=* *": allow
-    "PORT=* *": allow
-    "FORCE_COLOR=* *": allow
-    "NO_COLOR=* *": allow
-    "pwd": allow
-    "pwd *": allow
-    "ls": allow
-    "ls *": allow
-    "tree": allow
-    "tree *": allow
-    "which *": allow
-    "type *": allow
-    "command -v *": allow
-    "file *": allow
-    "stat *": allow
-    "du *": allow
-    "df *": allow
-    "cat *": allow
-    "head *": allow
-    "tail *": allow
-    "wc *": allow
-    "nl *": allow
-    "find *": allow
-    "fd *": allow
-    "grep *": allow
-    "egrep *": allow
-    "fgrep *": allow
-    "rg *": allow
-    "sed *": allow
-    "jq *": allow
-    "cut *": allow
-    "tr *": allow
-    "sort *": allow
-    "uniq *": allow
-    "paste *": allow
-    "column *": allow
-    "comm *": allow
-    "diff *": allow
-    "cmp *": allow
-    "echo": allow
-    "echo *": allow
-    "printf *": allow
-    "true": allow
-    "false": allow
-    "test *": allow
-    "[ *": allow
-    "date": allow
-    "date *": allow
-    "uname": allow
-    "uname *": allow
-    "whoami": allow
-    "id": allow
-    "basename *": allow
-    "dirname *": allow
-    "realpath *": allow
-    "readlink *": allow
-    "shasum *": allow
-    "sha256sum *": allow
-    "md5 *": allow
-    "md5sum *": allow
-    "base64 *": allow
-    "xxd *": allow
-    "hexdump *": allow
-    "lsof *": allow
-    "ps": allow
-    "ps *": allow
-    "pgrep *": allow
-    "awk *": allow
-    "perl *": allow
-    "yq *": allow
-    "patch *": allow
-    "xargs *": allow
-    "tee *": allow
-    "sleep *": allow
-    "timeout *": allow
-    "gtimeout *": allow
-    "time *": allow
-    "tar *": allow
-    "unzip *": allow
-    "zip *": allow
-    "gzip *": allow
-    "gunzip *": allow
-    "curl *": allow
-    "mkdir *": allow
-    "rmdir *": allow
-    "touch *": allow
-    "chmod *": allow
-    "mktemp*": allow
-    "rm *": allow
-    "cp *": allow
-    "mv *": allow
-    "ln *": allow
-    "git status*": allow
-    "git diff*": allow
-    "git diff *--output*": deny
-    "git log*": allow
-    "git show*": allow
-    "git log *--output*": deny
-    "git show *--output*": deny
-    "git ls-files*": allow
-    "git grep*": allow
-    "git shortlog*": allow
-    "git describe*": allow
-    "git reflog show*": allow
-    "git stash list*": allow
-    "git stash show*": allow
-    "git worktree list*": allow
-    "git tag -l*": allow
-    "git tag --list*": allow
-    "git remote -v*": allow
-    "git config --get*": allow
-    "git config --list*": allow
-    "git check-ignore*": allow
-    "git check-attr*": allow
-    "git --no-pager status*": allow
-    "git --no-pager diff*": allow
-    "git --no-pager diff *--output*": deny
-    "git --no-pager log*": allow
-    "git --no-pager log *--output*": deny
-    "git --no-pager show*": allow
-    "git --no-pager show *--output*": deny
-    "git --no-pager blame*": allow
-    "git --no-pager branch*": allow
-    "git --no-pager grep*": allow
-    "git --no-pager ls-files*": allow
-    "git -P status*": allow
-    "git -P diff*": allow
-    "git -P diff *--output*": deny
-    "git -P log*": allow
-    "git -P log *--output*": deny
-    "git -P show*": allow
-    "git -P show *--output*": deny
-    "git -C * status*": allow
-    "git -C * diff*": allow
-    "git -C * diff *--output*": deny
-    "git -C * log*": allow
-    "git -C * log *--output*": deny
-    "git -C * show*": allow
-    "git -C * show *--output*": deny
-    "git -C * rev-parse*": allow
-    "git -C * branch*": allow
-    "git blame*": allow
-    "git branch --show-current*": allow
-    "git branch -l*": allow
-    "git branch --list*": allow
-    "git branch -a*": allow
-    "git branch --all*": allow
-    "git branch -r*": allow
-    "git branch --remotes*": allow
-    "git branch -v*": allow
-    "git branch -vv*": allow
-    "git branch --contains*": allow
-    "git branch --merged*": allow
-    "git branch --no-merged*": allow
-    "git fetch*": allow
-    "git fetch *--upload-pack*": deny
-    "git fetch *ext::*": deny
-    "git pull*": allow
-    "git pull *--upload-pack*": deny
-    "git pull *ext::*": deny
-    "git merge*": allow
-    "git rebase*": allow
-    "git rebase *-i*": deny
-    "git rebase *--interactive*": deny
-    "git rebase *-x*": deny
-    "git rebase *--exec*": deny
-    "git cherry-pick*": allow
-    "git checkout --ours *": allow
-    "git checkout --theirs *": allow
-    "git restore --ours *": allow
-    "git restore --theirs *": allow
-    "git restore --merge *": allow
-    "git restore --staged *": allow
-    "git add *": allow
-    "git add .": deny
-    "git add ./": deny
-    "git add -A*": deny
-    "git add --all*": deny
-    "git add -u*": deny
-    "git add --update*": deny
-    "git mv *": allow
-    "git rm *": allow
-    "git rm -r .": deny
-    "git rm -rf .": deny
-    "git rm -r ./": deny
-    "git rm -rf ./": deny
-    "git rm -r ..*": deny
-    "git rm -rf ..*": deny
-    "git rm -r /*": deny
-    "git rm -rf /*": deny
-    "npm publish*": deny
-    "pnpm publish*": deny
-    "yarn publish*": deny
-    "bun publish*": deny
-    "cargo publish*": deny
-    "twine upload*": deny
-    "rm -rf": deny
-    "rm -fr": deny
-    "rm -r": deny
-    "rm -f": deny
-    "rm -rf /*": deny
-    "rm -fr /*": deny
-    "rm -r /*": deny
-    "rm -rf ~*": deny
-    "rm -fr ~*": deny
-    "rm -r ~*": deny
-    "rm -rf ..*": deny
-    "rm -fr ..*": deny
-    "rm -r ..*": deny
-    "rm -rf .": deny
-    "rm -fr .": deny
-    "rm -r .": deny
-    "rm -rf ./": deny
-    "rm -fr ./": deny
-    "rm -r ./": deny
-    "rm -rf .*": deny
-    "rm -fr .*": deny
-    "rm -r .*": deny
-    "rm * .git*": deny
-    "env": deny
-    "env *": deny
-    "printenv*": deny
-    "set": deny
-    "export -p*": deny
-    "declare -p*": deny
-    "/usr/bin/env*": deny
-    "/usr/bin/printenv*": deny
-    "*.env*": deny
-    "cat .env.example": allow
-    "cat .env.sample": allow
-    "cat .env.template": allow
-    "cat .env.test": allow
-    "cp .env.example *": allow
-    "cp .env.sample *": allow
-    "cp .env.template *": allow
-    "cp .env.test *": allow
 color: "#E67E22"
 steps: 100
 hidden: true
+permissions:
+  - action: "*"
+    resource: "*"
+    effect: deny
+  - action: external_directory
+    resource: "*"
+    effect: ask
+  - action: external_directory
+    resource: ~/.local/share/opencode/tool-output/*
+    effect: allow
+  - action: external_directory
+    resource: ~/.config/opencode/skills/*
+    effect: allow
+  - action: external_directory
+    resource: /tmp/*
+    effect: allow
+  - action: external_directory
+    resource: /private/tmp/*
+    effect: allow
+  - action: pipeline_verify
+    resource: "*"
+    effect: allow
+  - action: pipeline_state
+    resource: "*"
+    effect: allow
+  - action: skill
+    resource: "*"
+    effect: allow
+  - action: opencode_read_mcp_resource
+    resource: "*"
+    effect: allow
+  - action: opencode_list_mcp_resources
+    resource: "*"
+    effect: allow
+  - action: codebase-memory-mcp_*
+    resource: "*"
+    effect: allow
+  - action: codebase-memory-mcp_delete_project
+    resource: "*"
+    effect: deny
+  - action: codebase-memory-mcp_ingest_traces
+    resource: "*"
+    effect: deny
+  - action: codebase-memory-mcp_manage_adr
+    resource: "*"
+    effect: deny
+  - action: codebase-memory-mcp_index_repository
+    resource: "*"
+    effect: deny
+  - action: read
+    resource: "*"
+    effect: allow
+  - action: grep
+    resource: "*"
+    effect: allow
+  - action: glob
+    resource: "*"
+    effect: allow
+  - action: lsp
+    resource: "*"
+    effect: allow
+  - action: edit
+    resource: "*"
+    effect: allow
+  - action: shell
+    resource: "*"
+    effect: deny
+  - action: shell
+    resource: cd *
+    effect: allow
+  - action: shell
+    resource: node *
+    effect: allow
+  - action: shell
+    resource: npm *
+    effect: allow
+  - action: shell
+    resource: npx *
+    effect: allow
+  - action: shell
+    resource: pnpm *
+    effect: allow
+  - action: shell
+    resource: yarn *
+    effect: allow
+  - action: shell
+    resource: bun *
+    effect: allow
+  - action: shell
+    resource: deno *
+    effect: allow
+  - action: shell
+    resource: python *
+    effect: allow
+  - action: shell
+    resource: python3 *
+    effect: allow
+  - action: shell
+    resource: pytest*
+    effect: allow
+  - action: shell
+    resource: uv *
+    effect: allow
+  - action: shell
+    resource: poetry *
+    effect: allow
+  - action: shell
+    resource: pip *
+    effect: allow
+  - action: shell
+    resource: pip3 *
+    effect: allow
+  - action: shell
+    resource: go *
+    effect: allow
+  - action: shell
+    resource: cargo *
+    effect: allow
+  - action: shell
+    resource: rustc *
+    effect: allow
+  - action: shell
+    resource: make*
+    effect: allow
+  - action: shell
+    resource: cmake *
+    effect: allow
+  - action: shell
+    resource: gradle *
+    effect: allow
+  - action: shell
+    resource: ./gradlew*
+    effect: allow
+  - action: shell
+    resource: mvn *
+    effect: allow
+  - action: shell
+    resource: ./mvnw*
+    effect: allow
+  - action: shell
+    resource: dotnet *
+    effect: allow
+  - action: shell
+    resource: bundle *
+    effect: allow
+  - action: shell
+    resource: rake*
+    effect: allow
+  - action: shell
+    resource: rspec*
+    effect: allow
+  - action: shell
+    resource: composer *
+    effect: allow
+  - action: shell
+    resource: php *
+    effect: allow
+  - action: shell
+    resource: swift *
+    effect: allow
+  - action: shell
+    resource: xcodebuild *
+    effect: allow
+  - action: shell
+    resource: xcrun *
+    effect: allow
+  - action: shell
+    resource: .venv/bin/*
+    effect: allow
+  - action: shell
+    resource: venv/bin/*
+    effect: allow
+  - action: shell
+    resource: ./node_modules/.bin/*
+    effect: allow
+  - action: shell
+    resource: node_modules/.bin/*
+    effect: allow
+  - action: shell
+    resource: tsc*
+    effect: allow
+  - action: shell
+    resource: tsx *
+    effect: allow
+  - action: shell
+    resource: ts-node *
+    effect: allow
+  - action: shell
+    resource: vitest*
+    effect: allow
+  - action: shell
+    resource: jest*
+    effect: allow
+  - action: shell
+    resource: mocha*
+    effect: allow
+  - action: shell
+    resource: ava*
+    effect: allow
+  - action: shell
+    resource: eslint*
+    effect: allow
+  - action: shell
+    resource: prettier*
+    effect: allow
+  - action: shell
+    resource: biome*
+    effect: allow
+  - action: shell
+    resource: oxlint*
+    effect: allow
+  - action: shell
+    resource: turbo *
+    effect: allow
+  - action: shell
+    resource: nx *
+    effect: allow
+  - action: shell
+    resource: corepack *
+    effect: allow
+  - action: shell
+    resource: ruff *
+    effect: allow
+  - action: shell
+    resource: black *
+    effect: allow
+  - action: shell
+    resource: isort *
+    effect: allow
+  - action: shell
+    resource: flake8*
+    effect: allow
+  - action: shell
+    resource: mypy*
+    effect: allow
+  - action: shell
+    resource: pyright*
+    effect: allow
+  - action: shell
+    resource: basedpyright*
+    effect: allow
+  - action: shell
+    resource: pylint*
+    effect: allow
+  - action: shell
+    resource: tox*
+    effect: allow
+  - action: shell
+    resource: nox*
+    effect: allow
+  - action: shell
+    resource: alembic *
+    effect: allow
+  - action: shell
+    resource: uvicorn *
+    effect: allow
+  - action: shell
+    resource: gunicorn *
+    effect: allow
+  - action: shell
+    resource: flask *
+    effect: allow
+  - action: shell
+    resource: django-admin *
+    effect: allow
+  - action: shell
+    resource: pdm *
+    effect: allow
+  - action: shell
+    resource: hatch *
+    effect: allow
+  - action: shell
+    resource: pipenv *
+    effect: allow
+  - action: shell
+    resource: conda *
+    effect: allow
+  - action: shell
+    resource: gofmt*
+    effect: allow
+  - action: shell
+    resource: golangci-lint*
+    effect: allow
+  - action: shell
+    resource: rustfmt*
+    effect: allow
+  - action: shell
+    resource: rustup *
+    effect: allow
+  - action: shell
+    resource: gcc *
+    effect: allow
+  - action: shell
+    resource: g++ *
+    effect: allow
+  - action: shell
+    resource: clang *
+    effect: allow
+  - action: shell
+    resource: clang++ *
+    effect: allow
+  - action: shell
+    resource: ninja*
+    effect: allow
+  - action: shell
+    resource: ctest*
+    effect: allow
+  - action: shell
+    resource: bazel *
+    effect: allow
+  - action: shell
+    resource: kotlinc*
+    effect: allow
+  - action: shell
+    resource: ktlint*
+    effect: allow
+  - action: shell
+    resource: detekt*
+    effect: allow
+  - action: shell
+    resource: flutter *
+    effect: allow
+  - action: shell
+    resource: dart *
+    effect: allow
+  - action: shell
+    resource: pod *
+    effect: allow
+  - action: shell
+    resource: fastlane *
+    effect: allow
+  - action: shell
+    resource: mix *
+    effect: allow
+  - action: shell
+    resource: elixir *
+    effect: allow
+  - action: shell
+    resource: zig *
+    effect: allow
+  - action: shell
+    resource: protoc*
+    effect: allow
+  - action: shell
+    resource: buf *
+    effect: allow
+  - action: shell
+    resource: prisma *
+    effect: allow
+  - action: shell
+    resource: drizzle-kit *
+    effect: allow
+  - action: shell
+    resource: sh *
+    effect: allow
+  - action: shell
+    resource: bash *
+    effect: allow
+  - action: shell
+    resource: zsh *
+    effect: allow
+  - action: shell
+    resource: ./*.sh*
+    effect: allow
+  - action: shell
+    resource: scripts/*
+    effect: allow
+  - action: shell
+    resource: ./scripts/*
+    effect: allow
+  - action: shell
+    resource: bin/*
+    effect: allow
+  - action: shell
+    resource: ./bin/*
+    effect: allow
+  - action: shell
+    resource: NODE_ENV=* *
+    effect: allow
+  - action: shell
+    resource: CI=* *
+    effect: allow
+  - action: shell
+    resource: PYTHONPATH=* *
+    effect: allow
+  - action: shell
+    resource: PYTHONDONTWRITEBYTECODE=* *
+    effect: allow
+  - action: shell
+    resource: TMPDIR=* *
+    effect: allow
+  - action: shell
+    resource: TZ=* *
+    effect: allow
+  - action: shell
+    resource: LANG=* *
+    effect: allow
+  - action: shell
+    resource: LC_ALL=* *
+    effect: allow
+  - action: shell
+    resource: RUST_BACKTRACE=* *
+    effect: allow
+  - action: shell
+    resource: RUSTFLAGS=* *
+    effect: allow
+  - action: shell
+    resource: CGO_ENABLED=* *
+    effect: allow
+  - action: shell
+    resource: GOFLAGS=* *
+    effect: allow
+  - action: shell
+    resource: GOOS=* *
+    effect: allow
+  - action: shell
+    resource: GOARCH=* *
+    effect: allow
+  - action: shell
+    resource: PORT=* *
+    effect: allow
+  - action: shell
+    resource: FORCE_COLOR=* *
+    effect: allow
+  - action: shell
+    resource: NO_COLOR=* *
+    effect: allow
+  - action: shell
+    resource: pwd
+    effect: allow
+  - action: shell
+    resource: pwd *
+    effect: allow
+  - action: shell
+    resource: ls
+    effect: allow
+  - action: shell
+    resource: ls *
+    effect: allow
+  - action: shell
+    resource: tree
+    effect: allow
+  - action: shell
+    resource: tree *
+    effect: allow
+  - action: shell
+    resource: which *
+    effect: allow
+  - action: shell
+    resource: type *
+    effect: allow
+  - action: shell
+    resource: command -v *
+    effect: allow
+  - action: shell
+    resource: file *
+    effect: allow
+  - action: shell
+    resource: stat *
+    effect: allow
+  - action: shell
+    resource: du *
+    effect: allow
+  - action: shell
+    resource: df *
+    effect: allow
+  - action: shell
+    resource: cat *
+    effect: allow
+  - action: shell
+    resource: head *
+    effect: allow
+  - action: shell
+    resource: tail *
+    effect: allow
+  - action: shell
+    resource: wc *
+    effect: allow
+  - action: shell
+    resource: nl *
+    effect: allow
+  - action: shell
+    resource: find *
+    effect: allow
+  - action: shell
+    resource: fd *
+    effect: allow
+  - action: shell
+    resource: grep *
+    effect: allow
+  - action: shell
+    resource: egrep *
+    effect: allow
+  - action: shell
+    resource: fgrep *
+    effect: allow
+  - action: shell
+    resource: rg *
+    effect: allow
+  - action: shell
+    resource: sed *
+    effect: allow
+  - action: shell
+    resource: jq *
+    effect: allow
+  - action: shell
+    resource: cut *
+    effect: allow
+  - action: shell
+    resource: tr *
+    effect: allow
+  - action: shell
+    resource: sort *
+    effect: allow
+  - action: shell
+    resource: uniq *
+    effect: allow
+  - action: shell
+    resource: paste *
+    effect: allow
+  - action: shell
+    resource: column *
+    effect: allow
+  - action: shell
+    resource: comm *
+    effect: allow
+  - action: shell
+    resource: diff *
+    effect: allow
+  - action: shell
+    resource: cmp *
+    effect: allow
+  - action: shell
+    resource: echo
+    effect: allow
+  - action: shell
+    resource: echo *
+    effect: allow
+  - action: shell
+    resource: printf *
+    effect: allow
+  - action: shell
+    resource: "true"
+    effect: allow
+  - action: shell
+    resource: "false"
+    effect: allow
+  - action: shell
+    resource: test *
+    effect: allow
+  - action: shell
+    resource: "[ *"
+    effect: allow
+  - action: shell
+    resource: date
+    effect: allow
+  - action: shell
+    resource: date *
+    effect: allow
+  - action: shell
+    resource: uname
+    effect: allow
+  - action: shell
+    resource: uname *
+    effect: allow
+  - action: shell
+    resource: whoami
+    effect: allow
+  - action: shell
+    resource: id
+    effect: allow
+  - action: shell
+    resource: basename *
+    effect: allow
+  - action: shell
+    resource: dirname *
+    effect: allow
+  - action: shell
+    resource: realpath *
+    effect: allow
+  - action: shell
+    resource: readlink *
+    effect: allow
+  - action: shell
+    resource: shasum *
+    effect: allow
+  - action: shell
+    resource: sha256sum *
+    effect: allow
+  - action: shell
+    resource: md5 *
+    effect: allow
+  - action: shell
+    resource: md5sum *
+    effect: allow
+  - action: shell
+    resource: base64 *
+    effect: allow
+  - action: shell
+    resource: xxd *
+    effect: allow
+  - action: shell
+    resource: hexdump *
+    effect: allow
+  - action: shell
+    resource: lsof *
+    effect: allow
+  - action: shell
+    resource: ps
+    effect: allow
+  - action: shell
+    resource: ps *
+    effect: allow
+  - action: shell
+    resource: pgrep *
+    effect: allow
+  - action: shell
+    resource: awk *
+    effect: allow
+  - action: shell
+    resource: perl *
+    effect: allow
+  - action: shell
+    resource: yq *
+    effect: allow
+  - action: shell
+    resource: patch *
+    effect: allow
+  - action: shell
+    resource: xargs *
+    effect: allow
+  - action: shell
+    resource: tee *
+    effect: allow
+  - action: shell
+    resource: sleep *
+    effect: allow
+  - action: shell
+    resource: timeout *
+    effect: allow
+  - action: shell
+    resource: gtimeout *
+    effect: allow
+  - action: shell
+    resource: time *
+    effect: allow
+  - action: shell
+    resource: tar *
+    effect: allow
+  - action: shell
+    resource: unzip *
+    effect: allow
+  - action: shell
+    resource: zip *
+    effect: allow
+  - action: shell
+    resource: gzip *
+    effect: allow
+  - action: shell
+    resource: gunzip *
+    effect: allow
+  - action: shell
+    resource: curl *
+    effect: allow
+  - action: shell
+    resource: mkdir *
+    effect: allow
+  - action: shell
+    resource: rmdir *
+    effect: allow
+  - action: shell
+    resource: touch *
+    effect: allow
+  - action: shell
+    resource: chmod *
+    effect: allow
+  - action: shell
+    resource: mktemp*
+    effect: allow
+  - action: shell
+    resource: rm *
+    effect: allow
+  - action: shell
+    resource: cp *
+    effect: allow
+  - action: shell
+    resource: mv *
+    effect: allow
+  - action: shell
+    resource: ln *
+    effect: allow
+  - action: shell
+    resource: git status*
+    effect: allow
+  - action: shell
+    resource: git diff*
+    effect: allow
+  - action: shell
+    resource: git diff *--output*
+    effect: deny
+  - action: shell
+    resource: git log*
+    effect: allow
+  - action: shell
+    resource: git show*
+    effect: allow
+  - action: shell
+    resource: git log *--output*
+    effect: deny
+  - action: shell
+    resource: git show *--output*
+    effect: deny
+  - action: shell
+    resource: git ls-files*
+    effect: allow
+  - action: shell
+    resource: git grep*
+    effect: allow
+  - action: shell
+    resource: git shortlog*
+    effect: allow
+  - action: shell
+    resource: git describe*
+    effect: allow
+  - action: shell
+    resource: git reflog show*
+    effect: allow
+  - action: shell
+    resource: git stash list*
+    effect: allow
+  - action: shell
+    resource: git stash show*
+    effect: allow
+  - action: shell
+    resource: git worktree list*
+    effect: allow
+  - action: shell
+    resource: git tag -l*
+    effect: allow
+  - action: shell
+    resource: git tag --list*
+    effect: allow
+  - action: shell
+    resource: git remote -v*
+    effect: allow
+  - action: shell
+    resource: git config --get*
+    effect: allow
+  - action: shell
+    resource: git config --list*
+    effect: allow
+  - action: shell
+    resource: git check-ignore*
+    effect: allow
+  - action: shell
+    resource: git check-attr*
+    effect: allow
+  - action: shell
+    resource: git --no-pager status*
+    effect: allow
+  - action: shell
+    resource: git --no-pager diff*
+    effect: allow
+  - action: shell
+    resource: git --no-pager diff *--output*
+    effect: deny
+  - action: shell
+    resource: git --no-pager log*
+    effect: allow
+  - action: shell
+    resource: git --no-pager log *--output*
+    effect: deny
+  - action: shell
+    resource: git --no-pager show*
+    effect: allow
+  - action: shell
+    resource: git --no-pager show *--output*
+    effect: deny
+  - action: shell
+    resource: git --no-pager blame*
+    effect: allow
+  - action: shell
+    resource: git --no-pager branch*
+    effect: allow
+  - action: shell
+    resource: git --no-pager grep*
+    effect: allow
+  - action: shell
+    resource: git --no-pager ls-files*
+    effect: allow
+  - action: shell
+    resource: git -P status*
+    effect: allow
+  - action: shell
+    resource: git -P diff*
+    effect: allow
+  - action: shell
+    resource: git -P diff *--output*
+    effect: deny
+  - action: shell
+    resource: git -P log*
+    effect: allow
+  - action: shell
+    resource: git -P log *--output*
+    effect: deny
+  - action: shell
+    resource: git -P show*
+    effect: allow
+  - action: shell
+    resource: git -P show *--output*
+    effect: deny
+  - action: shell
+    resource: git -C * status*
+    effect: allow
+  - action: shell
+    resource: git -C * diff*
+    effect: allow
+  - action: shell
+    resource: git -C * diff *--output*
+    effect: deny
+  - action: shell
+    resource: git -C * log*
+    effect: allow
+  - action: shell
+    resource: git -C * log *--output*
+    effect: deny
+  - action: shell
+    resource: git -C * show*
+    effect: allow
+  - action: shell
+    resource: git -C * show *--output*
+    effect: deny
+  - action: shell
+    resource: git -C * rev-parse*
+    effect: allow
+  - action: shell
+    resource: git -C * branch*
+    effect: allow
+  - action: shell
+    resource: git blame*
+    effect: allow
+  - action: shell
+    resource: git branch --show-current*
+    effect: allow
+  - action: shell
+    resource: git branch -l*
+    effect: allow
+  - action: shell
+    resource: git branch --list*
+    effect: allow
+  - action: shell
+    resource: git branch -a*
+    effect: allow
+  - action: shell
+    resource: git branch --all*
+    effect: allow
+  - action: shell
+    resource: git branch -r*
+    effect: allow
+  - action: shell
+    resource: git branch --remotes*
+    effect: allow
+  - action: shell
+    resource: git branch -v*
+    effect: allow
+  - action: shell
+    resource: git branch -vv*
+    effect: allow
+  - action: shell
+    resource: git branch --contains*
+    effect: allow
+  - action: shell
+    resource: git branch --merged*
+    effect: allow
+  - action: shell
+    resource: git branch --no-merged*
+    effect: allow
+  - action: shell
+    resource: git fetch*
+    effect: allow
+  - action: shell
+    resource: git fetch *--upload-pack*
+    effect: deny
+  - action: shell
+    resource: git fetch *ext::*
+    effect: deny
+  - action: shell
+    resource: git pull*
+    effect: allow
+  - action: shell
+    resource: git pull *--upload-pack*
+    effect: deny
+  - action: shell
+    resource: git pull *ext::*
+    effect: deny
+  - action: shell
+    resource: git merge*
+    effect: allow
+  - action: shell
+    resource: git rebase*
+    effect: allow
+  - action: shell
+    resource: git rebase *-i*
+    effect: deny
+  - action: shell
+    resource: git rebase *--interactive*
+    effect: deny
+  - action: shell
+    resource: git rebase *-x*
+    effect: deny
+  - action: shell
+    resource: git rebase *--exec*
+    effect: deny
+  - action: shell
+    resource: git cherry-pick*
+    effect: allow
+  - action: shell
+    resource: git checkout --ours *
+    effect: allow
+  - action: shell
+    resource: git checkout --theirs *
+    effect: allow
+  - action: shell
+    resource: git restore --ours *
+    effect: allow
+  - action: shell
+    resource: git restore --theirs *
+    effect: allow
+  - action: shell
+    resource: git restore --merge *
+    effect: allow
+  - action: shell
+    resource: git restore --staged *
+    effect: allow
+  - action: shell
+    resource: git add *
+    effect: allow
+  - action: shell
+    resource: git add .
+    effect: deny
+  - action: shell
+    resource: git add ./
+    effect: deny
+  - action: shell
+    resource: git add -A*
+    effect: deny
+  - action: shell
+    resource: git add --all*
+    effect: deny
+  - action: shell
+    resource: git add -u*
+    effect: deny
+  - action: shell
+    resource: git add --update*
+    effect: deny
+  - action: shell
+    resource: git mv *
+    effect: allow
+  - action: shell
+    resource: git rm *
+    effect: allow
+  - action: shell
+    resource: git rm -r .
+    effect: deny
+  - action: shell
+    resource: git rm -rf .
+    effect: deny
+  - action: shell
+    resource: git rm -r ./
+    effect: deny
+  - action: shell
+    resource: git rm -rf ./
+    effect: deny
+  - action: shell
+    resource: git rm -r ..*
+    effect: deny
+  - action: shell
+    resource: git rm -rf ..*
+    effect: deny
+  - action: shell
+    resource: git rm -r /*
+    effect: deny
+  - action: shell
+    resource: git rm -rf /*
+    effect: deny
+  - action: shell
+    resource: npm publish*
+    effect: deny
+  - action: shell
+    resource: pnpm publish*
+    effect: deny
+  - action: shell
+    resource: yarn publish*
+    effect: deny
+  - action: shell
+    resource: bun publish*
+    effect: deny
+  - action: shell
+    resource: cargo publish*
+    effect: deny
+  - action: shell
+    resource: twine upload*
+    effect: deny
+  - action: shell
+    resource: rm -rf
+    effect: deny
+  - action: shell
+    resource: rm -fr
+    effect: deny
+  - action: shell
+    resource: rm -r
+    effect: deny
+  - action: shell
+    resource: rm -f
+    effect: deny
+  - action: shell
+    resource: rm -rf /*
+    effect: deny
+  - action: shell
+    resource: rm -fr /*
+    effect: deny
+  - action: shell
+    resource: rm -r /*
+    effect: deny
+  - action: shell
+    resource: rm -rf ~*
+    effect: deny
+  - action: shell
+    resource: rm -fr ~*
+    effect: deny
+  - action: shell
+    resource: rm -r ~*
+    effect: deny
+  - action: shell
+    resource: rm -rf ..*
+    effect: deny
+  - action: shell
+    resource: rm -fr ..*
+    effect: deny
+  - action: shell
+    resource: rm -r ..*
+    effect: deny
+  - action: shell
+    resource: rm -rf .
+    effect: deny
+  - action: shell
+    resource: rm -fr .
+    effect: deny
+  - action: shell
+    resource: rm -r .
+    effect: deny
+  - action: shell
+    resource: rm -rf ./
+    effect: deny
+  - action: shell
+    resource: rm -fr ./
+    effect: deny
+  - action: shell
+    resource: rm -r ./
+    effect: deny
+  - action: shell
+    resource: rm -rf .*
+    effect: deny
+  - action: shell
+    resource: rm -fr .*
+    effect: deny
+  - action: shell
+    resource: rm -r .*
+    effect: deny
+  - action: shell
+    resource: rm * .git*
+    effect: deny
+  - action: shell
+    resource: env
+    effect: deny
+  - action: shell
+    resource: env *
+    effect: deny
+  - action: shell
+    resource: printenv*
+    effect: deny
+  - action: shell
+    resource: set
+    effect: deny
+  - action: shell
+    resource: export -p*
+    effect: deny
+  - action: shell
+    resource: declare -p*
+    effect: deny
+  - action: shell
+    resource: /usr/bin/env*
+    effect: deny
+  - action: shell
+    resource: /usr/bin/printenv*
+    effect: deny
+  - action: shell
+    resource: "*.env*"
+    effect: deny
+  - action: shell
+    resource: cat .env.example
+    effect: allow
+  - action: shell
+    resource: cat .env.sample
+    effect: allow
+  - action: shell
+    resource: cat .env.template
+    effect: allow
+  - action: shell
+    resource: cat .env.test
+    effect: allow
+  - action: shell
+    resource: cp .env.example *
+    effect: allow
+  - action: shell
+    resource: cp .env.sample *
+    effect: allow
+  - action: shell
+    resource: cp .env.template *
+    effect: allow
+  - action: shell
+    resource: cp .env.test *
+    effect: allow
 ---
 
 # pipeline-refactorer

@@ -3,6 +3,7 @@ name: post-session
 description: Creates final or checkpoint commits for completed pipeline work.
   Does not update wiki or codebase memory.
 model: sonnet
+maxTurns: 50
 tools: Read, Grep, Glob, Bash, Skill, LSP
 ---
 

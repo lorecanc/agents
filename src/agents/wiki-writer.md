@@ -1,19 +1,33 @@
 ---
-description: Writes and updates individual wiki pages. Reads source code and
-  produces structured markdown documentation.
+description: Writes and updates individual wiki pages. Reads source code and produces structured markdown documentation.
 mode: subagent
-permission:
-  edit:
-    "*": deny
-    wiki/*: allow
-    wiki/**: allow
-    wiki/index.md: deny
-    wiki/log.md: deny
-    wiki/glossary.md: deny
-  bash: deny
-  skill: allow
 color: "#2C3E87"
 steps: 45
+permissions:
+  - action: edit
+    resource: "*"
+    effect: deny
+  - action: edit
+    resource: wiki/*
+    effect: allow
+  - action: edit
+    resource: wiki/**
+    effect: allow
+  - action: edit
+    resource: wiki/index.md
+    effect: deny
+  - action: edit
+    resource: wiki/log.md
+    effect: deny
+  - action: edit
+    resource: wiki/glossary.md
+    effect: deny
+  - action: shell
+    resource: "*"
+    effect: deny
+  - action: skill
+    resource: "*"
+    effect: allow
 ---
 
 You are the wiki writer. You create and update individual wiki pages based on source code analysis.

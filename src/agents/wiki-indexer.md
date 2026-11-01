@@ -1,22 +1,39 @@
 ---
-description: Maintains wiki/index.md, wiki/log.md, and wiki/glossary.md. Sole
-  owner of these files.
+description: Maintains wiki/index.md, wiki/log.md, and wiki/glossary.md. Sole owner of these files.
 mode: subagent
-permission:
-  edit:
-    "*": deny
-    wiki/index.md: allow
-    wiki/log.md: allow
-    wiki/glossary.md: allow
-  bash:
-    "*": deny
-    find wiki/ *: allow
-    cat wiki/*: allow
-    ls wiki/*: allow
-    date *: allow
-  skill: allow
 color: "#2C3E87"
 steps: 45
+permissions:
+  - action: edit
+    resource: "*"
+    effect: deny
+  - action: edit
+    resource: wiki/index.md
+    effect: allow
+  - action: edit
+    resource: wiki/log.md
+    effect: allow
+  - action: edit
+    resource: wiki/glossary.md
+    effect: allow
+  - action: shell
+    resource: "*"
+    effect: deny
+  - action: shell
+    resource: find wiki/ *
+    effect: allow
+  - action: shell
+    resource: cat wiki/*
+    effect: allow
+  - action: shell
+    resource: ls wiki/*
+    effect: allow
+  - action: shell
+    resource: date *
+    effect: allow
+  - action: skill
+    resource: "*"
+    effect: allow
 ---
 
 You are the wiki indexer. You are the SOLE OWNER of three files: index.md, log.md, and glossary.md.

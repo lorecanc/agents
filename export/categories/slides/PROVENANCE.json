@@ -2,9 +2,9 @@
   "schemaVersion": 2,
   "distributionVersion": "2.0.0",
   "category": "slides",
-  "manifestHash": "0aa56ac9bb37a29408826baf34f707a2455d51b7ccc8f19293b961757fbb4860",
+  "manifestHash": "85eecbddef04419bbad13c5b3ad80935844bdee6eaa0f5c56998623a7fb05acf",
   "generatorVersion": "2.0.0",
-  "bundleDigest": "8bea066a2ed9c1c989a8f669a813e3c5fd53664696ccb023adc2cd47670f84fd",
+  "bundleDigest": "e5bd5ece044c90a7d2f94e03e120b929d554a0508a184f569022da25acbb63b9",
   "entries": [
     {
       "target": "AGENTS.md",
@@ -16,7 +16,7 @@
     },
     {
       "target": "README.md",
-      "hash": "04af5b23199be4a1c31ba4de3c0ff80c2911a25870019044883cb71d409b12b4"
+      "hash": "976d99a636a07e7535156c42eadc75d7ac151908093046769980167f5d30e0ab"
     },
     {
       "target": "THIRD_PARTY_NOTICES.md",
@@ -24,27 +24,27 @@
     },
     {
       "target": "agents/slides-composition_resolver.md",
-      "hash": "cc8c38b833a1c4dff4c1d8c1fd69aa861474fc1ff37b50ead83cf14e13d7b4b4"
+      "hash": "e5642e8fb2b005f379fe92fd233a0d92a9a386e37c553cc0e9ffce03231027a4"
     },
     {
       "target": "agents/slides-html_writer.md",
-      "hash": "c929bfba3c9d90046d6f1d293a39c4ceb6aac726f0fc636d10352f994c00f822"
+      "hash": "0709d5a9f41327da848e659f4f5190ba258edf05f6797750585f3b644fc3b8b5"
     },
     {
       "target": "agents/slides-orchestrator.md",
-      "hash": "f3334fd408b0958d7e5bbfba73633a65dfc5ce5580192ab4b936cfbc408f4f7e"
+      "hash": "b104c188afffb23f1de4f551449e6aba665f8286b24afd171e20eb29dcc4a269"
     },
     {
       "target": "agents/slides-planner.md",
-      "hash": "81fd46c22317d8575c46e47d803ddad2eab89fb04950c23d16d52731e9172efc"
+      "hash": "406c0c1acd852221e84fccb225fd4c0923b8a243d8af2c16812d2ff7736a5c64"
     },
     {
       "target": "agents/slides-template_planner.md",
-      "hash": "cf28ae4122610eeb69fa69abf9e1add856bbaa94579ce2891bf8d04935636a61"
+      "hash": "2d0ba9ce67f792decee3983c437f0dbccf4600735d2ebbdf1922eb314bf3aa5c"
     },
     {
       "target": "agents/slides-template_writer.md",
-      "hash": "2d6f3e1676ac6e86fd7dbd88c3e89899e4f5bc57df25669445259048677f4c31"
+      "hash": "d9fa92e6c09f9caf211c2d82c9b27240b0eac8c60b18c0e820cfd150498ee39e"
     },
     {
       "target": "commands/fix-slide.md",
@@ -60,7 +60,11 @@
     },
     {
       "target": "opencode.json",
-      "hash": "15111fab6d5571a3a9adc63527bbee2200d22123bced27d4be7724c7fee3ed0d"
+      "hash": "9d4daccc1a2a39c0af176b3b78e506ad8ad81b82ee97ee0288ec02622f6eb37c"
+    },
+    {
+      "target": "plugins/slide-tools/index.ts",
+      "hash": "5b55b62386c79c3196753dd1a15e89cd1455852b2b953ff4f1c74222d77ed076"
     },
     {
       "target": "requirements.txt",
@@ -77,6 +81,14 @@
     {
       "target": "skills/slides-template-html/SKILL.md",
       "hash": "1d166de7e6130bbcd77961e5af39bcec778b1c9960d91dd23f17aa3563c614bf"
+    },
+    {
+      "target": "tools/_safeName.js",
+      "hash": "525d8704ebaa3ea347d916fa302227bfc07d2ae149196dd4dbefa7b51b4399a6"
+    },
+    {
+      "target": "tools/_tool.ts",
+      "hash": "7f896bb01b2b27559e6c693d8393a1372afa60de9b279e13e885b17c02f091f4"
     },
     {
       "target": "tools/pptx/html2pptx.js",
@@ -293,6 +305,42 @@
     {
       "target": "tools/pptx/thumbnail.py",
       "hash": "685f743fc9817986fb0f7fc2ea95ca48003073b50c883779b301556c99e48b2f"
+    },
+    {
+      "target": "tools/slide_analyze_template.ts",
+      "hash": "11c22cd0ce328eacf2699f2f67e04486446219cb67eca19101ca8081e6067baa"
+    },
+    {
+      "target": "tools/slide_assemble_pptx.ts",
+      "hash": "d330801d245c7dbbc138964f5acefed37b99b692e236d93cb827a434e704cdf3"
+    },
+    {
+      "target": "tools/slide_build_pptx.ts",
+      "hash": "0feed991268e1dfb68e8dad1146e1d5c64cdb296930a5ed6928bd7cbeeaceacd"
+    },
+    {
+      "target": "tools/slide_compile_composition.ts",
+      "hash": "ea0b64746c4a6a2eebdbf1a61c0051fa8fb776787d80a61927d582bf77a8a2e7"
+    },
+    {
+      "target": "tools/slide_compile_theme.ts",
+      "hash": "ec9f80f21b60bdbaf6a6521d2251f4b778effa37eb5f680accb32fb96f96ce08"
+    },
+    {
+      "target": "tools/slide_create_thumbnails.ts",
+      "hash": "9f486d5a049c420bfae7e08607a9d8dd40b922cf610c906d646035daafc9ba1c"
+    },
+    {
+      "target": "tools/slide_download_image.ts",
+      "hash": "b297fd63742523995d2d6f349ba2d2f0627d2ae1bb6f7e37bce6f0011044f1a5"
+    },
+    {
+      "target": "tools/slide_generate_image.ts",
+      "hash": "810dda40aaad5ef24e5e55ab90f410a039421282565d7aa9ba81097393d1d809"
+    },
+    {
+      "target": "tools/slide_screenshot.ts",
+      "hash": "227fdddfafeb47da8869873da0ef61a9c74eb7b5f90eaf070b29c8f732043aa4"
     }
   ]
 }

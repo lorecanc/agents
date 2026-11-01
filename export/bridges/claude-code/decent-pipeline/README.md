@@ -54,6 +54,13 @@ These servers are declared by the generated plugin. `npx` entries are fetched on
 | `cupertino` | `swift-specialist` | Install `cupertino` and verify it with `command -v cupertino`. [Installation guide](https://aleahim.com/blog/cupertino-09-release/). |
 | `axiom` | `swift-specialist` | Automatic via `npx -y axiom-mcp`; requires Node.js, npm, and network access. |
 | `cwe-search` | `security-auditor` | Automatic via `npx -y cwe-search-mcp@latest`; requires Node.js, npm, and network access. |
+| `bigquery` | `executor`, `explorer`, `fast-lane`, `ops` | Install `` and verify it with `command -v `. |
+| `cloud-run` | `executor`, `explorer`, `fast-lane`, `ops` | Install `` and verify it with `command -v `. |
+| `cloud-logging` | `executor`, `explorer`, `fast-lane`, `ops` | Install `` and verify it with `command -v `. |
+| `cloud-monitoring` | `executor`, `explorer`, `fast-lane`, `ops` | Install `` and verify it with `command -v `. |
+| `cloud-sql` | `executor`, `explorer`, `fast-lane`, `ops` | Install `` and verify it with `command -v `. |
+| `cloud-storage` | `executor`, `explorer`, `fast-lane`, `ops` | Install `` and verify it with `command -v `. |
+| `cloud-cli` | `ops` | Install `` and verify it with `command -v `. |
 
 After setup, launch Claude Code and use `/mcp` to verify that every required server is connected.
 
@@ -61,8 +68,12 @@ After setup, launch Claude Code and use `/mcp` to verify that every required ser
 
 These OpenCode companions are linked by the category but are not transpiled by the bridge:
 
-- Plugin: `plugins/pipeline-guard.js`
+- Plugin: `plugins/doc-tools`
+- Plugin: `plugins/pipeline-guard`
+- Plugin: `plugins/pipeline-tools`
+- Plugin: `plugins/slide-tools`
 - Tool: `tools/pipeline_commit.ts`
+- Tool: `tools/pipeline_env.ts`
 - Tool: `tools/pipeline_serve.ts`
 - Tool: `tools/pipeline_smoke.ts`
 - Tool: `tools/pipeline_state.ts`
@@ -166,6 +177,7 @@ Invoke a generated skill with its plugin-scoped name:
 
 - `/decent-pipeline:pipeline-bug`
 - `/decent-pipeline:pipeline-feature`
+- `/decent-pipeline:pipeline-init`
 - `/decent-pipeline:pipeline-ops`
 - `/decent-pipeline:pipeline-refactor`
 - `/decent-pipeline:pipeline-research`

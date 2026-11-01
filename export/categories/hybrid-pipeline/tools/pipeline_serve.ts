@@ -1,4 +1,4 @@
-import { tool } from "@opencode-ai/plugin"
+import { tool } from "./_tool.js"
 import { repoInfo, rootRecordFor } from "./_pipeline_core.js"
 import { MAX_TTL_S, serviceStatus, startService, stopService } from "./_pipeline_serve.js"
 

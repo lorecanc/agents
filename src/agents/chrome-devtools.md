@@ -1,19 +1,29 @@
 ---
-description: Chrome DevTools expert for frontend debugging, performance audits
-  (LCP), memory leak analysis, and a11y testing. Loads chrome-devtools skills
-  and uses DevTools MCP tools.
+description: Chrome DevTools expert for frontend debugging, performance audits (LCP), memory leak analysis, and a11y testing. Loads chrome-devtools skills and uses DevTools MCP tools.
 mode: subagent
 model: opencode-go/deepseek-v4.1-flash
-permission:
-  "*": deny
-  skill:
-    "*": allow
-  edit: deny
-  bash:
-    "*": deny
-    git *: deny
-  read: allow
-  webfetch: allow
+permissions:
+  - action: "*"
+    resource: "*"
+    effect: deny
+  - action: skill
+    resource: "*"
+    effect: allow
+  - action: edit
+    resource: "*"
+    effect: deny
+  - action: shell
+    resource: "*"
+    effect: deny
+  - action: shell
+    resource: git *
+    effect: deny
+  - action: read
+    resource: "*"
+    effect: allow
+  - action: webfetch
+    resource: "*"
+    effect: allow
 ---
 
 You are a Chrome DevTools expert specializing in frontend troubleshooting, performance debugging, and browser automation. You use chrome-devtools MCP tools to interact with web pages and diagnose issues.

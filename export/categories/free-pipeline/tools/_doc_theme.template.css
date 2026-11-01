@@ -1,0 +1,230 @@
+/* ================================================================
+   Document Theme: {{DESIGN_SYSTEM_NAME}}  |  Mode: {{THEME_MODE}}
+   Compiled by doc_compile_theme from .opencode/office/docs/design/
+   ================================================================ */
+
+/* ── Design Tokens ─────────────────────────────────────────── */
+:root {
+  --color-bg: {{COLOR_BG}};
+  --color-surface: {{COLOR_SURFACE}};
+  --color-text-primary: {{COLOR_TEXT_PRIMARY}};
+  --color-text-secondary: {{COLOR_TEXT_SECONDARY}};
+  --color-accent: {{COLOR_ACCENT}};
+  --color-accent-secondary: {{COLOR_ACCENT_SECONDARY}};
+  --color-border: {{COLOR_BORDER}};
+
+  /* RGB triplets for alpha compositing */
+  --rgb-accent: {{RGB_ACCENT}};
+  --rgb-accent-secondary: {{RGB_ACCENT_SECONDARY}};
+
+  --font-display: '{{FONT_DISPLAY}}', serif;
+  --font-heading: '{{FONT_HEADING}}', sans-serif;
+  --font-body: '{{FONT_BODY}}', sans-serif;
+  --font-mono: '{{FONT_MONO}}', monospace;
+
+  --text-xs: 9pt;
+  --text-sm: 10pt;
+  --text-base: 11pt;
+  --text-lg: 14pt;
+  --text-xl: 18pt;
+  --text-2xl: 24pt;
+  --text-3xl: 32pt;
+
+  --space-xs: 4pt;
+  --space-sm: 6pt;
+  --space-md: 10pt;
+  --space-lg: 18pt;
+  --space-xl: 24pt;
+  --space-2xl: 36pt;
+}
+
+/* ── Page Geometry ─────────────────────────────────────────── */
+@page {
+  size: 210mm 297mm;
+  margin: 18mm 24mm 20mm 24mm;
+}
+
+@media screen {
+  body {
+    margin: 0;
+    background: #f3f3f3;
+  }
+  .page-screen {
+    width: 794px;
+    min-height: 1123px;
+    margin: 0 auto;
+    box-sizing: border-box;
+    padding: 24pt 32pt 27pt 32pt;
+    background: {{COLOR_BG}};
+  }
+}
+
+/* ── Base Elements ─────────────────────────────────────────── */
+body {
+  font-family: '{{FONT_BODY}}', sans-serif;
+  font-size: 11pt;
+  line-height: 1.35;
+  color: {{COLOR_TEXT_PRIMARY}};
+  background: {{COLOR_BG}};
+}
+
+h1 {
+  font-family: '{{FONT_DISPLAY}}', serif;
+  font-size: 24pt;
+  font-weight: 700;
+  color: {{COLOR_ACCENT}};
+  margin: 0 0 12pt 0;
+  line-height: 1.15;
+}
+
+h2 {
+  font-family: '{{FONT_HEADING}}', sans-serif;
+  font-size: 18pt;
+  font-weight: 600;
+  color: {{COLOR_TEXT_PRIMARY}};
+  margin: 18pt 0 8pt 0;
+  line-height: 1.2;
+}
+
+h3 {
+  font-family: '{{FONT_HEADING}}', sans-serif;
+  font-size: 14pt;
+  font-weight: 600;
+  color: {{COLOR_ACCENT}};
+  margin: 14pt 0 6pt 0;
+  line-height: 1.2;
+}
+
+h4 {
+  font-family: '{{FONT_HEADING}}', sans-serif;
+  font-size: 12pt;
+  font-weight: 600;
+  color: {{COLOR_TEXT_PRIMARY}};
+  margin: 10pt 0 4pt 0;
+  line-height: 1.25;
+}
+
+p {
+  font-size: 11pt;
+  margin: 0 0 6pt 0;
+  line-height: 1.35;
+}
+
+ul, ol {
+  margin: 4pt 0 8pt 0;
+  padding-left: 20pt;
+  font-size: 11pt;
+}
+
+li {
+  margin-bottom: 3pt;
+}
+
+/* ── Typography Utilities ──────────────────────────────────── */
+.doc-display {
+  font-family: '{{FONT_DISPLAY}}', serif;
+}
+
+.doc-heading {
+  font-family: '{{FONT_HEADING}}', sans-serif;
+}
+
+.doc-mono {
+  font-family: '{{FONT_MONO}}', monospace;
+}
+
+.doc-text-muted {
+  color: {{COLOR_TEXT_SECONDARY}};
+}
+
+/* ── Background Context Classes ────────────────────────────── */
+.bg-accent {
+  background: {{COLOR_ACCENT}};
+  color: {{COLOR_BG}};
+}
+
+.bg-accent-secondary {
+  background: {{COLOR_ACCENT_SECONDARY}};
+  color: {{COLOR_BG}};
+}
+
+.bg-surface {
+  background: {{COLOR_SURFACE}};
+  color: {{COLOR_TEXT_PRIMARY}};
+}
+
+.bg-dark {
+  background: {{COLOR_TEXT_PRIMARY}};
+  color: {{COLOR_BG}};
+}
+
+/* ── Layout Components ─────────────────────────────────────── */
+.doc-header-band {
+  background: {{COLOR_ACCENT}};
+  color: {{COLOR_BG}};
+  padding: 18pt 24pt;
+}
+
+.doc-sidebar {
+  background: {{COLOR_SURFACE}};
+  border-right: 1pt solid {{COLOR_BORDER}};
+  padding: 12pt;
+  width: 30%;
+}
+
+.doc-section-divider {
+  border-top: 1pt solid {{COLOR_BORDER}};
+  margin: 14pt 0;
+}
+
+.doc-section-divider-accent {
+  border-top: 2pt solid {{COLOR_ACCENT}};
+  margin: 14pt 0;
+}
+
+/* ── Callout / Highlight ───────────────────────────────────── */
+.doc-callout {
+  background: {{COLOR_SURFACE}};
+  border-left: 3pt solid {{COLOR_ACCENT}};
+  padding: 10pt 14pt;
+  margin: 10pt 0;
+}
+
+.doc-callout-accent {
+  background: {{COLOR_ACCENT}};
+  color: {{COLOR_BG}};
+  padding: 10pt 14pt;
+  margin: 10pt 0;
+}
+
+/* ── Tables ────────────────────────────────────────────────── */
+.doc-table-header {
+  background: {{COLOR_ACCENT}};
+  color: {{COLOR_BG}};
+  font-weight: 700;
+}
+
+.doc-table-alt-row {
+  background: {{COLOR_SURFACE}};
+}
+
+/* ── Utility: Kicker / Label ───────────────────────────────── */
+.doc-kicker {
+  font-family: '{{FONT_MONO}}', monospace;
+  font-size: 9pt;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: {{COLOR_ACCENT}};
+}
+
+/* ── @font-face Declarations ───────────────────────────────── */
+{{FONT_FACE_DECLARATIONS}}
+
+/* ── Google Fonts Import ───────────────────────────────────── */
+{{GOOGLE_FONTS_IMPORT}}
+
+/* ── Brand-Specific Interaction Classes ────────────────────── */
+{{BRAND_INTERACTION_CLASSES}}
+
+/* ── Semantic Document Components ──────────────────────────── */
+{{DOC_COMPONENTS}}

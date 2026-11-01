@@ -3,9 +3,8 @@ name: reasoner
 description: Deep reasoning agent for complex bugs, algorithms, architecture,
   performance, security, concurrency, and root-cause analysis.
 model: opus
-tools: Read, Grep, Glob, WebFetch, WebSearch, Skill, LSP,
-  mcp__codebase-memory-mcp__*,
-  mcp__plugin_decent-pipeline_codebase-memory-mcp__*
+maxTurns: 50
+tools: Read, Grep, Glob, WebFetch, WebSearch, Skill, LSP
 ---
 
 # pipeline-reasoner

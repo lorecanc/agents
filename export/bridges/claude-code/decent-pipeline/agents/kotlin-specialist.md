@@ -4,9 +4,8 @@ description: Kotlin/Android specialist. Uses Google Developer Knowledge MCP
   (developer.android.com docs, Jetpack guides, API reference) to validate plans
   and code against Android conventions and API correctness. Does not edit files.
 model: sonnet
+maxTurns: 50
 tools: Read, Grep, Glob, WebFetch, WebSearch, Skill, LSP,
-  mcp__codebase-memory-mcp__*,
-  mcp__plugin_decent-pipeline_codebase-memory-mcp__*,
   mcp__google-developer-knowledge__*,
   mcp__plugin_decent-pipeline_google-developer-knowledge__*
 ---

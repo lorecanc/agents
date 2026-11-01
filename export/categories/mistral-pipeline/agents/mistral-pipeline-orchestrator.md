@@ -3,65 +3,152 @@ description: Primary coordinator for the pipeline multi-agent workflow. Assesses
   work size, routes to the smallest effective lane, delegates to specialized
   agents, and evaluates results. Never writes code or solves problems directly.
 mode: primary
-model: mistral/mistral-large-4
-temperature: 1
-permission:
-  "*": deny
-  external_directory:
-    "*": ask
-    ~/.local/share/opencode/tool-output/*: allow
-    ~/.config/opencode/skills/*: allow
-    /tmp/*: allow
-    /private/tmp/*: allow
-  doom_loop: deny
-  pipeline_state: allow
-  pipeline_env: allow
-  read: allow
-  list: allow
-  grep: allow
-  glob: allow
-  skill: allow
-  read_mcp_resource: allow
-  list_mcp_resources: allow
-  list_mcp_resource_templates: allow
-  mcp-resource: allow
-  todowrite: allow
-  question: allow
-  task:
-    "*": deny
-    mistral-pipeline-explorer: allow
-    mistral-pipeline-planner: allow
-    mistral-pipeline-reasoner: allow
-    mistral-pipeline-executor: allow
-    mistral-pipeline-tester: allow
-    mistral-pipeline-refactorer: allow
-    mistral-pipeline-researcher: allow
-    mistral-pipeline-multimodal: allow
-    mistral-pipeline-ops: allow
-    mistral-pipeline-critic: allow
-    mistral-pipeline-hitl: allow
-    mistral-pipeline-chrome_devtools: allow
-    mistral-pipeline-code_reviewer: allow
-    mistral-pipeline-docs_grounding: allow
-    mistral-pipeline-fast_lane: allow
-    mistral-pipeline-frontend_specialist: allow
-    mistral-pipeline-post_session: allow
-    mistral-pipeline-security_auditor: allow
-    mistral-pipeline-swift_specialist: allow
-    mistral-pipeline-kotlin_specialist: allow
-  codebase-memory-mcp_*: allow
-  codebase-memory-mcp_delete_project: deny
-  codebase-memory-mcp_ingest_traces: deny
-  codebase-memory-mcp_manage_adr: deny
-  codebase-memory-mcp_index_repository: deny
-  bash: deny
-  webfetch: deny
-  websearch: deny
-  lsp: deny
+model: mistral/mistral-large-4#high
 color: "#E67E22"
 hidden: false
-variant: high
 steps: 120
+request:
+  body:
+    temperature: 1
+permissions:
+  - action: "*"
+    resource: "*"
+    effect: deny
+  - action: external_directory
+    resource: "*"
+    effect: ask
+  - action: external_directory
+    resource: ~/.local/share/opencode/tool-output/*
+    effect: allow
+  - action: external_directory
+    resource: ~/.config/opencode/skills/*
+    effect: allow
+  - action: external_directory
+    resource: /tmp/*
+    effect: allow
+  - action: external_directory
+    resource: /private/tmp/*
+    effect: allow
+  - action: pipeline_state
+    resource: "*"
+    effect: allow
+  - action: pipeline_env
+    resource: "*"
+    effect: allow
+  - action: read
+    resource: "*"
+    effect: allow
+  - action: grep
+    resource: "*"
+    effect: allow
+  - action: glob
+    resource: "*"
+    effect: allow
+  - action: skill
+    resource: "*"
+    effect: allow
+  - action: opencode_read_mcp_resource
+    resource: "*"
+    effect: allow
+  - action: opencode_list_mcp_resources
+    resource: "*"
+    effect: allow
+  - action: todowrite
+    resource: "*"
+    effect: allow
+  - action: question
+    resource: "*"
+    effect: allow
+  - action: subagent
+    resource: "*"
+    effect: deny
+  - action: subagent
+    resource: mistral-pipeline-explorer
+    effect: allow
+  - action: subagent
+    resource: mistral-pipeline-planner
+    effect: allow
+  - action: subagent
+    resource: mistral-pipeline-reasoner
+    effect: allow
+  - action: subagent
+    resource: mistral-pipeline-executor
+    effect: allow
+  - action: subagent
+    resource: mistral-pipeline-tester
+    effect: allow
+  - action: subagent
+    resource: mistral-pipeline-refactorer
+    effect: allow
+  - action: subagent
+    resource: mistral-pipeline-researcher
+    effect: allow
+  - action: subagent
+    resource: mistral-pipeline-multimodal
+    effect: allow
+  - action: subagent
+    resource: mistral-pipeline-ops
+    effect: allow
+  - action: subagent
+    resource: mistral-pipeline-critic
+    effect: allow
+  - action: subagent
+    resource: mistral-pipeline-hitl
+    effect: allow
+  - action: subagent
+    resource: mistral-pipeline-chrome_devtools
+    effect: allow
+  - action: subagent
+    resource: mistral-pipeline-code_reviewer
+    effect: allow
+  - action: subagent
+    resource: mistral-pipeline-docs_grounding
+    effect: allow
+  - action: subagent
+    resource: mistral-pipeline-fast_lane
+    effect: allow
+  - action: subagent
+    resource: mistral-pipeline-frontend_specialist
+    effect: allow
+  - action: subagent
+    resource: mistral-pipeline-post_session
+    effect: allow
+  - action: subagent
+    resource: mistral-pipeline-security_auditor
+    effect: allow
+  - action: subagent
+    resource: mistral-pipeline-swift_specialist
+    effect: allow
+  - action: subagent
+    resource: mistral-pipeline-kotlin_specialist
+    effect: allow
+  - action: codebase-memory-mcp_*
+    resource: "*"
+    effect: allow
+  - action: codebase-memory-mcp_delete_project
+    resource: "*"
+    effect: deny
+  - action: codebase-memory-mcp_ingest_traces
+    resource: "*"
+    effect: deny
+  - action: codebase-memory-mcp_manage_adr
+    resource: "*"
+    effect: deny
+  - action: codebase-memory-mcp_index_repository
+    resource: "*"
+    effect: deny
+  - action: shell
+    resource: "*"
+    effect: deny
+  - action: webfetch
+    resource: "*"
+    effect: deny
+  - action: websearch
+    resource: "*"
+    effect: deny
+  - action: lsp
+    resource: "*"
+    effect: deny
 ---
 
 # mistral-pipeline-orchestrator

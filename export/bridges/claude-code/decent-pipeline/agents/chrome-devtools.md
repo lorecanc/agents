@@ -5,10 +5,9 @@ description: Frontend debugging and visual validation agent. Uses Chrome
   console error detection. Called in the frontend lane before and after code
   changes. Can start the project's service itself with pipeline_serve.
 model: sonnet
+maxTurns: 75
 tools: Read, Grep, Glob, WebFetch, WebSearch, Skill, LSP,
-  mcp__codebase-memory-mcp__*,
-  mcp__plugin_decent-pipeline_codebase-memory-mcp__*, mcp__chrome-devtools__*,
-  mcp__plugin_decent-pipeline_chrome-devtools__*
+  mcp__chrome-devtools__*, mcp__plugin_decent-pipeline_chrome-devtools__*
 ---
 
 # pipeline-chrome_devtools

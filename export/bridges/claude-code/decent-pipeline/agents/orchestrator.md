@@ -4,6 +4,7 @@ description: Primary coordinator for the pipeline multi-agent workflow. Assesses
   work size, routes to the smallest effective lane, delegates to specialized
   agents, and evaluates results. Never writes code or solves problems directly.
 model: opus
+maxTurns: 150
 tools: Agent(decent-pipeline:explorer, decent-pipeline:planner,
   decent-pipeline:reasoner, decent-pipeline:executor, decent-pipeline:tester,
   decent-pipeline:refactorer, decent-pipeline:researcher,
@@ -13,8 +14,7 @@ tools: Agent(decent-pipeline:explorer, decent-pipeline:planner,
   decent-pipeline:fast-lane, decent-pipeline:frontend-specialist,
   decent-pipeline:post-session, decent-pipeline:security-auditor,
   decent-pipeline:swift-specialist, decent-pipeline:kotlin-specialist), Read,
-  Grep, Glob, Skill, AskUserQuestion, TodoWrite, mcp__codebase-memory-mcp__*,
-  mcp__plugin_decent-pipeline_codebase-memory-mcp__*
+  Grep, Glob, Skill, AskUserQuestion, TodoWrite
 ---
 
 # pipeline-orchestrator

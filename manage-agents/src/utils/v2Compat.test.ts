@@ -1,5 +1,10 @@
 import assert from "node:assert/strict"
+import fs from "node:fs"
+import os from "node:os"
+import path from "node:path"
 import test from "node:test"
+import YAML from "yaml"
+import { extractFrontmatter, parseAgentFile, saveAgentFile } from "./agents.js"
 import {
   translatePermissionsV1ToV2,
   translatePermissionsV2ToV1,
@@ -61,6 +66,61 @@ test("translatePermissionsV2ToV1 converts array to object", () => {
   const v1 = translatePermissionsV2ToV1(v2)
   assert.deepEqual(v1, { bash: "allow", edit: "deny" })
 })
+
+test("translatePermissionsV1ToV2 lifts the global V1 wildcard to the first rule", () => {
+  const v2 = translatePermissionsV1ToV2({ read: "allow", "*": "deny" })
+  assert.deepEqual(v2, [
+    { action: "*", resource: "*", effect: "deny" },
+    { action: "read", resource: "*", effect: "allow" },
+  ], "the global rule stays first even when the V1 key is written last")
+})
+
+test("translatePermissionsV2ToV1 restores the global wildcard as the first key", () => {
+  const v1 = translatePermissionsV2ToV1([
+    { action: "read", resource: "*", effect: "allow" },
+    { action: "*", resource: "*", effect: "deny" },
+  ])
+  assert.deepEqual(v1, { "*": "deny", read: "allow" })
+  assert.deepEqual(Object.keys(v1), ["*", "read"])
+})
+
+test("global wildcard translation is idempotent and never duplicated", () => {
+  const v1 = { "*": "deny", read: "allow" }
+  const v2 = translatePermissionsV1ToV2(v1)
+  assert.equal(v2.filter(rule => rule.action === "*").length, 1)
+  assert.deepEqual(translatePermissionsV1ToV2(translatePermissionsV2ToV1(v2)), v2)
+})
+
+test("parseAgentFile → saveAgentFile keeps the V2 global deny first", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "v2-global-permission-"))
+  const filePath = path.join(workspace, "general", "agents", "pipeline-executor.md")
+  fs.mkdirSync(path.dirname(filePath), { recursive: true })
+  fs.writeFileSync(filePath, [
+    "---",
+    "description: Global deny",
+    "model: test/model",
+    "permissions:",
+    '  - action: "*"',
+    '    resource: "*"',
+    "    effect: deny",
+    "  - action: read",
+    '    resource: "*"',
+    "    effect: allow",
+    "---",
+    "",
+    "Agent body."
+  ].join("\n"))
+
+  const agent = parseAgentFile(filePath, workspace)!
+  assert.deepEqual(agent.frontmatter.permission, { "*": "deny", read: "allow" })
+  saveAgentFile(filePath, agent.frontmatter, agent.body, agent.frontmatterVersion)
+
+  const written = YAML.parse(extractFrontmatter(fs.readFileSync(filePath, "utf8")).yamlText!)
+  assert.deepEqual(written.permissions[0], { action: "*", resource: "*", effect: "deny" })
+  assert.equal(written.permissions.filter((rule: any) => rule.action === "*").length, 1)
+  assert.deepEqual(parseAgentFile(filePath, workspace)!.frontmatter.permission, { "*": "deny", read: "allow" })
+})
+
 
 test("translatePermissionsV2ToV1 converts nested resources", () => {
   const v2 = [
@@ -143,10 +203,127 @@ test("translatePermissionsV2ToV1 rejects inherited member and malformed action n
   assert.equal(Object.getPrototypeOf(v1), Object.prototype, "no action may touch the result prototype")
 })
 
-test("V1 permission map reads never resolve inherited Object members", () => {
-  assert.deepEqual(translatePermissionsV1ToV2({ constructor: "allow" }), [
-    { action: "constructor", resource: "*", effect: "allow" },
+test("V1 permission keys never resolve inherited Object members", () => {
+  assert.deepEqual(translatePermissionsV1ToV2({ constructor: "allow", toString: "allow" }), [],
+    "inherited member names are unknown keys and fail closed")
+})
+
+test("V1 permission translation drops unknown non-MCP keys but keeps MCP and pipeline actions", () => {
+  const v1 = {
+    "not-a-tool": "allow",
+    constructor: "allow",
+    "codebase-memory-mcp_*": "allow",
+    "chrome-devtools_click": "deny",
+    pipeline_env: "allow",
+  }
+
+  assert.deepEqual(translatePermissionsV1ToV2(v1), [
+    { action: "codebase-memory-mcp_*", resource: "*", effect: "allow" },
+    { action: "chrome-devtools_click", resource: "*", effect: "deny" },
+    { action: "pipeline_env", resource: "*", effect: "allow" },
   ])
+})
+
+test("V1 bash rules keep their resource order (V2 last-match-wins)", () => {
+  const v1 = {
+    bash: {
+      "git push *": "ask",
+      "git status": "allow",
+      "*": "deny",
+    },
+  }
+
+  assert.deepEqual(translatePermissionsV1ToV2(v1), [
+    { action: "shell", resource: "git push *", effect: "ask" },
+    { action: "shell", resource: "git status", effect: "allow" },
+    { action: "shell", resource: "*", effect: "deny" },
+  ], "bash resource order is preserved for last-match-wins evaluation")
+})
+
+test("V1 task maps to subagent and external_directory keeps ask-before-allow order", () => {
+  const v1 = {
+    task: "allow",
+    external_directory: {
+      "*": "ask",
+      "~/.config/opencode/skills/*": "allow",
+    },
+  }
+
+  assert.deepEqual(translatePermissionsV1ToV2(v1), [
+    { action: "subagent", resource: "*", effect: "allow" },
+    { action: "external_directory", resource: "*", effect: "ask" },
+    { action: "external_directory", resource: "~/.config/opencode/skills/*", effect: "allow" },
+  ])
+})
+
+test("V1 translation drops doom_loop and keeps lsp", () => {
+  const v2 = translatePermissionsV1ToV2({ doom_loop: "deny", lsp: "allow" })
+  assert.deepEqual(v2, [{ action: "lsp", resource: "*", effect: "allow" }])
+  assert.equal(v2.some(rule => rule.action === "doom_loop"), false)
+})
+
+test("V1 MCP server actions survive a V1 → V2 → V1 round trip", () => {
+  const v1 = {
+    "codebase-memory-mcp_*": "allow",
+    "chrome-devtools_click": { "*": "ask", page: "deny" },
+    bash: "ask",
+  }
+
+  const v2 = translatePermissionsV1ToV2(v1)
+  assert.deepEqual(v2, [
+    { action: "codebase-memory-mcp_*", resource: "*", effect: "allow" },
+    { action: "chrome-devtools_click", resource: "*", effect: "ask" },
+    { action: "chrome-devtools_click", resource: "page", effect: "deny" },
+    { action: "shell", resource: "*", effect: "ask" },
+  ])
+
+  const v1Again = translatePermissionsV2ToV1(v2)
+  assert.deepEqual(v1Again, v1)
+  assert.deepEqual(Object.keys(v1Again), Object.keys(v1))
+})
+
+test("MCP resource keys map to the V2 runtime actions and collapse list templates", () => {
+  const v1 = {
+    read_mcp_resource: "allow",
+    list_mcp_resources: "allow",
+    list_mcp_resource_templates: "allow",
+  }
+
+  assert.deepEqual(translatePermissionsV1ToV2(v1), [
+    { action: "opencode_read_mcp_resource", resource: "*", effect: "allow" },
+    { action: "opencode_list_mcp_resources", resource: "*", effect: "allow" },
+  ], "list_mcp_resource_templates and list_mcp_resources collapse to one V2 action")
+
+  assert.deepEqual(translatePermissionsV2ToV1(translatePermissionsV1ToV2(v1)), {
+    read_mcp_resource: "allow",
+    list_mcp_resources: "allow",
+  })
+})
+
+test("legacy mcp-resource does not duplicate the explicit MCP resource actions", () => {
+  const v2 = translatePermissionsV1ToV2({
+    "mcp-resource": "allow",
+    read_mcp_resource: "allow",
+    list_mcp_resources: "allow",
+    list_mcp_resource_templates: "allow",
+  })
+
+  assert.deepEqual(v2, [
+    { action: "opencode_read_mcp_resource", resource: "*", effect: "allow" },
+    { action: "opencode_list_mcp_resources", resource: "*", effect: "allow" },
+  ])
+})
+
+test("V2 → V1 → V2 round trip preserves a unique action/resource set", () => {
+  const v2 = [
+    { action: "opencode_read_mcp_resource", resource: "codebase-memory:*", effect: "allow" as const },
+    { action: "opencode_list_mcp_resources", resource: "*", effect: "ask" as const },
+    { action: "codebase-memory-mcp_*", resource: "*", effect: "allow" as const },
+    { action: "codebase-memory-mcp_query_graph", resource: "graph", effect: "allow" as const },
+    { action: "shell", resource: "git status", effect: "allow" as const },
+  ]
+
+  assert.deepEqual(translatePermissionsV1ToV2(translatePermissionsV2ToV1(v2)), v2)
 })
 
 test("translatePermissionsV2ToV1 keeps the explicit V2-to-V1 renames", () => {
@@ -293,6 +470,39 @@ test("frontmatter translation is idempotent for simple cases", () => {
   assert.deepEqual(v1Again, v1)
 })
 
+test("frontmatter V1 → V2 translation is idempotent and keeps existing permissions", () => {
+  const permissions = [{ action: "shell", resource: "*", effect: "allow" as const }]
+  const input = { permissions, permission: { bash: "deny" } }
+
+  const once = translateFrontmatterV1ToV2(input)
+  assert.deepEqual(once.permissions, permissions, "existing V2 permissions are never rebuilt")
+  assert.equal(once.permission, undefined, "the singular legacy key is removed")
+
+  assert.deepEqual(translateFrontmatterV1ToV2(once), once)
+})
+
+test("model#variant is composed at most once", () => {
+  const composed = translateFrontmatterV1ToV2({ model: "anthropic/claude-sonnet-4-5", variant: "high" })
+  assert.equal(composed.model, "anthropic/claude-sonnet-4-5#high")
+  assert.equal(translateFrontmatterV1ToV2(composed).model, "anthropic/claude-sonnet-4-5#high")
+
+  const alreadyJoined = translateFrontmatterV1ToV2({ model: "anthropic/claude-sonnet-4-5#high", variant: "high" })
+  assert.equal(alreadyJoined.model, "anthropic/claude-sonnet-4-5#high")
+  assert.equal(alreadyJoined.model.includes("##"), false)
+})
+
+test("temperature and top_p merge into an existing request.body", () => {
+  const v1 = { temperature: 0.2, top_p: 0.8, request: { headers: { "x-test": "1" }, body: { seed: 7 } } }
+  const v2 = translateFrontmatterV1ToV2(v1)
+
+  assert.deepEqual(v2.request, {
+    headers: { "x-test": "1" },
+    body: { seed: 7, temperature: 0.2, top_p: 0.8 },
+  })
+  assert.equal(v2.temperature, undefined)
+  assert.equal(v2.top_p, undefined)
+})
+
 // --- Config translation ---
 
 test("translateConfigV1ToV2 converts agent to agents", () => {
@@ -351,6 +561,101 @@ test("translateConfigV2ToV1 converts subagent to subtask", () => {
   const v1 = translateConfigV2ToV1(v2)
   assert.deepEqual(v1.subtask, { helper: { system: "Help" } })
   assert.equal(v1.subagent, undefined)
+})
+
+test("translateConfigV1ToV2 moves flat mcp servers under mcp.servers and inverts enabled", () => {
+  const v1 = {
+    mcp: {
+      "codebase-memory-mcp": {
+        type: "local",
+        command: ["npx", "codebase-memory-mcp"],
+        environment: { GRAPH: "1" },
+        enabled: true,
+      },
+      "remote-docs": { type: "remote", url: "https://example.test/mcp", enabled: false },
+    },
+  }
+
+  const v2 = translateConfigV1ToV2(v1)
+  assert.deepEqual(v2.mcp, {
+    servers: {
+      "codebase-memory-mcp": {
+        type: "local",
+        command: ["npx", "codebase-memory-mcp"],
+        environment: { GRAPH: "1" },
+        disabled: false,
+      },
+      "remote-docs": { type: "remote", url: "https://example.test/mcp", disabled: true },
+    },
+  })
+  assert.equal("codemode" in (v2.mcp as any).servers["codebase-memory-mcp"], false)
+})
+
+test("translateConfigV1ToV2 preserves an explicit codemode on every server", () => {
+  const v2 = translateConfigV1ToV2({
+    mcp: {
+      "local-server": { type: "local", command: ["npx", "x"], codemode: false },
+      "remote-server": { type: "remote", url: "https://example.test/mcp", codemode: true },
+    },
+  })
+
+  assert.equal(v2.mcp.servers["local-server"].codemode, false, "an explicit false survives")
+  assert.equal(v2.mcp.servers["remote-server"].codemode, true, "the translator does not strip an existing value")
+})
+
+test("translateConfigV1ToV2 preserves codemode in an existing mcp.servers block", () => {
+  const v2 = translateConfigV1ToV2({
+    mcp: {
+      servers: { "local-server": { type: "local", command: ["npx", "x"], codemode: true } },
+    },
+  })
+
+  assert.equal(v2.mcp.servers["local-server"].codemode, true)
+})
+
+test("translateConfigV1ToV2 never invents codemode", () => {
+  const v2 = translateConfigV1ToV2({
+    mcp: {
+      "local-server": { type: "local", command: ["npx", "x"] },
+      "remote-server": { type: "remote", url: "https://example.test/mcp" },
+    },
+  })
+
+  for (const name of ["local-server", "remote-server"]) {
+    assert.equal("codemode" in v2.mcp.servers[name], false, `${name} must not gain codemode`)
+  }
+})
+
+test("translateConfigV1ToV2 is idempotent and keeps keys outside the translation scope", () => {
+  const v1 = {
+    agent: { reviewer: { prompt: "Review" } },
+    command: { build: { prompt: "Build" } },
+    subtask: { helper: { prompt: "Help" } },
+    mode: { orchestrator: { prompt: "Orchestrate" } },
+    mcp: {
+      "local-server": { type: "local", command: ["npx", "x"], enabled: true, codemode: false },
+    },
+    unrelated: { nested: { keep: true } },
+  }
+
+  const once = translateConfigV1ToV2(v1)
+  assert.deepEqual(translateConfigV1ToV2(once), once, "a translated config translates to itself")
+  assert.deepEqual(once.unrelated, v1.unrelated, "unknown top-level keys are untouched")
+  assert.equal(once.mcp.servers["local-server"].codemode, false)
+
+  assert.deepEqual(translateConfigV1ToV2(translateConfigV2ToV1(once)), once,
+    "V2 → V1 → V2 keeps server policy and unknown keys")
+})
+
+test("mcp servers round trip from V2 back to flat V1 entries", () => {
+  const v1 = {
+    mcp: {
+      "codebase-memory-mcp": { type: "local", command: ["npx", "x"], enabled: true },
+      "remote-docs": { type: "remote", url: "https://example.test/mcp", enabled: false },
+    },
+  }
+
+  assert.deepEqual(translateConfigV2ToV1(translateConfigV1ToV2(v1)), v1)
 })
 
 // --- Version detection ---

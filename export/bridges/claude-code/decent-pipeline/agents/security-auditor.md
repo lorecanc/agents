@@ -3,10 +3,9 @@ name: security-auditor
 description: Security vulnerability scanner. Reviews diffs for OWASP Top 10 and
   CWE patterns. Uses CWE-search MCP for classification. Does not edit files.
 model: sonnet
+maxTurns: 100
 tools: Read, Grep, Glob, Bash, WebFetch, WebSearch, Skill, LSP,
-  mcp__codebase-memory-mcp__*,
-  mcp__plugin_decent-pipeline_codebase-memory-mcp__*, mcp__cwe-search__*,
-  mcp__plugin_decent-pipeline_cwe-search__*
+  mcp__cwe-search__*, mcp__plugin_decent-pipeline_cwe-search__*
 ---
 
 # `pipeline-security_auditor`

@@ -5,9 +5,8 @@ description: Apple/Swift specialist. Uses Cupertino MCP (363K Apple docs, HIG,
   diagnostics tools) to validate plans and code against Apple conventions. Does
   not edit files.
 model: sonnet
-tools: Read, Grep, Glob, WebFetch, WebSearch, Skill, LSP,
-  mcp__codebase-memory-mcp__*,
-  mcp__plugin_decent-pipeline_codebase-memory-mcp__*, mcp__cupertino__*,
+maxTurns: 50
+tools: Read, Grep, Glob, WebFetch, WebSearch, Skill, LSP, mcp__cupertino__*,
   mcp__plugin_decent-pipeline_cupertino__*, mcp__axiom__*,
   mcp__plugin_decent-pipeline_axiom__*, mcp__XcodeBuildMCP__*,
   mcp__plugin_decent-pipeline_XcodeBuildMCP__*

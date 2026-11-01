@@ -3,9 +3,8 @@ name: planner
 description: Creates minimal implementation plans after repository context is
   available. Does not edit files.
 model: opus
-tools: Read, Grep, Glob, WebFetch, WebSearch, Skill, LSP,
-  mcp__codebase-memory-mcp__*,
-  mcp__plugin_decent-pipeline_codebase-memory-mcp__*
+maxTurns: 75
+tools: Read, Grep, Glob, WebFetch, WebSearch, Skill, LSP
 ---
 
 # pipeline-planner

@@ -6,7 +6,8 @@ import { randomBytes } from "node:crypto"
 import { fileURLToPath } from "node:url"
 import YAML from "yaml"
 import { isPathInsideWorkspace, isWorkspaceRelativePath } from "./pathValidation.js"
-import { detectFrontmatterVersion, translateFrontmatterV1ToV2, translateFrontmatterV2ToV1 } from "./v2Compat.js"
+import { detectFrontmatterVersion, translateConfigV1ToV2, translateFrontmatterV1ToV2, translateFrontmatterV2ToV1 } from "./v2Compat.js"
+import { isServerDisabled, readMcpServers, setServerDisabled } from "./opencodeMcp.js"
 import { discoverAvailableCategoryCompanionItems, getCategoryCompanionLinks, type SelectableCompanionItem } from "./companionLinks.js"
 
 function isValidFrontmatter(v: unknown): v is Record<string, any> {
@@ -307,7 +308,7 @@ export function discoverAgentResources(
   const toolNames = new Set<string>()
   if (toolRootStat) {
     for (const entry of fs.readdirSync(toolRoot)) {
-      if (!entry.endsWith(".ts") || entry.endsWith(".d.ts") || entry.endsWith(".test.ts")) continue
+      if (!entry.endsWith(".ts") || entry.endsWith(".d.ts") || entry.endsWith(".test.ts") || entry.startsWith("_")) continue
       const entryPath = path.join(toolRoot, entry)
       if (resourcePathStat(entryPath)?.isFile()) toolNames.add(entry.slice(0, -3))
     }
@@ -353,7 +354,7 @@ export function discoverAgentResources(
     opencodeRawContent = fs.readFileSync(opencodePath, "utf8")
     globalOpencode = parseOpenCodeJson(opencodeRawContent, opencodePath)
   }
-  const globalMcpObj = isPlainObject(globalOpencode.mcp) ? globalOpencode.mcp : {}
+  const globalMcpObj = readMcpServers(globalOpencode)
   const repoOpencodePath = path.join(resourceRoot, "opencode.json")
   const repoOpencodeStat = resourcePathStat(repoOpencodePath)
   let repoOpencode: Record<string, any> = {}
@@ -361,7 +362,7 @@ export function discoverAgentResources(
     if (!repoOpencodeStat.isFile()) throw new Error(`OpenCode config is not a regular file: ${repoOpencodePath}`)
     repoOpencode = parseOpenCodeJson(fs.readFileSync(repoOpencodePath, "utf8"), repoOpencodePath)
   }
-  const repoMcpObj = isPlainObject(repoOpencode.mcp) ? repoOpencode.mcp : {}
+  const repoMcpObj = readMcpServers(repoOpencode)
   const recommendedMcpServers: Record<string, Record<string, any>> = {}
   for (const [serverKey, config] of Object.entries(repoMcpObj)) {
     if (isPlainObject(config)) recommendedMcpServers[serverKey] = config
@@ -385,7 +386,7 @@ export function discoverAgentResources(
       id: `mcp:${serverKey}`, kind: "mcp", name: serverKey, serverKey, permissionKey: `${serverKey}_*`,
       allowed: allowedValue(perm[`${serverKey}_*`]), exists: configuredInOpencode || recommendedInRepo,
       relativePath: configuredInOpencode ? opencodePath : recommendedInRepo ? "opencode.json" : undefined,
-      serverEnabled: configuredInOpencode ? globalMcpObj[serverKey]?.enabled !== false : false,
+      serverEnabled: configuredInOpencode ? !isServerDisabled(globalMcpObj[serverKey]) : false,
       configuredInOpencode, recommendedInRepo,
       serverType: typeof rawEntry?.type === "string" ? rawEntry.type : undefined,
       serverTarget: typeof rawEntry?.url === "string" ? rawEntry.url : Array.isArray(rawEntry?.command) ? rawEntry.command.join(" ") : undefined
@@ -502,16 +503,22 @@ export function updateAgentResourcesAndMcp(
     const parsed = catalog.opencodeRawContent !== null
       ? parseOpenCodeJson(catalog.opencodeRawContent, opencodePath)
       : { $schema: "https://opencode.ai/config.json", mcp: {} }
-    if (!isPlainObject(parsed.mcp)) parsed.mcp = {}
+    const servers = readMcpServers(parsed)
     for (const [serverKey, enabled] of Object.entries(changes.mcpEnabled ?? {})) {
-      if (!isPlainObject(parsed.mcp[serverKey])) {
+      let server = servers[serverKey]
+      if (!isPlainObject(server)) {
         const seed = catalog.recommendedMcpServers?.[serverKey]
-        if (isPlainObject(seed)) parsed.mcp[serverKey] = JSON.parse(JSON.stringify(seed))
+        if (isPlainObject(seed)) server = JSON.parse(JSON.stringify(seed))
       }
-      if (!isPlainObject(parsed.mcp[serverKey])) throw new Error(`Invalid MCP server configuration: ${serverKey}`)
-      parsed.mcp[serverKey].enabled = Boolean(enabled)
+      if (!isPlainObject(server)) throw new Error(`Invalid MCP server configuration: ${serverKey}`)
+      servers[serverKey] = setServerDisabled(server, !enabled)
     }
-    renderedOpencode = `${JSON.stringify(parsed, null, 2)}\n`
+    parsed.mcp = { servers }
+    // Every config write emits V2: normalize any residual V1 keys (agent,
+    // command, subtask, mode, flat mcp) before persisting. The translation is
+    // idempotent and leaves keys outside its scope untouched.
+    const translated = translateConfigV1ToV2(parsed)
+    renderedOpencode = `${JSON.stringify(translated, null, 2)}\n`
   }
 
   const changedPaths: string[] = []
@@ -696,7 +703,7 @@ export function updateAgentParams(
     if (variant === null) delete updatedFrontmatter.variant
     else if (variant !== undefined) updatedFrontmatter.variant = variant
 
-    saveAgentFile(agent.currentPath, updatedFrontmatter, agent.body, agent.frontmatterVersion)
+    saveAgentFile(agent.currentPath, composeModelVariant({ ...updatedFrontmatter }), agent.body, agent.frontmatterVersion)
     agent.frontmatter = updatedFrontmatter
   }
 }
@@ -1430,7 +1437,7 @@ export function parseAgentFile(filePath: string, workspaceRoot: string): AgentIn
 
   let frontmatter: Record<string, any> = {}
   let body = content
-  let rawFrontmatter: Record<string, any> = {}
+  let frontmatterVersion: "v1" | "v2" | "unknown" = "unknown"
 
   const { yamlText, body: contentBody } = extractFrontmatter(content)
   if (yamlText !== null) {
@@ -1438,14 +1445,13 @@ export function parseAgentFile(filePath: string, workspaceRoot: string): AgentIn
     try {
       const parsed = YAML.parse(yamlText)
       if (isValidFrontmatter(parsed)) {
-        rawFrontmatter = parsed
-        // Normalize V2 frontmatter to V1 for internal use
-        const version = detectFrontmatterVersion(parsed)
-        if (version === "v2") {
-          frontmatter = translateFrontmatterV2ToV1(parsed)
-        } else {
-          frontmatter = parsed
-        }
+        // Normalize V2 frontmatter to V1 for internal use. A bare `model#variant`
+        // is V2 syntax even when no other V2-only field is present.
+        const detected = detectFrontmatterVersion(parsed)
+        frontmatterVersion = detected === "unknown" && typeof parsed.model === "string" && parsed.model.includes("#")
+          ? "v2"
+          : detected
+        frontmatter = frontmatterVersion === "v2" ? translateFrontmatterV2ToV1(parsed) : parsed
       }
     } catch (e) {
       console.error(`YAML parsing error in ${filePath}:`, e)
@@ -1478,7 +1484,7 @@ export function parseAgentFile(filePath: string, workspaceRoot: string): AgentIn
     frontmatter,
     body,
     allowedSubagents,
-    frontmatterVersion: detectFrontmatterVersion(rawFrontmatter)
+    frontmatterVersion
   }
 }
 
@@ -1512,10 +1518,19 @@ export function saveAgentFile(filePath: string, frontmatter: Record<string, any>
   atomicWriteAgentFile(filePath, Buffer.from(content, "utf8"))
 }
 
-export function renderAgentFile(frontmatter: Record<string, any>, body: string, originalVersion?: "v1" | "v2" | "unknown"): string {
-  const frontmatterToWrite = originalVersion === "v2"
-    ? translateFrontmatterV1ToV2(frontmatter)
-    : frontmatter
+/** Fold a V1 `variant` into `model#variant`, never appending `#` twice. */
+export function composeModelVariant(frontmatter: Record<string, any>): Record<string, any> {
+  if (!Object.prototype.hasOwnProperty.call(frontmatter, "variant")) return frontmatter
+  const variant = frontmatter.variant
+  const baseModel = typeof frontmatter.model === "string" ? frontmatter.model.split("#")[0] : ""
+  delete frontmatter.variant
+  frontmatter.model = variant === undefined || variant === null || variant === "" ? baseModel : `${baseModel}#${variant}`
+  return frontmatter
+}
+
+export function renderAgentFile(frontmatter: Record<string, any>, body: string, _originalVersion?: "v1" | "v2" | "unknown"): string {
+  // The write boundary always emits V2; the original version is advisory only.
+  const frontmatterToWrite = translateFrontmatterV1ToV2(frontmatter)
   const yamlText = YAML.stringify(frontmatterToWrite).trim()
   const normalizedBody = normalizeAgentBody(body)
   return normalizedBody ? `---\n${yamlText}\n---\n\n${normalizedBody}` : `---\n${yamlText}\n---\n`
@@ -1687,8 +1702,9 @@ export function updateAgentsModel(agents: AgentInfo[], model: string, verifiedMo
     for (const agent of agents) {
       attempted.push(agent.currentPath)
       const updatedFrontmatter = { ...agent.frontmatter, model }
-      expected.set(agent.currentPath, { bytes: Buffer.from(renderAgentFile(updatedFrontmatter, agent.body, agent.frontmatterVersion)), mode: originals.get(agent.currentPath)!.stat.mode & 0o7777 })
-      writer(agent.currentPath, updatedFrontmatter, agent.body, agent.frontmatterVersion)
+      const writeFrontmatter = composeModelVariant({ ...updatedFrontmatter })
+      expected.set(agent.currentPath, { bytes: Buffer.from(renderAgentFile(writeFrontmatter, agent.body, agent.frontmatterVersion)), mode: originals.get(agent.currentPath)!.stat.mode & 0o7777 })
+      writer(agent.currentPath, writeFrontmatter, agent.body, agent.frontmatterVersion)
     }
     for (const agent of agents) {
       agent.model = model
@@ -2066,7 +2082,7 @@ export function forkCategory(
         }
         const sourcePrefix = sourceCategory.replace(/-pipeline$/, "")
         const targetPrefix = targetCategory!.replace(/-pipeline$/, "")
-        const pipelineGuardPath = "plugins/pipeline-guard.js"
+        const pipelineGuardPath = "plugins/pipeline-guard/index.ts"
         const pipelineGuardPlaceholder = "\0PIPELINE_GUARD_PATH\0"
         body = body
           .replaceAll(pipelineGuardPath, pipelineGuardPlaceholder)
@@ -2097,7 +2113,6 @@ export function forkCategory(
           continue
         }
         frontmatterVersion = detectFrontmatterVersion(frontmatter)
-        if (frontmatterVersion === "v2") frontmatter = translateFrontmatterV2ToV1(frontmatter)
       }
 
       // Never replace a model as part of the global content substitution.
@@ -2371,6 +2386,14 @@ export function discoverCompanionResourcePaths(sourceRoot: string, domains: stri
       const stat = safeRelativeStat(sourceRoot, normalized)
       if (stat?.isDirectory()) for (const file of walkFiles(sourceRoot, normalized)) found.add(file)
       else if (stat?.isFile() && !isExcludedCompanionFile(normalized)) found.add(normalized)
+      else if (links.plugins.includes(relative)) {
+        // Legacy single-file plugin checkouts still ship the module the V2
+        // directory entry replaced, but only while that file exists.
+        for (const extension of [".ts", ".js", ".mjs"]) {
+          const legacy = `${normalized}${extension}`
+          if (safeRelativeStat(sourceRoot, legacy)?.isFile() && !isExcludedCompanionFile(legacy)) found.add(legacy)
+        }
+      }
     }
   }
   for (const dependency of traceRelativeToolDependencies(sourceRoot, found)) found.add(dependency)
@@ -2380,7 +2403,7 @@ export function discoverCompanionResourcePaths(sourceRoot: string, domains: stri
 }
 
 export interface PipelineResourceProblem {
-  kind: "missing-tool" | "missing-dependency" | "missing-companion" | "stale-companion"
+  kind: "missing-tool" | "missing-dependency" | "missing-companion" | "stale-companion" | "extra-companion"
   path: string
   detail: string
 }
@@ -2433,12 +2456,28 @@ export function checkPipelineResources(
     }
   }
 
-  for (const root of ["tools", "plugins"]) {
-    const stat = safeRelativeStat(resourceRoot, root)
-    if (!stat?.isDirectory()) continue
-    for (const entry of fs.readdirSync(path.join(resourceRoot, root), { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
-      const relative = `${root}/${entry.name}`
-      if (!entry.isFile() || !/pipeline/i.test(entry.name) || !/\.(?:ts|js|mjs)$/i.test(entry.name) || isExcludedCompanionFile(relative)) continue
+  const toolsStat = safeRelativeStat(resourceRoot, "tools")
+  if (toolsStat?.isDirectory()) {
+    for (const relative of walkFiles(resourceRoot, "tools")) {
+      if (!/pipeline/i.test(relative) || !/\.(?:ts|js|mjs)$/i.test(relative)) continue
+      for (const missing of unresolvedRelativeImports(resourceRoot, relative)) {
+        add({ kind: "missing-dependency", path: missing, detail: `${relative} imports ${missing}, which is not shipped` })
+      }
+    }
+  }
+
+  const pluginsStat = safeRelativeStat(resourceRoot, "plugins")
+  if (pluginsStat?.isDirectory()) {
+    const pluginsRoot = path.join(resourceRoot, "plugins")
+    for (const entry of fs.readdirSync(pluginsRoot, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      if (!entry.isDirectory()) continue
+      const relativeDirectory = `plugins/${entry.name}`
+      if (!safeRelativeStat(resourceRoot, `${relativeDirectory}/index.ts`)?.isFile()) {
+        add({ kind: "missing-companion", path: `${relativeDirectory}/index.ts`, detail: `V2 plugin directory ${relativeDirectory} is missing index.ts` })
+      }
+    }
+    for (const relative of walkFiles(resourceRoot, "plugins")) {
+      if (!/\.(?:ts|js|mjs)$/i.test(relative)) continue
       for (const missing of unresolvedRelativeImports(resourceRoot, relative)) {
         add({ kind: "missing-dependency", path: missing, detail: `${relative} imports ${missing}, which is not shipped` })
       }
@@ -2449,11 +2488,24 @@ export function checkPipelineResources(
     const expected = discoverCompanionResourcePaths(canonical.root, ["pipeline"], undefined, canonical.agents)
       .map(relative => relative.replace(/\\/g, "/"))
       .filter(relative => /^(?:tools|plugins)\//.test(relative))
+    const expectedSet = new Set(expected)
     for (const relative of expected) {
       const local = safeRelativeStat(resourceRoot, relative)
       if (!local?.isFile()) add({ kind: "missing-companion", path: relative, detail: `${relative} is shipped by the canonical pipeline but missing here` })
       else if (!fs.readFileSync(path.join(resourceRoot, ...relative.split("/"))).equals(fs.readFileSync(path.join(canonical.root, ...relative.split("/"))))) {
         add({ kind: "stale-companion", path: relative, detail: `${relative} differs from the canonical copy` })
+      }
+    }
+    // Plugin entries ship as whole directories, so detect files the canonical copy does not contain.
+    const pluginDirectories = new Set<string>()
+    for (const relative of expected) {
+      const match = /^(plugins\/[^/]+)\//.exec(relative)
+      if (match) pluginDirectories.add(match[1])
+    }
+    for (const directory of pluginDirectories) {
+      for (const relative of walkFiles(resourceRoot, directory)) {
+        if (expectedSet.has(relative)) continue
+        add({ kind: "extra-companion", path: relative, detail: `${relative} is not part of the canonical plugin directory ${directory}` })
       }
     }
   }
@@ -2970,6 +3022,33 @@ export function mergeOpenCodePluginsConfig(
       return undefined
     }
   }
+  const pluginDirectoryOf = (target: string): string | undefined => {
+    const local = localDirectory(target)
+    if (local === undefined) return undefined
+    const base = path.basename(local)
+    if (base === "index.ts" || base === "index.js" || base === "index.mjs") return path.dirname(local)
+    const stat = fs.lstatSync(local, { throwIfNoEntry: false })
+    if (stat?.isDirectory()) return local
+    if (stat?.isFile() || /\.(?:ts|js|mjs)$/i.test(base)) return path.join(path.dirname(local), base.replace(/\.(?:ts|js|mjs)$/i, ""))
+    return local
+  }
+  // OpenCode V2 plugins are directories; emit config-relative directory paths
+  // and never a plugin module file.
+  const normalizePluginTarget = (target: string): string => {
+    const directory = pluginDirectoryOf(target)
+    if (directory !== undefined) {
+      const relative = path.relative(resolvedOpenCodeRoot, directory)
+      if (relative && relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)) {
+        return `./${relative.split(path.sep).join("/")}`
+      }
+      return directory.split(path.sep).join("/")
+    }
+    const normalized = target.replace(/\\/g, "/")
+    if (normalized.startsWith("plugins/")) {
+      return `./${normalized.replace(/\/index\.(?:ts|js|mjs)$/i, "").replace(/\.(?:ts|js|mjs)$/i, "")}`
+    }
+    return target
+  }
   const packageName = (directory: string): string | undefined => {
     try {
       const manifest = path.join(directory, "package.json")
@@ -2999,7 +3078,7 @@ export function mergeOpenCodePluginsConfig(
     const identity = directory && /[/\\]tools[/\\]ontology[/\\][a-z0-9-]+-plugin$/.test(directory)
       ? packageName(directory) : undefined
     const managedTarget = identity && managed.get(identity)
-    const target = managedTarget || originalTarget
+    const target = normalizePluginTarget(managedTarget || originalTarget)
     const normalized = typeof entry === "string" ? target : { ...entry, package: target }
     const previousIndex = seen.get(target)
     if (managedTarget && previousIndex !== undefined) {
@@ -3016,9 +3095,10 @@ export function mergeOpenCodePluginsConfig(
     existingPlugins.push(normalized)
   }
   for (const pluginPath of pluginPaths) {
-    if (!seen.has(pluginPath)) {
-      seen.set(pluginPath, existingPlugins.length)
-      existingPlugins.push(pluginPath)
+    const target = normalizePluginTarget(pluginPath)
+    if (!seen.has(target)) {
+      seen.set(target, existingPlugins.length)
+      existingPlugins.push(target)
     }
   }
   config.plugins = existingPlugins

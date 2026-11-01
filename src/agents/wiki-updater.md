@@ -1,18 +1,30 @@
 ---
-description: Analyzes git diff to determine which wiki pages need updating. Maps
-  source file changes to wiki page impact.
+description: Analyzes git diff to determine which wiki pages need updating. Maps source file changes to wiki page impact.
 mode: subagent
-permission:
-  edit: deny
-  bash:
-    "*": deny
-    git diff *: allow
-    git log *: allow
-    git show *: allow
-    cat *: allow
-  skill: allow
 color: "#2C3E87"
 steps: 45
+permissions:
+  - action: edit
+    resource: "*"
+    effect: deny
+  - action: shell
+    resource: "*"
+    effect: deny
+  - action: shell
+    resource: git diff *
+    effect: allow
+  - action: shell
+    resource: git log *
+    effect: allow
+  - action: shell
+    resource: git show *
+    effect: allow
+  - action: shell
+    resource: cat *
+    effect: allow
+  - action: skill
+    resource: "*"
+    effect: allow
 ---
 
 You are the wiki updater. You analyze what changed in the codebase and determine the impact on the wiki.

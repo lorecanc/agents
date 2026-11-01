@@ -4,8 +4,8 @@ description: Human-in-the-loop checkpoint agent. Explains repository changes in
   plain Italian with the why, a visual Mermaid map, simple concrete examples,
   and essential diffs—without technical jargon. Informational and non-blocking.
 model: sonnet
-tools: Read, Grep, Glob, Bash, Skill, LSP, mcp__codebase-memory-mcp__*,
-  mcp__plugin_decent-pipeline_codebase-memory-mcp__*
+maxTurns: 50
+tools: Read, Grep, Glob, Bash, Skill, LSP
 ---
 
 # pipeline-hitl

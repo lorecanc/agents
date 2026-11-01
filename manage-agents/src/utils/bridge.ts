@@ -8,6 +8,7 @@ import type { TranslationConfig } from "./translationConfig.js"
 import { getCategoryCompanionLinks } from "./companionLinks.js"
 import { assertInsideRealWorkspace, realpathThroughExistingAncestor } from "./pathValidation.js"
 import { isKnownPermissionKey, translatePermissionsV2ToV1 } from "./v2Compat.js"
+import { isServerDisabled, readMcpServers } from "./opencodeMcp.js"
 import { adaptToolReferences, collectBashAllowlist, isOpenCodeCustomToolKey, renderBashAllowlistSection, type BashAllowlist } from "./bridgeToolReferences.js"
 
 type ResolvedModelTarget = ReturnType<typeof resolveModelTarget>
@@ -243,6 +244,19 @@ function normalizedPermissions(frontmatter: Record<string, any>): Record<string,
   return perms
 }
 
+/** Servers carrying a whole-server (`${server}_*`) deny. */
+function serverScopedDeniedServers(frontmatters: Array<Record<string, any>>): Set<string> {
+  const denied = new Set<string>()
+  for (const frontmatter of frontmatters) {
+    for (const [key, value] of Object.entries(normalizedPermissions(frontmatter))) {
+      if (!isMcpPermissionKey(key) || (value !== "deny" && value !== false)) continue
+      const server = key.replace(/_.*$/, "")
+      if (server && key === `${server}_*`) denied.add(server)
+    }
+  }
+  return denied
+}
+
 /**
  * Build the `tools:` string for a Claude Code agent from OpenCode permissions.
  */
@@ -253,7 +267,8 @@ function buildToolsString(
   names?: AgentNameMap,
   warnings?: string[],
   pluginName?: string,
-  requiredMcpServers: string[] = []
+  requiredMcpServers: string[] = [],
+  availableMcpServers?: ReadonlySet<string>
 ): string {
   const tools: string[] = []
   const perms = normalizedPermissions(frontmatter)
@@ -324,16 +339,55 @@ function buildToolsString(
     tools.push("TodoWrite")
   }
 
-  // OpenCode names MCP permissions as `<server>_*`. Claude exposes bundled
-  // plugin servers through scoped `mcp__plugin_<plugin>_<server>__*` names;
-  // keep the bare form as a compatibility fallback for user-scoped servers.
-  const permissionServers = Object.keys(perms)
-    .filter(key => isMcpPermissionKey(key) && (perms[key] === "allow" || perms[key] === true ||
-      (typeof perms[key] === "object" && perms[key] !== null)))
-    .map(key => key.replace(/_.*$/, ""))
-    .filter((server, index, all) => server && all.indexOf(server) === index)
+  // OpenCode names MCP permissions as `<server>_<tool>` (and `<server>_*` for
+  // the whole server). Claude exposes bundled plugin servers through scoped
+  // `mcp__plugin_<plugin>_<server>__*` names; keep the bare form as a
+  // compatibility fallback for user-scoped servers.
+  const mcpToolAllows = new Map<string, string[]>()
+  const mcpDeniedTools = new Map<string, string[]>()
+  const deniedServers = new Set<string>()
+  const allowedServers = new Set<string>()
+  for (const [key, value] of Object.entries(perms)) {
+    if (!isMcpPermissionKey(key)) continue
+    const server = key.replace(/_.*$/, "")
+    if (!server) continue
+    const wholeServer = key === `${server}_*`
+    if (value === "deny" || value === false) {
+      deniedServers.add(server)
+      if (!wholeServer) {
+        const denied = mcpDeniedTools.get(server)
+        if (denied) denied.push(key)
+        else mcpDeniedTools.set(server, [key])
+      }
+      continue
+    }
+    if (value === "allow" || value === true || (typeof value === "object" && value !== null && !Array.isArray(value))) {
+      allowedServers.add(server)
+      if (!wholeServer) {
+        const tool = key.slice(server.length + 1)
+        const allows = mcpToolAllows.get(server)
+        if (allows) allows.push(tool)
+        else mcpToolAllows.set(server, [tool])
+      }
+    }
+  }
+  const permissionServers = [...allowedServers]
+    .filter(server => !availableMcpServers || availableMcpServers.has(server))
   const mcpServers = [...new Set([...permissionServers, ...requiredMcpServers])]
   for (const server of mcpServers) {
+    // A wildcard would turn a per-tool (or whole-server) deny into an allow.
+    // Emit only the explicit tool allows the agent actually grants.
+    if (deniedServers.has(server)) {
+      for (const tool of mcpToolAllows.get(server) ?? []) {
+        tools.push(`mcp__${server}__${tool}`)
+        if (pluginName) tools.push(`mcp__plugin_${pluginName}_${server}__${tool}`)
+      }
+      const denied = mcpDeniedTools.get(server)
+      if (warnings && denied && denied.length > 0) {
+        warnings.push(`MCP per-tool deny rules for server '${server}' cannot be represented as a server-wide allow (denied tools not exported: ${denied.join(", ")}); only explicit tool allows are emitted`)
+      }
+      continue
+    }
     tools.push(`mcp__${server}__*`)
     if (pluginName) tools.push(`mcp__plugin_${pluginName}_${server}__*`)
   }
@@ -356,27 +410,6 @@ function collectWarnings(frontmatter: Record<string, any>, enabledMcpServers?: S
         warnings.push(`MCP server '${server}' is not enabled in the generated Claude .mcp.json`)
       }
     }
-  }
-
-  // Claude Code has no per-tool deny syntax for MCP servers: only the whole
-  // server can be allowed or removed, so individual denials must be disclosed.
-  const allowedMcpServers = new Set<string>()
-  const deniedMcpTools = new Map<string, string[]>()
-  for (const key of Object.keys(perms)) {
-    if (!isMcpPermissionKey(key)) continue
-    const value = perms[key]
-    const server = key.replace(/_.*$/, "")
-    if (value === "allow" || value === true || (typeof value === "object" && value !== null)) {
-      allowedMcpServers.add(server)
-    } else if ((value === "deny" || value === false) && key !== `${server}_*`) {
-      const denied = deniedMcpTools.get(server)
-      if (denied) denied.push(key)
-      else deniedMcpTools.set(server, [key])
-    }
-  }
-  for (const [server, tools] of deniedMcpTools) {
-    if (!allowedMcpServers.has(server)) continue
-    warnings.push(`MCP per-tool deny rules for server '${server}' cannot be enforced in Claude Code plugin agents (denied tools: ${tools.join(", ")}); the whole server is allowed`)
   }
 
   // Granular pattern permissions are collapsed to the whole tool.
@@ -476,7 +509,7 @@ function rewriteBodyReferences(
  * Append MCP notes to the body if there are MCP tool permissions.
  */
 function permissionMcpServers(frontmatter: Record<string, any>): string[] {
-  const perms = frontmatter.permission || {}
+  const perms = normalizedPermissions(frontmatter)
   const servers: string[] = []
 
   for (const [key, value] of Object.entries(perms)) {
@@ -522,23 +555,36 @@ function appendMcpNotes(body: string, mcpServers: string[]): string {
  * `.mcp.json` shape. This is deliberately a generated artifact: the source
  * `general/opencode.json` remains untouched.
  */
-function buildClaudeMcpConfig(workspaceRoot: string, requiredServers: Set<string> = new Set()): {
+function buildClaudeMcpConfig(
+  workspaceRoot: string,
+  requiredServers: Set<string> = new Set(),
+  serverScopedDenies: ReadonlySet<string> = new Set()
+): {
   config: Record<string, any> | null
   warnings: string[]
 } {
   const sourcePath = [path.join(workspaceRoot, "src", "opencode.json"), path.join(workspaceRoot, "general", "opencode.json")].find(file => fs.existsSync(file)) || path.join(workspaceRoot, "src", "opencode.json")
   if (!fs.existsSync(sourcePath)) return { config: null, warnings: [] }
 
+  // A deny must never be traded for availability, so this fails the bridge
+  // before any file is written instead of being swallowed by the parse catch.
+  for (const name of requiredServers) {
+    if (serverScopedDenies.has(name)) {
+      throw new Error(`MCP server '${name}' is required by translated agents but denied server-wide in their permissions; refusing to emit a whole-server allow`)
+    }
+  }
+
   try {
     const source = JSON.parse(fs.readFileSync(sourcePath, "utf-8")) as Record<string, any>
     const servers: Record<string, any> = {}
     const warnings: string[] = []
-    for (const [name, value] of Object.entries(source.mcp || {})) {
+    for (const [name, value] of Object.entries(readMcpServers(source))) {
       if (!value || typeof value !== "object") continue
       const server = value as Record<string, any>
-      if (server.enabled === false) {
-        if (!requiredServers.has(name)) continue
-        warnings.push(`[mcp] disabled server '${name}' in ${sourcePath} is required by translated agents; emitted so its tools resolve`)
+      const disabled = isServerDisabled(server)
+      if (disabled && !requiredServers.has(name)) continue
+      if (disabled) {
+        warnings.push(`[mcp] disabled server '${name}' in ${path.relative(workspaceRoot, sourcePath) || sourcePath} is required by translated agents; emitted because the agents require it`)
       }
       const commandParts = Array.isArray(server.command)
         ? server.command.map(String)
@@ -898,7 +944,8 @@ export function convertAgent(
     names,
     warnings,
     pluginName,
-    requiredMcpServers
+    requiredMcpServers,
+    knownMcpServers.size > 0 ? knownMcpServers : undefined
   )
   if (toolsStr) {
     newFm.tools = toolsStr
@@ -978,6 +1025,8 @@ export interface ClaudeCodeWriteOptions {
   companions?: OpenCodeCompanions
   /** Per-agent OpenCode bash rules documented (not enforced) in the README. */
   bashAllowlists?: BashAllowlist[]
+  /** Servers denied server-wide by the source agents; a required one is a hard error. */
+  serverScopedMcpDenies?: ReadonlySet<string>
   emitMarketplace?: boolean
   emitCommands?: boolean
   emitSkills?: boolean
@@ -1071,7 +1120,7 @@ export function writeClaudeCodePlugin(
 
   // MCP servers are plugin-root configuration in Claude Code. Keep this
   // alongside the generated agents so their MCP notes resolve at runtime.
-  const mcpResult = buildClaudeMcpConfig(workspaceRoot, new Set(Object.keys(plugin.mcpRequirements)))
+  const mcpResult = buildClaudeMcpConfig(workspaceRoot, new Set(Object.keys(plugin.mcpRequirements)), options.serverScopedMcpDenies)
   allWarnings.push(...mcpResult.warnings)
   if (mcpResult.config) {
     const mcpPath = path.join(resolvedOutputDir, ".mcp.json")
@@ -1275,7 +1324,8 @@ export function bridgeToClaudeCode(
   const safePluginName = normalizeAndValidateClaudePluginName(pluginName)
   const resolvedTargets = resolveTargets(agents, config, "claude")
   const explicitlyRequiredMcpServers = new Set(agents.flatMap(agent => permissionMcpServers(agent.frontmatter)))
-  const mcpConfig = buildClaudeMcpConfig(workspaceRoot, explicitlyRequiredMcpServers).config
+  const serverScopedDenies = serverScopedDeniedServers(agents.map(agent => agent.frontmatter))
+  const mcpConfig = buildClaudeMcpConfig(workspaceRoot, explicitlyRequiredMcpServers, serverScopedDenies).config
   const availableMcpServers = mcpConfig && typeof mcpConfig.mcpServers === "object"
     ? new Set<string>(Object.keys(mcpConfig.mcpServers))
     : new Set<string>()
@@ -1306,6 +1356,7 @@ export function bridgeToClaudeCode(
   const result = writeClaudeCodePlugin(plugin, outputDir, workspaceRoot, config.sourceDir, {
     companions,
     bashAllowlists,
+    serverScopedMcpDenies: serverScopedDenies,
     emitMarketplace: config.claude.emitMarketplace,
     emitCommands: config.claude.emitCommands,
     emitSkills: config.claude.emitSkills,

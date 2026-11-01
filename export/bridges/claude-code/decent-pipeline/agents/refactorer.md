@@ -3,9 +3,8 @@ name: refactorer
 description: Performs behavior-preserving simplification and cleanup. No new
   features, no speculative architecture.
 model: sonnet
-tools: Read, Grep, Glob, Write, Edit, Bash, Skill, LSP,
-  mcp__codebase-memory-mcp__*,
-  mcp__plugin_decent-pipeline_codebase-memory-mcp__*
+maxTurns: 100
+tools: Read, Grep, Glob, Write, Edit, Bash, Skill, LSP
 ---
 
 # pipeline-refactorer

@@ -2,132 +2,356 @@
 description: Creates final or checkpoint commits for completed pipeline work.
   Does not update wiki or codebase memory.
 mode: subagent
-model: mistral/deepseek-v4-1-flash-1017
-temperature: 1
-permission:
-  "*": deny
-  external_directory:
-    "*": ask
-    ~/.local/share/opencode/tool-output/*: allow
-    ~/.config/opencode/skills/*: allow
-    /tmp/*: allow
-    /private/tmp/*: allow
-  doom_loop: deny
-  pipeline_state: allow
-  pipeline_commit: allow
-  read: allow
-  list: allow
-  grep: allow
-  glob: allow
-  lsp: allow
-  skill: allow
-  read_mcp_resource: allow
-  list_mcp_resources: allow
-  list_mcp_resource_templates: allow
-  bash:
-    "*": deny
-    cd *: allow
-    git status*: allow
-    git diff*: allow
-    git diff *--output*: deny
-    git log*: allow
-    git show*: allow
-    git log *--output*: deny
-    git show *--output*: deny
-    git ls-files*: allow
-    git grep*: allow
-    git shortlog*: allow
-    git describe*: allow
-    git reflog show*: allow
-    git stash list*: allow
-    git stash show*: allow
-    git worktree list*: allow
-    git tag -l*: allow
-    git tag --list*: allow
-    git remote -v*: allow
-    git config --get*: allow
-    git config --list*: allow
-    git check-ignore*: allow
-    git check-attr*: allow
-    git --no-pager status*: allow
-    git --no-pager diff*: allow
-    git --no-pager diff *--output*: deny
-    git --no-pager log*: allow
-    git --no-pager log *--output*: deny
-    git --no-pager show*: allow
-    git --no-pager show *--output*: deny
-    git --no-pager blame*: allow
-    git --no-pager branch*: allow
-    git --no-pager grep*: allow
-    git --no-pager ls-files*: allow
-    git -P status*: allow
-    git -P diff*: allow
-    git -P diff *--output*: deny
-    git -P log*: allow
-    git -P log *--output*: deny
-    git -P show*: allow
-    git -P show *--output*: deny
-    git -C * status*: allow
-    git -C * diff*: allow
-    git -C * diff *--output*: deny
-    git -C * log*: allow
-    git -C * log *--output*: deny
-    git -C * show*: allow
-    git -C * show *--output*: deny
-    git -C * rev-parse*: allow
-    git -C * branch*: allow
-    git branch --show-current*: allow
-    git branch -l*: allow
-    git branch --list*: allow
-    git branch -a*: allow
-    git branch --all*: allow
-    git branch -r*: allow
-    git branch --remotes*: allow
-    git branch -v*: allow
-    git branch -vv*: allow
-    git branch --contains*: allow
-    git branch --merged*: allow
-    git branch --no-merged*: allow
-    git restore --staged *: allow
-    git add *: allow
-    git add -A*: deny
-    git add --all*: deny
-    git add -u*: deny
-    git add --update*: deny
-    git add -p*: deny
-    git add --patch*: deny
-    git add -i*: deny
-    git add --interactive*: deny
-    git add .: deny
-    git add ./: deny
-    git add -- .: deny
-    git add */: deny
-    git add *.: deny
-    git rm --cached *: allow
-    git commit -m "*": allow
-    git commit -a*: deny
-    git commit --all*: deny
-    git commit * --amend*: deny
-    git commit * --no-verify*: deny
-    git commit * --all*: deny
-    git push*: ask
-    env: deny
-    env *: deny
-    printenv*: deny
-    set: deny
-    export -p*: deny
-    declare -p*: deny
-    /usr/bin/env*: deny
-    /usr/bin/printenv*: deny
-    "*.env*": deny
-    cat .env.example: allow
-    cat .env.sample: allow
-    cat .env.template: allow
-    cat .env.test: allow
+model: mistral/deepseek-v4-1-flash-1017#high
 color: "#E67E22"
 hidden: true
-variant: high
 steps: 50
+request:
+  body:
+    temperature: 1
+permissions:
+  - action: "*"
+    resource: "*"
+    effect: deny
+  - action: external_directory
+    resource: "*"
+    effect: ask
+  - action: external_directory
+    resource: ~/.local/share/opencode/tool-output/*
+    effect: allow
+  - action: external_directory
+    resource: ~/.config/opencode/skills/*
+    effect: allow
+  - action: external_directory
+    resource: /tmp/*
+    effect: allow
+  - action: external_directory
+    resource: /private/tmp/*
+    effect: allow
+  - action: pipeline_state
+    resource: "*"
+    effect: allow
+  - action: pipeline_commit
+    resource: "*"
+    effect: allow
+  - action: read
+    resource: "*"
+    effect: allow
+  - action: grep
+    resource: "*"
+    effect: allow
+  - action: glob
+    resource: "*"
+    effect: allow
+  - action: lsp
+    resource: "*"
+    effect: allow
+  - action: skill
+    resource: "*"
+    effect: allow
+  - action: opencode_read_mcp_resource
+    resource: "*"
+    effect: allow
+  - action: opencode_list_mcp_resources
+    resource: "*"
+    effect: allow
+  - action: shell
+    resource: "*"
+    effect: deny
+  - action: shell
+    resource: cd *
+    effect: allow
+  - action: shell
+    resource: git status*
+    effect: allow
+  - action: shell
+    resource: git diff*
+    effect: allow
+  - action: shell
+    resource: git diff *--output*
+    effect: deny
+  - action: shell
+    resource: git log*
+    effect: allow
+  - action: shell
+    resource: git show*
+    effect: allow
+  - action: shell
+    resource: git log *--output*
+    effect: deny
+  - action: shell
+    resource: git show *--output*
+    effect: deny
+  - action: shell
+    resource: git ls-files*
+    effect: allow
+  - action: shell
+    resource: git grep*
+    effect: allow
+  - action: shell
+    resource: git shortlog*
+    effect: allow
+  - action: shell
+    resource: git describe*
+    effect: allow
+  - action: shell
+    resource: git reflog show*
+    effect: allow
+  - action: shell
+    resource: git stash list*
+    effect: allow
+  - action: shell
+    resource: git stash show*
+    effect: allow
+  - action: shell
+    resource: git worktree list*
+    effect: allow
+  - action: shell
+    resource: git tag -l*
+    effect: allow
+  - action: shell
+    resource: git tag --list*
+    effect: allow
+  - action: shell
+    resource: git remote -v*
+    effect: allow
+  - action: shell
+    resource: git config --get*
+    effect: allow
+  - action: shell
+    resource: git config --list*
+    effect: allow
+  - action: shell
+    resource: git check-ignore*
+    effect: allow
+  - action: shell
+    resource: git check-attr*
+    effect: allow
+  - action: shell
+    resource: git --no-pager status*
+    effect: allow
+  - action: shell
+    resource: git --no-pager diff*
+    effect: allow
+  - action: shell
+    resource: git --no-pager diff *--output*
+    effect: deny
+  - action: shell
+    resource: git --no-pager log*
+    effect: allow
+  - action: shell
+    resource: git --no-pager log *--output*
+    effect: deny
+  - action: shell
+    resource: git --no-pager show*
+    effect: allow
+  - action: shell
+    resource: git --no-pager show *--output*
+    effect: deny
+  - action: shell
+    resource: git --no-pager blame*
+    effect: allow
+  - action: shell
+    resource: git --no-pager branch*
+    effect: allow
+  - action: shell
+    resource: git --no-pager grep*
+    effect: allow
+  - action: shell
+    resource: git --no-pager ls-files*
+    effect: allow
+  - action: shell
+    resource: git -P status*
+    effect: allow
+  - action: shell
+    resource: git -P diff*
+    effect: allow
+  - action: shell
+    resource: git -P diff *--output*
+    effect: deny
+  - action: shell
+    resource: git -P log*
+    effect: allow
+  - action: shell
+    resource: git -P log *--output*
+    effect: deny
+  - action: shell
+    resource: git -P show*
+    effect: allow
+  - action: shell
+    resource: git -P show *--output*
+    effect: deny
+  - action: shell
+    resource: git -C * status*
+    effect: allow
+  - action: shell
+    resource: git -C * diff*
+    effect: allow
+  - action: shell
+    resource: git -C * diff *--output*
+    effect: deny
+  - action: shell
+    resource: git -C * log*
+    effect: allow
+  - action: shell
+    resource: git -C * log *--output*
+    effect: deny
+  - action: shell
+    resource: git -C * show*
+    effect: allow
+  - action: shell
+    resource: git -C * show *--output*
+    effect: deny
+  - action: shell
+    resource: git -C * rev-parse*
+    effect: allow
+  - action: shell
+    resource: git -C * branch*
+    effect: allow
+  - action: shell
+    resource: git branch --show-current*
+    effect: allow
+  - action: shell
+    resource: git branch -l*
+    effect: allow
+  - action: shell
+    resource: git branch --list*
+    effect: allow
+  - action: shell
+    resource: git branch -a*
+    effect: allow
+  - action: shell
+    resource: git branch --all*
+    effect: allow
+  - action: shell
+    resource: git branch -r*
+    effect: allow
+  - action: shell
+    resource: git branch --remotes*
+    effect: allow
+  - action: shell
+    resource: git branch -v*
+    effect: allow
+  - action: shell
+    resource: git branch -vv*
+    effect: allow
+  - action: shell
+    resource: git branch --contains*
+    effect: allow
+  - action: shell
+    resource: git branch --merged*
+    effect: allow
+  - action: shell
+    resource: git branch --no-merged*
+    effect: allow
+  - action: shell
+    resource: git restore --staged *
+    effect: allow
+  - action: shell
+    resource: git add *
+    effect: allow
+  - action: shell
+    resource: git add -A*
+    effect: deny
+  - action: shell
+    resource: git add --all*
+    effect: deny
+  - action: shell
+    resource: git add -u*
+    effect: deny
+  - action: shell
+    resource: git add --update*
+    effect: deny
+  - action: shell
+    resource: git add -p*
+    effect: deny
+  - action: shell
+    resource: git add --patch*
+    effect: deny
+  - action: shell
+    resource: git add -i*
+    effect: deny
+  - action: shell
+    resource: git add --interactive*
+    effect: deny
+  - action: shell
+    resource: git add .
+    effect: deny
+  - action: shell
+    resource: git add ./
+    effect: deny
+  - action: shell
+    resource: git add -- .
+    effect: deny
+  - action: shell
+    resource: git add */
+    effect: deny
+  - action: shell
+    resource: git add *.
+    effect: deny
+  - action: shell
+    resource: git rm --cached *
+    effect: allow
+  - action: shell
+    resource: git commit -m "*"
+    effect: allow
+  - action: shell
+    resource: git commit -a*
+    effect: deny
+  - action: shell
+    resource: git commit --all*
+    effect: deny
+  - action: shell
+    resource: git commit * --amend*
+    effect: deny
+  - action: shell
+    resource: git commit * --no-verify*
+    effect: deny
+  - action: shell
+    resource: git commit * --all*
+    effect: deny
+  - action: shell
+    resource: git push*
+    effect: ask
+  - action: shell
+    resource: env
+    effect: deny
+  - action: shell
+    resource: env *
+    effect: deny
+  - action: shell
+    resource: printenv*
+    effect: deny
+  - action: shell
+    resource: set
+    effect: deny
+  - action: shell
+    resource: export -p*
+    effect: deny
+  - action: shell
+    resource: declare -p*
+    effect: deny
+  - action: shell
+    resource: /usr/bin/env*
+    effect: deny
+  - action: shell
+    resource: /usr/bin/printenv*
+    effect: deny
+  - action: shell
+    resource: "*.env*"
+    effect: deny
+  - action: shell
+    resource: cat .env.example
+    effect: allow
+  - action: shell
+    resource: cat .env.sample
+    effect: allow
+  - action: shell
+    resource: cat .env.template
+    effect: allow
+  - action: shell
+    resource: cat .env.test
+    effect: allow
 ---
 
 # mistral-pipeline-post_session

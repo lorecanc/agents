@@ -1,20 +1,36 @@
 ---
-description: Analyzes a codebase structure for wiki generation. Read-only —
-  never modifies files.
+description: Analyzes a codebase structure for wiki generation. Read-only — never modifies files.
 mode: subagent
-permission:
-  edit: deny
-  bash:
-    "*": deny
-    find *: allow
-    wc *: allow
-    head *: allow
-    cat *: allow
-    ls *: allow
-    tree *: allow
-  skill: allow
 color: "#2C3E87"
 steps: 45
+permissions:
+  - action: edit
+    resource: "*"
+    effect: deny
+  - action: shell
+    resource: "*"
+    effect: deny
+  - action: shell
+    resource: find *
+    effect: allow
+  - action: shell
+    resource: wc *
+    effect: allow
+  - action: shell
+    resource: head *
+    effect: allow
+  - action: shell
+    resource: cat *
+    effect: allow
+  - action: shell
+    resource: ls *
+    effect: allow
+  - action: shell
+    resource: tree *
+    effect: allow
+  - action: skill
+    resource: "*"
+    effect: allow
 ---
 
 You are the wiki analyzer. Your job is to deeply analyze a codebase and produce a structured report for wiki generation.

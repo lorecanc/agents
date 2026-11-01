@@ -67,7 +67,10 @@ function manifest(overrides: { managerVersion?: string; pipelineVersion?: string
         include: [
           "src/agents/pipeline-*.md",
           "src/commands/pipeline-*.md",
-          "src/plugins/pipeline-guard.js",
+          "src/plugins/pipeline-guard/**",
+          "src/plugins/pipeline-tools/**",
+          "src/plugins/doc-tools/**",
+          "src/plugins/slide-tools/**",
           "src/plugins/README.md",
           "src/tools/*pipeline*",
           "src/tools/_guards*",
@@ -201,6 +204,26 @@ test("compareSharedSync reports identical, modified, missing, and dirty shared p
   }, null, 2)}\n`)
   const withDrift = compareSharedSync({ sourceRoot: source, targetRoot: target, components: ["pipelineCore"] })
   assert.deepEqual(withDrift.dirtyTargetFiles, ["src/tools/_pipeline_core.js"])
+})
+
+test("pipelineCore ships V2 plugin directory files", () => {
+  const source = createRepo(makeTempRoot())
+  const target = createRepo(makeTempRoot())
+  const plugins = [
+    "src/plugins/pipeline-guard/index.ts",
+    "src/plugins/pipeline-tools/index.ts",
+    "src/plugins/doc-tools/index.ts",
+    "src/plugins/slide-tools/index.ts"
+  ]
+  for (const relative of plugins) writeFile(source, relative, `${relative}\n`)
+  const collected = collectComponentFiles(source, loadSharedSyncManifest(source), "pipelineCore").map(entry => entry.path)
+  assert.deepEqual(collected, [...plugins].sort())
+
+  applySharedSync({ sourceRoot: source, targetRoot: target, components: ["pipelineCore"] })
+  for (const relative of plugins) {
+    assert.equal(fs.readFileSync(path.join(target, ...relative.split("/")), "utf8"), `${relative}\n`)
+  }
+  assert.equal(fs.existsSync(path.join(target, "src/plugins/pipeline-guard" + ".js")), false)
 })
 
 test("release and apply round-trip through a release bundle and reject tampering", () => {
@@ -368,7 +391,7 @@ test("apply preserves overlay configuration and refreshes the target's stamped p
   const target = createRepo(makeTempRoot())
   writePipelineSource(source, "New pipeline body\n@pipeline-tester\n")
   writeFile(source, "src/agents/pipeline-tester.md", "---\ndescription: Pipeline tester\nmodel: fixture/model\n---\n\nTester role\n")
-  writeFile(source, "src/plugins/pipeline-guard.js", "export const guardVersion = 2\n")
+  writeFile(source, "src/plugins/pipeline-guard/index.ts", "export const guardVersion = 2\n")
   writeFile(target, "src/agents/pipeline-orchestrator.md", "old canonical pipeline\n")
   writeFile(target, "src/agents/ontology-orchestrator.md", "local ontology agent\n")
   writeFile(target, ".agent-manager/pipeline-profiles.json", `${JSON.stringify({

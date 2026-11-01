@@ -542,8 +542,8 @@ test("lists untranspiled OpenCode plugins and tools only when they exist", () =>
   assert.doesNotMatch(fs.readFileSync(path.join(emptyOutput, "README.md"), "utf8"), /## OpenCode plugins and tools/)
   assert.equal(empty.warnings.some(warning => warning.includes("not transpiled")), false)
 
-  fs.mkdirSync(path.join(workspace, "src", "plugins"), { recursive: true })
-  fs.writeFileSync(path.join(workspace, "src", "plugins", "pipeline-guard.js"), "")
+  fs.mkdirSync(path.join(workspace, "src", "plugins", "pipeline-guard"), { recursive: true })
+  fs.writeFileSync(path.join(workspace, "src", "plugins", "pipeline-guard", "index.ts"), "")
   fs.mkdirSync(path.join(workspace, "src", "tools"), { recursive: true })
   fs.writeFileSync(path.join(workspace, "src", "tools", "pipeline_commit.ts"), "")
 
@@ -551,11 +551,11 @@ test("lists untranspiled OpenCode plugins and tools only when they exist", () =>
   const result = bridgeToClaudeCode(agents, "pipeline", "copilot-pipeline-", output, workspace)
   const readme = fs.readFileSync(path.join(output, "README.md"), "utf8")
   assert.match(readme, /## OpenCode plugins and tools/)
-  assert.match(readme, /plugins\/pipeline-guard\.js/)
+  assert.match(readme, /plugins\/pipeline-guard/)
   assert.match(readme, /tools\/pipeline_commit\.ts/)
   assert.match(readme, /`tool\.execute\.before` \| `PreToolUse`/)
   assert.match(readme, /`session\.idle` \| `Stop`/)
-  assert.ok(result.warnings.some(warning => warning.includes("OpenCode plugin 'plugins/pipeline-guard.js' is not transpiled")))
+  assert.ok(result.warnings.some(warning => warning.includes("OpenCode plugin 'plugins/pipeline-guard' is not transpiled")))
   assert.ok(result.warnings.some(warning => warning.includes("OpenCode tool 'tools/pipeline_commit.ts' is not transpiled")))
 
   const secondOutput = path.join(workspace, "claude")
@@ -595,11 +595,12 @@ test("never fabricates MCP tools from custom pipeline tool permissions", () => {
   assert.ok(mcpTools.split(", ").includes("mcp__codebase-memory-mcp__*"), `expected real MCP tool, got ${mcpTools}`)
 })
 
-test("warns when per-tool MCP denies are lost behind a server-wide allow", () => {
+test("withholds the server-wide allow when per-tool MCP denies are present", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "claude-mcp-per-tool-deny-"))
   const agent = fixture("copilot-pipeline-security_auditor.md")
   agent.frontmatter.permission = {
     "codebase-memory-mcp_*": "allow",
+    "codebase-memory-mcp_search_graph": "allow",
     "codebase-memory-mcp_delete_project": "deny",
     "codebase-memory-mcp_ingest_traces": "deny"
   }
@@ -608,7 +609,15 @@ test("warns when per-tool MCP denies are lost behind a server-wide allow", () =>
   const result = bridgeToClaudeCode([agent], "pipeline", "copilot-pipeline-", output, workspace)
 
   const tools = String(buildClaudeCodePlugin([agent], "pipeline", "copilot-pipeline-").agents[0].frontmatter.tools).split(", ")
-  assert.ok(tools.includes("mcp__codebase-memory-mcp__*"), `expected whole-server wildcard, got ${tools.join(", ")}`)
+  assert.equal(tools.includes("mcp__codebase-memory-mcp__*"), false, `a denied server must not get a wildcard; got ${tools.join(", ")}`)
+  assert.equal(tools.includes("mcp__plugin_pipeline_codebase-memory-mcp__*"), false, `a denied server must not get a scoped wildcard; got ${tools.join(", ")}`)
+  assert.ok(tools.includes("mcp__codebase-memory-mcp__search_graph"), `expected the explicit tool allow, got ${tools.join(", ")}`)
+  assert.ok(tools.includes("mcp__plugin_pipeline_codebase-memory-mcp__search_graph"), `expected the scoped explicit tool allow, got ${tools.join(", ")}`)
+  assert.equal(
+    tools.some(tool => tool.includes("delete_project") || tool.includes("ingest_traces")),
+    false,
+    `denied tools must not be exported; got ${tools.join(", ")}`
+  )
 
   const perToolWarnings = result.warnings.filter(warning => warning.includes("MCP per-tool deny rules"))
   assert.equal(perToolWarnings.length, 1, `expected one per-server warning, got ${perToolWarnings.join(" | ")}`)
@@ -667,7 +676,7 @@ test("resolves companion links from the bridged category, not the global prefix"
       version: 1,
       categories: {
         pipeline: {
-          plugins: ["plugins/pipeline-guard.js"],
+          plugins: ["plugins/pipeline-guard"],
           commands: [],
           skills: [],
           tools: ["tools/pipeline_commit.ts"]
@@ -681,7 +690,7 @@ test("resolves companion links from the bridged category, not the global prefix"
       }
     })
   )
-  for (const relative of ["plugins/pipeline-guard.js", "tools/pipeline_commit.ts", "tools/doc_convert.ts"]) {
+  for (const relative of ["plugins/pipeline-guard/index.ts", "tools/pipeline_commit.ts", "tools/doc_convert.ts"]) {
     const fullPath = path.join(workspace, "src", relative)
     fs.mkdirSync(path.dirname(fullPath), { recursive: true })
     fs.writeFileSync(fullPath, "")
@@ -693,15 +702,15 @@ test("resolves companion links from the bridged category, not the global prefix"
   const docsReadme = fs.readFileSync(path.join(docsOutput, "README.md"), "utf8")
   assert.match(docsReadme, /## OpenCode plugins and tools/)
   assert.match(docsReadme, /tools\/doc_convert\.ts/)
-  assert.doesNotMatch(docsReadme, /pipeline-guard\.js/)
+  assert.doesNotMatch(docsReadme, /pipeline-guard/)
   assert.doesNotMatch(docsReadme, /pipeline_commit\.ts/)
   assert.ok(docs.warnings.some(warning => warning.includes("OpenCode tool 'tools/doc_convert.ts' is not transpiled")))
-  assert.equal(docs.warnings.some(warning => warning.includes("pipeline-guard.js") || warning.includes("pipeline_commit.ts")), false)
+  assert.equal(docs.warnings.some(warning => warning.includes("pipeline-guard") || warning.includes("pipeline_commit.ts")), false)
 
   const pipelineOutput = path.join(workspace, "pipeline-claude")
   bridgeToClaudeCode(agents, "pipeline", "copilot-pipeline-", pipelineOutput, workspace, undefined, { category: "pipeline" })
   const pipelineReadme = fs.readFileSync(path.join(pipelineOutput, "README.md"), "utf8")
-  assert.match(pipelineReadme, /plugins\/pipeline-guard\.js/)
+  assert.match(pipelineReadme, /plugins\/pipeline-guard/)
 })
 
 test("writeClaudeCodePlugin prunes stale generated agents and skills with warnings", () => {
@@ -735,6 +744,62 @@ test("writeClaudeCodePlugin prunes stale generated agents and skills with warnin
       || warning === "Pruned stale generated artifact 'skills/stale-skill'"
     ),
     `missing stale skill warning, got ${JSON.stringify(result.warnings)}`
+  )
+})
+
+test("translates V1 and V2 OpenCode MCP declarations to the same Claude .mcp.json", () => {
+  const build = (mcp: Record<string, any>) => {
+    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "claude-bridge-mcp-shape-"))
+    fs.mkdirSync(path.join(workspace, "src"), { recursive: true })
+    fs.writeFileSync(path.join(workspace, "src", "opencode.json"), JSON.stringify({ mcp }))
+    const output = path.join(workspace, "claude")
+    bridgeToClaudeCode(
+      [fixture("copilot-pipeline-orchestrator.md", "")],
+      "pipeline",
+      "copilot-pipeline-",
+      output,
+      workspace,
+      DEFAULT_TRANSLATION_CONFIG
+    )
+    return JSON.parse(fs.readFileSync(path.join(output, ".mcp.json"), "utf8"))
+  }
+
+  const v1 = build({
+    "codebase-memory-mcp": { type: "local", command: ["codebase-memory-mcp"], codemode: false, enabled: true },
+    "remote-tool": { type: "remote", url: "https://example.test/mcp", enabled: true }
+  })
+  const v2 = build({
+    servers: {
+      "codebase-memory-mcp": { type: "local", command: ["codebase-memory-mcp"], codemode: false },
+      "remote-tool": { type: "remote", url: "https://example.test/mcp" }
+    }
+  })
+
+  assert.deepEqual(v1, v2)
+  assert.deepEqual(v1.mcpServers["codebase-memory-mcp"], { command: "codebase-memory-mcp" })
+  assert.deepEqual(v1.mcpServers["remote-tool"], { url: "https://example.test/mcp" })
+})
+
+test("keeps MCP permissions declared in V2 permissions arrays", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "claude-bridge-mcp-v2-permissions-"))
+  fs.mkdirSync(path.join(workspace, "src"), { recursive: true })
+  fs.writeFileSync(path.join(workspace, "src", "opencode.json"), JSON.stringify({
+    mcp: { servers: { cupertino: { type: "local", command: ["cupertino", "serve"], disabled: true } } }
+  }))
+  const agent = fixture("copilot-pipeline-swift_specialist.md", "Use Cupertino to ground the review.")
+  delete agent.frontmatter.permission
+  agent.frontmatter.permissions = [{ action: "cupertino_*", resource: "*", effect: "allow" }]
+  const output = path.join(workspace, "claude")
+
+  const result = bridgeToClaudeCode([agent], "pipeline", "copilot-pipeline-", output, workspace)
+
+  const mcp = JSON.parse(fs.readFileSync(path.join(output, ".mcp.json"), "utf8")).mcpServers
+  assert.equal(mcp.cupertino.command, "cupertino")
+  const generated = fs.readFileSync(path.join(output, "agents", "swift-specialist.md"), "utf8")
+  assert.match(generated, /mcp__plugin_pipeline_cupertino__\*/)
+  assert.ok(
+    result.warnings.some(warning => /disabled.*cupertino/i.test(warning)),
+    `expected a disabled-server warning for 'cupertino', got ${JSON.stringify(result.warnings)}`
   )
 })
 

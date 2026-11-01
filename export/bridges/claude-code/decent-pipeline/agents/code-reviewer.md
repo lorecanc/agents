@@ -3,8 +3,8 @@ name: code-reviewer
 description: Reviews code changes for correctness, simplicity, maintainability,
   regressions, and security. Does not implement by default.
 model: sonnet
-tools: Read, Grep, Glob, Bash, Skill, LSP, mcp__codebase-memory-mcp__*,
-  mcp__plugin_decent-pipeline_codebase-memory-mcp__*
+maxTurns: 75
+tools: Read, Grep, Glob, Bash, Skill, LSP
 ---
 
 # pipeline-code_reviewer

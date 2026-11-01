@@ -353,9 +353,11 @@ function probeMcp(top, env) {
     }
     read.push({ file: f, parsed: true })
     const mcp = cfg && typeof cfg.mcp === "object" && cfg.mcp ? cfg.mcp : {}
+    const table = mcp && typeof mcp.servers === "object" && mcp.servers ? mcp.servers : mcp
     // names, type and enabled flag only: commands, urls, headers and env may carry secrets
-    for (const [name, v] of Object.entries(mcp)) {
-      servers[name] = { name, type: v && typeof v.type === "string" ? v.type : null, enabled: !(v && v.enabled === false), source: f }
+    for (const [name, v] of Object.entries(table)) {
+      if (table === mcp && name === "servers") continue
+      servers[name] = { name, type: v && typeof v.type === "string" ? v.type : null, enabled: !(v && (v.disabled === true || v.enabled === false)), source: f }
     }
   }
   return { config_files: read, servers: Object.values(servers) }
@@ -384,7 +386,7 @@ function probePipeline(info, sessionId, toolsDir) {
     } catch (e) {
       out.tools_reason = `cannot list tools dir: ${e.message}`
     }
-    out.guard_plugin_file = fs.existsSync(path.join(toolsDir, "..", "plugins", "pipeline-guard.js"))
+    out.guard_plugin_file = ["index.ts", "index.js"].some((file) => fs.existsSync(path.join(toolsDir, "..", "plugins", "pipeline-guard", file)))
   }
   return out
 }
