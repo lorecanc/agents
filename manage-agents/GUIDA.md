@@ -158,8 +158,8 @@ I file di risorsa identici per contenuto e permessi vengono saltati, senza scrit
 
 Il flusso standard è **dal repository personale/originale alla repository di lavoro Enterprise**:
 
-- Fonte di verità: `/Users/lorenzo.cancellara/dev/Altro/agents`.
-- Destinazione di lavoro: `/Users/lorenzo.cancellara/dev/Programmazione/agents`.
+- Fonte di verità: `~/dev/agents`.
+- Destinazione di lavoro: `~/altro/agents`.
 
 La sync trasferisce solo i componenti condivisi dichiarati in `.agent-manager/shared-sync.json`. Non è una copia completa delle repository e non importa le personalizzazioni locali della destinazione. È possibile confrontare direttamente le due repository oppure creare un bundle di rilascio verificabile e trasferirlo separatamente.
 
@@ -183,12 +183,12 @@ Le versioni SemVer dei due componenti e la compatibilità sono dichiarate in `.a
 
 ### Flusso operativo rapido
 
-Esegui gli esempi dalla radice della repository fonte (`/Users/lorenzo.cancellara/dev/Altro/agents`):
+Esegui gli esempi dalla radice della repository fonte (`~/dev/agents`):
 
 1. Controlla differenze, versioni, compatibilità e file locali modificati:
 
    ```bash
-   ./manage-agents.sh sync status --target /Users/lorenzo.cancellara/dev/Programmazione/agents
+   ./manage-agents.sh sync status --target ~/altro/agents
    ```
 
    Per usarlo in uno script e ottenere exit code `1` quando è incompatibile, sporco o fuori sync, aggiungi `--check`. `status` accetta anche `--from <repository-o-bundle>`, `--component agent-manager|pipeline-core|all` e `--json`.
@@ -196,13 +196,13 @@ Esegui gli esempi dalla radice della repository fonte (`/Users/lorenzo.cancellar
 2. Simula le modifiche, senza scrivere:
 
    ```bash
-   ./manage-agents.sh sync apply --target /Users/lorenzo.cancellara/dev/Programmazione/agents --dry-run
+   ./manage-agents.sh sync apply --target ~/altro/agents --dry-run
    ```
 
 3. Applica `agentManager` e `pipelineCore` alla destinazione:
 
    ```bash
-   ./manage-agents.sh sync apply --target /Users/lorenzo.cancellara/dev/Programmazione/agents
+   ./manage-agents.sh sync apply --target ~/altro/agents
    ```
 
    Il comando aggiorna anche i bundle stamped dei profili locali (per esempio `go-pipeline` e `hybrid-pipeline`) e sincronizza i profili Bash quando presenti. Per saltare questi refresh usa `--no-refresh`. Prima dell’applicazione controlla e risolvi eventuali modifiche locali; non viene creato alcun commit automatico. Al termine verifica la destinazione con `git diff` e `git status`.
@@ -211,7 +211,7 @@ Esegui gli esempi dalla radice della repository fonte (`/Users/lorenzo.cancellar
 
    ```bash
    ./manage-agents.sh sync release --out dist/shared-release
-   ./manage-agents.sh sync apply --from dist/shared-release --target /Users/lorenzo.cancellara/dev/Programmazione/agents
+   ./manage-agents.sh sync apply --from dist/shared-release --target ~/altro/agents
    ```
 
    Il bundle include le versioni, l’elenco dei file e `contentDigest`; durante l’import gli hash sono verificati. `release` accetta `--component` e `--json`; `apply` accetta inoltre `--dry-run`, `--force` e `--no-refresh`. Le forme `diff`, `export` e `import` sono alias rispettivamente di `status`, `release` e `apply`; `shared-sync` è alias del comando `sync`.
