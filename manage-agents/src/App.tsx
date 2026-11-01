@@ -1604,15 +1604,18 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
             ? agents.filter(agent => exportPaths.has(agent.currentPath))
             : exportCategory ? agents.filter(agent => agent.category === exportCategory) : agents
           const resourceSourceRoot = path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot))
-          const result = exportAgents(exportAgentsList, undefined, resourceSourceRoot)
+          const result = exportAgents(exportAgentsList, undefined, resourceSourceRoot, {
+            completeExport: selectedAgentPaths.size === 0 && !exportCategory
+          })
           setSelectedAgentPaths(new Set())
           setActionResultTitle("Export Complete")
           const lines = [
             `Successfully exported ${result.exported.length} agents to:`,
             `  ${result.destinationPath.replace(/\/Users\/[^\/]+/, "~")}`,
             ``,
-            `Disaster-recovery backup at:`,
-            `  ${result.backupPath.replace(/\/Users\/[^\/]+/, "~")}`
+            ...(result.backupPath
+              ? [`Disaster-recovery backup at:`, `  ${result.backupPath.replace(/\/Users\/[^\/]+/, "~")}`]
+              : [`No backup created (no existing files replaced)`])
           ]
           if (result.domainResources.length > 0) {
             lines.push(

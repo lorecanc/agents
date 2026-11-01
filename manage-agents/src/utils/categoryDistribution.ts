@@ -146,6 +146,50 @@ function contentsFor(workspaceRoot: string, manifest: CategoryManifest) {
   const entries = [...contents].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([target, bytes]) => ({ target, hash: digest(bytes) })); contents.set("CATEGORY.json", text(Buffer.from(JSON.stringify({ schemaVersion: SCHEMA_VERSION, distributionVersion: manifest.distributionVersion, category: manifest.id, manifestHash: manifestHash(manifest), generatorVersion: "2.0.0", entries }, null, 2)))); contents.set("PROVENANCE.json", text(Buffer.from(JSON.stringify({ schemaVersion: SCHEMA_VERSION, distributionVersion: manifest.distributionVersion, category: manifest.id, manifestHash: manifestHash(manifest), generatorVersion: "2.0.0", bundleDigest: digest(Buffer.concat([...contents.values()])), entries }, null, 2)))); return contents
 }
 function outputFiles(dir: string): string[] { if (!fs.existsSync(dir)) return []; const result: string[] = []; const visit = (current: string) => { for (const name of fs.readdirSync(current)) { const file = path.join(current, name), stat = fs.lstatSync(file); if (stat.isSymbolicLink() || (!stat.isDirectory() && !stat.isFile())) fail(`unsafe output entry: ${name}`); stat.isDirectory() ? visit(file) : result.push(path.relative(dir, file).split(path.sep).join("/")) } }; visit(dir); return result.sort((a, b) => a < b ? -1 : a > b ? 1 : 0) }
+const bundleRelative = (value: string) => value.split(/[\\/]+/).filter(Boolean).join("/")
+/** Regular files under a generated bundle root; refuses to traverse symlinks or special entries. */
+export function listBundleFiles(root: string): string[] { return outputFiles(root) }
+/**
+ * Delete every regular file under a generated bundle root that is not in
+ * `expected`, then drop directories left empty (never the root itself).
+ * Symlinks are refused, never followed or unlinked; kept files are untouched.
+ */
+export function pruneGeneratedBundle(root: string, expected: Iterable<string>): string[] {
+  if (!fs.existsSync(root)) return []
+  const rootStat = fs.lstatSync(root)
+  if (rootStat.isSymbolicLink()) fail(`symlink is not allowed: ${root}`)
+  if (!rootStat.isDirectory()) fail(`bundle root is not a directory: ${root}`)
+  const wanted = new Set([...expected].map(bundleRelative)), stale: string[] = [], directories: string[] = []
+  // Validate the entire tree before deleting anything so an unsafe entry never
+  // leaves a partially pruned bundle behind.
+  const visit = (directory: string, relative: string) => {
+    for (const name of fs.readdirSync(directory).sort()) {
+      const absolute = path.join(directory, name), child = relative ? `${relative}/${name}` : name
+      const stat = fs.lstatSync(absolute)
+      if (stat.isSymbolicLink()) fail(`symlink is not allowed: ${child}`)
+      if (stat.isDirectory()) { directories.push(child); visit(absolute, child) }
+      else if (!stat.isFile()) fail(`special file is not allowed: ${child}`)
+      else if (!wanted.has(child)) stale.push(child)
+    }
+  }
+  visit(root, "")
+  const removed: string[] = []
+  for (const relative of stale) {
+    fs.unlinkSync(path.join(root, relative))
+    removed.push(relative)
+  }
+  for (const relative of directories.sort((a, b) => b.split("/").length - a.split("/").length || (a < b ? 1 : a > b ? -1 : 0))) {
+    try {
+      if (fs.readdirSync(path.join(root, relative)).length === 0) fs.rmdirSync(path.join(root, relative))
+    } catch {}
+  }
+  return removed.sort((a, b) => a < b ? -1 : a > b ? 1 : 0)
+}
+/** Files present in the bundle that the generated set does not contain. */
+export function extraGeneratedBundleFiles(root: string, expected: Iterable<string>): string[] {
+  const wanted = new Set([...expected].map(bundleRelative))
+  return listBundleFiles(root).filter(file => !wanted.has(file))
+}
 function paths(workspaceRoot: string, manifest: CategoryManifest) { const output = path.join(workspaceRoot, ...manifest.output.split("/")); return { output, control: path.join(workspaceRoot, ".agent-manager", "category-control"), lock: path.join(workspaceRoot, ".agent-manager", `category-${manifest.id}.lock`) } }
 function withLock<T>(workspaceRoot: string, manifest: CategoryManifest, operation: () => T, callback?: () => void): T { const { control, lock } = paths(workspaceRoot, manifest); assertSafeTree(workspaceRoot, control); fs.mkdirSync(control, { recursive: true, mode: 0o700 }); const fd = (() => { try { return fs.openSync(lock, "wx", 0o600) } catch (e: any) { if (e.code === "EEXIST") throw new Error(`Another category ${manifest.id} build is already running.`); throw e } })(); const identity = fs.fstatSync(fd); try { callback?.(); return operation() } finally { fs.closeSync(fd); try { const stat = fs.lstatSync(lock); if (stat.dev === identity.dev && stat.ino === identity.ino && stat.isFile()) fs.unlinkSync(lock) } catch {} } }
 function listCategoryDistributionIds(repoRoot: string): string[] { const distRoot = resolveDistributionRoot(repoRoot), dir = path.join(distRoot, ".agent-manager", "categories"); assertSafeTree(distRoot, dir); return fs.readdirSync(dir).filter(file => file.endsWith(".json")).map(file => file.slice(0, -5)).sort((a, b) => a < b ? -1 : a > b ? 1 : 0) }

@@ -1085,7 +1085,7 @@ test("selected export installs matching domain resources, backs up replacements,
   assert.equal(fs.readFileSync(path.join(result.domainBackupPath!, "skills", "slides-design", "SKILL.md"), "utf8"), "old design skill\n")
   assert.equal(fs.readFileSync(path.join(result.domainBackupPath!, "tools", "slides", "existing.py"), "utf8"), "old build tool\n")
   assert.equal(fs.existsSync(path.join(result.domainBackupPath!, "tools", "slides", "nested", "build.py")), false, "new files are not part of the replacement backup")
-  assert.equal(fs.readFileSync(path.join(result.backupPath, "unrelated-agent.md"), "utf8"), "keep agent file\n")
+  assert.equal(fs.readFileSync(path.join(result.backupPath!, "unrelated-agent.md"), "utf8"), "keep agent file\n")
 })
 
 test("export rolls back agent and companion resource changes after a mid-install failure", (t) => {
@@ -1323,6 +1323,406 @@ test("export across canonical and multiple stamped pipelines installs each pipel
   }
 })
 
+function legacyExportFixture(t: any) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-legacy-export-"))
+  const xdg = path.join(root, "xdg")
+  const opencodeRoot = path.join(xdg, "opencode")
+  const workspace = path.join(root, "workspace")
+  const sourceRoot = path.join(workspace, "general")
+  const previousXdg = process.env.XDG_CONFIG_HOME
+  t.after(() => {
+    if (previousXdg === undefined) delete process.env.XDG_CONFIG_HOME
+    else process.env.XDG_CONFIG_HOME = previousXdg
+    fs.rmSync(root, { recursive: true, force: true })
+  })
+  process.env.XDG_CONFIG_HOME = xdg
+
+  const sourceAgent = [
+    "---",
+    "description: Pipeline orchestrator",
+    "mode: subagent",
+    "model: test/model",
+    "steps: 40",
+    "permissions:",
+    "  - action: pipeline_active",
+    '    resource: "*"',
+    "    effect: allow",
+    "---",
+    "",
+    "Body.",
+    ""
+  ].join("\n")
+  fs.mkdirSync(path.join(sourceRoot, "agents"), { recursive: true })
+  fs.writeFileSync(path.join(sourceRoot, "agents", "pipeline-orchestrator.md"), sourceAgent)
+  for (const name of ["pipeline-guard", "pipeline-tools"]) {
+    fs.mkdirSync(path.join(sourceRoot, "plugins", name), { recursive: true })
+    fs.writeFileSync(path.join(sourceRoot, "plugins", name, "index.ts"), `export default { name: "${name}" }\n`)
+  }
+  fs.mkdirSync(path.join(sourceRoot, "tools"), { recursive: true })
+  fs.writeFileSync(path.join(sourceRoot, "tools", "pipeline_active.ts"), "export default 1\n")
+
+  fs.mkdirSync(path.join(opencodeRoot, "agents"), { recursive: true })
+  fs.writeFileSync(path.join(opencodeRoot, "agents", "pipeline-orchestrator.md"), [
+    "---",
+    "description: Legacy pipeline orchestrator",
+    "mode: subagent",
+    "model: test/model",
+    "max_steps: 10",
+    "permission:",
+    "  bash: deny",
+    "---",
+    "",
+    "Legacy body.",
+    ""
+  ].join("\n"))
+  fs.mkdirSync(path.join(opencodeRoot, "plugins", "pipeline-guard"), { recursive: true })
+  fs.writeFileSync(path.join(opencodeRoot, "plugins", "pipeline-guard.js"), "legacy guard module\n")
+  fs.writeFileSync(path.join(opencodeRoot, "plugins", "pipeline-guard", "index.ts"), "old guard\n")
+  fs.mkdirSync(path.join(opencodeRoot, "tools"), { recursive: true })
+  fs.writeFileSync(path.join(opencodeRoot, "tools", "pipeline_obsolete.ts"), "obsolete tool\n")
+  fs.mkdirSync(path.join(opencodeRoot, "skills", "user-own"), { recursive: true })
+  fs.writeFileSync(path.join(opencodeRoot, "skills", "user-own", "SKILL.md"), "user skill\n")
+  fs.mkdirSync(path.join(opencodeRoot, "plugins", "user-own"), { recursive: true })
+  fs.writeFileSync(path.join(opencodeRoot, "plugins", "user-own", "index.ts"), "user plugin\n")
+
+  const legacyConfigBytes = JSON.stringify({
+    $schema: "https://opencode.ai/config.json",
+    theme: "legacy",
+    agent: { "legacy-agent": { prompt: "legacy" } },
+    mode: { "legacy-mode": { prompt: "legacy mode" } },
+    command: { "legacy-command": { template: "legacy" } },
+    subtask: { "legacy-subtask": { prompt: "legacy subtask" } },
+    mcp: {
+      "local-default": { type: "local", command: ["local-default"], enabled: true },
+      "local-explicit": { type: "local", command: ["local-explicit"], enabled: false, codemode: true },
+      "remote-default": { type: "remote", url: "https://example.test/mcp", enabled: true }
+    },
+    plugins: ["plugins/pipeline-guard.js", "third-party-plugin"]
+  }, null, 2) + "\n"
+  fs.writeFileSync(path.join(opencodeRoot, "opencode.json"), legacyConfigBytes)
+  fs.writeFileSync(path.join(opencodeRoot, ".resource-export-manifest.json"), JSON.stringify({
+    owner: "manage-agents",
+    version: 1,
+    resources: ["plugins/pipeline-guard.js", "plugins/pipeline-guard/index.ts", "tools/pipeline_obsolete.ts"]
+  }, null, 2) + "\n")
+
+  const agents = findAgentFiles(workspace, "general")
+  return { root, xdg, opencodeRoot, workspace, sourceRoot, sourceAgent, legacyConfigBytes, agents }
+}
+
+function snapshotTree(root: string): Record<string, string> {
+  const snapshot: Record<string, string> = {}
+  const walk = (directory: string, relative: string) => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const childRelative = relative ? `${relative}/${entry.name}` : entry.name
+      const childPath = path.join(directory, entry.name)
+      if (entry.isDirectory()) walk(childPath, childRelative)
+      else if (entry.isFile()) snapshot[childRelative] = fs.readFileSync(childPath, "utf8")
+    }
+  }
+  walk(root, "")
+  return snapshot
+}
+
+test("legacy export prunes manifest resources, migrates opencode.json to V2, and registers plugin directories", (t) => {
+  const fixture = legacyExportFixture(t)
+  const { opencodeRoot, sourceRoot, sourceAgent } = fixture
+
+  exportAgents(fixture.agents, undefined, sourceRoot, { completeExport: true })
+
+  assert.equal(fs.readFileSync(path.join(opencodeRoot, "agents", "pipeline-orchestrator.md"), "utf8"), sourceAgent)
+  assert.match(fs.readFileSync(path.join(opencodeRoot, "agents", "pipeline-orchestrator.md"), "utf8"), /\npermissions:\n/)
+  assert.equal(fs.existsSync(path.join(opencodeRoot, "plugins", "pipeline-guard.js")), false)
+  assert.equal(fs.existsSync(path.join(opencodeRoot, "plugins", "pipeline-guard", "index.ts")), true)
+  assert.equal(fs.existsSync(path.join(opencodeRoot, "tools", "pipeline_obsolete.ts")), false)
+  assert.equal(fs.readFileSync(path.join(opencodeRoot, "skills", "user-own", "SKILL.md"), "utf8"), "user skill\n")
+  assert.equal(fs.readFileSync(path.join(opencodeRoot, "plugins", "user-own", "index.ts"), "utf8"), "user plugin\n")
+
+  const configBytes = fs.readFileSync(path.join(opencodeRoot, "opencode.json"), "utf8")
+  const config = JSON.parse(configBytes)
+  assert.equal(config.theme, "legacy")
+  assert.deepEqual(config.agent, { "legacy-agent": { prompt: "legacy" } })
+  assert.deepEqual(config.mode, { "legacy-mode": { prompt: "legacy mode" } })
+  assert.deepEqual(config.command, { "legacy-command": { template: "legacy" } })
+  assert.deepEqual(config.subtask, { "legacy-subtask": { prompt: "legacy subtask" } })
+  assert.equal(Object.prototype.hasOwnProperty.call(config, "agents"), false)
+
+  const servers = config.mcp.servers
+  assert.equal(Object.prototype.hasOwnProperty.call(config.mcp, "local-default"), false)
+  for (const server of Object.values<any>(servers)) assert.equal(Object.prototype.hasOwnProperty.call(server, "enabled"), false)
+  assert.deepEqual(servers["local-default"], {
+    type: "local", command: ["local-default"], codemode: false
+  })
+  assert.deepEqual(servers["local-explicit"], {
+    type: "local", command: ["local-explicit"], disabled: true, codemode: true
+  })
+  assert.deepEqual(servers["remote-default"], {
+    type: "remote", url: "https://example.test/mcp"
+  })
+  assert.equal(Object.prototype.hasOwnProperty.call(servers["remote-default"], "codemode"), false)
+
+  assert.ok(config.plugins.includes("./plugins/pipeline-guard"))
+  assert.ok(config.plugins.includes("./plugins/pipeline-tools"))
+  assert.ok(config.plugins.includes("third-party-plugin"))
+  assert.equal(config.plugins.some((plugin: string) => /\.js$/.test(plugin)), false)
+  assert.equal(fs.readFileSync(path.join(opencodeRoot, "opencode.json.bak"), "utf8"), fixture.legacyConfigBytes)
+
+  const manifest = JSON.parse(fs.readFileSync(path.join(opencodeRoot, ".resource-export-manifest.json"), "utf8"))
+  assert.equal(manifest.owner, "manage-agents")
+  assert.equal(manifest.version, 1)
+  assert.deepEqual(manifest.resources, [
+    "plugins/pipeline-guard/index.ts",
+    "plugins/pipeline-tools/index.ts",
+    "tools/pipeline_active.ts"
+  ])
+})
+
+test("a second export leaves every file and the manifest unchanged and creates no new backups", (t) => {
+  const fixture = legacyExportFixture(t)
+  const { opencodeRoot, sourceRoot } = fixture
+
+  exportAgents(fixture.agents, undefined, sourceRoot, { completeExport: true })
+  const manifestBytes = fs.readFileSync(path.join(opencodeRoot, ".resource-export-manifest.json"), "utf8")
+  const resourceBackups = fs.readdirSync(opencodeRoot).filter(name => name.startsWith("resource_export_backup_"))
+  assert.equal(resourceBackups.length, 1)
+  fs.rmSync(path.join(opencodeRoot, "opencode.json.bak"))
+  const firstSnapshot = snapshotTree(opencodeRoot)
+
+  exportAgents(fixture.agents, undefined, sourceRoot, { completeExport: true })
+
+  assert.deepEqual(snapshotTree(opencodeRoot), firstSnapshot)
+  assert.equal(fs.readFileSync(path.join(opencodeRoot, ".resource-export-manifest.json"), "utf8"), manifestBytes)
+  assert.equal(fs.existsSync(path.join(opencodeRoot, "opencode.json.bak")), false)
+  assert.deepEqual(fs.readdirSync(opencodeRoot).filter(name => name.startsWith("resource_export_backup_")), resourceBackups)
+})
+
+test("resource manifest only deletes inside exporter-owned roots", (t) => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "agent-resource-manifest-roots-")))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  withTemporaryXdgConfigHome((xdg) => {
+    const opencodeRoot = path.join(xdg, "opencode")
+    const workspace = path.join(root, "workspace")
+    const sourceRoot = path.join(workspace, "general")
+    const agent = fixtureAgent(path.join(sourceRoot, "agents", "slides-writer.md"), workspace, "test/model")
+    fs.mkdirSync(path.join(opencodeRoot, "agents"), { recursive: true })
+    fs.mkdirSync(path.join(opencodeRoot, "plugins", "foo"), { recursive: true })
+    fs.writeFileSync(path.join(opencodeRoot, "plugins", "foo", "index.ts"), "stale\n")
+    fs.writeFileSync(path.join(opencodeRoot, "opencode.json"), JSON.stringify({ plugins: [] }, null, 2) + "\n")
+    fs.writeFileSync(path.join(opencodeRoot, "opencode.json.bak"), "keep bak\n")
+    fs.writeFileSync(path.join(opencodeRoot, "agents", "x.md"), "keep agent\n")
+    fs.mkdirSync(path.join(opencodeRoot, "unknown", "root"), { recursive: true })
+    fs.writeFileSync(path.join(opencodeRoot, "unknown", "root", "file"), "keep unknown\n")
+    fs.writeFileSync(path.join(xdg, "outside"), "keep outside\n")
+    const linkedTarget = path.join(root, "linked-target")
+    fs.mkdirSync(linkedTarget)
+    fs.writeFileSync(path.join(linkedTarget, "secret.txt"), "keep secret\n")
+    if (process.platform !== "win32") fs.symlinkSync(linkedTarget, path.join(opencodeRoot, "plugins", "linked"), "dir")
+
+    const resources = ["opencode.json", "opencode.json.bak", "agents/x.md", "../outside", "/etc/passwd", "unknown/root/file", "plugins/foo/index.ts"]
+    if (process.platform !== "win32") resources.push("plugins/linked/secret.txt")
+    fs.writeFileSync(path.join(opencodeRoot, ".resource-export-manifest.json"), JSON.stringify({
+      owner: "manage-agents", version: 1, resources
+    }, null, 2) + "\n")
+
+    exportAgents([agent], new Set([agent.currentPath]), sourceRoot, { completeExport: true })
+
+    for (const relative of ["opencode.json", "opencode.json.bak", "agents/x.md", "unknown/root/file"]) {
+      assert.equal(fs.existsSync(path.join(opencodeRoot, relative)), true, `${relative} must survive`)
+    }
+    assert.equal(fs.readFileSync(path.join(xdg, "outside"), "utf8"), "keep outside\n")
+    assert.equal(fs.existsSync(path.join(opencodeRoot, "plugins", "foo", "index.ts")), false, "a legitimate stale exporter resource is pruned")
+    if (process.platform !== "win32") {
+      assert.equal(fs.readFileSync(path.join(linkedTarget, "secret.txt"), "utf8"), "keep secret\n")
+      assert.equal(fs.lstatSync(path.join(opencodeRoot, "plugins", "linked")).isSymbolicLink(), true)
+    }
+  })
+})
+
+test("a resource manifest without the exporter marker or with malformed JSON deletes nothing", (t) => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "agent-resource-manifest-marker-")))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  withTemporaryXdgConfigHome((xdg) => {
+    const opencodeRoot = path.join(xdg, "opencode")
+    const workspace = path.join(root, "workspace")
+    const sourceRoot = path.join(workspace, "general")
+    const agent = fixtureAgent(path.join(sourceRoot, "agents", "slides-writer.md"), workspace, "test/model")
+    const stale = path.join(opencodeRoot, "plugins", "legacy", "index.ts")
+    const manifestPath = path.join(opencodeRoot, ".resource-export-manifest.json")
+    const writeStale = () => {
+      fs.mkdirSync(path.dirname(stale), { recursive: true })
+      fs.writeFileSync(stale, "stale\n")
+    }
+    for (const bytes of [
+      JSON.stringify({ resources: ["plugins/legacy/index.ts"] }),
+      "{ not json",
+      JSON.stringify({ owner: "someone-else", version: 1, resources: ["plugins/legacy/index.ts"] }),
+      JSON.stringify({ owner: "manage-agents", version: 2, resources: ["plugins/legacy/index.ts"] }),
+    ]) {
+      writeStale()
+      fs.writeFileSync(manifestPath, bytes)
+      exportAgents([agent], new Set([agent.currentPath]), sourceRoot, { completeExport: true })
+      assert.equal(fs.existsSync(stale), true, `manifest ${bytes} must not delete resources`)
+    }
+  })
+})
+
+test("a partial export preserves resources recorded for other categories", (t) => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "agent-resource-partial-export-")))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  withTemporaryXdgConfigHome((xdg) => {
+    const opencodeRoot = path.join(xdg, "opencode")
+    const workspace = path.join(root, "workspace")
+    const sourceRoot = path.join(workspace, "general")
+    const agent = fixtureAgent(path.join(sourceRoot, "agents", "docs-writer.md"), workspace, "test/model")
+    fs.mkdirSync(path.join(sourceRoot, "tools", "docs"), { recursive: true })
+    fs.writeFileSync(path.join(sourceRoot, "tools", "docs", "helper.ts"), "export const helper = true\n")
+    for (const relative of ["plugins/slides-guard/index.ts", "plugins/pipeline-guard/index.ts"]) {
+      fs.mkdirSync(path.dirname(path.join(opencodeRoot, relative)), { recursive: true })
+      fs.writeFileSync(path.join(opencodeRoot, relative), `${relative}\n`)
+    }
+    fs.writeFileSync(path.join(opencodeRoot, ".resource-export-manifest.json"), JSON.stringify({
+      owner: "manage-agents", version: 1,
+      resources: ["plugins/slides-guard/index.ts", "plugins/pipeline-guard/index.ts"]
+    }, null, 2) + "\n")
+
+    exportAgents([agent], new Set([agent.currentPath]), sourceRoot)
+
+    assert.equal(fs.existsSync(path.join(opencodeRoot, "plugins", "slides-guard", "index.ts")), true)
+    assert.equal(fs.existsSync(path.join(opencodeRoot, "plugins", "pipeline-guard", "index.ts")), true)
+    assert.equal(fs.existsSync(path.join(opencodeRoot, "tools", "docs", "helper.ts")), true)
+    const manifest = JSON.parse(fs.readFileSync(path.join(opencodeRoot, ".resource-export-manifest.json"), "utf8"))
+    assert.deepEqual(manifest.resources, [
+      "plugins/pipeline-guard/index.ts",
+      "plugins/slides-guard/index.ts",
+      "tools/docs/helper.ts"
+    ])
+  })
+})
+
+test("an export where every agent copy fails leaves manifest resources untouched", (t) => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "agent-resource-no-success-")))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  withTemporaryXdgConfigHome((xdg) => {
+    const opencodeRoot = path.join(xdg, "opencode")
+    const workspace = path.join(root, "workspace")
+    const sourceRoot = path.join(workspace, "general")
+    const agent = fixtureAgent(path.join(sourceRoot, "agents", "slides-writer.md"), workspace, "test/model")
+    const stale = path.join(opencodeRoot, "plugins", "slides-guard", "index.ts")
+    fs.mkdirSync(path.dirname(stale), { recursive: true })
+    fs.writeFileSync(stale, "stale\n")
+    const manifestPath = path.join(opencodeRoot, ".resource-export-manifest.json")
+    const manifestBytes = JSON.stringify({
+      owner: "manage-agents", version: 1, resources: ["plugins/slides-guard/index.ts"]
+    }, null, 2) + "\n"
+    fs.writeFileSync(manifestPath, manifestBytes)
+
+    const copyFileSync = fs.copyFileSync
+    t.mock.method(fs, "copyFileSync", function (source: fs.PathLike, destination: fs.PathLike, mode?: number) {
+      if (source === agent.currentPath) throw new Error("simulated copy failure")
+      return copyFileSync.call(fs, source, destination, mode)
+    })
+
+    const result = exportAgents([agent], new Set([agent.currentPath]), sourceRoot, { completeExport: true })
+
+    assert.deepEqual(result.exported, [])
+    assert.equal(result.skipped.length, 1)
+    assert.equal(fs.existsSync(stale), true)
+    assert.equal(fs.readFileSync(manifestPath, "utf8"), manifestBytes)
+  })
+})
+
+test("a manifest write failure restores stale resources and reports rollback", (t) => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "agent-resource-manifest-rollback-")))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  withTemporaryXdgConfigHome((xdg) => {
+    const opencodeRoot = path.join(xdg, "opencode")
+    const workspace = path.join(root, "workspace")
+    const sourceRoot = path.join(workspace, "general")
+    const agent = fixtureAgent(path.join(sourceRoot, "agents", "slides-writer.md"), workspace, "test/model")
+    const stale = path.join(opencodeRoot, "plugins", "legacy", "index.ts")
+    fs.mkdirSync(path.dirname(stale), { recursive: true })
+    fs.writeFileSync(stale, "stale\n")
+    fs.writeFileSync(path.join(opencodeRoot, ".resource-export-manifest.json"), JSON.stringify({
+      owner: "manage-agents", version: 1, resources: ["plugins/legacy/index.ts"]
+    }, null, 2) + "\n")
+
+    const renameSync = fs.renameSync
+    t.mock.method(fs, "renameSync", function (oldPath: fs.PathLike, newPath: fs.PathLike) {
+      if (path.basename(String(newPath)) === ".resource-export-manifest.json") throw new Error("simulated manifest write failure")
+      return renameSync.call(fs, oldPath, newPath)
+    })
+
+    assert.throws(
+      () => exportAgents([agent], new Set([agent.currentPath]), sourceRoot, { completeExport: true }),
+      /simulated manifest write failure; rollback completed/
+    )
+    assert.equal(fs.readFileSync(stale, "utf8"), "stale\n")
+  })
+})
+
+test("file-form plugin entries normalize only when the plugin directory exists", (t) => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "agent-plugin-target-normalize-")))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const opencodeRoot = path.join(root, "opencode")
+  fs.mkdirSync(path.join(opencodeRoot, "plugins", "pipeline-guard"), { recursive: true })
+  fs.writeFileSync(path.join(opencodeRoot, "plugins", "pipeline-guard", "index.ts"), "export default {}\n")
+  fs.writeFileSync(path.join(opencodeRoot, "opencode.json"), JSON.stringify({
+    plugins: ["./plugins/user-plugin.js", "./plugins/pipeline-guard.js"]
+  }, null, 2) + "\n")
+  agentsMod.mergeOpenCodePluginsConfig(opencodeRoot, ["./plugins/pipeline-guard"])
+  const config = JSON.parse(fs.readFileSync(path.join(opencodeRoot, "opencode.json"), "utf8"))
+  assert.deepEqual(config.plugins, ["./plugins/user-plugin.js", "./plugins/pipeline-guard"])
+
+  const declaredRoot = path.join(root, "declared")
+  fs.mkdirSync(declaredRoot)
+  fs.writeFileSync(path.join(declaredRoot, "opencode.json"), JSON.stringify({
+    plugins: ["./plugins/declared.js"]
+  }, null, 2) + "\n")
+  agentsMod.mergeOpenCodePluginsConfig(declaredRoot, ["./plugins/declared"])
+  const declared = JSON.parse(fs.readFileSync(path.join(declaredRoot, "opencode.json"), "utf8"))
+  assert.deepEqual(declared.plugins, ["./plugins/declared"])
+})
+
+test("export preserves user config keys and only normalizes MCP", (t) => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "agent-config-preserve-")))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  withTemporaryXdgConfigHome((xdg) => {
+    const opencodeRoot = path.join(xdg, "opencode")
+    const workspace = path.join(root, "workspace")
+    const sourceRoot = path.join(workspace, "general")
+    const agent = fixtureAgent(path.join(sourceRoot, "agents", "slides-writer.md"), workspace, "test/model")
+    fs.mkdirSync(opencodeRoot, { recursive: true })
+    const original = {
+      autoupdate: false,
+      enabled_providers: ["anthropic"],
+      small_model: "test/small",
+      custom_key: { nested: true },
+      agents: { custom: { prompt: "keep" } },
+      mcp: {
+        flat: { type: "remote", url: "https://example.test/mcp", enabled: false, headers: { "X-Test": "yes" } },
+        local: { type: "local", command: ["local"], enabled: true }
+      },
+      plugins: []
+    }
+    fs.writeFileSync(path.join(opencodeRoot, "opencode.json"), JSON.stringify(original, null, 2) + "\n")
+
+    exportAgents([agent], new Set([agent.currentPath]), sourceRoot, { completeExport: true })
+
+    const config = JSON.parse(fs.readFileSync(path.join(opencodeRoot, "opencode.json"), "utf8"))
+    assert.equal(config.autoupdate, false)
+    assert.deepEqual(config.enabled_providers, ["anthropic"])
+    assert.equal(config.small_model, "test/small")
+    assert.deepEqual(config.custom_key, { nested: true })
+    assert.deepEqual(config.agents, { custom: { prompt: "keep" } })
+    assert.deepEqual(config.mcp.servers.flat, {
+      type: "remote", url: "https://example.test/mcp", disabled: true, headers: { "X-Test": "yes" }
+    })
+    assert.deepEqual(config.mcp.servers.local, {
+      type: "local", command: ["local"], codemode: false
+    })
+  })
+})
+
 test("agent permissions derive tool resources and trace relative helper imports", () => withTemporaryXdgConfigHome(() => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "agent-derived-resources-"))
   const agent = fixtureAgent(path.join(workspace, "general/agents/custom-agent.md"), workspace, "test/model")
@@ -1449,6 +1849,8 @@ test("unchanged exported agents are reported without copying", (t) => {
   assert.deepEqual(result.exported, [agent.filename])
   assert.deepEqual(result.skipped, [])
   assert.equal(agentCopies, 0)
+  assert.equal(result.backupPath, null)
+  assert.equal(fs.existsSync(path.join(xdg, "opencode", "agents_backup")), false)
 })
 
 test("resource replacement retains only the five newest backups", (t) => {
@@ -2446,7 +2848,9 @@ test("export provisions ontology plugins with npm ci, idempotently updates openc
 
   const mergedConfig = JSON.parse(fs.readFileSync(opencodeJsonPath, "utf8"))
   assert.equal(mergedConfig.theme, "dark")
-  assert.deepEqual(mergedConfig.mcp, { "codebase-memory-mcp": { type: "local", command: ["codebase-memory-mcp"], enabled: true } })
+  assert.deepEqual(mergedConfig.mcp, {
+    servers: { "codebase-memory-mcp": { type: "local", command: ["codebase-memory-mcp"], codemode: false } }
+  })
   assert.deepEqual(mergedConfig.plugins, [
     "./custom/existing-plugin",
     "./tools/ontology/ontogpt-plugin",

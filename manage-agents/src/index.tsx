@@ -19,7 +19,7 @@ import {
   type TranslationTarget
 } from "./utils/translationConfig.js"
 import { AUTO_COMMIT_MESSAGES, isRepositoryLocalPath, repositoryTransaction, parseAutoCommitArgs } from "./utils/repositoryTransaction.js"
-import { buildCategoryDistribution, buildAllCategoryDistributions, recoverBuildAllCategoryDistributions, checkCategoryDistribution, loadCategoryManifest, packageCategoryDistributions, parseCategoryArgs } from "./utils/categoryDistribution.js"
+import { buildCategoryDistribution, buildAllCategoryDistributions, recoverBuildAllCategoryDistributions, checkCategoryDistribution, loadCategoryManifest, packageCategoryDistributions, parseCategoryArgs, listBundleFiles, pruneGeneratedBundle, extraGeneratedBundleFiles } from "./utils/categoryDistribution.js"
 import { loadUiConfig } from "./utils/uiConfig.js"
 import { loadPipelineProfiles, applyPipelineProfile, syncPipelineProfile, deleteStampedPipeline, resolveProfileRoleSpec, PIPELINE_ROLES, loadStampedPipelineAgents, refreshStampedPipelinesFromSource, checkPipelineBundles, type RefreshStampedPipelinesResult } from "./utils/pipelineProfiles.js"
 import { getCompanionLinksConfigPath } from "./utils/companionLinks.js"
@@ -651,7 +651,7 @@ Options:
     process.exit(0)
   }
 
-  const result = exportAgents(agentsToExport, undefined, resourceSourceRoot, { stackDirectory })
+  const result = exportAgents(agentsToExport, undefined, resourceSourceRoot, { stackDirectory, completeExport: !category && !profile })
 
   if (result.pluginProvisioning?.ontologyStackWarning) {
     console.warn(`   ⚠  ${result.pluginProvisioning.ontologyStackWarning}`)
@@ -663,8 +663,12 @@ Options:
   console.log(`\n✅ Export complete!`)
   console.log(`   Exported ${result.exported.length} agents to:`)
   console.log(`   ${shortenHome(result.destinationPath)}`)
-  console.log(`\n   Backup at:`)
-  console.log(`   ${shortenHome(result.backupPath)}\n`)
+  if (result.backupPath) {
+    console.log(`\n   Backup at:`)
+    console.log(`   ${shortenHome(result.backupPath)}\n`)
+  } else {
+    console.log(`\n   Backup: not created (no existing files replaced)\n`)
+  }
 
   if (!result.experimentalTodoWarning) {
     console.log(`   ✔  experimental.todo enabled in ${shortenHome(path.join(path.dirname(result.destinationPath), "opencode.json"))}`)
@@ -1321,13 +1325,37 @@ async function runCategory(workspaceRoot: string) {
       fs.rmSync(temporary, { recursive: true, force: true })
     }
   }
+  // Stamped bundles have no manifest: render one into a throwaway tree to learn
+  // the exact file set a refresh produces without touching the real bundle.
+  const renderedPipelineFiles = (categories: string[]): Map<string, string[]> => {
+    const result = new Map<string, string[]>(), temporary = fs.mkdtempSync(path.join(os.tmpdir(), "manage-agents-category-expected-"))
+    try {
+      for (const relative of [".agent-manager", resolveSourceSubdir(repoRoot)]) {
+        const source = path.join(repoRoot, relative)
+        if (fs.existsSync(source)) fs.cpSync(source, path.join(temporary, relative), { recursive: true })
+      }
+      const categoriesRootPath = path.join(temporary, resolveCategoriesSubdir(repoRoot))
+      for (const category of categories) {
+        const bundle = path.join(categoriesRootPath, category)
+        fs.mkdirSync(path.join(bundle, "agents"), { recursive: true })
+        const rendered = refreshStampedPipelinesFromSource(temporary, category)
+        if (rendered.refreshedCategories.length > 0) result.set(category, listBundleFiles(bundle))
+      }
+      return result
+    } finally {
+      fs.rmSync(temporary, { recursive: true, force: true })
+    }
+  }
   const refreshPipelines = (category?: string, options: { dryRun?: boolean } = {}) =>
     options.dryRun === true
       ? previewStampedPipelines(category)
-      : repositoryMutation(repoRoot, [path.join(repoRoot, resolveCategoriesSubdir(repoRoot)), getCompanionLinksConfigPath(repoRoot)], AUTO_COMMIT_MESSAGES.pipeline, () =>
-        refreshStampedPipelinesFromSource(repoRoot, category)
-      )
+      : repositoryMutation(repoRoot, [path.join(repoRoot, resolveCategoriesSubdir(repoRoot)), getCompanionLinksConfigPath(repoRoot)], AUTO_COMMIT_MESSAGES.pipeline, () => {
+        const result = refreshStampedPipelinesFromSource(repoRoot, category)
+        for (const [id, files] of renderedPipelineFiles(result.refreshedCategories)) pruneGeneratedBundle(path.join(categoriesRoot, id), files)
+        return result
+      })
   const pipelineDrifts: Array<{ category: string; updatedAgents: string[]; updatedCompanions: string[] }> = []
+  const pipelineExtras: Array<{ category: string; files: string[] }> = []
   if (parsed.action === "build") {
     if (all) refreshPipelines()
     else for (const id of pipelineIds) if (id !== "pipeline") refreshPipelines(id)
@@ -1336,6 +1364,10 @@ async function runCategory(workspaceRoot: string) {
       const drift = refreshPipelines(id, { dryRun: true })
       pipelineDrifts.push({ category: id, updatedAgents: drift.updatedAgents, updatedCompanions: drift.updatedCompanions })
     }
+    for (const [id, files] of renderedPipelineFiles(pipelineIds.filter(id => id !== "pipeline"))) {
+      const extras = extraGeneratedBundleFiles(path.join(categoriesRoot, id), files)
+      if (extras.length > 0) pipelineExtras.push({ category: id, files: extras })
+    }
   }
   const results = parsed.action === "build" && all
     ? buildAllCategoryDistributions(repoRoot)
@@ -1343,7 +1375,7 @@ async function runCategory(workspaceRoot: string) {
   const resultIds = parsed.action === "build" && all ? ids : manifestIds
   const pipelineChecks = all || pipelineIds.length > 0 ? checkPipelineBundles(repoRoot, all ? undefined : pipelineIds) : []
   const pipelineDriftFiles = pipelineDrifts.flatMap(drift => [...drift.updatedAgents, ...drift.updatedCompanions]).sort()
-  if (parsed.json) console.log(JSON.stringify(pipelineChecks.length || pipelineDriftFiles.length ? { categories: results, pipelines: pipelineChecks, ...(pipelineDriftFiles.length ? { pipelineDrift: pipelineDrifts } : {}) } : results))
+  if (parsed.json) console.log(JSON.stringify(pipelineChecks.length || pipelineDriftFiles.length || pipelineExtras.length ? { categories: results, pipelines: pipelineChecks, ...(pipelineDriftFiles.length ? { pipelineDrift: pipelineDrifts } : {}), ...(pipelineExtras.length ? { pipelineExtras } : {}) } : results))
   else {
     results.forEach((result, index) => console.log(result.status === "current" ? `Category ${resultIds[index]} is current.` : `Category ${resultIds[index]} is stale.\nMissing: ${result.missing.join(", ") || "none"}\nChanged: ${result.changed.join(", ") || "none"}\nExtra: ${result.extra.join(", ") || "none"}`))
     for (const check of pipelineChecks) {
@@ -1351,6 +1383,7 @@ async function runCategory(workspaceRoot: string) {
       else if (check.problems.length === 0) console.log(`Pipeline ${check.category} ships its OpenCode tools and plugin.`)
       else console.log(`Pipeline ${check.category} is incomplete:\n${check.problems.map(problem => `  - [${problem.kind}] ${problem.detail}`).join("\n")}`)
     }
+    for (const extra of pipelineExtras) console.log(`Pipeline ${extra.category} has extra generated files (run \`category build --all\` to remove them):\n${extra.files.map(file => `  - ${file}`).join("\n")}`)
     for (const drift of pipelineDrifts) {
       const outOfDate = drift.updatedAgents.length + drift.updatedCompanions.length
       if (outOfDate > 0) console.log(`Pipeline ${drift.category} needs a refresh (${drift.updatedAgents.length} agent(s), ${drift.updatedCompanions.length} companion(s) out of date); run \`category build --all\`.`)
@@ -1361,7 +1394,7 @@ async function runCategory(workspaceRoot: string) {
     : []
   if (!parsed.json) for (const drift of bashDrifts) console.log(`Bash allowlist drift in ${drift.file} (role ${drift.role}, ${drift.problem}); fix with \`pipeline sync-bash\` then \`category build --all\`:\n${drift.diff.map(line => `    ${line}`).join("\n")}`)
   else if (bashDrifts.length) console.log(JSON.stringify({ bashDrifts }))
-  const pipelineFailed = pipelineChecks.some(check => check.problems.length > 0) || pipelineDriftFiles.length > 0 || bashDrifts.length > 0
+  const pipelineFailed = pipelineChecks.some(check => check.problems.length > 0) || pipelineDriftFiles.length > 0 || pipelineExtras.length > 0 || bashDrifts.length > 0
   if ((parsed.action === "check" || parsed.action === "status") && (results.some(result => result.status !== "current") || pipelineFailed)) process.exitCode = 1
   if (parsed.action === "build" && pipelineFailed) process.exitCode = 1
 }

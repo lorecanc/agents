@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url"
 import YAML from "yaml"
 import { isPathInsideWorkspace, isWorkspaceRelativePath } from "./pathValidation.js"
 import { detectFrontmatterVersion, translateConfigV1ToV2, translateFrontmatterV1ToV2, translateFrontmatterV2ToV1 } from "./v2Compat.js"
-import { isServerDisabled, readMcpServers, setServerDisabled } from "./opencodeMcp.js"
+import { isServerDisabled, normalizeMcpConfig, readMcpServers, setServerDisabled } from "./opencodeMcp.js"
 import { discoverAvailableCategoryCompanionItems, getCategoryCompanionLinks, type SelectableCompanionItem } from "./companionLinks.js"
 
 function isValidFrontmatter(v: unknown): v is Record<string, any> {
@@ -2553,7 +2553,166 @@ export function compareCompanionResources(workspaceRoot: string, agents?: AgentI
   })
 }
 
-function copyDomainResources(sourceRoot: string, opencodeRoot: string, agents: AgentInfo[]): { installed: string[]; backupPath: string | null } {
+const RESOURCE_EXPORT_MANIFEST = ".resource-export-manifest.json"
+const RESOURCE_EXPORT_MANIFEST_OWNER = "manage-agents"
+const RESOURCE_EXPORT_MANIFEST_VERSION = 1
+const EXPORTER_OWNED_RESOURCE_ROOTS = ["tools", "commands", "skills", "plugins", "resources", ".opencode"] as const
+
+/**
+ * Paths are stored as `/`-separated relatives to the OpenCode config root. A
+ * manifest that is not owned, malformed, or otherwise unrecognized yields no
+ * deletions and is replaced on the next successful export.
+ */
+function readResourceExportManifest(opencodeRoot: string): string[] {
+  const manifestPath = path.join(opencodeRoot, RESOURCE_EXPORT_MANIFEST)
+  const stat = fs.lstatSync(manifestPath, { throwIfNoEntry: false })
+  if (!stat) return []
+  if (stat.isSymbolicLink() || !stat.isFile()) {
+    throw new Error(`Refusing to read symlink or non-regular resource manifest: ${manifestPath}`)
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(fs.readFileSync(manifestPath, "utf8"))
+  } catch {
+    return []
+  }
+  if (!isPlainObject(parsed) ||
+      parsed.owner !== RESOURCE_EXPORT_MANIFEST_OWNER ||
+      parsed.version !== RESOURCE_EXPORT_MANIFEST_VERSION ||
+      !Array.isArray(parsed.resources)) return []
+  if (parsed.resources.some(entry => typeof entry !== "string")) return []
+  return parsed.resources as string[]
+}
+
+/**
+ * Accept only relative paths inside roots this exporter owns. Absolute paths,
+ * backslashes, `..`, and unrelated locations (agents/, opencode.json, the
+ * manifest itself) are rejected so a corrupted manifest cannot delete them.
+ */
+function normalizeManifestRelative(entry: string): string | null {
+  if (typeof entry !== "string" || entry.includes("\\") || entry.includes("\0")) return null
+  if (!entry || path.posix.isAbsolute(entry)) return null
+  const parts = entry.split("/")
+  if (parts.some(part => part === "" || part === "." || part === "..")) return null
+  if (!(EXPORTER_OWNED_RESOURCE_ROOTS as readonly string[]).includes(parts[0])) return null
+  return parts.join("/")
+}
+
+/**
+ * Delete only regular files recorded in a previous manifest that the current
+ * complete export no longer ships. Each file is copied into `backupPath` first
+ * so a later failure can restore it. Symlinks are never followed or removed; a
+ * directory is removed only when a deletion leaves it empty.
+ */
+function pruneStaleResourceFiles(
+  opencodeRoot: string,
+  previous: string[],
+  next: ReadonlySet<string>,
+  backupPath: string,
+  removed: string[]
+): void {
+  const root = path.resolve(opencodeRoot)
+  for (const entry of previous) {
+    const relative = normalizeManifestRelative(entry)
+    if (!relative || relative === RESOURCE_EXPORT_MANIFEST || next.has(relative)) continue
+
+    const parts = relative.split("/")
+    let current = root
+    let regularFile = false
+    for (const [index, part] of parts.entries()) {
+      current = path.join(current, part)
+      const stat = fs.lstatSync(current, { throwIfNoEntry: false })
+      if (!stat || stat.isSymbolicLink()) break
+      if (index < parts.length - 1) {
+        if (!stat.isDirectory()) break
+      } else if (stat.isFile()) {
+        regularFile = true
+      }
+    }
+    if (!regularFile) continue
+
+    const saved = path.join(backupPath, ...parts)
+    fs.mkdirSync(path.dirname(saved), { recursive: true })
+    fs.copyFileSync(current, saved)
+    fs.chmodSync(saved, fs.statSync(current).mode & 0o7777)
+    fs.unlinkSync(current)
+    removed.push(relative)
+    let parent = path.dirname(current)
+    while (parent !== root && parent.startsWith(`${root}${path.sep}`)) {
+      try {
+        if (fs.readdirSync(parent).length > 0) break
+        fs.rmdirSync(parent)
+      } catch {
+        break
+      }
+      parent = path.dirname(parent)
+    }
+  }
+}
+
+function restorePrunedResourceFiles(opencodeRoot: string, backupPath: string, removed: string[]): string[] {
+  const errors: string[] = []
+  for (const relative of removed) {
+    try {
+      const saved = path.join(backupPath, ...relative.split("/"))
+      const destination = path.join(opencodeRoot, ...relative.split("/"))
+      fs.mkdirSync(path.dirname(destination), { recursive: true })
+      fs.copyFileSync(saved, destination)
+      fs.chmodSync(destination, fs.statSync(saved).mode & 0o7777)
+    } catch (error: any) {
+      errors.push(`${relative}: ${error?.message || error}`)
+    }
+  }
+  return errors
+}
+
+function writeResourceExportManifest(opencodeRoot: string, resources: string[]): void {
+  const manifestPath = path.join(opencodeRoot, RESOURCE_EXPORT_MANIFEST)
+  const bytes = Buffer.from(JSON.stringify({
+    owner: RESOURCE_EXPORT_MANIFEST_OWNER,
+    version: RESOURCE_EXPORT_MANIFEST_VERSION,
+    resources
+  }, null, 2) + "\n", "utf8")
+  const stat = fs.lstatSync(manifestPath, { throwIfNoEntry: false })
+  if (stat) {
+    if (stat.isSymbolicLink() || !stat.isFile()) {
+      throw new Error(`Refusing to replace symlink or non-regular resource manifest: ${manifestPath}`)
+    }
+    if (fs.readFileSync(manifestPath).equals(bytes)) return
+  }
+  atomicWriteRestrictedFile(manifestPath, bytes, 0o600)
+}
+
+/**
+ * Reconcile the manifest after an export. Only a complete export may delete
+ * stale resources; a partial export unions the previous entries so another
+ * category's resources survive. Records deleted paths in `removed` so the
+ * caller can roll them back if the manifest write fails.
+ */
+function reconcileResourceManifest(
+  opencodeRoot: string,
+  installedRelatives: Iterable<string>,
+  options: { completeExport: boolean; backupPath: string; removed: string[] }
+): boolean {
+  const next = [...new Set([...installedRelatives].map(relative => relative.replace(/\\/g, "/")))]
+    .filter(relative => relative !== RESOURCE_EXPORT_MANIFEST)
+    .sort((a, b) => a.localeCompare(b))
+  const previous = readResourceExportManifest(opencodeRoot)
+  if (!options.completeExport) {
+    const union = [...new Set([...previous.map(relative => relative.replace(/\\/g, "/")), ...next])]
+      .filter(relative => relative !== RESOURCE_EXPORT_MANIFEST)
+      .sort((a, b) => a.localeCompare(b))
+    if (union.length === 0) return false
+    writeResourceExportManifest(opencodeRoot, union)
+    return false
+  }
+  if (next.length === 0 && previous.length === 0) return false
+  pruneStaleResourceFiles(opencodeRoot, previous, new Set(next), options.backupPath, options.removed)
+  writeResourceExportManifest(opencodeRoot, next)
+  return options.removed.length > 0
+}
+
+function copyDomainResources(sourceRoot: string, opencodeRoot: string, agents: AgentInfo[], completeExport: boolean): { installed: string[]; backupPath: string | null; managed: string[] } {
   const canonicalRoot = path.resolve(sourceRoot)
   const bundles = new Map<string, { domains: Set<string>; agents: AgentInfo[] }>()
   for (const agent of agents) {
@@ -2596,7 +2755,28 @@ function copyDomainResources(sourceRoot: string, opencodeRoot: string, agents: A
     }
   }
   const resources = [...sources].map(([relative, source]) => ({ source, relative }))
-  if (resources.length === 0) return { installed: [], backupPath: null }
+  const managed = resources.map(resource => resource.relative).sort((a, b) => a.localeCompare(b))
+  // An export that copied no agent cannot know the installed set; leave the
+  // previous manifest and its resources alone.
+  if (agents.length === 0) return { installed: [], backupPath: null, managed }
+
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-")
+  const backupPath = path.join(opencodeRoot, `resource_export_backup_${timestamp}_${randomBytes(4).toString("hex")}`)
+  const removed: string[] = []
+  let backupCreated = false
+  const reconcile = (): void => {
+    if (reconcileResourceManifest(opencodeRoot, managed, { completeExport, backupPath, removed })) backupCreated = true
+  }
+  const reconcileOrRollback = (error: any): never => {
+    const rollbackErrors = restorePrunedResourceFiles(opencodeRoot, backupPath, removed)
+    const detail = rollbackErrors.length ? `; rollback incomplete: ${rollbackErrors.join("; ")}` : "; rollback completed"
+    throw new Error(`${error?.message || error}${detail}${removed.length > 0 ? `; backup: ${backupPath}` : ""}`)
+  }
+
+  if (resources.length === 0) {
+    try { reconcile() } catch (error: any) { reconcileOrRollback(error) }
+    return { installed: [], backupPath: backupCreated ? backupPath : null, managed }
+  }
 
   const pending: typeof resources = []
   for (const resource of resources) {
@@ -2615,14 +2795,14 @@ function copyDomainResources(sourceRoot: string, opencodeRoot: string, agents: A
       (sourceStat.mode & 0o7777) === (target.mode & 0o7777)) continue
     pending.push(resource)
   }
-  if (pending.length === 0) return { installed: [], backupPath: null }
+  if (pending.length === 0) {
+    try { reconcile() } catch (error: any) { reconcileOrRollback(error) }
+    return { installed: [], backupPath: backupCreated ? backupPath : null, managed }
+  }
 
   const staging = fs.mkdtempSync(path.join(opencodeRoot, ".resource-export-stage-"))
-  const timestamp = new Date().toISOString().replace(/[:.]/g, "-")
-  const backupPath = path.join(opencodeRoot, `resource_export_backup_${timestamp}_${randomBytes(4).toString("hex")}`)
   const existing: string[] = []
   const installed: string[] = []
-  let backupCreated = false
 
   try {
     for (const resource of pending) {
@@ -2652,6 +2832,7 @@ function copyDomainResources(sourceRoot: string, opencodeRoot: string, agents: A
       installed.push(resource.relative)
       fs.renameSync(path.join(staging, resource.relative), destination)
     }
+    reconcile()
     if (backupCreated) {
       const backups = fs.readdirSync(opencodeRoot, { withFileTypes: true })
         .filter(entry => /^resource_export_backup_/.test(entry.name) && entry.isDirectory())
@@ -2659,9 +2840,9 @@ function copyDomainResources(sourceRoot: string, opencodeRoot: string, agents: A
         .sort((a, b) => a.mtime - b.mtime || a.name.localeCompare(b.name))
       for (const old of backups.slice(0, Math.max(0, backups.length - MAX_RESOURCE_BACKUPS))) fs.rmSync(old.path, { recursive: true, force: true })
     }
-    return { installed: pending.map(resource => path.join(opencodeRoot, resource.relative)), backupPath: backupCreated ? backupPath : null }
+    return { installed: pending.map(resource => path.join(opencodeRoot, resource.relative)), backupPath: backupCreated ? backupPath : null, managed }
   } catch (error: any) {
-    const rollbackErrors: string[] = []
+    const rollbackErrors = restorePrunedResourceFiles(opencodeRoot, backupPath, removed)
     for (const relative of installed.reverse()) {
       try {
         const destination = path.join(opencodeRoot, relative)
@@ -2675,11 +2856,12 @@ function copyDomainResources(sourceRoot: string, opencodeRoot: string, agents: A
         rollbackErrors.push(`${relative}: ${rollbackError?.message || rollbackError}`)
       }
     }
-    if (!backupCreated && fs.existsSync(backupPath)) {
+    const hasBackup = backupCreated || removed.length > 0
+    if (!hasBackup && fs.existsSync(backupPath)) {
       try { fs.rmSync(backupPath, { recursive: true, force: true }) } catch {}
     }
     const detail = rollbackErrors.length ? `; rollback incomplete: ${rollbackErrors.join("; ")}` : "; rollback completed"
-    throw new Error(`${error?.message || error}${detail}${backupCreated ? `; backup: ${backupPath}` : ""}`)
+    throw new Error(`${error?.message || error}${detail}${hasBackup ? `; backup: ${backupPath}` : ""}`)
   } finally {
     fs.rmSync(staging, { recursive: true, force: true })
   }
@@ -2715,11 +2897,13 @@ export interface ExportOptions {
   stackDirectory?: string
   homeDirectory?: string
   env?: NodeJS.ProcessEnv
+  /** True only when this export covers every installed agent (no category/selection filter). */
+  completeExport?: boolean
 }
 
 export interface ExportResult {
   exported: string[]
-  backupPath: string
+  backupPath: string | null
   destinationPath: string
   skipped: string[]
   domainResources: string[]
@@ -2981,8 +3165,39 @@ export function ensureOpenCodeExperimentalTodo(
 }
 
 /**
+ * Normalize only the MCP section of a config heading to V2: flat `mcp` becomes
+ * `mcp.servers`, `enabled:false` becomes `disabled:true`, and `enabled` is
+ * dropped. Every other top-level key and server field is preserved verbatim.
+ */
+function normalizeExportedMcpConfig(config: Record<string, any>): Record<string, any> {
+  if (!isPlainObject(config.mcp)) return config
+  const normalized = normalizeMcpConfig(config)
+  const servers = normalized.mcp.servers as Record<string, any>
+  for (const [name, server] of Object.entries(servers)) {
+    if (isPlainObject(server)) servers[name] = setServerDisabled(server, isServerDisabled(server))
+  }
+  return normalized
+}
+
+/**
+ * Pipeline agents deny `execute`, so a local server left in codemode would
+ * expose no tools to them. Default local servers to codemode: false without
+ * overriding an explicit choice; remote servers never carry the field.
+ */
+function applyLocalCodemodePolicy(config: Record<string, any>): void {
+  const servers = isPlainObject(config.mcp) && isPlainObject(config.mcp.servers) ? config.mcp.servers : undefined
+  if (!servers) return
+  for (const server of Object.values(servers)) {
+    if (isPlainObject(server) && server.type === "local" && !Object.prototype.hasOwnProperty.call(server, "codemode")) {
+      server.codemode = false
+    }
+  }
+}
+
+/**
  * Safely and idempotently register exported plugin paths in opencode.json,
  * backing up any pre-existing opencode.json to opencode.json.bak with 0600 permissions.
+ * When the reconciled config is byte-identical the file and its backup are untouched.
  */
 export function mergeOpenCodePluginsConfig(
   opencodeRoot: string,
@@ -2992,15 +3207,12 @@ export function mergeOpenCodePluginsConfig(
   const opened = openOpenCodeConfig(resolvedOpenCodeRoot, "opencode.json", { backup: true, parse: true })
 
   let config: Record<string, any>
-  let createdBackup: string | null = null
   if (opened.rawBytes !== null) {
     const obj = opened.config as Record<string, any>
     if (obj.plugins !== undefined && (!Array.isArray(obj.plugins) || obj.plugins.some((item: any) =>
       typeof item !== "string" && (!item || typeof item !== "object" || Array.isArray(item) || typeof item.package !== "string")))) {
       throw new Error(`Invalid "plugins" field in opencode.json; expected plugin strings or package objects: ${opened.configPath}`)
     }
-    atomicWriteRestrictedFile(opened.backupPath, opened.rawBytes, 0o600)
-    createdBackup = opened.backupPath
     config = obj
   } else {
     config = {
@@ -3023,7 +3235,10 @@ export function mergeOpenCodePluginsConfig(
     }
   }
   const pluginDirectoryOf = (target: string): string | undefined => {
-    const local = localDirectory(target)
+    let local = localDirectory(target)
+    if (local === undefined && target.replace(/\\/g, "/").startsWith("plugins/")) {
+      local = path.resolve(resolvedOpenCodeRoot, target)
+    }
     if (local === undefined) return undefined
     const base = path.basename(local)
     if (base === "index.ts" || base === "index.js" || base === "index.mjs") return path.dirname(local)
@@ -3032,22 +3247,23 @@ export function mergeOpenCodePluginsConfig(
     if (stat?.isFile() || /\.(?:ts|js|mjs)$/i.test(base)) return path.join(path.dirname(local), base.replace(/\.(?:ts|js|mjs)$/i, ""))
     return local
   }
+  const explicitlyInstalledPluginDirectories = new Set(
+    pluginPaths.map(target => localDirectory(target)).filter((directory): directory is string => directory !== undefined)
+  )
   // OpenCode V2 plugins are directories; emit config-relative directory paths
-  // and never a plugin module file.
+  // and never a plugin module file. An entry whose target is not a real
+  // directory (and is not one being installed by this export) stays verbatim.
   const normalizePluginTarget = (target: string): string => {
     const directory = pluginDirectoryOf(target)
-    if (directory !== undefined) {
-      const relative = path.relative(resolvedOpenCodeRoot, directory)
-      if (relative && relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)) {
-        return `./${relative.split(path.sep).join("/")}`
-      }
-      return directory.split(path.sep).join("/")
+    if (directory === undefined) return target
+    const stat = fs.lstatSync(directory, { throwIfNoEntry: false })
+    const realDirectory = !!stat && stat.isDirectory() && !stat.isSymbolicLink()
+    if (!realDirectory && !explicitlyInstalledPluginDirectories.has(directory)) return target
+    const relative = path.relative(resolvedOpenCodeRoot, directory)
+    if (relative && relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)) {
+      return `./${relative.split(path.sep).join("/")}`
     }
-    const normalized = target.replace(/\\/g, "/")
-    if (normalized.startsWith("plugins/")) {
-      return `./${normalized.replace(/\/index\.(?:ts|js|mjs)$/i, "").replace(/\.(?:ts|js|mjs)$/i, "")}`
-    }
-    return target
+    return directory.split(path.sep).join("/")
   }
   const packageName = (directory: string): string | undefined => {
     try {
@@ -3103,9 +3319,19 @@ export function mergeOpenCodePluginsConfig(
   }
   config.plugins = existingPlugins
 
-  const updatedBytes = Buffer.from(JSON.stringify(config, null, 2) + "\n", "utf8")
+  // Emit V2 MCP shape only; every other top-level key and server field is
+  // preserved verbatim so an export never drops user configuration.
+  const normalized = normalizeExportedMcpConfig(config)
+  applyLocalCodemodePolicy(normalized)
+  const plugins = ((normalized.plugins ?? []) as PluginEntry[]).map(targetOf)
+
+  const updatedBytes = Buffer.from(JSON.stringify(normalized, null, 2) + "\n", "utf8")
+  if (opened.rawBytes !== null && updatedBytes.equals(opened.rawBytes)) {
+    return { configPath: opened.configPath, backupPath: null, plugins }
+  }
+  if (opened.rawBytes !== null) atomicWriteRestrictedFile(opened.backupPath, opened.rawBytes, 0o600)
   atomicWriteRestrictedFile(opened.configPath, updatedBytes, 0o600)
-  return { configPath: opened.configPath, backupPath: createdBackup, plugins: existingPlugins.map(targetOf) }
+  return { configPath: opened.configPath, backupPath: opened.rawBytes !== null ? opened.backupPath : null, plugins }
 }
 
 /**
@@ -3169,6 +3395,8 @@ export function provisionExportedOntologyPlugins(
     env?: NodeJS.ProcessEnv
     domains?: string[]
     homeDirectory?: string
+    /** Config-relative plugin directories installed as companion resources. */
+    companionPluginDirectories?: string[]
   } = {}
 ): PluginProvisionResult {
   const resolvedOpenCodeRoot = path.resolve(opencodeRoot)
@@ -3203,7 +3431,9 @@ export function provisionExportedOntologyPlugins(
   const installed: string[] = []
   const skipped: string[] = []
   const failed: Array<{ plugin: string; error: string }> = []
-  const pluginRelatives = sortedPlugins.map(name => `./tools/ontology/${name}`)
+  const ontologyPluginRelatives = sortedPlugins.map(name => `./tools/ontology/${name}`)
+  const companionPluginDirectories = options.companionPluginDirectories ?? []
+  const configPluginPaths = [...new Set([...ontologyPluginRelatives, ...companionPluginDirectories])]
 
   for (const name of sortedPlugins) {
     const pluginDir = path.join(resolvedOpenCodeRoot, "tools", "ontology", name)
@@ -3239,8 +3469,8 @@ export function provisionExportedOntologyPlugins(
   let opencodeConfigPath: string | null = null
   let opencodeConfigBackupPath: string | null = null
   let registeredPlugins: string[] = []
-  if (pluginRelatives.length > 0) {
-    const merged = mergeOpenCodePluginsConfig(resolvedOpenCodeRoot, pluginRelatives)
+  if (configPluginPaths.length > 0 || options.companionPluginDirectories !== undefined) {
+    const merged = mergeOpenCodePluginsConfig(resolvedOpenCodeRoot, configPluginPaths)
     opencodeConfigPath = merged.configPath
     opencodeConfigBackupPath = merged.backupPath
     registeredPlugins = merged.plugins
@@ -3249,7 +3479,7 @@ export function provisionExportedOntologyPlugins(
   let ontologyStackConfigPath: string | null = null
   let ontologyStackDirectory: string | null = null
   let ontologyStackWarning: string | undefined
-  if (options.stackDirectory !== undefined || pluginRelatives.length > 0) {
+  if (options.stackDirectory !== undefined || ontologyPluginRelatives.length > 0) {
     const expandedExplicitDirectory = options.stackDirectory !== undefined && options.stackDirectory.trim() !== ""
       ? expandStackDirectoryPath(options.stackDirectory, options.homeDirectory ?? os.homedir())
       : undefined
@@ -3376,21 +3606,6 @@ export function exportAgents(
   if (destinationStat && (destinationStat.isSymbolicLink() || !destinationStat.isDirectory())) throw new Error(`Invalid agent destination directory: ${destinationPath}`)
   if (resourceSourceRoot) validateResourceRoot(resourceSourceRoot)
 
-  // Create disaster-recovery backup of current destination (if it exists)
-  if (destinationStat) {
-    const tempBackupPath = preflight.tempBackupPath
-    try {
-      fs.cpSync(destinationPath, tempBackupPath, { recursive: true })
-      if (fs.existsSync(resolvedBackupPath)) {
-        fs.rmSync(resolvedBackupPath, { recursive: true, force: true })
-      }
-      fs.renameSync(tempBackupPath, resolvedBackupPath)
-    } catch (error) {
-      if (fs.existsSync(tempBackupPath)) fs.rmSync(tempBackupPath, { recursive: true, force: true })
-      throw error
-    }
-  }
-
   // Ensure destination directory exists
   if (!fs.existsSync(destinationPath)) {
     fs.mkdirSync(destinationPath, { recursive: true })
@@ -3400,6 +3615,25 @@ export function exportAgents(
   const skipped: string[] = []
   const successfulAgents: AgentInfo[] = []
   const writtenAgents: Array<{ filename: string; targetFile: string; existed: boolean }> = []
+  let destinationBackedUp = false
+
+  // Disaster-recovery backup is only material when an agent file is replaced;
+  // an idempotent export leaves the previous backup untouched.
+  const backupDestination = () => {
+    if (destinationBackedUp || !destinationStat) return
+    const tempBackupPath = preflight.tempBackupPath
+    try {
+      fs.cpSync(destinationPath, tempBackupPath, { recursive: true })
+      if (fs.existsSync(resolvedBackupPath)) {
+        fs.rmSync(resolvedBackupPath, { recursive: true, force: true })
+      }
+      fs.renameSync(tempBackupPath, resolvedBackupPath)
+      destinationBackedUp = true
+    } catch (error) {
+      if (fs.existsSync(tempBackupPath)) fs.rmSync(tempBackupPath, { recursive: true, force: true })
+      throw error
+    }
+  }
 
   try {
     for (const agent of toExport) {
@@ -3420,6 +3654,7 @@ export function exportAgents(
             continue
           }
           fs.chmodSync(stagedTarget, sourceStat.mode & 0o7777)
+          backupDestination()
           writtenAgents.push({ filename: sanitizeFilename(agent.filename), targetFile, existed: !!targetStat })
           fs.renameSync(stagedTarget, targetFile)
         } finally {
@@ -3444,11 +3679,11 @@ export function exportAgents(
     throw error
   }
 
-  let resourceResult: { installed: string[]; backupPath: string | null }
+  let resourceResult: { installed: string[]; backupPath: string | null; managed: string[] }
   try {
       resourceResult = resourceSourceRoot
-      ? copyDomainResources(resourceSourceRoot, opencodeRoot, successfulAgents)
-      : { installed: [], backupPath: null }
+      ? copyDomainResources(resourceSourceRoot, opencodeRoot, successfulAgents, options.completeExport === true)
+      : { installed: [], backupPath: null, managed: [] }
   } catch (error: any) {
     const rollbackErrors: string[] = []
     for (const written of writtenAgents.reverse()) {
@@ -3485,6 +3720,10 @@ export function exportAgents(
     repoRoot = path.basename(parent) === "agents" ? path.dirname(parent) : parent
   }
 
+  const companionPluginDirectories = resourceResult.managed
+    .filter(relative => /^plugins\/[^/]+\/index\.ts$/.test(relative))
+    .map(relative => `./${relative.replace(/\/index\.ts$/, "")}`)
+
   let pluginProvisioning: PluginProvisionResult | undefined
   if (resourceSourceRoot || options.stackDirectory !== undefined) {
     try {
@@ -3496,6 +3735,7 @@ export function exportAgents(
         sourceRoot: resourceSourceRoot,
         env: options.env,
         domains,
+        companionPluginDirectories: resourceSourceRoot ? companionPluginDirectories : undefined,
       })
     } catch (error: any) {
       // Agents and companion resources are already exported; a config write
@@ -3524,7 +3764,7 @@ export function exportAgents(
 
   return {
     exported,
-    backupPath: resolvedBackupPath,
+    backupPath: destinationBackedUp ? resolvedBackupPath : null,
     destinationPath,
     skipped,
     domainResources: resourceResult.installed,
