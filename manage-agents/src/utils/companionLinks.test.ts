@@ -5,7 +5,7 @@ import path from "node:path"
 import test from "node:test"
 import { fileURLToPath } from "node:url"
 import { DEFAULT_COMPANION_LINKS, discoverAvailableCategoryCompanionItems, getCategoryCompanionLinks, updateCategoryCompanionLinks } from "./companionLinks.js"
-import { loadCategoryManifest, validateCategoryManifest } from "./categoryDistribution.js"
+import { buildCategoryDistribution, loadCategoryManifest, validateCategoryManifest } from "./categoryDistribution.js"
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..")
 
@@ -112,6 +112,212 @@ test("DEFAULT_COMPANION_LINKS includes wiki and updateCategoryCompanionLinks syn
     wikiSkillsIncluded: [true, true, true],
     manifestHasSlideTools: true
   })
+})
+
+test("updateCategoryCompanionLinks syncs linked resources and transitive tool dependencies", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "companion-links-resources-"))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+
+  const categories = path.join(root, ".agent-manager", "categories")
+  const source = path.join(root, "src")
+  fs.mkdirSync(categories, { recursive: true })
+  fs.mkdirSync(path.join(source, "plugins", "doc-tools"), { recursive: true })
+  fs.mkdirSync(path.join(source, "skills", "docs-design"), { recursive: true })
+  fs.mkdirSync(path.join(source, "tools"), { recursive: true })
+  fs.writeFileSync(path.join(source, "plugins", "doc-tools", "index.ts"), "export {}\n")
+  fs.writeFileSync(path.join(source, "skills", "docs-design", "SKILL.md"), "# Docs design\n")
+  fs.writeFileSync(path.join(source, "tools", "doc_create.ts"), 'import "./_python.js"\nopencodePath("_doc_theme.template.css")\n')
+  fs.writeFileSync(path.join(source, "tools", "_python.js"), 'import "./_paths.js"\n')
+  fs.writeFileSync(path.join(source, "tools", "_paths.js"), "export {}\n")
+  fs.writeFileSync(path.join(source, "tools", "_doc_theme.template.css"), "body {}\n")
+
+  fs.writeFileSync(path.join(categories, "docs.json"), JSON.stringify({
+    schemaVersion: 2,
+    distributionVersion: "2.0.0",
+    id: "docs",
+    title: "Documentation",
+    description: "Documentation tools",
+    output: "export/categories/docs",
+    resources: [
+      { kind: "directory", source: "src/plugins/doc-tools", target: "plugins/doc-tools", policy: "text" },
+      { kind: "file", source: "src/tools/doc_create.ts", target: "tools/doc_create.ts", policy: "runtime" }
+    ],
+    generated: []
+  }))
+  fs.writeFileSync(path.join(categories, "wiki.json"), JSON.stringify({
+    schemaVersion: 2,
+    resources: [{ kind: "file", source: "src/skills/wiki-conventions/SKILL.md", target: "skills/wiki-conventions/SKILL.md", policy: "text" }]
+  }))
+  fs.mkdirSync(path.join(source, "skills", "wiki-conventions"), { recursive: true })
+  fs.writeFileSync(path.join(source, "skills", "wiki-conventions", "SKILL.md"), "# Wiki conventions\n")
+
+  updateCategoryCompanionLinks(root, "docs", {
+    plugins: ["plugins/doc-tools"],
+    commands: [],
+    skills: ["skills/docs-design"],
+    tools: ["tools/doc_create.ts"]
+  })
+  updateCategoryCompanionLinks(root, "wiki", {
+    plugins: [],
+    commands: [],
+    skills: ["skills/wiki-conventions"],
+    tools: []
+  })
+
+  const manifest = loadCategoryManifest(root, "docs")
+  const resourcesByTarget = new Map(manifest.resources.map(resource => [resource.target, resource]))
+  assert.equal(resourcesByTarget.get("plugins/doc-tools")?.policy, "text")
+  assert.equal(resourcesByTarget.get("tools/doc_create.ts")?.policy, "runtime")
+  for (const target of ["skills/docs-design", "tools/_python.js", "tools/_paths.js", "tools/_doc_theme.template.css"]) {
+    assert.equal(resourcesByTarget.get(target)?.policy, "text", `${target} should be included as text`)
+  }
+  const wikiResources = JSON.parse(fs.readFileSync(path.join(categories, "wiki.json"), "utf8")).resources
+  assert.deepEqual(wikiResources.map((resource: { target: string }) => resource.target), ["skills/wiki-conventions/SKILL.md"])
+})
+
+test("linked directories with binary files use a safe distribution policy", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "companion-links-binary-directory-"))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+
+  const categories = path.join(root, ".agent-manager", "categories")
+  const source = path.join(root, "src")
+  fs.mkdirSync(categories, { recursive: true })
+  fs.mkdirSync(path.join(source, "tools", "assets"), { recursive: true })
+  fs.writeFileSync(path.join(source, "tools", "assets", "readme.md"), "Asset notes\n")
+  fs.writeFileSync(path.join(source, "tools", "assets", "image.bin"), Buffer.from([0, 255, 128, 1]))
+  fs.writeFileSync(path.join(categories, "docs.json"), JSON.stringify({
+    schemaVersion: 2,
+    distributionVersion: "2.0.0",
+    id: "docs",
+    title: "Documentation",
+    description: "Documentation tools",
+    output: "export/categories/docs",
+    resources: [],
+    generated: []
+  }))
+
+  updateCategoryCompanionLinks(root, "docs", {
+    plugins: [],
+    commands: [],
+    skills: [],
+    tools: ["tools/assets"]
+  })
+
+  const manifest = loadCategoryManifest(root, "docs")
+  const assets = manifest.resources.find(resource => resource.target === "tools/assets")
+  assert.equal(assets?.policy, "mixed")
+  assert.deepEqual(assets?.extensions, [".md"])
+  assert.equal(buildCategoryDistribution(root, "docs").status, "current")
+})
+
+test("linked binary-extension files with valid UTF-8 bytes preserve their bytes", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "companion-links-binary-file-"))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+
+  const categories = path.join(root, ".agent-manager", "categories")
+  const source = path.join(root, "src", "tools")
+  const bytes = Buffer.from("first\r\nsecond\r\n", "utf8")
+  fs.mkdirSync(categories, { recursive: true })
+  fs.mkdirSync(source, { recursive: true })
+  fs.writeFileSync(path.join(source, "payload.bin"), bytes)
+  fs.writeFileSync(path.join(categories, "docs.json"), JSON.stringify({
+    schemaVersion: 2,
+    distributionVersion: "2.0.0",
+    id: "docs",
+    title: "Documentation",
+    description: "Documentation tools",
+    output: "export/categories/docs",
+    resources: [],
+    generated: []
+  }))
+
+  updateCategoryCompanionLinks(root, "docs", {
+    plugins: [],
+    commands: [],
+    skills: [],
+    tools: ["tools/payload.bin"]
+  })
+
+  const manifest = loadCategoryManifest(root, "docs")
+  assert.equal(manifest.resources.find(resource => resource.target === "tools/payload.bin")?.policy, "binary")
+  assert.equal(buildCategoryDistribution(root, "docs").status, "current")
+  assert.deepEqual(fs.readFileSync(path.join(root, "export/categories/docs/tools/payload.bin")), bytes)
+})
+
+test("linked directories replace partial child resources with full directory coverage", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "companion-links-partial-directory-"))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+
+  const categories = path.join(root, ".agent-manager", "categories")
+  const source = path.join(root, "src", "tools", "assets")
+  fs.mkdirSync(categories, { recursive: true })
+  fs.mkdirSync(source, { recursive: true })
+  fs.writeFileSync(path.join(source, "readme.md"), "Asset notes\n")
+  fs.writeFileSync(path.join(source, "details.txt"), "More details\n")
+  fs.writeFileSync(path.join(categories, "docs.json"), JSON.stringify({
+    schemaVersion: 2,
+    distributionVersion: "2.0.0",
+    id: "docs",
+    title: "Documentation",
+    description: "Documentation tools",
+    output: "export/categories/docs",
+    resources: [
+      { kind: "file", source: "src/tools/assets/readme.md", target: "tools/assets/readme.md", policy: "text" }
+    ],
+    generated: []
+  }))
+
+  updateCategoryCompanionLinks(root, "docs", {
+    plugins: [],
+    commands: [],
+    skills: [],
+    tools: ["tools/assets"]
+  })
+
+  const manifest = loadCategoryManifest(root, "docs")
+  assert.deepEqual(manifest.resources.map(resource => [resource.kind, resource.target]), [["directory", "tools/assets"]])
+  assert.doesNotThrow(() => validateCategoryManifest(manifest, root))
+  assert.equal(buildCategoryDistribution(root, "docs").status, "current")
+  assert.equal(fs.readFileSync(path.join(root, "export/categories/docs/tools/assets/readme.md"), "utf8"), "Asset notes\n")
+  assert.equal(fs.readFileSync(path.join(root, "export/categories/docs/tools/assets/details.txt"), "utf8"), "More details\n")
+})
+
+test("linked tool dependencies reconcile an existing source mapped to another target", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "companion-links-target-reconcile-"))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+
+  const categories = path.join(root, ".agent-manager", "categories")
+  const source = path.join(root, "src", "tools")
+  fs.mkdirSync(categories, { recursive: true })
+  fs.mkdirSync(source, { recursive: true })
+  fs.writeFileSync(path.join(source, "main.ts"), 'import "./_helper.js"\nexport {}\n')
+  fs.writeFileSync(path.join(source, "_helper.ts"), "export {}\n")
+  fs.writeFileSync(path.join(categories, "docs.json"), JSON.stringify({
+    schemaVersion: 2,
+    distributionVersion: "2.0.0",
+    id: "docs",
+    title: "Documentation",
+    description: "Documentation tools",
+    output: "export/categories/docs",
+    resources: [
+      { kind: "file", source: "src/tools/main.ts", target: "tools/main.ts", policy: "text" },
+      { kind: "file", source: "src/tools/_helper.ts", target: "tools/legacy_helper.ts", policy: "text" }
+    ],
+    generated: []
+  }))
+
+  updateCategoryCompanionLinks(root, "docs", {
+    plugins: [],
+    commands: [],
+    skills: [],
+    tools: ["tools/main.ts"]
+  })
+
+  const manifest = loadCategoryManifest(root, "docs")
+  const helperResources = manifest.resources.filter(resource => resource.source === "src/tools/_helper.ts")
+  assert.equal(helperResources.length, 1)
+  assert.equal(helperResources[0].target, "tools/_helper.ts")
+  assert.doesNotThrow(() => validateCategoryManifest(manifest, root))
 })
 
 test("updateCategoryCompanionLinks does not sync a manifest outside categories for traversal categories", (t) => {

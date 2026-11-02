@@ -141,6 +141,80 @@ test("check is read-only and reports missing, changed, and extra files", () => {
   assert.deepEqual(fs.readdirSync(dir, { recursive: true }).map(String).sort(), before)
 })
 
+test("check reports relative tool imports and opencodePath assets missing from the manifest", (t) => {
+  const root = fixture(), workspace = path.join(root, "agents"), tools = path.join(workspace, "src", "tools")
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  fs.mkdirSync(tools, { recursive: true })
+  fs.writeFileSync(path.join(tools, "checker.ts"), 'import "./_helper.js"\nopencodePath("_asset.css")\nopencodePath("./missing.css")\nopencodePath("nested", "missing.css")\n')
+  const manifestPath = path.join(workspace, ".agent-manager/categories/wiki.json")
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"))
+  manifest.resources.push({ kind: "file", source: "src/tools/checker.ts", target: "tools/checker.ts", policy: "text" })
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest))
+
+  buildCategoryDistribution(root, "wiki")
+  const manifestBefore = fs.readFileSync(manifestPath)
+  const before = snapshot(output(root))
+  const result = checkCategoryDistribution(root, "wiki")
+
+  assert.equal(result.status, "stale")
+  assert.ok(result.missing.includes("tools/_helper.ts"))
+  assert.ok(result.missing.includes("tools/_asset.css"))
+  assert.ok(result.missing.includes("tools/missing.css"))
+  assert.ok(result.missing.includes("tools/nested/missing.css"))
+  assert.deepEqual(fs.readFileSync(manifestPath), manifestBefore)
+  assert.deepEqual(snapshot(output(root)), before)
+})
+
+test("build reconciles dependencies from listed tools without importing unlisted tools", (t) => {
+  const root = fixture(), workspace = path.join(root, "agents"), tools = path.join(workspace, "src", "tools")
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  fs.mkdirSync(tools, { recursive: true })
+  fs.writeFileSync(path.join(tools, "checker.ts"), 'import "./_auto_helper.js"\nopencodePath("_auto_theme.css")\n')
+  fs.writeFileSync(path.join(tools, "_auto_helper.js"), "export {}\n")
+  fs.writeFileSync(path.join(tools, "_auto_theme.css"), "body {}\n")
+  fs.writeFileSync(path.join(tools, "unlisted.ts"), 'import "./_unlisted_helper.js"\n')
+  fs.writeFileSync(path.join(tools, "_unlisted_helper.js"), "export {}\n")
+  const manifestPath = path.join(workspace, ".agent-manager/categories/wiki.json")
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"))
+  manifest.resources.push({ kind: "file", source: "src/tools/checker.ts", target: "tools/checker.ts", policy: "text" })
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest))
+
+  buildCategoryDistribution(root, "wiki")
+
+  const updatedManifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"))
+  const dependencyTargets = updatedManifest.resources.map((resource: { target: string }) => resource.target)
+  assert.ok(dependencyTargets.includes("tools/_auto_helper.js"))
+  assert.ok(dependencyTargets.includes("tools/_auto_theme.css"))
+  assert.equal(dependencyTargets.includes("tools/_unlisted_helper.js"), false)
+  assert.ok(fs.existsSync(path.join(output(root), "tools/_auto_helper.js")))
+  assert.ok(fs.existsSync(path.join(output(root), "tools/_auto_theme.css")))
+})
+
+test("all-category build reconciles listed tool dependencies before staging", (t) => {
+  const root = fixture(), workspace = path.join(root, "agents"), tools = path.join(workspace, "src", "tools")
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  fs.mkdirSync(tools, { recursive: true })
+  fs.writeFileSync(path.join(tools, "checker.ts"), 'import "./_auto_helper.js"\nopencodePath("_auto_theme.css")\n')
+  fs.writeFileSync(path.join(tools, "_auto_helper.js"), "export {}\n")
+  fs.writeFileSync(path.join(tools, "_auto_theme.css"), "body {}\n")
+  const manifestPath = path.join(workspace, ".agent-manager/categories/wiki.json")
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"))
+  manifest.resources.push({ kind: "file", source: "src/tools/checker.ts", target: "tools/checker.ts", policy: "text" })
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest))
+
+  const results = buildAllCategoryDistributions(root)
+
+  const updatedManifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"))
+  const dependencyTargets = updatedManifest.resources.map((resource: { target: string }) => resource.target)
+  assert.ok(dependencyTargets.includes("tools/_auto_helper.js"))
+  assert.ok(dependencyTargets.includes("tools/_auto_theme.css"))
+  assert.ok(fs.existsSync(path.join(output(root), "tools/_auto_helper.js")))
+  assert.ok(fs.existsSync(path.join(output(root), "tools/_auto_theme.css")))
+  assert.deepEqual(results.map(result => result.status), ["current"])
+  assert.equal(checkCategoryDistribution(root, "wiki").status, "current")
+  assert.equal(fs.existsSync(path.join(workspace, ".agent-manager/category-control/build-all.journal")), false)
+})
+
 test("check reports CRLF category output as stale and changed", () => {
   const root = fixture()
   try {

@@ -1,5 +1,6 @@
 import fs from "node:fs"
 import path from "node:path"
+import { traceRelativeToolDependencies } from "./agents.js"
 import { isWorkspaceRelativePath } from "./pathValidation.js"
 
 export interface CompanionCategoryLinks {
@@ -290,11 +291,104 @@ export function updateCategoryCompanionLinks(
   }
   config.categories[key] = updated
   const savedPath = saveCompanionLinks(workspaceRoot, config)
-  syncCategoryManifestPlugins(workspaceRoot, key, updated.plugins)
+  syncCategoryManifestResources(workspaceRoot, key, updated)
   return savedPath
 }
 
-function syncCategoryManifestPlugins(workspaceRoot: string, category: string, plugins: string[]): void {
+function safeSourceStat(sourceRoot: string, relative: string): fs.Stats | undefined {
+  const normalized = relative.replace(/\\/g, "/")
+  const parts = normalized.split("/")
+  if (!normalized || path.posix.isAbsolute(normalized) || parts.some(part => !part || part === "." || part === "..")) return undefined
+
+  let current = sourceRoot
+  let stat: fs.Stats | undefined
+  for (const [index, part] of parts.entries()) {
+    current = path.join(current, part)
+    try {
+      stat = fs.lstatSync(current)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined
+      throw error
+    }
+    if (stat.isSymbolicLink() || index < parts.length - 1 && !stat.isDirectory()) return undefined
+  }
+  return stat
+}
+
+function sourceFilesUnder(sourceRoot: string, relative: string): string[] {
+  const files: string[] = []
+  relative = relative.replace(/\\/g, "/")
+  const visit = (candidate: string) => {
+    const stat = safeSourceStat(sourceRoot, candidate)
+    if (stat?.isFile()) {
+      files.push(candidate)
+      return
+    }
+    if (!stat || !stat.isDirectory()) return
+    const directory = path.join(sourceRoot, ...candidate.split("/"))
+    for (const name of fs.readdirSync(directory).sort((a, b) => a.localeCompare(b, "und"))) {
+      visit(`${candidate}/${name}`)
+    }
+  }
+  visit(relative)
+  return files
+}
+
+const MIXED_TEXT_EXTENSIONS = new Set([
+  ".cjs", ".css", ".html", ".js", ".json", ".markdown", ".md", ".mjs", ".py", ".sh", ".svg", ".toml", ".ts", ".tsx", ".txt", ".xml", ".xsd", ".yaml", ".yml"
+])
+const TEXT_EXTENSIONS = new Set([
+  ".cjs", ".css", ".html", ".js", ".json", ".markdown", ".md", ".mjs", ".py", ".sh", ".svg", ".toml", ".ts", ".tsx", ".txt", ".xml", ".xsd", ".yaml", ".yml"
+])
+
+function inferredResourcePolicy(
+  sourceRoot: string,
+  relative: string,
+  kind: "file" | "directory"
+): { policy: "text" | "binary" | "mixed"; extensions?: string[] } {
+  const files = kind === "file" ? [relative] : sourceFilesUnder(sourceRoot, relative)
+  const decoded = files.map(file => {
+    const bytes = fs.readFileSync(path.join(sourceRoot, ...file.split("/")))
+    const extension = path.extname(file).toLowerCase()
+    try {
+      if (!TEXT_EXTENSIONS.has(extension) || bytes.includes(0)) return { extension, text: false }
+      new TextDecoder("utf-8", { fatal: true }).decode(bytes)
+      return { extension, text: true }
+    } catch {
+      return { extension, text: false }
+    }
+  })
+  if (decoded.every(file => file.text)) return { policy: "text" }
+  if (kind === "file") return { policy: "binary" }
+
+  const binaryExtensions = new Set(decoded.filter(file => !file.text).map(file => file.extension))
+  const extensions = [...new Set(decoded
+    .filter(file => file.text && MIXED_TEXT_EXTENSIONS.has(file.extension) && !binaryExtensions.has(file.extension))
+    .map(file => file.extension))].sort((a, b) => a.localeCompare(b, "und"))
+  return extensions.length ? { policy: "mixed", extensions } : { policy: "binary" }
+}
+
+function targetCovers(resources: unknown[], relative: string): boolean {
+  return resources.some(resource => {
+    if (!resource || typeof resource !== "object" || Array.isArray(resource)) return false
+    const entry = resource as Record<string, unknown>
+    const target = typeof entry.target === "string" ? entry.target : ""
+    return target === relative || entry.kind === "directory" && relative.startsWith(`${target}/`)
+  })
+}
+
+function isTargetCovered(resources: unknown[], relative: string, sourceRoot: string): boolean {
+  if (targetCovers(resources, relative)) return true
+  if (!safeSourceStat(sourceRoot, relative)?.isDirectory()) return false
+  const files = sourceFilesUnder(sourceRoot, relative)
+  return files.length > 0 && files.every(file => targetCovers(resources, file))
+}
+
+export function syncCategoryManifestResources(
+  workspaceRoot: string,
+  category: string,
+  links?: CompanionCategoryLinks
+): void {
   if (!/^[a-z0-9][a-z0-9_-]*$/.test(category)) return
 
   const managerDirectory = path.resolve(workspaceRoot, ".agent-manager")
@@ -324,6 +418,7 @@ function syncCategoryManifestPlugins(workspaceRoot: string, category: string, pl
   if (categoryManifest.schemaVersion !== 2 || !Array.isArray(categoryManifest.resources)) return
 
   const existingResources = categoryManifest.resources
+  const originalResources = JSON.stringify(existingResources)
   let sourcePrefix = fs.existsSync(path.join(workspaceRoot, "src")) ? "src" : ""
   if (!sourcePrefix) {
     for (const resource of existingResources) {
@@ -339,23 +434,210 @@ function syncCategoryManifestPlugins(workspaceRoot: string, category: string, pl
     }
   }
   if (!sourcePrefix) sourcePrefix = "src"
+  if (!isWorkspaceRelativePath(sourcePrefix) || sourcePrefix === "." || sourcePrefix.includes("/") || sourcePrefix.includes("\\")) sourcePrefix = "src"
+
+  const effectiveLinks = normalizeCategoryLinks(links ?? getCategoryCompanionLinks(workspaceRoot, category))
 
   const nonPluginResources = existingResources.filter(resource => {
     if (!resource || typeof resource !== "object" || Array.isArray(resource)) return true
     const target = (resource as Record<string, unknown>).target
     return typeof target !== "string" || target !== "plugins" && !target.startsWith("plugins/")
   })
-  const pluginResources = plugins.map(pluginRel => {
+  const pluginResources = effectiveLinks.plugins.map(pluginRel => {
     const existing = existingResources.find(resource =>
       resource && typeof resource === "object" && !Array.isArray(resource) &&
       (resource as Record<string, unknown>).target === pluginRel
     )
     return existing ?? { kind: "directory", source: `${sourcePrefix}/${pluginRel}`, target: pluginRel, policy: "runtime" }
   })
-  const resources = [...nonPluginResources, ...pluginResources]
-  if (JSON.stringify(resources) === JSON.stringify(existingResources)) return
+
+  let resources = [...nonPluginResources, ...pluginResources]
+  const sourceRoot = path.join(workspaceRoot, sourcePrefix)
+  let sourceRootStat: fs.Stats | undefined
+  try {
+    sourceRootStat = fs.lstatSync(sourceRoot)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+  }
+  if (sourceRootStat && sourceRootStat.isDirectory() && !sourceRootStat.isSymbolicLink()) {
+    for (const group of ["commands", "skills", "tools"] as const) {
+      for (const relative of effectiveLinks[group]) {
+        if (isTargetCovered(resources, relative, sourceRoot)) continue
+        const stat = safeSourceStat(sourceRoot, relative)
+        if (!stat || !stat.isDirectory() && !stat.isFile()) continue
+        const source = `${sourcePrefix}/${relative}`
+        const kind = stat.isDirectory() ? "directory" : "file"
+        if (kind === "directory") {
+          const sourcePrefixForChildren = `${source}/`
+          resources = resources.filter(resource => {
+            if (!resource || typeof resource !== "object" || Array.isArray(resource)) return true
+            const entry = resource as Record<string, unknown>
+            const target = typeof entry.target === "string" ? entry.target : ""
+            const childSource = typeof entry.source === "string" ? entry.source : ""
+            return !target.startsWith(`${relative}/`) && !childSource.startsWith(sourcePrefixForChildren)
+          })
+        }
+        const existingSource = resources.find(resource =>
+          resource && typeof resource === "object" && !Array.isArray(resource) &&
+          (resource as Record<string, unknown>).source === source
+        )
+        if (existingSource && typeof existingSource === "object" && !Array.isArray(existingSource)) {
+          (existingSource as Record<string, unknown>).target = relative
+          continue
+        }
+        resources.push({
+          kind,
+          source,
+          target: relative,
+          ...inferredResourcePolicy(sourceRoot, relative, kind)
+        })
+      }
+    }
+
+    const seedFiles = new Set<string>()
+    for (const resource of resources) {
+      if (!resource || typeof resource !== "object" || Array.isArray(resource)) continue
+      const entry = resource as Record<string, unknown>
+      const target = typeof entry.target === "string" ? entry.target : ""
+      if (!/^(?:plugins|tools)\/.+/.test(target)) continue
+      if (entry.kind === "file") {
+        if (safeSourceStat(sourceRoot, target)?.isFile()) seedFiles.add(target)
+      } else if (entry.kind === "directory") {
+        for (const file of sourceFilesUnder(sourceRoot, target)) seedFiles.add(file)
+      }
+    }
+    for (const relative of [...traceRelativeToolDependencies(sourceRoot, seedFiles)].sort((a, b) => a.localeCompare(b, "und"))) {
+      if (isTargetCovered(resources, relative, sourceRoot)) continue
+      if (!safeSourceStat(sourceRoot, relative)?.isFile()) continue
+      const source = `${sourcePrefix}/${relative}`
+      const existingSource = resources.find(resource =>
+        resource && typeof resource === "object" && !Array.isArray(resource) &&
+        (resource as Record<string, unknown>).source === source
+      )
+      if (existingSource && typeof existingSource === "object" && !Array.isArray(existingSource)) {
+        (existingSource as Record<string, unknown>).target = relative
+      } else {
+        resources.push({ kind: "file", source, target: relative, ...inferredResourcePolicy(sourceRoot, relative, "file") })
+      }
+    }
+  }
+
+  resources = [...resources.filter(resource => {
+    if (!resource || typeof resource !== "object" || Array.isArray(resource)) return true
+    return (resource as Record<string, unknown>).dependency === undefined
+  }), ...resources.filter(resource => {
+    if (!resource || typeof resource !== "object" || Array.isArray(resource)) return false
+    return (resource as Record<string, unknown>).dependency !== undefined
+  })]
+  if (JSON.stringify(resources) === originalResources) return
 
   categoryManifest.resources = resources
+  fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf-8")
+}
+
+export function syncCategoryManifestTransitiveDependencies(workspaceRoot: string, category: string): void {
+  if (!/^[a-z0-9][a-z0-9_-]*$/.test(category)) return
+
+  const managerDirectory = path.resolve(workspaceRoot, ".agent-manager")
+  const categoriesDirectory = path.resolve(managerDirectory, "categories")
+  const manifestPath = path.resolve(categoriesDirectory, `${category}.json`)
+  const relativeManifestPath = path.relative(categoriesDirectory, manifestPath)
+  if (!relativeManifestPath || relativeManifestPath === ".." || relativeManifestPath.startsWith(`..${path.sep}`) || path.isAbsolute(relativeManifestPath)) return
+
+  try {
+    rejectSymlink(managerDirectory)
+    rejectSymlink(categoriesDirectory)
+    rejectSymlink(manifestPath)
+  } catch {
+    return
+  }
+
+  let manifestStat: fs.Stats
+  try {
+    manifestStat = fs.lstatSync(manifestPath)
+  } catch {
+    return
+  }
+  if (manifestStat.isSymbolicLink() || !manifestStat.isFile()) return
+
+  let manifest: unknown
+  try {
+    manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"))
+  } catch {
+    return
+  }
+  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) return
+
+  const categoryManifest = manifest as Record<string, unknown>
+  if (categoryManifest.schemaVersion !== 2 || !Array.isArray(categoryManifest.resources)) return
+  const resources = categoryManifest.resources as unknown[]
+  let sourcePrefix = "src"
+  const toolResources = resources.filter(resource => {
+    if (!resource || typeof resource !== "object" || Array.isArray(resource)) return false
+    const target = (resource as Record<string, unknown>).target
+    return typeof target === "string" && /^(?:plugins|tools)(?:\/|$)/.test(target)
+  })
+  for (const resource of [...toolResources, ...resources]) {
+    if (!resource || typeof resource !== "object" || Array.isArray(resource)) continue
+    const source = (resource as Record<string, unknown>).source
+    if (typeof source !== "string") continue
+    const normalizedSource = source.replace(/\\/g, "/")
+    const separator = normalizedSource.indexOf("/")
+    if (separator <= 0) continue
+    const candidate = normalizedSource.slice(0, separator)
+    if (isWorkspaceRelativePath(candidate) && !candidate.includes("/") && !candidate.includes("\\")) {
+      sourcePrefix = candidate
+      break
+    }
+  }
+
+  const sourceRoot = path.join(workspaceRoot, sourcePrefix)
+  let sourceRootStat: fs.Stats
+  try {
+    sourceRootStat = fs.lstatSync(sourceRoot)
+  } catch {
+    return
+  }
+  if (!sourceRootStat.isDirectory() || sourceRootStat.isSymbolicLink()) return
+
+  const seedFiles = new Set<string>()
+  for (const resource of resources) {
+    if (!resource || typeof resource !== "object" || Array.isArray(resource)) continue
+    const entry = resource as Record<string, unknown>
+    const source = typeof entry.source === "string" ? entry.source.replace(/\\/g, "/") : ""
+    const target = typeof entry.target === "string" ? entry.target : ""
+    if (!/^(?:plugins|tools)(?:\/|$)/.test(target) || !source.startsWith(`${sourcePrefix}/`)) continue
+    const relative = source.slice(sourcePrefix.length + 1)
+    if (!/^(?:plugins|tools)(?:\/|$)/.test(relative)) continue
+    if (entry.kind === "file") {
+      if (safeSourceStat(sourceRoot, relative)?.isFile()) seedFiles.add(relative)
+    } else if (entry.kind === "directory") {
+      for (const file of sourceFilesUnder(sourceRoot, relative)) seedFiles.add(file)
+    }
+  }
+
+  const originalResources = JSON.stringify(resources)
+  const additions: unknown[] = []
+  for (const relative of [...traceRelativeToolDependencies(sourceRoot, seedFiles)].sort((a, b) => a.localeCompare(b, "und"))) {
+    if (isTargetCovered([...resources, ...additions], relative, sourceRoot)) continue
+    if (!safeSourceStat(sourceRoot, relative)?.isFile()) continue
+    additions.push({
+      kind: "file",
+      source: `${sourcePrefix}/${relative}`,
+      target: relative,
+      ...inferredResourcePolicy(sourceRoot, relative, "file")
+    })
+  }
+  if (!additions.length) return
+
+  const updatedResources = [
+    ...resources.filter(resource => !resource || typeof resource !== "object" || Array.isArray(resource) || (resource as Record<string, unknown>).dependency === undefined),
+    ...additions,
+    ...resources.filter(resource => resource && typeof resource === "object" && !Array.isArray(resource) && (resource as Record<string, unknown>).dependency !== undefined)
+  ]
+  if (JSON.stringify(updatedResources) === originalResources) return
+
+  categoryManifest.resources = updatedResources
   fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf-8")
 }
 

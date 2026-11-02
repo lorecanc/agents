@@ -106,6 +106,22 @@ function manifest(overrides: { managerVersion?: string; pipelineVersion?: string
   }
 }
 
+const STRUCTURAL_PIPELINE_INCLUDE = [
+  "src/agents/pipeline-*.md",
+  "src/commands/pipeline-*",
+  "src/plugins/**",
+  "src/tools/**",
+  "src/skills/**",
+  "src/resources/**",
+  "src/docs/mcp-configuration.md"
+]
+
+function structuralPipelineManifest(): any {
+  const config = manifest()
+  config.components.pipelineCore.include = [...STRUCTURAL_PIPELINE_INCLUDE]
+  return config
+}
+
 function writeFile(root: string, relative: string, content: string, mode = 0o644): string {
   const file = path.join(root, ...relative.split("/"))
   fs.mkdirSync(path.dirname(file), { recursive: true })
@@ -124,6 +140,30 @@ function writePipelineSource(root: string, body = "@pipeline-tester\n") {
   writeFile(root, "src/agents/pipeline-orchestrator.md", `---\ndescription: Canonical pipeline\nmodel: fixture/model\n---\n\n${body}`)
   writeFile(root, "src/tools/_pipeline_core.js", "export const pipelineCore = true\n")
   writeFile(root, "src/commands/pipeline-run.md", "Canonical pipeline command\n")
+}
+
+function writeCompanionDiscoverySource(root: string): void {
+  writeFile(root, "src/agents/pipeline-orchestrator.md", "---\ndescription: Pipeline orchestrator\nmodel: fixture/model\n---\n\nPipeline orchestration.\n")
+  writeFile(root, "src/agents/pipeline-executor.md", "---\ndescription: Pipeline executor\nmodel: fixture/model\n---\n\nPipeline execution.\n")
+  writeFile(root, ".agent-manager/companion-links.json", JSON.stringify({
+    version: 1,
+    categories: {
+      pipeline: {
+        plugins: ["plugins/pipeline-tools"],
+        commands: [],
+        skills: ["skills/code-review-antipatterns"],
+        tools: []
+      }
+    }
+  }))
+  writeFile(root, "src/plugins/pipeline-tools/index.ts", "import { create } from \"../../tools/doc_create.js\"\nexport default create\n")
+  writeFile(root, "src/tools/doc_create.ts", "import { helper } from \"./_tool.js\"\nexport default helper\n")
+  writeFile(root, "src/tools/_tool.ts", "import { python } from \"./_python.js\"\nexport default python\n")
+  writeFile(root, "src/tools/_python.js", "export const theme = opencodePath(\"_doc_theme.template.css\")\n")
+  writeFile(root, "src/tools/_doc_theme.template.css", "body {}\n")
+  writeFile(root, "src/tools/docx/scripts/create_document.py", "# unrelated docs tool\n")
+  writeFile(root, "src/skills/code-review-antipatterns/SKILL.md", "# Pipeline skill\n")
+  writeFile(root, "src/skills/wiki-navigate/SKILL.md", "# Wiki skill\n")
 }
 
 function gitCommitAll(root: string): void {
@@ -224,6 +264,43 @@ test("pipelineCore ships V2 plugin directory files", () => {
     assert.equal(fs.readFileSync(path.join(target, ...relative.split("/")), "utf8"), `${relative}\n`)
   }
   assert.equal(fs.existsSync(path.join(target, "src/plugins/pipeline-guard" + ".js")), false)
+})
+
+test("pipelineCore structural companion trees collect linked skills and transitive tool dependencies", () => {
+  const source = createRepo(makeTempRoot(), structuralPipelineManifest())
+  writeCompanionDiscoverySource(source)
+
+  const collected = collectComponentFiles(source, loadSharedSyncManifest(source), "pipelineCore").map(entry => entry.path)
+  for (const relative of [
+    "src/plugins/pipeline-tools/index.ts",
+    "src/tools/doc_create.ts",
+    "src/tools/_tool.ts",
+    "src/tools/_python.js",
+    "src/tools/_doc_theme.template.css",
+    "src/skills/code-review-antipatterns/SKILL.md"
+  ]) assert.ok(collected.includes(relative), `${relative} must be included`)
+  for (const relative of ["src/skills/wiki-navigate/SKILL.md", "src/tools/docx/scripts/create_document.py"]) {
+    assert.equal(collected.includes(relative), false, `${relative} must stay excluded`)
+  }
+})
+
+test("apply accepts discovered tools and skills allowed by structural target trees", () => {
+  const config = structuralPipelineManifest()
+  const source = createRepo(makeTempRoot(), config)
+  const target = createRepo(makeTempRoot(), structuredClone(config))
+  writeCompanionDiscoverySource(source)
+
+  const result = applySharedSync({ sourceRoot: source, targetRoot: target, components: ["pipelineCore"] })
+  for (const relative of [
+    "src/tools/doc_create.ts",
+    "src/tools/_tool.ts",
+    "src/tools/_python.js",
+    "src/tools/_doc_theme.template.css",
+    "src/skills/code-review-antipatterns/SKILL.md"
+  ]) {
+    assert.ok(result.updated.includes(relative), `${relative} must be applied`)
+    assert.equal(fs.readFileSync(path.join(target, ...relative.split("/")), "utf8"), fs.readFileSync(path.join(source, ...relative.split("/")), "utf8"))
+  }
 })
 
 test("release and apply round-trip through a release bundle and reject tampering", () => {

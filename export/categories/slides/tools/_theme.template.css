@@ -1,0 +1,268 @@
+/* ================================================================
+   Theme: {{DESIGN_SYSTEM_NAME}}  |  Mode: {{THEME_MODE}}
+   Compiled by slide_compile_theme from .opencode/office/slides/design/
+   ================================================================ */
+/* ── Design Tokens ─────────────────────────────────────────── */
+:root {
+  --color-bg: {{COLOR_BG}};
+  --color-surface: {{COLOR_SURFACE}};
+  --color-text-primary: {{COLOR_TEXT_PRIMARY}};
+  --color-text-secondary: {{COLOR_TEXT_SECONDARY}};
+  --color-accent: {{COLOR_ACCENT}};
+  --color-accent-secondary: {{COLOR_ACCENT_SECONDARY}};
+  --color-border: {{COLOR_BORDER}};
+
+  /* RGB triplets for alpha compositing */
+  --rgb-accent: {{RGB_ACCENT}};
+  --rgb-accent-secondary: {{RGB_ACCENT_SECONDARY}};
+
+  --font-display: '{{FONT_DISPLAY}}', serif;
+  --font-heading: '{{FONT_HEADING}}', sans-serif;
+  --font-body: '{{FONT_BODY}}', sans-serif;
+  --font-mono: '{{FONT_MONO}}', monospace;
+
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-base: 16px;
+  --text-lg: 18px;
+  --text-xl: 24px;
+  --text-2xl: 32px;
+  --text-3xl: 40px;
+  --text-4xl: 56px;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-full: 9999px;
+
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.1);
+  --shadow-md: 0 4px 6px rgba(0,0,0,0.1);
+  --shadow-lg: 0 10px 20px rgba(0,0,0,0.15);
+
+  /* Grid system */
+  --canvas-w: 1280px;
+  --canvas-h: 720px;
+  --margin-outer: 48px;
+  --margin-inner: 24px;
+  --content-w: 1184px;
+  --content-h: 624px;
+  --zone-header-h: 96px;
+  --zone-body-h: 480px;
+  --zone-footer-h: 48px;
+  --col-unit: 98.67px;
+  --gutter: 24px;
+}
+
+/* ── Canvas ────────────────────────────────────────────────── */
+html, body {
+  width: var(--canvas-w);
+  height: var(--canvas-h);
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* ── Base Elements ─────────────────────────────────────────── */
+body {
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  line-height: 1.5;
+  background: var(--color-bg);
+  color: var(--color-text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading);
+  line-height: 1.2;
+  margin: 0 0 var(--space-md) 0;
+}
+
+h1 { font-size: var(--text-3xl); }
+h2 { font-size: var(--text-2xl); }
+h3 { font-size: var(--text-xl); }
+h4 { font-size: var(--text-lg); }
+
+p { margin: 0 0 var(--space-sm) 0; }
+ul, ol { margin: 0; padding-left: var(--space-lg); }
+li { margin-bottom: var(--space-xs); }
+
+/* ── Utility: Layout ───────────────────────────────────────── */
+.gd-row       { display: flex; flex-direction: row; }
+.gd-col       { display: flex; flex-direction: column; }
+.gd-1         { flex: 1; }
+.gd-center    { display: flex; align-items: center; justify-content: center; }
+.gd-wrap      { display: flex; flex-wrap: wrap; }
+.gd-end       { display: flex; align-items: flex-end; }
+
+.gd-2     { display: flex; gap: var(--space-lg); }
+.gd-3     { display: flex; gap: var(--space-lg); }
+.gd-4     { display: flex; gap: var(--space-md); }
+.gd-col > * + *, .gd-2 > *, .gd-3 > *, .gd-4 > * { flex: 1; min-width: 0; }
+
+.gd-sidebar-l { display: flex; gap: 0; }
+.gd-sidebar-l > :first-child { width: 320px; flex-shrink: 0; }
+.gd-sidebar-l > :last-child  { flex: 1; min-width: 0; }
+
+.gd-sidebar-r { display: flex; gap: 0; }
+.gd-sidebar-r > :first-child { flex: 1; min-width: 0; }
+.gd-sidebar-r > :last-child  { width: 320px; flex-shrink: 0; }
+
+/* Gap */
+.gap-xs  { gap: var(--space-xs); }
+.gap-sm  { gap: var(--space-sm); }
+.gap-md  { gap: var(--space-md); }
+.gap-lg  { gap: var(--space-lg); }
+.gap-xl  { gap: var(--space-xl); }
+.gap-2xl { gap: var(--space-2xl); }
+
+/* Items alignment */
+.items-start    { align-items: flex-start; }
+.items-center   { align-items: center; }
+.items-end      { align-items: flex-end; }
+.justify-center { justify-content: center; }
+.justify-end    { justify-content: flex-end; }
+.justify-between { justify-content: space-between; }
+
+/* ── Utility: Typography ───────────────────────────────────── */
+.h-xl { font-family: var(--font-display); font-size: var(--text-4xl); font-weight: 700; line-height: 1.1; }
+.h-lg { font-family: var(--font-heading); font-size: var(--text-3xl); font-weight: 600; line-height: 1.2; }
+.h-md { font-family: var(--font-heading); font-size: var(--text-2xl); font-weight: 600; line-height: 1.2; }
+.h-sm { font-family: var(--font-heading); font-size: var(--text-xl); font-weight: 500; line-height: 1.3; }
+.b-lg { font-family: var(--font-body); font-size: var(--text-lg); line-height: 1.5; }
+.b-md { font-family: var(--font-body); font-size: var(--text-base); line-height: 1.5; }
+.b-sm { font-family: var(--font-body); font-size: var(--text-sm); line-height: 1.4; }
+.display { font-family: var(--font-display); }
+.mono    { font-family: var(--font-mono); }
+.label   { font-family: var(--font-mono); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.1em; }
+
+.text-left     { text-align: left; }
+.text-center   { text-align: center; }
+.text-right    { text-align: right; }
+.text-accent   { color: var(--color-accent); }
+.text-secondary { color: var(--color-text-secondary); }
+.text-bold     { font-weight: 700; }
+.text-semibold { font-weight: 600; }
+
+/* ── Utility: Spacing ──────────────────────────────────────── */
+/* Full padding */
+.p-xs  { padding: var(--space-xs); }
+.p-sm  { padding: var(--space-sm); }
+.p-md  { padding: var(--space-md); }
+.p-lg  { padding: var(--space-lg); }
+.p-xl  { padding: var(--space-xl); }
+.p-2xl { padding: var(--space-2xl); }
+
+/* X-axis padding */
+.px-xs  { padding-left: var(--space-xs); padding-right: var(--space-xs); }
+.px-sm  { padding-left: var(--space-sm); padding-right: var(--space-sm); }
+.px-md  { padding-left: var(--space-md); padding-right: var(--space-md); }
+.px-lg  { padding-left: var(--space-lg); padding-right: var(--space-lg); }
+.px-xl  { padding-left: var(--space-xl); padding-right: var(--space-xl); }
+.px-2xl { padding-left: var(--space-2xl); padding-right: var(--space-2xl); }
+
+/* Y-axis padding */
+.py-xs  { padding-top: var(--space-xs); padding-bottom: var(--space-xs); }
+.py-sm  { padding-top: var(--space-sm); padding-bottom: var(--space-sm); }
+.py-md  { padding-top: var(--space-md); padding-bottom: var(--space-md); }
+.py-lg  { padding-top: var(--space-lg); padding-bottom: var(--space-lg); }
+.py-xl  { padding-top: var(--space-xl); padding-bottom: var(--space-xl); }
+.py-2xl { padding-top: var(--space-2xl); padding-bottom: var(--space-2xl); }
+
+/* Top padding */
+.pt-xs  { padding-top: var(--space-xs); }
+.pt-sm  { padding-top: var(--space-sm); }
+.pt-md  { padding-top: var(--space-md); }
+.pt-lg  { padding-top: var(--space-lg); }
+.pt-xl  { padding-top: var(--space-xl); }
+.pt-2xl { padding-top: var(--space-2xl); }
+
+/* Bottom margin */
+.mb-xs  { margin-bottom: var(--space-xs); }
+.mb-sm  { margin-bottom: var(--space-sm); }
+.mb-md  { margin-bottom: var(--space-md); }
+.mb-lg  { margin-bottom: var(--space-lg); }
+.mb-xl  { margin-bottom: var(--space-xl); }
+.mb-2xl { margin-bottom: var(--space-2xl); }
+
+/* ── Utility: Surfaces & Borders ───────────────────────────── */
+.bg-accent           { background: var(--color-accent); color: var(--color-bg); }
+.bg-accent-secondary { background: var(--color-accent-secondary); color: var(--color-bg); }
+.bg-surface          { background: var(--color-surface); color: var(--color-text-primary); }
+.bg-dark             { background: var(--color-text-primary); color: var(--color-bg); }
+
+.rounded-sm   { border-radius: var(--radius-sm); }
+.rounded-md   { border-radius: var(--radius-md); }
+.rounded-lg   { border-radius: var(--radius-lg); }
+.rounded-full { border-radius: var(--radius-full); }
+
+.border           { border: 1px solid var(--color-border); }
+.border-accent    { border: 1px solid var(--color-accent); }
+.border-bottom-accent { border-bottom: 2px solid var(--color-accent); }
+
+/* ── Utility: Accent Bars ──────────────────────────────────── */
+.accent-bar-top  { border-top: 3px solid var(--color-accent); }
+.accent-bar-left { border-left: 3px solid var(--color-accent); }
+
+/* ── Utility: Kicker ───────────────────────────────────────── */
+.kicker {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--color-accent);
+}
+
+/* ═══ Grid System ──────────────────────────────────────────── */
+.z-safe {
+  padding: var(--margin-outer);
+  width: var(--canvas-w);
+  height: var(--canvas-h);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
+
+.z-header { min-height: var(--zone-header-h); flex-shrink: 0; }
+.z-body   { flex: 1; }
+.z-footer { min-height: var(--zone-footer-h); flex-shrink: 0; }
+
+.z-bg         { position: absolute; top: 0; left: 0; width: var(--canvas-w); height: var(--canvas-h); }
+.z-bg-layer   { position: absolute; inset: 0; pointer-events: none; }
+.z-bg-pattern { z-index: 0; }
+.z-bg-gradient{ z-index: 1; }
+.z-bg-deco    { z-index: 2; }
+.z-content    { position: relative; z-index: 3; }
+
+.z-grid-full    { display: flex; flex-direction: column; }
+.z-grid-split   { display: flex; gap: var(--gutter); }
+.z-grid-golden  { display: flex; gap: var(--gutter); }
+.z-grid-golden-rev { display: flex; gap: var(--gutter); }
+.z-grid-thirds  { display: flex; gap: var(--gutter); }
+.z-grid-quarters{ display: flex; gap: var(--gutter); }
+.z-grid-split > *, .z-grid-thirds > *, .z-grid-quarters > * { flex: 1; min-width: 0; }
+.z-grid-golden > :first-child { flex: 1.618; min-width: 0; }
+.z-grid-golden > :last-child  { flex: 1; min-width: 0; }
+.z-grid-golden-rev > :first-child { flex: 1; min-width: 0; }
+.z-grid-golden-rev > :last-child  { flex: 1.618; min-width: 0; }
+
+/* ═══ Decoration Classes (Preset) ──────────────────────────── */
+{{PRESET_CSS}}
+
+/* ── @font-face Declarations ───────────────────────────────── */
+{{FONT_FACE_DECLARATIONS}}
+
+/* ── Brand-Specific Interaction Classes ────────────────────── */
+{{BRAND_INTERACTION_CLASSES}}
+
+/* ── Semantic Slide Components ─────────────────────────────── */
+{{SLIDE_COMPONENTS}}

@@ -2,9 +2,9 @@
   "schemaVersion": 2,
   "distributionVersion": "2.0.0",
   "category": "docs",
-  "manifestHash": "1de18863a57f08b21de21020dd7042f821f8970ef8201558722c730e58226bba",
+  "manifestHash": "fc07729bd6236064beaebf0ce452e99c1baf4c8a31ae6cc45af46f7c47bf9994",
   "generatorVersion": "2.0.0",
-  "bundleDigest": "07f8d8fdd9c47a72d721a0023998be0d684a4dd07093780e06434e4880a4a535",
+  "bundleDigest": "69f443ef33ed5d4f18feebc48a21bd61eb77ebcd34bcac2f0bd10eb8e5e09dc8",
   "entries": [
     {
       "target": "AGENTS.md",
@@ -16,7 +16,7 @@
     },
     {
       "target": "README.md",
-      "hash": "828953dc6e2547605c6d5470fd1b50730d6c69375385d3de83d6e99fecea8250"
+      "hash": "78e8f5f3f77d5cb8e9c5f1ca10e80ce3f2b846faaf93399e17aa7b49e02a8b41"
     },
     {
       "target": "agents/docs-html_writer.md",
@@ -59,8 +59,28 @@
       "hash": "414acb018fd989c751ba19db84d6eff335bfe6b948531bc630433a376b6319d9"
     },
     {
+      "target": "skills/docs-design/SKILL.md",
+      "hash": "6b5e3261e9f9b290f951638e1b5a61b1fdeba708be2a2e6224893dcae975f1df"
+    },
+    {
+      "target": "skills/docs-html/SKILL.md",
+      "hash": "ed35ebb2ece34857e83b62321f87f47fe92440f7d690b68624e016e5ce24a0ad"
+    },
+    {
       "target": "skills/docx/SKILL.md",
       "hash": "69fac555a1866f0bd678c80e6392a2636be698ecc146ff53787676c2b8632383"
+    },
+    {
+      "target": "tools/_doc_theme.template.css",
+      "hash": "8b155885811cd44cf51f49ccbd43e9095579e3ca19f3b2e281ad943820bec265"
+    },
+    {
+      "target": "tools/_paths.js",
+      "hash": "03efb87c5c31b2f6f93af3009d43e6635687f1e15630d6f41fa2dc7813780a1a"
+    },
+    {
+      "target": "tools/_python.js",
+      "hash": "93a21d6b4bf29b0a0efc756a2f74b388937e242eac16607452a7e2bd25c45611"
     },
     {
       "target": "tools/_safeName.js",

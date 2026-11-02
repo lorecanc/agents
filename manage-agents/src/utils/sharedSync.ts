@@ -3,6 +3,7 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { spawnSync } from "node:child_process"
+import { discoverCompanionResourcePaths, findAgentFiles } from "./agents.js"
 import { refreshStampedPipelinesFromSource } from "./pipelineProfiles.js"
 import { syncBashProfiles } from "./bashProfiles.js"
 
@@ -94,7 +95,7 @@ function componentPathAllowed(component: SharedComponentId, value: string): bool
   if (component === "agentManager") {
     return value === "manage-agents.sh" || value.startsWith("manage-agents/") || value.startsWith(".agent-manager/")
   }
-  return ["src/agents/pipeline-", "src/commands/pipeline-", "src/plugins/", "src/tools/", "src/docs/"]
+  return ["src/agents/pipeline-", "src/commands/pipeline-", "src/plugins/", "src/tools/", "src/skills/", "src/resources/", "src/docs/"]
     .some(prefix => value.startsWith(prefix))
 }
 
@@ -327,6 +328,36 @@ export function collectComponentFiles(repoRoot: string, manifest: SharedSyncMani
   const component = manifest.components[componentId]
   const excluded = [...component.exclude, ...manifest.localOverlay.neverOverwrite]
   const files = walkFiles(repoRoot, relative => isGlobExcluded(relative, excluded))
+  if (componentId === "pipelineCore") {
+    const BROAD_COMPANION_TREES = new Set(["src/plugins/**", "src/tools/**", "src/skills/**", "src/resources/**"])
+    const explicitPatterns = component.include.filter(pattern => !BROAD_COMPANION_TREES.has(pattern))
+    const discoveredCompanions = new Set<string>()
+    const sourceRoot = path.join(repoRoot, "src")
+    const sourceStat = fs.lstatSync(sourceRoot, { throwIfNoEntry: false })
+    if (sourceStat?.isDirectory() && !sourceStat.isSymbolicLink()) {
+      const agentsDirectory = path.join(sourceRoot, "agents")
+      const agentsStat = fs.lstatSync(agentsDirectory, { throwIfNoEntry: false })
+      const pipelineAgents = agentsStat?.isDirectory() && !agentsStat.isSymbolicLink()
+        ? findAgentFiles(repoRoot, "src").filter(agent => agent.category === "pipeline")
+        : []
+      for (const relative of discoverCompanionResourcePaths(sourceRoot, ["pipeline"], undefined, pipelineAgents)) {
+        discoveredCompanions.add(`src/${relative}`)
+      }
+    }
+    return files
+      .filter(relative => {
+        if (!matchesAny(relative, component.include)) return false
+        if (explicitPatterns.length === component.include.length) return true
+        return matchesAny(relative, explicitPatterns) || discoveredCompanions.has(relative) ||
+          relative === "src/plugins/README.md" ||
+          (/^src\/tools\/(?:[^/]*pipeline[^/]*|_[a-z0-9_.-]+)$/i.test(relative) &&
+            !/\.(?:test|spec)\.[^/]+$/i.test(relative) &&
+            !/^src\/tools\/.*_testutil\./i.test(relative) &&
+            !/\.d\.ts$/i.test(relative))
+      })
+      .sort(compareStrings)
+      .map(relative => fileMetadata(componentId, relative, path.join(repoRoot, ...relative.split("/"))))
+  }
   return files
     .filter(relative => matchesAny(relative, component.include))
     .sort(compareStrings)

@@ -2,7 +2,7 @@
   "schemaVersion": 2,
   "distributionVersion": "2.0.0",
   "category": "slides",
-  "manifestHash": "85eecbddef04419bbad13c5b3ad80935844bdee6eaa0f5c56998623a7fb05acf",
+  "manifestHash": "583dc949945046b158f950f303df90990163d8359cfd70946012dac612f0ac85",
   "generatorVersion": "2.0.0",
   "entries": [
     {
@@ -15,7 +15,7 @@
     },
     {
       "target": "README.md",
-      "hash": "976d99a636a07e7535156c42eadc75d7ac151908093046769980167f5d30e0ab"
+      "hash": "061a93fc12bbc24b0a33729fe206a27ebc5ba2ef194238c0fe27567815180406"
     },
     {
       "target": "THIRD_PARTY_NOTICES.md",
@@ -70,6 +70,18 @@
       "hash": "414acb018fd989c751ba19db84d6eff335bfe6b948531bc630433a376b6319d9"
     },
     {
+      "target": "skills/pptx/SKILL.md",
+      "hash": "e3df72f68d08752d7e1d1a46925bccf25a076cff9ea20f224bd6c08ffb14a08e"
+    },
+    {
+      "target": "skills/pptx/html2pptx.md",
+      "hash": "99dab0c9673992e8fc9ca2d37ff9112d5d51d81d35631ae291bb5ab572bd67b5"
+    },
+    {
+      "target": "skills/pptx/ooxml.md",
+      "hash": "253eb3beafc70ff65408eb1ca62a68a3adb3d58cb6ac5ad9ee43e354a2731ae1"
+    },
+    {
       "target": "skills/slides-composition/SKILL.md",
       "hash": "6f69e79234201f2715858814239955f370191edaa90d265beeb0bf018343db7e"
     },
@@ -78,12 +90,36 @@
       "hash": "95b14bf37fddd12d553cc59e81ffacf5e028c8f71237ac24ebe5d0c8ad653f64"
     },
     {
+      "target": "skills/slides-design/SKILL.md",
+      "hash": "f5c18816c6d37d91fbeca14e8a40ef0592d5f398290f0ca71babe504a1775e3b"
+    },
+    {
+      "target": "skills/slides-html/SKILL.md",
+      "hash": "76c4a849137a0f6ffe16bffb7bd50cd014658608816c74633a926378da22a29b"
+    },
+    {
       "target": "skills/slides-template-html/SKILL.md",
       "hash": "1d166de7e6130bbcd77961e5af39bcec778b1c9960d91dd23f17aa3563c614bf"
     },
     {
+      "target": "skills/slides-theming/SKILL.md",
+      "hash": "e65500e9bbd99d1cf6442e1f179c45ae3bd4a9088758e5f146cdf8003c334917"
+    },
+    {
+      "target": "tools/_paths.js",
+      "hash": "03efb87c5c31b2f6f93af3009d43e6635687f1e15630d6f41fa2dc7813780a1a"
+    },
+    {
+      "target": "tools/_python.js",
+      "hash": "93a21d6b4bf29b0a0efc756a2f74b388937e242eac16607452a7e2bd25c45611"
+    },
+    {
       "target": "tools/_safeName.js",
       "hash": "525d8704ebaa3ea347d916fa302227bfc07d2ae149196dd4dbefa7b51b4399a6"
+    },
+    {
+      "target": "tools/_theme.template.css",
+      "hash": "1270f6f0f78b0c8387b67688cf9930b35a22757cd1a909b3d87c795d5a03cecd"
     },
     {
       "target": "tools/_tool.ts",

@@ -2198,7 +2198,7 @@ function walkFiles(sourceRoot: string, relative: string): string[] {
   return files
 }
 
-function traceRelativeToolDependencies(sourceRoot: string, initialRelPaths: Iterable<string>): Set<string> {
+export function traceRelativeToolDependencies(sourceRoot: string, initialRelPaths: Iterable<string>): Set<string> {
   const traced = new Set<string>()
   const queue = [...initialRelPaths].map(relative => relative.replace(/\\/g, "/"))
   const parsed = new Set<string>()
@@ -2220,19 +2220,32 @@ function traceRelativeToolDependencies(sourceRoot: string, initialRelPaths: Iter
     parsed.add(relative)
     traced.add(relative)
     const source = fs.readFileSync(path.join(sourceRoot, relative), "utf8")
-    const references = new Set<string>()
+    const refs = new Set<string>()
     const imports = /(?:from|import)\s*\(\s*["'](\.[^"']+)["']\s*\)|(?:from|import)\s+["'](\.[^"']+)["']/g
-    for (const match of source.matchAll(imports)) references.add(match[1] || match[2])
-    const assets = /opencodePath\(\s*["']([^"']+)["']\s*\)/g
+    for (const match of source.matchAll(imports)) refs.add(match[1] || match[2])
+    const assets = /opencodePath\(\s*((?:["'][^"']+["']\s*,\s*)*["'][^"']+["'])\s*\)/g
     for (const match of source.matchAll(assets)) {
-      const assetPath = path.posix.join("tools", match[1])
+      const segments = [...match[1].matchAll(/(["'])(.*?)\1/g)].map(literal => literal[2])
+      if (segments[0] === "." || segments[0] === ".." || segments[0].startsWith("../")) continue
+      const joined = path.posix.join(...segments)
+      if (joined === "." || joined === ".." || joined === "") continue
+      const assetPath = path.posix.normalize(path.posix.join("tools", joined))
+      if (!assetPath.startsWith("tools/") || assetPath === "tools") continue
       const stat = safeRelativeStat(sourceRoot, assetPath)
-      if (stat?.isFile() && !isExcludedCompanionFile(assetPath)) {
-        traced.add(assetPath)
-        if (/\.(?:ts|js|mjs)$/i.test(assetPath) && !parsed.has(assetPath)) queue.push(assetPath)
+      if (stat?.isFile()) refs.add(assetPath)
+      else if (stat?.isDirectory()) {
+        for (const file of walkFiles(sourceRoot, assetPath)) {
+          if (!isExcludedCompanionFile(file)) refs.add(file)
+        }
       }
     }
-    for (const reference of references) {
+    for (const reference of refs) {
+      if (reference.startsWith("tools/")) {
+        if (isExcludedCompanionFile(reference) || !safeRelativeStat(sourceRoot, reference)?.isFile()) continue
+        traced.add(reference)
+        if (/\.(?:ts|js|mjs)$/i.test(reference) && !parsed.has(reference)) queue.push(reference)
+        continue
+      }
       const resolved = resolveReference(relative, reference)
       if (resolved && !parsed.has(resolved)) queue.push(resolved)
     }
@@ -2416,6 +2429,7 @@ export interface PipelineResourceProblem {
 
 const PIPELINE_TOOL_KEY = /^pipeline_[a-z0-9_]+$/i
 const RELATIVE_IMPORT = /(?:from|import)\s*\(\s*["'](\.[^"']+)["']\s*\)|(?:from|import)\s+["'](\.[^"']+)["']/g
+const OPENCODE_PATH_CALL = /opencodePath\(\s*((?:["'][^"']+["']\s*,\s*)*["'][^"']+["'])\s*\)/g
 
 /** Relative imports of a tools/ or plugins/ module that do not resolve to a regular file in the same root. */
 function unresolvedRelativeImports(resourceRoot: string, relative: string): string[] {
@@ -2426,6 +2440,14 @@ function unresolvedRelativeImports(resourceRoot: string, relative: string): stri
     const candidate = path.posix.normalize(path.posix.join(path.posix.dirname(relative), reference))
     const candidates = reference.endsWith(".js") ? [candidate, `${candidate.slice(0, -3)}.ts`] : [candidate]
     if (!candidates.some(file => safeRelativeStat(resourceRoot, file)?.isFile())) missing.push(candidate)
+  }
+  for (const match of source.matchAll(OPENCODE_PATH_CALL)) {
+    const segments = [...match[1].matchAll(/(["'])(.*?)\1/g)].map(literal => literal[2])
+    if (segments[0] === "." || segments[0] === ".." || segments[0].startsWith("../")) continue
+    const joined = path.posix.join(...segments)
+    if (joined === "." || joined === ".." || joined === "") continue
+    const asset = path.posix.normalize(path.posix.join("tools", joined))
+    if ((!asset.startsWith("tools/") || asset === "tools" || !safeRelativeStat(resourceRoot, asset)) && !missing.includes(asset)) missing.push(asset)
   }
   return missing
 }
@@ -2464,8 +2486,23 @@ export function checkPipelineResources(
 
   const toolsStat = safeRelativeStat(resourceRoot, "tools")
   if (toolsStat?.isDirectory()) {
-    for (const relative of walkFiles(resourceRoot, "tools")) {
-      if (!/pipeline/i.test(relative) || !/\.(?:ts|js|mjs)$/i.test(relative)) continue
+    const toolsRoot = path.join(resourceRoot, "tools")
+    for (const entry of fs.readdirSync(toolsRoot, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      if (!/\.(?:ts|js|mjs)$/i.test(entry.name) || entry.isDirectory()) continue
+      const relative = `tools/${entry.name}`
+      let stat: fs.Stats | undefined
+      try {
+        stat = safeRelativeStat(resourceRoot, relative)
+      } catch (error) {
+        if (!(error instanceof Error) || !error.message.startsWith("Refusing to export resource symlink: ")) throw error
+        add({ kind: "missing-dependency", path: relative, detail: `${relative} is a symlink and is not shipped as a regular file` })
+        continue
+      }
+      if (!stat?.isFile()) {
+        add({ kind: "missing-dependency", path: relative, detail: `${relative} is not shipped as a regular file` })
+        continue
+      }
+      if (isExcludedCompanionFile(relative)) continue
       for (const missing of unresolvedRelativeImports(resourceRoot, relative)) {
         add({ kind: "missing-dependency", path: missing, detail: `${relative} imports ${missing}, which is not shipped` })
       }

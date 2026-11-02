@@ -3,7 +3,7 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import test from "node:test"
-import { checkPipelineResources, discoverCompanionResourcePaths, exportAgents, findAgentFiles, mergeOpenCodePluginsConfig, organizeAgents } from "./agents.js"
+import { checkPipelineResources, discoverCompanionResourcePaths, exportAgents, findAgentFiles, mergeOpenCodePluginsConfig, organizeAgents, traceRelativeToolDependencies } from "./agents.js"
 import { checkPipelineBundles, refreshStampedPipelinesFromSource } from "./pipelineProfiles.js"
 import { DEFAULT_COMPANION_LINKS } from "./companionLinks.js"
 
@@ -60,6 +60,63 @@ test("pipeline companions include V2 plugin directory files, tools and traced he
   const agents = findAgentFiles(root, "src").filter(agent => agent.category === "pipeline")
   const found = discoverCompanionResourcePaths(path.join(root, "src"), ["pipeline"], undefined, agents)
   assert.deepEqual(found.filter(file => /^(?:tools|plugins)\//.test(file)), PIPELINE_PAYLOAD)
+})
+
+test("plugin-imported tools trace opencodePath assets and transitive helper imports", (t) => {
+  const root = workspace()
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const sourceRoot = path.join(root, "src")
+  write(path.join(sourceRoot, "plugins", "doc-tools", "index.ts"), `import { render } from "../../tools/doc_render.js"\nexport default render\n`)
+  write(path.join(sourceRoot, "tools", "doc_render.ts"), `import { python } from "./_python.js"\nexport const theme = opencodePath("assets", "_doc_theme.template.css")\nexport default python\n`)
+  write(path.join(sourceRoot, "tools", "_python.js"), `import { paths } from "./_paths.js"\nexport const python = paths\n`)
+  write(path.join(sourceRoot, "tools", "_paths.js"), `export const paths = {}\n`)
+  write(path.join(sourceRoot, "tools", "assets", "_doc_theme.template.css"), `body {}\n`)
+
+  const expected = [
+    "plugins/doc-tools/index.ts",
+    "tools/_paths.js",
+    "tools/_python.js",
+    "tools/assets/_doc_theme.template.css",
+    "tools/doc_render.ts"
+  ]
+  assert.deepEqual([...traceRelativeToolDependencies(sourceRoot, ["plugins/doc-tools/index.ts"])].sort(), expected)
+  const agents = findAgentFiles(root, "src").filter(agent => agent.category === "pipeline")
+  const discovered = discoverCompanionResourcePaths(sourceRoot, ["pipeline"], undefined, agents)
+  assert.ok(expected.every(file => discovered.includes(file)))
+})
+
+test("refreshed pipeline profiles include doc and slide runtime assets and report removals", (t) => {
+  const root = workspace()
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const sourceRoot = path.join(root, "src")
+  write(path.join(sourceRoot, "plugins", "doc-tools", "index.ts"), `import "../../tools/doc_runtime.js"\n`)
+  write(path.join(sourceRoot, "plugins", "slide-tools", "index.ts"), `import "../../tools/slide_runtime.js"\n`)
+  write(path.join(sourceRoot, "tools", "doc_runtime.ts"), `opencodePath("docx", "scripts")\n`)
+  write(path.join(sourceRoot, "tools", "docx", "scripts", "convert.py"), `print("convert")\n`)
+  write(path.join(sourceRoot, "tools", "docx", "scripts", "nested", "shared.py"), `print("shared")\n`)
+  write(path.join(sourceRoot, "tools", "slide_runtime.ts"), `opencodePath("pptx", "html2pptx_runner.js")\nopencodePath("pptx", "render_comp_assets.py")\nopencodePath("pptx", "thumbnail.py")\n`)
+  for (const asset of ["html2pptx_runner.js", "render_comp_assets.py", "thumbnail.py"]) {
+    write(path.join(sourceRoot, "tools", "pptx", asset), "runtime asset\n")
+  }
+  write(path.join(root, "export", "categories", "go-pipeline", "agents", "go-pipeline-orchestrator.md"), agentFile({ pipeline_state: "allow" }))
+
+  refreshStampedPipelinesFromSource(root, "go-pipeline")
+
+  const stamped = path.join(root, "export", "categories", "go-pipeline")
+  const agents = findAgentFiles(root, "src").filter(agent => agent.category === "pipeline")
+  const expected = [
+    "tools/docx/scripts/convert.py",
+    "tools/docx/scripts/nested/shared.py",
+    "tools/pptx/html2pptx_runner.js",
+    "tools/pptx/render_comp_assets.py",
+    "tools/pptx/thumbnail.py"
+  ]
+  for (const file of expected) assert.ok(fs.existsSync(path.join(stamped, ...file.split("/"))), file)
+  assert.deepEqual(checkPipelineResources(stamped, agents, { root: sourceRoot, agents }), [])
+
+  fs.unlinkSync(path.join(stamped, "tools", "docx", "scripts", "nested", "shared.py"))
+  const problems = checkPipelineResources(stamped, agents, { root: sourceRoot, agents })
+  assert.ok(problems.some(problem => problem.path === "tools/docx/scripts/nested/shared.py"))
 })
 
 test("OpenCode export installs the V2 plugin directories and all pipeline tools as siblings", () => {
@@ -119,6 +176,42 @@ test("checkPipelineResources reports permitted tools and helper imports that are
     "missing-dependency tools/_pipeline_services.js",
     "missing-tool tools/pipeline_smoke.ts"
   ])
+})
+
+test("checkPipelineResources reports a symlinked top-level tool", (t) => {
+  const root = workspace()
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const sourceRoot = path.join(root, "src")
+  const agents = findAgentFiles(root, "src").filter(agent => agent.category === "pipeline")
+  write(path.join(root, "external-tool.ts"), "export default 1\n")
+  fs.symlinkSync(path.join(root, "external-tool.ts"), path.join(sourceRoot, "tools", "doc_symlink.ts"))
+
+  const problems = checkPipelineResources(sourceRoot, agents)
+  assert.ok(problems.some(problem => problem.kind === "missing-dependency" && problem.path === "tools/doc_symlink.ts"))
+})
+
+test("checkPipelineResources reports missing helpers and opencodePath assets from shipped tools", (t) => {
+  const root = workspace()
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  write(path.join(root, "src", "tools", "doc_broken.ts"), `import { helper } from "./_missing_helper.js"\nexport const theme = opencodePath("./missing.css")\nexport const nestedTheme = opencodePath("nested", "missing.css")\nexport default helper\n`)
+
+  const agents = findAgentFiles(root, "src").filter(agent => agent.category === "pipeline")
+  const problems = checkPipelineResources(path.join(root, "src"), agents)
+  assert.deepEqual(
+    problems.filter(problem => problem.kind === "missing-dependency").map(problem => problem.path).sort(),
+    ["tools/_missing_helper.js", "tools/missing.css", "tools/nested/missing.css"]
+  )
+})
+
+test("checkPipelineResources does not resolve opencodePath assets outside tools/", (t) => {
+  const root = workspace()
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  write(path.join(root, "src", "root_asset.css"), "body {}\n")
+  write(path.join(root, "src", "tools", "doc_nested.ts"), `export const theme = opencodePath("nested/../../root_asset.css")\n`)
+
+  const agents = findAgentFiles(root, "src").filter(agent => agent.category === "pipeline")
+  const problems = checkPipelineResources(path.join(root, "src"), agents)
+  assert.ok(problems.some(problem => problem.kind === "missing-dependency" && problem.path === "root_asset.css"))
 })
 
 test("checkPipelineResources reports a plugin directory without index.ts", () => {
