@@ -10,6 +10,7 @@ source_files:
   - "src/commands/new-slides.md"
   - "src/commands/pipeline-bug.md"
   - "src/commands/pipeline-feature.md"
+  - "src/commands/pipeline-init.md"
   - "src/commands/pipeline-ops.md"
   - "src/commands/pipeline-refactor.md"
   - "src/commands/pipeline-research.md"
@@ -37,7 +38,7 @@ source_files:
   - "src/skills/wiki-templates/SKILL.md"
   - "src/docs/mcp-configuration.md"
 created: "2026-10-16"
-last_updated: "2026-10-16"
+last_updated: "2026-11-02"
 ---
 
 # Workflow Resources
@@ -62,10 +63,16 @@ This module contains reusable workflow instructions that shape how agents handle
 |---------------|----------|-------|
 | Documents | `/new-doc`, `/edit-doc`, `/convert-doc` | Clarify, create, edit, and export documents. |
 | Slides | `/new-slides`, `/fix-slide`, `/polish-slides` | Plan a deck, diagnose slide layout, and refine presentation visuals. |
-| Pipeline | `/pipeline-bug`, `/pipeline-feature`, `/pipeline-ops`, `/pipeline-refactor`, `/pipeline-research` | Route bug fixes, features, diagnostics, behavior-preserving refactors, and research under lane-specific requirements. |
+| Pipeline | `/pipeline-bug`, `/pipeline-feature`, `/pipeline-init`, `/pipeline-ops`, `/pipeline-refactor`, `/pipeline-research` | Route bug fixes, features, verification-contract setup, diagnostics, behavior-preserving refactors, and research under lane-specific requirements. |
 | Other | `/web-audit`, `/ports-plan`, `/wiki` | Browser audits, local-service port inventory/planning, and wiki generation or updates. |
 
 Command files use frontmatter such as `description` and `agent`; their bodies include `$ARGUMENTS` and workflow instructions. For example, `/edit-doc` instructs the document agent to view current content, apply changes with `doc_modify` (prefer batch search/replace), and optionally re-export.
+
+Pipeline commands set `agent: pipeline-orchestrator` and begin with a repository-state block (branch, HEAD, uncommitted files) used as the session baseline. Three of them have specific presets:
+
+- `/pipeline-bug` (`src/commands/pipeline-bug.md`): trivial, small, clear, low-risk bugs with an identified root cause may use Fast Lane, which must run targeted regression verification before returning. Non-trivial, multi-module, ambiguous, or medium/high-risk bugs use at least Standard Lane with the TDD Bug-Fix Modifier, and Hard Reasoning Lane when the cause is unclear, concurrent, or spans modules. Non-trivial or risky bugs run the full `@pipeline-tester (Red) → @pipeline-executor → @pipeline-tester (Green)` protocol; a small, clear, low-risk bug in Standard Lane may have the executor add the regression test alongside the fix.
+- `/pipeline-ops` (`src/commands/pipeline-ops.md`): uses the Ops Lane with `@pipeline-ops` in diagnostic mode (logs, infrastructure state, running services, runtime behavior). Ops never deploys or deletes, and reports `UNVERIFIED` with a cause when a check cannot be completed. If it finds a code defect, it reports it and proposes `/pipeline-bug` instead of fixing it.
+- `/pipeline-init` (`src/commands/pipeline-init.md`): drafts the repository's verification contract `.opencode/pipeline.json`, which gives `pipeline_verify`, `pipeline_smoke` and `pipeline_serve` explicit commands. The orchestrator gathers evidence through `@pipeline-explorer` (README, `AGENTS.md`, package manifests, `Makefile`, CI workflows, `.env.example` variable names only), drafts only evidenced commands, and shows the draft to the user with `question` before `@pipeline-fast_lane` writes the file. Validation then runs through `@pipeline-ops` (empirical-validation mode). The command skips HITL and offers a checkpoint commit of the contract only.
 
 ### Skills
 
@@ -80,7 +87,16 @@ Skills are stored as `SKILL.md` files with name/description metadata and domain-
 
 ## Supporting Documentation
 
-`src/docs/mcp-configuration.md` describes `general/opencode.json` as a portable reference blueprint. It documents MCP and LSP servers, per-platform activation, environment-variable setup, and configuration placement. The guide notes that XcodeBuildMCP is disabled by default for cross-platform compatibility and may be enabled on macOS with Xcode; credentials such as the `magic` server API key are supplied through environment variables rather than hard-coded configuration.
+`src/docs/mcp-configuration.md` (written in Italian) describes `src/opencode.json` as the portable reference blueprint for MCP and LSP servers. Its main points:
+
+- **Portability**: commands use binaries on `PATH` or `npx -y` rather than user- or OS-specific absolute paths.
+- **Secrets**: values are injected with `{env:NAME}` syntax; the `magic` server reads `TWENTYFIRST_API_KEY` from the environment.
+- **Activation**: optional servers carry `"disabled": true`. XcodeBuildMCP is disabled by default and may be enabled on macOS with Xcode CLI Tools. Local servers must keep `codemode: false`, because pipeline agents deny `execute`.
+- **Remote Google Cloud servers**: seven remote MCP servers (BigQuery, Cloud Run, Cloud Logging, Cloud Monitoring, Cloud SQL, Cloud Storage, Cloud CLI) are disabled by default. The guide covers API enablement, required IAM roles, OAuth Client ID/Secret setup, and a short-lived ADC bearer-token alternative.
+- **Enabling servers**: in `manage-agents`, press `u` on a focused agent or category folder to open the Resource Manager, toggle an MCP server with `x` (`draftMcpEnabled`), and save with Enter. The change is applied to the global `~/.config/opencode/opencode.json`: enabling removes `disabled`, disabling sets `disabled: true`, and a server not yet configured there is seeded from the repo's recommended entry.
+- **LSP servers**: six language servers are listed (basedpyright, ruff, html, css, sql, markdown).
+
+The guide also notes that the vendored files under `src/docs/docs-opencode/` are V1 reference excerpts, not the current contract.
 
 ## Usage Example
 

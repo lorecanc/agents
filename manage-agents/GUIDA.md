@@ -14,6 +14,7 @@ Manage Agents è lo strumento da terminale del repository per consultare e modif
 - [TUI: navigazione e comandi](#tui-navigazione-e-comandi)
 - [Ricette operative](#ricette-operative)
 - [Configurazione, dati e sicurezza](#configurazione-dati-e-sicurezza)
+- [Handoff per agenti e manutenzione della repository](#handoff-per-agenti-e-manutenzione-della-repository)
 - [Risoluzione dei problemi](#risoluzione-dei-problemi)
 
 ## Avvio rapido
@@ -511,6 +512,49 @@ node manage-agents/manage-agents.mjs --auto-commit tune --category wiki --temp 0
 Oppure impostare `AGENT_MANAGER_AUTO_COMMIT=1` nell’ambiente. Per disattivarlo, usa `--no-auto-commit` o `AGENT_MANAGER_AUTO_COMMIT=0`; le opzioni CLI prevalgono sull’ambiente. Le opzioni globali vanno prima del comando, ad esempio `--no-auto-commit category build wiki`.
 
 Con auto-commit attivo il manager richiede, tra gli altri controlli, un worktree pulito, branch e identità Git disponibili, scope sicuro e assenza di symlink nelle aree coinvolte. Il commit è **locale**, limitato ai percorsi dichiarati e non esegue push; hook, firma e editor sono disabilitati per quel commit. Non abilitarlo se vuoi esaminare e committare manualmente le modifiche. Un guasto Git produce un avviso e non annulla una mutazione valida; il worktree o l’index possono richiedere revisione manuale. La transazione non effettua reset o ripristini automatici. Evita modifiche concorrenti agli stessi file mentre l’operazione è in corso.
+
+## Handoff per agenti e manutenzione della repository
+
+Questa sezione è il riferimento operativo per passare il lavoro sulla pipeline e mantenere coerenti le sorgenti, i manifest e gli output generati.
+
+### Sorgenti, configurazione e output
+
+- `src/` contiene le sorgenti canoniche della pipeline e dei relativi plugin, strumenti e comandi. `.agent-manager/` contiene configurazione e metadati di distribuzione; `export/` contiene gli output generati. Modifica le sorgenti e la configurazione necessaria, non correggere a mano gli output.
+- La categoria canonica `pipeline` vive **solo** in `src/agents/pipeline-*.md`. Non deve mai esistere `export/categories/pipeline/`: i bundle pipeline sono i profili timbrati `export/categories/*-pipeline` (per esempio `go-pipeline` o `hybrid-pipeline`).
+
+### Manifest V2 e profili `*-pipeline`
+
+Le categorie `docs`, `slides` e `wiki` usano manifest V2 distinti, uno per categoria in `.agent-manager/categories/<id>.json`, con `schemaVersion: 2`. `.agent-manager/companion-links.json` descrive i collegamenti alle risorse companion; `.agent-manager/pipeline-profiles.json` definisce i profili timbrati `*-pipeline`. I profili non sono categorie V2 e non vanno aggiunti come manifest duplicati.
+
+Quando aggiorni i plugin nel Resource Manager (`U` nella TUI), `updateCategoryCompanionLinks` mantiene la policy delle risorse plugin già presenti nei manifest V2 interessati (per esempio `"text"`) e assegna `policy: "runtime"` alle nuove voci plugin aggiunte, poi ricostruisce il bundle. Per rigenerazioni esplicite usa `category build`; i file invariati conservano la propria `mtime`.
+
+### Plugin OpenCode V2 e bridge Claude Code / Codex
+
+- I plugin OpenCode V2 sono directory in `src/plugins/<name>/` con entrypoint `index.ts` o `index.js` ed esportano `Plugin.define` da `@opencode/plugin`. I plugin che registrano tool (`pipeline-tools`, `doc-tools` e `slide-tools`) usano `ctx.tool.transform` con import statici; `pipeline-guard` è hook-only e non registra tool. Non usare il formato legacy V1 a file singolo `plugins/*.js`.
+- I bridge Claude Code e Codex supportano i profili timbrati `*-pipeline`: generali dalla TUI con `B` (Claude) o `Shift+B` (Codex), oppure dalla CLI con `manage-agents bridge --category <profilo>-pipeline --target claude|codex`. La generazione si blocca se il profilo non contiene agenti.
+- I README generati documentano gli endpoint MCP remoti configurati con `url`. I bridge non eseguono la transpilazione dei plugin runtime TypeScript di OpenCode: non aspettarti che il codice di `src/plugins/` diventi un plugin Claude o Codex.
+
+### Checklist per aggiornare la pipeline
+
+Esegui i passaggi dalla radice della repository:
+
+1. Modifica le sorgenti canoniche in `src/`. Se cambiano i profili Bash in `.agent-manager/bash-profiles.json`, sincronizzali con `node manage-agents/manage-agents.mjs --no-auto-commit pipeline sync-bash`.
+2. Rigenera categorie e bundle con `node manage-agents/manage-agents.mjs --no-auto-commit category build --all`.
+3. Rigenera i bridge standard committati della categoria `pipeline`, verificati da `bridge check` e destinati a `export/bridges/{claude-code,codex}/decent-pipeline`:
+
+   ```bash
+   node manage-agents/manage-agents.mjs --no-auto-commit bridge --category pipeline --target claude
+   node manage-agents/manage-agents.mjs --no-auto-commit bridge --category pipeline --target codex
+   ```
+
+   Se generi dalla CLI un bridge per un profilo timbrato specifico (per esempio `go-pipeline`), passa `--name decent-go-pipeline` (oppure `--output <percorso-distinto>`) per scriverlo in una directory distinta, senza sovrascrivere `decent-pipeline`.
+
+4. Valida la repository con `npm --prefix manage-agents run validate`.
+5. Per aggiornare la configurazione locale OpenCode, esegui `node manage-agents/manage-agents.mjs export --all --yes`. La destinazione predefinita è `~/.config/opencode/` (oppure `$XDG_CONFIG_HOME/opencode/` se la variabile è impostata).
+
+### Best practice per gli agenti orchestratori
+
+Non riutilizzare un `sessionID` tra chiamate esplorative indipendenti: accumulare contesto gonfia la finestra e riduce lo spazio utile per il lavoro. Avvia i subagent indipendenti in parallelo nello stesso turno.
 
 ## Risoluzione dei problemi
 

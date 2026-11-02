@@ -165,6 +165,12 @@ export const DEFAULT_COMPANION_LINKS: CompanionLinksConfig = {
         "tools/ontology_wwwdec.ts",
         "tools/ontology_wwwenc.ts"
       ]
+    },
+    wiki: {
+      plugins: [],
+      tools: [],
+      commands: ["commands/wiki.md"],
+      skills: ["skills/wiki-conventions", "skills/wiki-navigate", "skills/wiki-templates"]
     }
   }
 }
@@ -283,7 +289,74 @@ export function updateCategoryCompanionLinks(
     if (links[group] !== undefined) updated[group] = normalizePaths(links[group])
   }
   config.categories[key] = updated
-  return saveCompanionLinks(workspaceRoot, config)
+  const savedPath = saveCompanionLinks(workspaceRoot, config)
+  syncCategoryManifestPlugins(workspaceRoot, key, updated.plugins)
+  return savedPath
+}
+
+function syncCategoryManifestPlugins(workspaceRoot: string, category: string, plugins: string[]): void {
+  if (!/^[a-z0-9][a-z0-9_-]*$/.test(category)) return
+
+  const managerDirectory = path.resolve(workspaceRoot, ".agent-manager")
+  const categoriesDirectory = path.resolve(managerDirectory, "categories")
+  const manifestPath = path.resolve(categoriesDirectory, `${category}.json`)
+  const relativeManifestPath = path.relative(categoriesDirectory, manifestPath)
+  if (!relativeManifestPath || relativeManifestPath === ".." || relativeManifestPath.startsWith(`..${path.sep}`) || path.isAbsolute(relativeManifestPath)) return
+
+  try {
+    rejectSymlink(managerDirectory)
+    rejectSymlink(categoriesDirectory)
+    rejectSymlink(manifestPath)
+  } catch {
+    return
+  }
+  if (!fs.existsSync(manifestPath)) return
+
+  let manifest: unknown
+  try {
+    manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"))
+  } catch {
+    return
+  }
+  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) return
+
+  const categoryManifest = manifest as Record<string, unknown>
+  if (categoryManifest.schemaVersion !== 2 || !Array.isArray(categoryManifest.resources)) return
+
+  const existingResources = categoryManifest.resources
+  let sourcePrefix = fs.existsSync(path.join(workspaceRoot, "src")) ? "src" : ""
+  if (!sourcePrefix) {
+    for (const resource of existingResources) {
+      if (!resource || typeof resource !== "object" || Array.isArray(resource)) continue
+      const source = (resource as Record<string, unknown>).source
+      if (typeof source !== "string") continue
+      const normalizedSource = source.replace(/\\/g, "/")
+      const separator = normalizedSource.indexOf("/")
+      if (separator > 0) {
+        sourcePrefix = normalizedSource.slice(0, separator)
+        break
+      }
+    }
+  }
+  if (!sourcePrefix) sourcePrefix = "src"
+
+  const nonPluginResources = existingResources.filter(resource => {
+    if (!resource || typeof resource !== "object" || Array.isArray(resource)) return true
+    const target = (resource as Record<string, unknown>).target
+    return typeof target !== "string" || target !== "plugins" && !target.startsWith("plugins/")
+  })
+  const pluginResources = plugins.map(pluginRel => {
+    const existing = existingResources.find(resource =>
+      resource && typeof resource === "object" && !Array.isArray(resource) &&
+      (resource as Record<string, unknown>).target === pluginRel
+    )
+    return existing ?? { kind: "directory", source: `${sourcePrefix}/${pluginRel}`, target: pluginRel, policy: "runtime" }
+  })
+  const resources = [...nonPluginResources, ...pluginResources]
+  if (JSON.stringify(resources) === JSON.stringify(existingResources)) return
+
+  categoryManifest.resources = resources
+  fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf-8")
 }
 
 function categoryDomain(category: string): string {
@@ -342,12 +415,9 @@ export function discoverAvailableCategoryCompanionItems(workspaceRoot: string, c
   for (const entry of entries(pluginDir)) {
     const relativePath = `plugins/${entry.name}`
     if (entry.isDirectory()) {
-      if (!fs.existsSync(path.join(pluginDir, entry.name, "index.ts"))) continue
+      if (!fs.existsSync(path.join(pluginDir, entry.name, "index.ts")) && !fs.existsSync(path.join(pluginDir, entry.name, "index.js"))) continue
       items.push(selectableItem("plugin", relativePath, entry.name, linked.plugin))
-      continue
     }
-    if (!entry.isFile() || isExcludedFile(entry.name) || !/\.(js|ts|mjs)$/i.test(entry.name) || entry.name === "README.md") continue
-    items.push(selectableItem("plugin", relativePath, path.basename(entry.name, path.extname(entry.name)), linked.plugin))
   }
   const commandDir = path.join(sourceRoot, "commands")
   for (const entry of entries(commandDir)) {

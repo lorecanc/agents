@@ -392,9 +392,12 @@ function renderCodexMcpSetup(config: Record<string, any> | null): string[] {
   for (const [name, value] of Object.entries(servers) as Array<[string, Record<string, any>]>) {
     const command = String(value.command || "")
     const args = Array.isArray(value.args) ? value.args.map(String) : []
-    let setup = command === "npx"
-      ? `runs as \`${[command, ...args].join(" ")}\` (Node.js, npm, and network required)`
-      : `install \`${command}\` and verify with \`command -v ${command}\``
+    const remoteUrl = typeof value.url === "string" ? value.url.trim() : ""
+    let setup = remoteUrl && !command
+      ? `remote endpoint \`${remoteUrl}\` — verify remote URL reachability and authentication`
+      : command === "npx"
+        ? `runs as \`${[command, ...args].join(" ")}\` (Node.js, npm, and network required)`
+        : `install \`${command}\` and verify with \`command -v ${command}\``
     if (name === "codebase-memory-mcp") {
       setup += "; see https://github.com/DeusData/codebase-memory-mcp#quick-start"
     } else if (name === "cupertino") {
@@ -460,18 +463,22 @@ export function writeCodexPlugin(
   outputDir: string,
   workspaceRoot: string,
   config: TranslationConfig = DEFAULT_TRANSLATION_CONFIG,
-  resolvedTargets: ReadonlyMap<string, ResolvedModelTarget> = resolveTargets(agents, config)
+  resolvedTargets?: ReadonlyMap<string, ResolvedModelTarget>
 ): CodexBridgeResult {
+  if (!Array.isArray(agents) || agents.length === 0) {
+    throw new Error(`Cannot generate Codex bridge "${pluginName}": no agents provided.`)
+  }
   if (typeof workspaceRoot !== "string" || !workspaceRoot) {
     throw new Error("writeCodexPlugin requires a workspaceRoot")
   }
+  const targets = resolvedTargets ?? resolveTargets(agents, config)
   const warnings: string[] = []
   for (const key of unusedModelMapKeys(agents, config, "codex")) {
     warnings.push(`[model-map] entry "${key}" matches no source agent model`)
   }
   const normalizedPluginName = pluginNameValue(pluginName)
   const aliases = buildAgentAliasMap(agents, prefix)
-  const translatedAgents = agents.map(agent => convertCodexAgent(agent, prefix, aliases, config, warnings, agents, resolvedTargets))
+  const translatedAgents = agents.map(agent => convertCodexAgent(agent, prefix, aliases, config, warnings, agents, targets))
   const emitSkills = config.codex.emitSkills !== false
   const mcpResult = buildCodexMcpConfig(workspaceRoot, requiredMcpServers(agents), serverScopedDeniedServers(agents))
   const emitMcp = config.codex.emitMcp !== false && Boolean(mcpResult.config)
@@ -535,7 +542,7 @@ export function writeCodexPlugin(
   return {
     pluginDir, files, warnings, plugin,
     preview: agents.map(agent => {
-      const resolved = resolvedTargets.get(agent.filename)!
+      const resolved = targets.get(agent.filename)!
       if (resolved.source === "inferred" || resolved.source === "default") warnings.push(`[${agent.filename}] model assignment source: ${resolved.source}`)
       return { agent: agent.filename, role: resolved.role, tier: resolved.tier, model: resolved.model.model, source: resolved.source, ...(resolved.inferredFrom ? { inferredFrom: resolved.inferredFrom } : {}) }
     })
@@ -556,5 +563,8 @@ export function bridgeToCodex(
   workspaceRoot: string,
   config: TranslationConfig = DEFAULT_TRANSLATION_CONFIG
 ): CodexBridgeResult {
+  if (!Array.isArray(agents) || agents.length === 0) {
+    throw new Error(`Cannot generate Codex bridge "${pluginNameInput}": no agents provided.`)
+  }
   return writeCodexPlugin(agents, pluginNameInput, prefix, outputDir, workspaceRoot, config)
 }

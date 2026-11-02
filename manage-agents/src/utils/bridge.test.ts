@@ -358,6 +358,36 @@ test("includes disabled MCP servers required by agents and emits setup guidance"
   )
 })
 
+test("renderMcpSetup formats remote URL MCP servers without empty command install instructions", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "claude-remote-mcp-"))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  fs.mkdirSync(path.join(root, "src"), { recursive: true })
+  fs.writeFileSync(path.join(root, "src", "opencode.json"), JSON.stringify({
+    mcp: { servers: { bigquery: { type: "remote", url: "https://bigquery.googleapis.com/mcp" } } }
+  }))
+  const agent = fixture("pipeline-orchestrator.md")
+  agent.frontmatter.permission = { "bigquery_*": "allow" }
+  const output = path.join(root, "claude")
+
+  bridgeToClaudeCode([agent], "test", "pipeline-", output, root)
+
+  const readme = fs.readFileSync(path.join(output, "README.md"), "utf8")
+  assert.deepEqual({
+    includesRemoteUrl: /https:\/\/bigquery\.googleapis\.com\/mcp/.test(readme),
+    hasNoLocalInstallInstructions: !/Install |command -v /.test(readme)
+  }, { includesRemoteUrl: true, hasNoLocalInstallInstructions: true })
+})
+
+test("bridgeToClaudeCode rejects an empty agent list", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "claude-empty-agents-"))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+
+  assert.throws(
+    () => bridgeToClaudeCode([], "test", "", path.join(root, "claude"), root),
+    /no agents/i
+  )
+})
+
 test("resolves Claude models from claude.modelMap", () => {
   const planning = fixture("pipeline-planner.md")
   planning.model = "github-copilot/claude-opus-5"

@@ -457,7 +457,8 @@ automation flags are persisted the same way.
 
   const allAgents = findAgentFiles(workspaceRoot, sourceDir)
   if (allAgents.warnings) allAgents.warnings.forEach(warning => console.log(`   ⚠ ${warning}`))
-  const categoryAgents = allAgents.filter(a => a.category === category)
+  let categoryAgents = allAgents.filter(a => a.category === category)
+  if (categoryAgents.length === 0) categoryAgents = loadStampedPipelineAgents(workspaceRoot, category)?.agents ?? []
 
   if (categoryAgents.length === 0) {
     console.error(`Error: No agents found for category '${category}'.`)

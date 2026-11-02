@@ -380,7 +380,7 @@ export function refreshStampedPipelinesFromSource(workspaceRoot: string, targetC
       }
     }
 
-    const companionPaths = discoverCompanionResourcePaths(sourceRoot, [baseCategory], undefined, baseAgents)
+    const companionPaths = discoverCompanionResourcePaths(sourceRoot, [...new Set([baseCategory, resolvedTarget])], undefined, baseAgents)
     if (fs.existsSync(path.join(sourceRoot, ".opencode", "pipeline.json"))) companionPaths.push(".opencode/pipeline.json")
     for (const rel of companionPaths) {
       const sourcePath = path.join(sourceRoot, ...rel.split("/"))
@@ -869,6 +869,19 @@ export function checkPipelineBundles(workspaceRoot: string, categories?: string[
   }
   const categoriesRoot = path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot))
   if (!fs.existsSync(categoriesRoot)) return results
+  const baseCategoryPath = path.join(categoriesRoot, baseCategory)
+  if (fs.existsSync(baseCategoryPath) && (!wanted || wanted.includes(baseCategory))) {
+    results.push({
+      category: baseCategory,
+      resourceRoot: baseCategoryPath,
+      orphan: true,
+      problems: [{
+        kind: "extra-companion",
+        path: baseCategory,
+        detail: `Bare export/categories/${baseCategory} is an orphan directory; the canonical pipeline lives in src/agents and stamped profiles use *-pipeline.`
+      }]
+    })
+  }
   for (const entry of fs.readdirSync(categoriesRoot, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
     if (!entry.isDirectory() || !entry.name.endsWith("-pipeline") || entry.name === baseCategory) continue
     if (wanted && !wanted.includes(entry.name)) continue

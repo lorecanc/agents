@@ -214,6 +214,50 @@ test("manifest accepts plugin sources under src/ and general/ but rejects source
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
 
+test("validateCategoryManifest rejects file targets and index-less directories under plugins/", (t) => {
+  const root = fixture(), workspace = path.join(root, "agents")
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const manifest = loadCategoryManifest(root, "wiki")
+  fs.mkdirSync(path.join(workspace, "src", "plugins", "empty-dir"), { recursive: true })
+  fs.mkdirSync(path.join(workspace, "src", "plugins"), { recursive: true })
+  fs.writeFileSync(path.join(workspace, "src", "plugins", "bad.js"), "export default 1\n")
+
+  const resources = [
+    { kind: "file", source: "src/plugins/bad.js", target: "plugins/bad.js", policy: "text" },
+    { kind: "directory", source: "src/plugins/empty-dir", target: "plugins/empty-dir", policy: "text" }
+  ] as const
+  const rejected = resources.map(resource => {
+    const candidate = structuredClone(manifest)
+    candidate.resources.push(resource)
+    try {
+      validateCategoryManifest(candidate, workspace)
+      return false
+    } catch (error) {
+      return /Invalid category distribution/.test(error instanceof Error ? error.message : String(error))
+    }
+  })
+  assert.deepEqual(rejected, [true, true])
+})
+
+test("a second manifest category build preserves mtimeMs on unchanged files", (t) => {
+  const root = fixture()
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  buildCategoryDistribution(root, "wiki")
+  const directory = output(root)
+  const files = listBundleFiles(directory)
+  const backdated = new Date(1_600_000_000_000)
+  for (const file of files) {
+    const absolute = path.join(directory, file)
+    fs.utimesSync(absolute, backdated, backdated)
+  }
+
+  buildCategoryDistribution(root, "wiki")
+
+  for (const file of files) {
+    assert.equal(fs.statSync(path.join(directory, file)).mtimeMs, backdated.getTime(), `${file} mtime should be preserved`)
+  }
+})
+
 test("manifest rejects every generator-reserved target, case-insensitively", () => {
   const base = JSON.parse(fs.readFileSync(path.join(repo, ".agent-manager/categories/wiki.json"), "utf8"))
   for (const reserved of ["LICENSE", "license", "README.md", "readme.MD", "CATEGORY.json", "category.JSON", "PROVENANCE.json", "provenance.JSON"]) {

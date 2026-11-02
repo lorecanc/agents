@@ -1,9 +1,10 @@
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
-import { findAgentFiles } from "./agents.js"
+import { findAgentFiles, resolveCategoriesSubdir } from "./agents.js"
 import { bridgeToClaudeCode } from "./bridge.js"
 import { bridgeToCodex } from "./codexBridge.js"
+import { loadStampedPipelineAgents } from "./pipelineProfiles.js"
 import type { TranslationConfig } from "./translationConfig.js"
 
 /** Relative POSIX path -> file bytes. */
@@ -105,6 +106,7 @@ function mirrorWorkspaceInputs(workspaceRoot: string, tempRoot: string, config: 
 /** Regenerate the bridge in a temp workspace and compare it with the committed output. */
 export function checkBridge(options: BridgeCheckOptions): BridgeCheckResult {
   const { workspaceRoot, target, category, config, committedDir } = options
+  if (!/^[a-z0-9][a-z0-9_-]*$/i.test(category)) throw new Error(`Invalid bridge category "${category}"`)
   const relativeCommitted = path.relative(workspaceRoot, committedDir)
   if (!relativeCommitted || relativeCommitted.startsWith("..") || path.isAbsolute(relativeCommitted)) {
     throw new Error(`Bridge output must live inside the workspace: ${committedDir}`)
@@ -113,7 +115,22 @@ export function checkBridge(options: BridgeCheckOptions): BridgeCheckResult {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "bridge-check-"))
   try {
     mirrorWorkspaceInputs(workspaceRoot, tempRoot, config)
-    const agents = findAgentFiles(tempRoot, config.sourceDir).filter(agent => agent.category === category)
+    const categoriesSubdir = resolveCategoriesSubdir(workspaceRoot)
+    const sourceCategoriesRoot = path.resolve(workspaceRoot, categoriesSubdir)
+    const destinationCategoriesRoot = path.resolve(tempRoot, categoriesSubdir)
+    const sourceCategoryPath = path.resolve(sourceCategoriesRoot, category)
+    const destinationCategoryPath = path.resolve(destinationCategoriesRoot, category)
+    for (const [root, candidate] of [[sourceCategoriesRoot, sourceCategoryPath], [destinationCategoriesRoot, destinationCategoryPath]]) {
+      const relative = path.relative(root, candidate)
+      if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+        throw new Error(`Invalid bridge category "${category}"`)
+      }
+    }
+    copyIfPresent(sourceCategoryPath, destinationCategoryPath)
+    let agents = findAgentFiles(tempRoot, config.sourceDir).filter(agent => agent.category === category)
+    if (agents.length === 0) {
+      agents = loadStampedPipelineAgents(workspaceRoot, category)?.agents ?? []
+    }
     if (agents.length === 0) {
       throw new Error(`No agents found for category '${category}' under ${path.join(workspaceRoot, config.sourceDir)}`)
     }

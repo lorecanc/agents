@@ -1605,6 +1605,12 @@ export function organizeAgents(workspaceRoot: string, agents: AgentInfo[]): { co
   const copied: string[] = []
   const skipped: string[] = []
   const protectedCategories = discoverManifestCategories(workspaceRoot)
+  protectedCategories.add("pipeline")
+  const pipelineProfilesPath = path.join(workspaceRoot, ".agent-manager", "pipeline-profiles.json")
+  if (fs.existsSync(pipelineProfilesPath)) {
+    const pipelineProfiles = JSON.parse(fs.readFileSync(pipelineProfilesPath, "utf8"))
+    if (typeof pipelineProfiles?.baseCategory === "string") protectedCategories.add(pipelineProfiles.baseCategory)
+  }
   const eligible = agents.filter(agent => isInGeneralAgents(agent.currentPath) && agent.currentPath !== agent.targetPath && !protectedCategories.has(agent.category))
   for (const agent of agents) {
     if (isInGeneralAgents(agent.currentPath) && agent.currentPath !== agent.targetPath && protectedCategories.has(agent.category)) skipped.push(`${agent.filename} (category '${agent.category}' is manifest-backed; run category build ${agent.category})`)
@@ -2472,7 +2478,10 @@ export function checkPipelineResources(
     for (const entry of fs.readdirSync(pluginsRoot, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
       if (!entry.isDirectory()) continue
       const relativeDirectory = `plugins/${entry.name}`
-      if (!safeRelativeStat(resourceRoot, `${relativeDirectory}/index.ts`)?.isFile()) {
+      const hasEntryPoint = ["index.ts", "index.js"].some(indexFile =>
+        safeRelativeStat(resourceRoot, `${relativeDirectory}/${indexFile}`)?.isFile()
+      )
+      if (!hasEntryPoint) {
         add({ kind: "missing-companion", path: `${relativeDirectory}/index.ts`, detail: `V2 plugin directory ${relativeDirectory} is missing index.ts` })
       }
     }
@@ -3721,8 +3730,8 @@ export function exportAgents(
   }
 
   const companionPluginDirectories = resourceResult.managed
-    .filter(relative => /^plugins\/[^/]+\/index\.ts$/.test(relative))
-    .map(relative => `./${relative.replace(/\/index\.ts$/, "")}`)
+    .filter(relative => /^plugins\/[^/]+\/index\.(?:ts|js)$/.test(relative))
+    .map(relative => `./${relative.replace(/\/index\.(?:ts|js)$/, "")}`)
 
   let pluginProvisioning: PluginProvisionResult | undefined
   if (resourceSourceRoot || options.stackDirectory !== undefined) {

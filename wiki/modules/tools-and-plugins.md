@@ -24,23 +24,28 @@ source_files:
   - "src/tools/slide_download_image.ts"
   - "src/tools/slide_generate_image.ts"
   - "src/tools/slide_screenshot.ts"
+  - "src/tools/pipeline_env.ts"
   - "src/tools/_pipeline_core.js"
+  - "src/tools/_pipeline_env.js"
   - "src/tools/_pipeline_run.js"
   - "src/tools/_pipeline_serve.js"
+  - "src/tools/_pipeline_services.js"
+  - "src/tools/pptx/html2pptx.js"
+  - "src/tools/pptx/html2pptx_runner.js"
   - "src/plugins/pipeline-guard/index.ts"
   - "src/plugins/pipeline-tools/index.ts"
   - "src/plugins/doc-tools/index.ts"
   - "src/plugins/slide-tools/index.ts"
   - "src/plugins/README.md"
 created: "2026-10-16"
-last_updated: "2026-11-01"
+last_updated: "2026-11-02"
 ---
 
 # Tools and Plugins
 
 ## Purpose
 
-This module provides OpenCode custom tools for creating and converting documents, authoring slide decks, and running controlled repository workflows. In V2 the tools are plugin-provided: `tools/*.ts` is not auto-discovered, and each `src/plugins/<name>/index.ts` directory registers its tools through `ctx.tool.transform`. The `pipeline-guard` plugin adds session-scoped safety checks and bookkeeping for pipeline agents; its checks complement, rather than replace, agent permissions.
+This module provides OpenCode custom tools for creating and converting documents, authoring slide decks, and running controlled repository workflows. In V2 the tools are plugin-provided: `tools/*.ts` is not auto-discovered, and each `src/plugins/<name>/index.ts` directory registers its tools through `ctx.tool.transform`. The `pipeline-guard` plugin adds session-scoped safety checks, an activity log, and bookkeeping for pipeline agents; its checks complement, rather than replace, agent permissions.
 
 ## Key Files
 
@@ -49,10 +54,13 @@ This module provides OpenCode custom tools for creating and converting documents
 | `src/tools/doc_create.ts`, `doc_view.ts`, `doc_modify.ts`, `doc_convert.ts` | Create, inspect, edit, and export the canonical HTML document source. |
 | `src/tools/doc_compile_theme.ts` | Resolves document design tokens, compiles theme CSS, and copies local fonts. |
 | `src/tools/slide_compile_theme.ts`, `slide_compile_composition.ts` | Prepare slide theme and composition assets. |
-| `src/tools/slide_build_pptx.ts`, `slide_assemble_pptx.ts` | Convert HTML slides to editable PPTX or populate a corporate template. |
-| `src/tools/_pipeline_core.js` | Shared repository, session, path-guard, shell-check, locking, and commit-planning logic. |
+| `src/tools/slide_build_pptx.ts`, `slide_assemble_pptx.ts` | Convert HTML slides to editable PPTX (`slide_build_pptx` runs `html2pptx_runner.js`) or populate a corporate template. |
+| `src/tools/pptx/html2pptx_runner.js`, `src/tools/pptx/html2pptx.js` | Node CLI that loads `pptxgenjs` and converts each HTML slide into positioned slide elements; invoked by `slide_build_pptx`. |
+| `src/tools/_pipeline_core.js` | Shared repository, session, path-guard, shell-check, locking, activity-log, and commit-planning logic. |
+| `src/tools/pipeline_env.ts`, `src/tools/_pipeline_env.js` | `pipeline_env` tool and its read-only, bounded (~5 s) Phase 0 probe: Docker, database/runtime binaries, `.opencode/pipeline.json`, MCP server names, `.env.example` variable presence, and a derived `verification_outlook`. Never returns values. |
 | `src/tools/_pipeline_run.js`, `_pipeline_serve.js` | Bounded verification/smoke execution and controlled development-service lifecycle. |
-| `src/plugins/pipeline-guard/index.ts` | V2 plugin directory (`Plugin.define`, id `pipeline-guard`); its hooks set scratch environment, guard writes, record touched files, and clean up services. |
+| `src/tools/_pipeline_services.js` | Dependent services for verify/smoke runs (custom services and PostgreSQL, native or Docker) and the `sh` supervisor shared with `_pipeline_serve.js`. |
+| `src/plugins/pipeline-guard/index.ts` | V2 plugin directory (`Plugin.define`, id `pipeline-guard`). Its hooks set the scratch environment, guard writes and git commands, reject doom loops, record touched files, write the per-root activity log, stop the services a session owns on idle, and warn about git-state anomalies. It is the only form of the guard: the legacy single-file `plugins/pipeline-guard.js` is not in `src/plugins/`. |
 | `src/plugins/pipeline-tools/index.ts`, `src/plugins/doc-tools/index.ts`, `src/plugins/slide-tools/index.ts` | Register the pipeline, document, and slide tools through `ctx.tool.transform`. |
 | `src/plugins/README.md` | Documents plugin installation, its enforcement contract, and `.opencode/pipeline.json`. |
 
@@ -64,10 +72,12 @@ The TypeScript tool modules keep the `tool({ description, args, execute })` defi
 |----------|-------|
 | Documents | `doc_compile_theme`, `doc_create`, `doc_view`, `doc_modify`, `doc_list`, `doc_convert`, `doc_restore` |
 | Slides | `slide_analyze_template`, `slide_assemble_pptx`, `slide_build_pptx`, `slide_compile_composition`, `slide_compile_theme`, `slide_create_thumbnails`, `slide_download_image`, `slide_generate_image`, `slide_screenshot` |
-| Pipeline | `pipeline_state`, `pipeline_verify`, `pipeline_smoke`, `pipeline_serve`, `pipeline_commit` |
-| Plugin | `createPipelineGuard` creates the hooks; the default export is a `Plugin.define` descriptor for plugin id `pipeline-guard`. |
+| Pipeline | `pipeline_state`, `pipeline_env`, `pipeline_commit`, `pipeline_verify`, `pipeline_smoke`, `pipeline_serve` |
+| Plugin | `setupPipelineGuard` creates the hooks; the default export is a `Plugin.define` descriptor for plugin id `pipeline-guard`. |
 
 The document tools use safe project/document path segments and delegate document operations to Python scripts under the OpenCode `docx/scripts` directory. Theme compilers produce `_theme.css`; slide builds write versioned PPTX outputs. Pipeline tools return structured JSON, with verification and service operations bounded by configured timeouts and lifecycle handling.
+
+`pipeline_env` is the Phase 0 probe: it takes an optional `workspace` (repo-relative sub-project) and never modifies anything. The `docker info` call is capped at 3 s and the whole probe is raced against a budget of about 4.5 s. It reads the MCP server names, types, and enabled flags from the opencode config files, never their commands, URLs, or headers. It checks `.env.example` / `.env.sample` for variable names and reports only whether each is set; `.env` itself is not read.
 
 ### V2 lifecycle hooks
 
@@ -83,21 +93,33 @@ The guard registers OpenCode V2 hooks; the V1 hook names no longer exist. The re
 | `permission.ask` | `permission.hook("evaluate")` |
 | `event` | `ctx.event.subscribe()` |
 
+## Pipeline guard
+
+`setupPipelineGuard` acts only on sessions whose agent name matches `pipeline-*` or `*-pipeline-*`; every other session is untouched. Beyond the path, shell, and file-claim checks, it adds:
+
+- **Doom-loop guard**: V2 has no `doom_loop` permission action, so the guard rejects the third consecutive identical tool call in a session. Calls are compared as `(tool, stable input)` signatures with object keys sorted at every level. A different call, an idle session, or a session end resets the streak. The state is in-memory only.
+- **Activity log**: one JSON line per event goes to `<git-common-dir>/opencode-pipeline/logs/<rootId>.jsonl`, shared by a root session and its subagents. Events are `tool`, `guard_block`, `permission`, `steps` (per-session LLM and tool-call counts, written on idle and at process exit), `session_error`, and `warning`. The file is capped at 512 KB; when full, the oldest half is dropped and a `truncated` marker records how many events were removed. `pipeline_state` reads the log back as `activity`.
+- **Idle handling**: when a root session goes idle, the guard stops the service that session started with `pipeline_serve` (`stopServicesOwnedBy` from `_pipeline_serve.js`), compares git state with the session baseline, and warns about new branches, worktrees, stashes, or a changed checked-out branch.
+
 ## Dependencies
 
 ```mermaid
 graph LR
-    Agents["OpenCode agents"] --> Tools["Custom tools"]
-    Tools --> Docs["Document scripts and projects"]
-    Tools --> Slides["Slide runners and projects"]
-    Pipeline["Pipeline tools"] --> Core["_pipeline_core.js"]
-    Guard["pipeline-guard plugin"] --> Core
-    Guard --> Service["_pipeline_serve.js"]
+    Agents["OpenCode agents"] --> Tools["Document and slide tools"]
+    Tools --> Slides["html2pptx_runner.js"]
+    Agents --> Pipeline["Pipeline tools"]
+    Pipeline --> Core["_pipeline_core.js"]
+    Pipeline --> Env["_pipeline_env.js"]
     Pipeline --> Runner["_pipeline_run.js"]
-    Core --> Git["Git repository state"]
+    Pipeline --> Serve["_pipeline_serve.js"]
+    Env --> Runner
+    Runner --> Services["_pipeline_services.js"]
+    Serve --> Services
+    Guard["pipeline-guard plugin"] --> Core
+    Guard --> Serve
 ```
 
-Tools are invoked by agents; document and slide operations use their respective project assets/runners, while pipeline tools and the plugin share repository/session logic.
+Tools are invoked by agents; document and slide operations use their respective project assets and runners (`slide_build_pptx` spawns `html2pptx_runner.js`). Pipeline tools and the guard share repository and session logic from `_pipeline_core.js`. `_pipeline_env.js` reuses the contract and autodetect helpers from `_pipeline_run.js`, and `_pipeline_serve.js` imports the `sh` supervisor from `_pipeline_services.js`, which `_pipeline_run.js` also uses for dependent services.
 
 ## Usage Example
 
@@ -110,6 +132,9 @@ const result = await runVerify({
   info,
   checks: args.checks,
   files: args.files || [],
+  filter: args.filter,
+  workspace: args.workspace,
+  withServices: args.with_services || [],
   stopOnFail: !args.continue_on_fail,
   signal: context.abort,
   owner: context.sessionID,
@@ -117,4 +142,4 @@ const result = await runVerify({
 return JSON.stringify(result, null, 2)
 ```
 
-This excerpt is the execution path in `src/tools/pipeline_verify.ts`; missing configured checks are reported as skipped by the tool contract, not as passed.
+This excerpt is the execution path in `src/tools/pipeline_verify.ts`; missing configured checks are reported as skipped by the tool contract, not as passed. `with_services` names are started by the shared service runner in `_pipeline_services.js`, and they are always stopped when the run ends.

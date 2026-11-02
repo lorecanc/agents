@@ -32,13 +32,13 @@ OpenCode tool names in prompts are translated where Codex has an equivalent (`to
 - `cupertino`: install `cupertino` and verify with `command -v cupertino`; see https://aleahim.com/blog/cupertino-09-release/.
 - `axiom`: runs as `npx -y axiom-mcp` (Node.js, npm, and network required).
 - `cwe-search`: runs as `npx -y cwe-search-mcp@latest` (Node.js, npm, and network required).
-- `bigquery`: install `` and verify with `command -v `.
-- `cloud-run`: install `` and verify with `command -v `.
-- `cloud-logging`: install `` and verify with `command -v `.
-- `cloud-monitoring`: install `` and verify with `command -v `.
-- `cloud-sql`: install `` and verify with `command -v `.
-- `cloud-storage`: install `` and verify with `command -v `.
-- `cloud-cli`: install `` and verify with `command -v `.
+- `bigquery`: remote endpoint `https://bigquery.googleapis.com/mcp` — verify remote URL reachability and authentication.
+- `cloud-run`: remote endpoint `https://run.googleapis.com/mcp` — verify remote URL reachability and authentication.
+- `cloud-logging`: remote endpoint `https://logging.googleapis.com/mcp` — verify remote URL reachability and authentication.
+- `cloud-monitoring`: remote endpoint `https://monitoring.googleapis.com/mcp` — verify remote URL reachability and authentication.
+- `cloud-sql`: remote endpoint `https://sqladmin.googleapis.com/mcp` — verify remote URL reachability and authentication.
+- `cloud-storage`: remote endpoint `https://storage.googleapis.com/storage/mcp` — verify remote URL reachability and authentication.
+- `cloud-cli`: remote endpoint `https://cloudcli.googleapis.com/mcp` — verify remote URL reachability and authentication.
 
 Verify the resulting connections from Codex before invoking MCP-dependent agents.
 

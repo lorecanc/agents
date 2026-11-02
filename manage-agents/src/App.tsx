@@ -45,6 +45,7 @@ import {
 import { loadModelCatalog, suggestModels, collectInvalidModelGroups, modelDisplayValue, getModelVariants, type ModelCatalog } from "./utils/models.js"
 import { discoverAvailableCategoryCompanionItems, getCompanionLinksConfigPath, type SelectableCompanionItem, updateCategoryCompanionLinks } from "./utils/companionLinks.js"
 import { applyPipelineProfile, loadPipelineProfiles, syncPipelineProfile, loadStampedPipelineAgents, deleteStampedPipeline, refreshStampedPipelinesFromSource, forkStampedPipeline } from "./utils/pipelineProfiles.js"
+import { buildCategoryDistribution } from "./utils/categoryDistribution.js"
 import { bridgeToClaudeCode } from "./utils/bridge.js"
 import { bridgeToCodex } from "./utils/codexBridge.js"
 import { buildInferenceIndex, loadTranslationConfig, resolveModelTarget, resolveRole, saveTranslationConfig, validateClaudeModelName, type TranslationConfig } from "./utils/translationConfig.js"
@@ -530,17 +531,27 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
         delete modelMap["*"]
       }
       const sourceAgents = findAgentFiles(workspaceRoot, bridgeSourceDir)
-      const selectedAgents = selectedAgentPaths.size > 0
+      const bridgeCategory = activeItems[focusedIndex]?.category || ""
+      let targetAgents = selectedAgentPaths.size > 0
         ? agents.filter((a) => selectedAgentPaths.has(a.currentPath))
-        : sourceAgents.filter((a) => a.category === (activeItems[focusedIndex]?.category || ""))
+        : sourceAgents.filter((a) => a.category === bridgeCategory)
+      if (selectedAgentPaths.size === 0 && bridgeCategory && targetAgents.length === 0) {
+        targetAgents = loadStampedPipelineAgents(workspaceRoot, bridgeCategory)?.agents ?? agents.filter((a) => a.category === bridgeCategory)
+      }
+      if (targetAgents.length === 0) {
+        setActionResultTitle("No Agents to Bridge")
+        setActionResultLines([bridgeCategory ? `No agents found for category '${bridgeCategory}'.` : "No agents selected to bridge."])
+        setViewMode("action-result")
+        return
+      }
       const safePluginName = sanitizeFilename(bridgePluginName)
       const bridgeFolder = bridgeTarget === "codex" ? "codex" : "claude-code"
       const outputDir = path.join(workspaceRoot, fs.existsSync(path.join(workspaceRoot, "export")) ? path.join("export", "bridges") : "bridges", bridgeFolder, safePluginName)
        const tx = mutate([path.join(workspaceRoot, ".agent-manager", "translation-config.json"), outputDir], "bridge", () => {
         saveTranslationConfig(workspaceRoot, { ...bridgeConfig, pluginName: bridgePluginName, prefix: bridgePipelinePrefix, sourceDir: bridgeSourceDir })
         return bridgeTarget === "codex"
-          ? bridgeToCodex(selectedAgents, bridgePluginName, bridgePipelinePrefix, outputDir, workspaceRoot, { ...bridgeConfig, pluginName: bridgePluginName, prefix: bridgePipelinePrefix, sourceDir: bridgeSourceDir })
-          : bridgeToClaudeCode(selectedAgents, bridgePluginName, bridgePipelinePrefix, outputDir, workspaceRoot, { ...bridgeConfig, pluginName: bridgePluginName, prefix: bridgePipelinePrefix, sourceDir: bridgeSourceDir }, { category: activeItems[focusedIndex]?.category || undefined })
+          ? bridgeToCodex(targetAgents, bridgePluginName, bridgePipelinePrefix, outputDir, workspaceRoot, { ...bridgeConfig, pluginName: bridgePluginName, prefix: bridgePipelinePrefix, sourceDir: bridgeSourceDir })
+          : bridgeToClaudeCode(targetAgents, bridgePluginName, bridgePipelinePrefix, outputDir, workspaceRoot, { ...bridgeConfig, pluginName: bridgePluginName, prefix: bridgePipelinePrefix, sourceDir: bridgeSourceDir }, { category: bridgeCategory || undefined })
       })
        const result = tx.value
        setTranslationConfig(loadTranslationConfig(workspaceRoot, undefined, { persistMigration: false }))
@@ -1025,8 +1036,15 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           }
           setBridgeTarget("claude")
           setBridgeModelTarget(config?.claude.modelMap?.["*"] || "")
-          setBridgePluginName(config?.pluginName || "decent-pipeline")
-          setBridgePipelinePrefix(config?.prefix || "")
+          const stampedPipelineCategory = cat !== "pipeline" && cat.endsWith("-pipeline")
+          const defaultPluginName = stampedPipelineCategory ? `decent-${cat}` : config?.pluginName || "decent-pipeline"
+          const defaultPrefix = stampedPipelineCategory ? `${cat}-` : config?.prefix || ""
+          setBridgePluginName(
+            stampedPipelineCategory && config?.pluginName === "decent-pipeline" ? defaultPluginName : config?.pluginName || defaultPluginName
+          )
+          setBridgePipelinePrefix(
+            stampedPipelineCategory && config?.prefix === "pipeline-" ? defaultPrefix : config?.prefix || defaultPrefix
+          )
           setBridgeSourceDir(config?.sourceDir || resolveSourceSubdir(workspaceRoot))
           setBridgeFocusedField("name")
           setViewMode("bridge-prompt")
@@ -1045,8 +1063,15 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           }
           setBridgeTarget("codex")
           setBridgeModelTarget(config?.codex.modelMap?.["*"] || "")
-          setBridgePluginName(config?.pluginName || "decent-pipeline")
-          setBridgePipelinePrefix(config?.prefix || "")
+          const stampedPipelineCategory = cat !== "pipeline" && cat.endsWith("-pipeline")
+          const defaultPluginName = stampedPipelineCategory ? `decent-${cat}` : config?.pluginName || "decent-pipeline"
+          const defaultPrefix = stampedPipelineCategory ? `${cat}-` : config?.prefix || ""
+          setBridgePluginName(
+            stampedPipelineCategory && config?.pluginName === "decent-pipeline" ? defaultPluginName : config?.pluginName || defaultPluginName
+          )
+          setBridgePipelinePrefix(
+            stampedPipelineCategory && config?.prefix === "pipeline-" ? defaultPrefix : config?.prefix || defaultPrefix
+          )
           setBridgeSourceDir(config?.sourceDir || resolveSourceSubdir(workspaceRoot))
           setBridgeFocusedField("name")
           setViewMode("bridge-prompt")
@@ -1905,14 +1930,26 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           return
         }
         const hasAgentChanges = Boolean(changes.skills || changes.permissions)
+        const categoryManifestPath = resourceCategoryTarget
+          ? path.join(workspaceRoot, ".agent-manager", "categories", `${resourceCategoryTarget}.json`)
+          : ""
+        const hasCategoryManifest = Boolean(categoryManifestPath && fs.existsSync(categoryManifestPath))
+        const refreshStampedPipelines = Boolean(resourceCategoryTarget && (resourceCategoryTarget === "pipeline" || resourceCategoryTarget.endsWith("-pipeline")))
         const allowedPaths = [
           ...(companionChanged ? [getCompanionLinksConfigPath(workspaceRoot)] : []),
+          ...(companionChanged && hasCategoryManifest ? [categoryManifestPath, path.join(workspaceRoot, "export", "categories", resourceCategoryTarget!)] : []),
+          ...(companionChanged && refreshStampedPipelines ? [path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot))] : []),
           ...(resourceTargetAgent && hasAgentChanges ? [path.relative(workspaceRoot, resourceTargetAgent.currentPath)] : [])
         ]
         if (allowedPaths.length === 0 && resourceTargetAgent) allowedPaths.push(path.relative(workspaceRoot, resourceTargetAgent.currentPath))
         try {
           const tx = mutate(allowedPaths, "tune", () => {
-            if (companionChanged && resourceCategoryTarget) updateCategoryCompanionLinks(workspaceRoot, resourceCategoryTarget, nextLinks)
+            if (companionChanged && resourceCategoryTarget) {
+              const key = resourceCategoryTarget
+              updateCategoryCompanionLinks(workspaceRoot, key, nextLinks)
+              if (key === "pipeline" || key.endsWith("-pipeline")) refreshStampedPipelinesFromSource(workspaceRoot)
+              if (fs.existsSync(path.join(workspaceRoot, ".agent-manager", "categories", `${key}.json`))) buildCategoryDistribution(workspaceRoot, key)
+            }
             const agentResult = resourceTargetAgent
               ? updateAgentResourcesAndMcp(workspaceRoot, resourceTargetAgent, resourceCatalog, changes)
               : { changedPaths: [] }

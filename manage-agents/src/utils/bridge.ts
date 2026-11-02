@@ -685,9 +685,12 @@ function renderMcpSetup(
     const requiredBy = requirements[name]?.map(agent => `\`${agent}\``).join(", ") || "plugin runtime"
     const command = String(value.command || "")
     const args = Array.isArray(value.args) ? value.args.map(String) : []
-    let setup = command === "npx"
-      ? `Automatic via \`${[command, ...args].join(" ")}\`; requires Node.js, npm, and network access.`
-      : `Install \`${command}\` and verify it with \`command -v ${command}\`.`
+    const remoteUrl = typeof value.url === "string" ? value.url.trim() : ""
+    let setup = remoteUrl && !command
+      ? `Remote MCP endpoint (\`${remoteUrl}\`); ensure network/auth access.`
+      : command === "npx"
+        ? `Automatic via \`${[command, ...args].join(" ")}\`; requires Node.js, npm, and network access.`
+        : `Install \`${command}\` and verify it with \`command -v ${command}\`.`
     if (MCP_INSTALL_GUIDES[name]) setup += ` [Installation guide](${MCP_INSTALL_GUIDES[name]}).`
     const envKeys = value.env && typeof value.env === "object"
       ? Object.entries(value.env).map(([key, envValue]) => {
@@ -1318,6 +1321,9 @@ export function bridgeToClaudeCode(
   config: TranslationConfig = DEFAULT_TRANSLATION_CONFIG,
   options: ClaudeBridgeOptions = {}
 ): BridgeResult {
+  if (!Array.isArray(agents) || agents.length === 0) {
+    throw new Error(`Cannot generate Claude Code bridge "${pluginName}": no agents provided.`)
+  }
   // Claude plugin manifests use the same lower-kebab naming convention as
   // agent identifiers. Validate the input first, then normalize harmless
   // underscores/dots instead of emitting a manifest the CLI will reject.

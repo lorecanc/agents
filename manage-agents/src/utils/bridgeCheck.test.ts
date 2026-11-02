@@ -199,6 +199,19 @@ test("checkBridge passes on a clean fixture", (t) => {
   assert.equal(result.clean, true)
 })
 
+test("checkBridge rejects category traversal", (t) => {
+  const workspace = writeWorkspace("bridge-check-invalid-category-")
+  t.after(() => fs.rmSync(workspace, { recursive: true, force: true }))
+
+  assert.throws(() => checkBridge({
+    workspaceRoot: workspace,
+    target: "claude",
+    category: "../escape",
+    config: claudeConfig(),
+    committedDir: bridgeOutputDir(workspace)
+  }), /Invalid bridge category/)
+})
+
 test("checkBridge reports drift on a stale fixture", (t) => {
   const workspace = writeWorkspace("bridge-check-stale-")
   t.after(() => fs.rmSync(workspace, { recursive: true, force: true }))

@@ -54,13 +54,13 @@ These servers are declared by the generated plugin. `npx` entries are fetched on
 | `cupertino` | `swift-specialist` | Install `cupertino` and verify it with `command -v cupertino`. [Installation guide](https://aleahim.com/blog/cupertino-09-release/). |
 | `axiom` | `swift-specialist` | Automatic via `npx -y axiom-mcp`; requires Node.js, npm, and network access. |
 | `cwe-search` | `security-auditor` | Automatic via `npx -y cwe-search-mcp@latest`; requires Node.js, npm, and network access. |
-| `bigquery` | `executor`, `explorer`, `fast-lane`, `ops` | Install `` and verify it with `command -v `. |
-| `cloud-run` | `executor`, `explorer`, `fast-lane`, `ops` | Install `` and verify it with `command -v `. |
-| `cloud-logging` | `executor`, `explorer`, `fast-lane`, `ops` | Install `` and verify it with `command -v `. |
-| `cloud-monitoring` | `executor`, `explorer`, `fast-lane`, `ops` | Install `` and verify it with `command -v `. |
-| `cloud-sql` | `executor`, `explorer`, `fast-lane`, `ops` | Install `` and verify it with `command -v `. |
-| `cloud-storage` | `executor`, `explorer`, `fast-lane`, `ops` | Install `` and verify it with `command -v `. |
-| `cloud-cli` | `ops` | Install `` and verify it with `command -v `. |
+| `bigquery` | `executor`, `explorer`, `fast-lane`, `ops` | Remote MCP endpoint (`https://bigquery.googleapis.com/mcp`); ensure network/auth access. |
+| `cloud-run` | `executor`, `explorer`, `fast-lane`, `ops` | Remote MCP endpoint (`https://run.googleapis.com/mcp`); ensure network/auth access. |
+| `cloud-logging` | `executor`, `explorer`, `fast-lane`, `ops` | Remote MCP endpoint (`https://logging.googleapis.com/mcp`); ensure network/auth access. |
+| `cloud-monitoring` | `executor`, `explorer`, `fast-lane`, `ops` | Remote MCP endpoint (`https://monitoring.googleapis.com/mcp`); ensure network/auth access. |
+| `cloud-sql` | `executor`, `explorer`, `fast-lane`, `ops` | Remote MCP endpoint (`https://sqladmin.googleapis.com/mcp`); ensure network/auth access. |
+| `cloud-storage` | `executor`, `explorer`, `fast-lane`, `ops` | Remote MCP endpoint (`https://storage.googleapis.com/storage/mcp`); ensure network/auth access. |
+| `cloud-cli` | `ops` | Remote MCP endpoint (`https://cloudcli.googleapis.com/mcp`); ensure network/auth access. |
 
 After setup, launch Claude Code and use `/mcp` to verify that every required server is connected.
 

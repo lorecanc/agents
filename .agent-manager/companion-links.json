@@ -82,6 +82,18 @@
         "tools/slide_generate_image.ts",
         "tools/slide_screenshot.ts"
       ]
+    },
+    "wiki": {
+      "plugins": [],
+      "tools": [],
+      "commands": [
+        "commands/wiki.md"
+      ],
+      "skills": [
+        "skills/wiki-conventions",
+        "skills/wiki-navigate",
+        "skills/wiki-templates"
+      ]
     }
   }
 }

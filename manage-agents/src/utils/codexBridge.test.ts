@@ -288,6 +288,25 @@ test("translates V1 and V2 OpenCode MCP declarations to the same Codex .mcp.json
   assert.deepEqual(Object.keys(v1.mcpServers), ["codebase-memory-mcp", "remote-tool"])
 })
 
+test("renderCodexMcpSetup formats remote URL MCP servers without empty command install instructions", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-remote-mcp-"))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  fs.mkdirSync(path.join(root, "src"), { recursive: true })
+  fs.writeFileSync(path.join(root, "src", "opencode.json"), JSON.stringify({
+    mcp: { servers: { bigquery: { type: "remote", url: "https://bigquery.googleapis.com/mcp" } } }
+  }))
+  const orchestrator = agent("orchestrator.md", "any", { mode: "primary", permission: { "bigquery_*": "allow" } }, "")
+  const output = path.join(root, "codex")
+
+  bridgeToCodex([orchestrator], "test", "", output, root)
+
+  const readme = fs.readFileSync(path.join(output, "README.md"), "utf8")
+  assert.deepEqual({
+    includesRemoteUrl: /https:\/\/bigquery\.googleapis\.com\/mcp/.test(readme),
+    hasNoLocalInstallInstructions: !/install |command -v /.test(readme)
+  }, { includesRemoteUrl: true, hasNoLocalInstallInstructions: true })
+})
+
 test("writeCodexPlugin rejects output directories escaping the workspace root", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "codex-bridge-ws-"))
   const tmpParent = path.dirname(workspace)
@@ -332,6 +351,16 @@ test("writeCodexPlugin requires a workspaceRoot", () => {
   assert.throws(
     () => (writeCodexPlugin as any)([agent("orchestrator.md", "any", { mode: "primary" }, "")], "legacy-plugin", "", output),
     /workspaceRoot/i
+  )
+})
+
+test("writeCodexPlugin rejects an empty agent list", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-empty-agents-"))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+
+  assert.throws(
+    () => writeCodexPlugin([], "test", "", path.join(root, "codex"), root),
+    /no agents/i
   )
 })
 

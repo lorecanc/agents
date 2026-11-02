@@ -5,24 +5,25 @@
 ## Overview
 | Page | Description | Last Updated |
 |------|-------------|-------------|
-| [Overview](./overview.md) | Overview of the canonical agent catalog, generated distributions, configuration, and terminal manager. | 2026-10-16 |
-| [Architecture](./architecture.md) | Repository layers and generation flows for the agent catalog and manager. | 2026-10-16 |
-| [Getting Started](./getting-started.md) | Install and run the Agent Manager, then build or validate catalog distributions. | 2026-10-16 |
+| [Overview](./overview.md) | Overview of the canonical agent catalog, generated distributions, configuration, and terminal manager. | 2026-11-02 |
+| [Architecture](./architecture.md) | Repository layers and generation flows for the agent catalog and manager. | 2026-11-02 |
+| [Getting Started](./getting-started.md) | Install and run the Agent Manager, validate and build catalog distributions, generate Claude Code and Codex bridges, and install agents into OpenCode. | 2026-11-02 |
 
 ## Modules
 | Page | Description | Last Updated |
 |------|-------------|-------------|
-| [Agent Catalog](./modules/agent-catalog.md) | Canonical OpenCode agent prompts and related workflow resources in src/. | 2026-10-16 |
-| [Agent Manager](./modules/agent-manager.md) | CLI and terminal UI for maintaining agents and generating repository distributions. | 2026-10-16 |
-| [Tools and Plugins](./modules/tools-and-plugins.md) | Custom document, slide, and pipeline tools, plus the pipeline session guard. | 2026-10-16 |
-| [Workflow Resources](./modules/workflow-resources.md) | Slash commands, skills, and supporting documentation that guide agent workflows. | 2026-10-16 |
+| [Agent Catalog](./modules/agent-catalog.md) | Canonical OpenCode agent prompts and related workflow resources in src/. | 2026-11-02 |
+| [Agent Manager](./modules/agent-manager.md) | CLI and terminal UI for maintaining agents, generating category distributions, bridges, shared-sync releases, and OpenCode exports. | 2026-11-02 |
+| [Bridges](./modules/bridges.md) | Claude Code plugin and Codex translation bridges that generate export/bridges/ outputs from canonical pipeline agents. | 2026-11-02 |
+| [Tools and Plugins](./modules/tools-and-plugins.md) | Custom document, slide, and pipeline tools, plus the pipeline session guard. | 2026-11-02 |
+| [Workflow Resources](./modules/workflow-resources.md) | Slash commands, skills, and supporting documentation that guide agent workflows. | 2026-11-02 |
 
 ## API
 | Page | Description | Last Updated |
 |------|-------------|-------------|
-| [OpenCode Tools and Plugin Hooks](./api/opencode-tools-and-plugin.md) | Custom OpenCode tools and the pipeline session guard plugin. | 2026-10-16 |
+| [OpenCode Tools and Plugin Hooks](./api/opencode-tools-and-plugin.md) | Custom OpenCode tools and the pipeline session guard plugin. | 2026-11-02 |
 
 ## Config
 | Page | Description | Last Updated |
 |------|-------------|-------------|
-| [Workspace and Distribution Configuration](./config/workspace-and-distribution.md) | OpenCode, agent profile, companion-link, translation, and category bundle configuration. | 2026-10-16 |
+| [Workspace and Distribution Configuration](./config/workspace-and-distribution.md) | OpenCode, agent profile, companion-link, translation, bash permission, shared sync, and category bundle configuration. | 2026-11-02 |

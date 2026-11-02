@@ -3,8 +3,9 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import test from "node:test"
-import { checkPipelineResources, discoverCompanionResourcePaths, exportAgents, findAgentFiles, mergeOpenCodePluginsConfig } from "./agents.js"
+import { checkPipelineResources, discoverCompanionResourcePaths, exportAgents, findAgentFiles, mergeOpenCodePluginsConfig, organizeAgents } from "./agents.js"
 import { checkPipelineBundles, refreshStampedPipelinesFromSource } from "./pipelineProfiles.js"
+import { DEFAULT_COMPANION_LINKS } from "./companionLinks.js"
 
 function write(file: string, content: string) {
   fs.mkdirSync(path.dirname(file), { recursive: true })
@@ -77,6 +78,37 @@ test("OpenCode export installs the V2 plugin directories and all pipeline tools 
   }
 })
 
+test("exportAgents and checkPipelineResources accept index.js V2 plugin directories", (t) => {
+  const root = workspace()
+  const xdg = fs.mkdtempSync(path.join(os.tmpdir(), "pipeline-resources-js-xdg-"))
+  const previous = process.env.XDG_CONFIG_HOME
+  process.env.XDG_CONFIG_HOME = xdg
+  t.after(() => {
+    if (previous === undefined) delete process.env.XDG_CONFIG_HOME
+    else process.env.XDG_CONFIG_HOME = previous
+    fs.rmSync(root, { recursive: true, force: true })
+    fs.rmSync(xdg, { recursive: true, force: true })
+  })
+
+  write(path.join(root, "src", "plugins", "js-only", "index.js"), "export default 1\n")
+  const linksPath = path.join(root, ".agent-manager", "companion-links.json")
+  fs.mkdirSync(path.dirname(linksPath), { recursive: true })
+  const links = structuredClone(DEFAULT_COMPANION_LINKS)
+  links.categories.pipeline.plugins.push("plugins/js-only")
+  fs.writeFileSync(linksPath, JSON.stringify(links))
+
+  const agents = findAgentFiles(root, "src").filter(agent => agent.category === "pipeline")
+  const problems = checkPipelineResources(path.join(root, "src"), agents)
+  const result = exportAgents(agents, undefined, path.join(root, "src"))
+  const config = JSON.parse(fs.readFileSync(path.join(xdg, "opencode", "opencode.json"), "utf8"))
+
+  assert.deepEqual({
+    exportedIndexJs: result.domainResources.some(file => file.endsWith(path.join("plugins", "js-only", "index.js"))),
+    registeredPlugin: config.plugins.includes("./plugins/js-only"),
+    checkerAcceptsPlugin: !problems.some(problem => problem.kind === "missing-companion" && problem.path.startsWith("plugins/js-only/"))
+  }, { exportedIndexJs: true, registeredPlugin: true, checkerAcceptsPlugin: true })
+})
+
 test("checkPipelineResources reports permitted tools and helper imports that are not shipped", () => {
   const root = workspace()
   write(path.join(root, "src", "agents", "pipeline-ops.md"), agentFile({ pipeline_smoke: "allow", pipeline_serve: "deny" }))
@@ -134,6 +166,32 @@ test("stamped pipelines are refreshed with new plugin directories and checked ag
   for (const file of PIPELINE_PAYLOAD) assert.ok(fs.existsSync(path.join(stamped, ...file.split("/"))), file)
   assert.equal(fs.existsSync(path.join(stamped, "tools", "_pipeline_testutil.mjs")), false)
   assert.equal(fs.existsSync(path.join(stamped, "tools", "_pipeline_core.test.mjs")), false)
+})
+
+test("organizeAgents skips canonical pipeline and checkPipelineBundles flags orphan export/categories/pipeline", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pipeline-organize-orphan-"))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  write(path.join(root, "src", "agents", "pipeline-orchestrator.md"), agentFile({ read: "allow" }))
+  fs.mkdirSync(path.join(root, "export"), { recursive: true })
+  const agents = findAgentFiles(root, "src")
+  for (const current of agents) {
+    current.category = "pipeline"
+    current.targetPath = path.join(root, "export", "categories", "pipeline", "agents", current.filename)
+  }
+  const organized = organizeAgents(root, agents)
+  const orphan = path.join(root, "export", "categories", "pipeline")
+  const createdCanonicalPipelineCopy = fs.existsSync(path.join(orphan, "agents", "pipeline-orchestrator.md"))
+  write(path.join(orphan, "agents", "pipeline-orchestrator.md"), agentFile({ read: "allow" }))
+
+  const checks = checkPipelineBundles(root)
+  const orphanReported = checks.some(check =>
+    path.resolve(check.resourceRoot) === path.resolve(orphan) && check.problems.length > 0
+  )
+  assert.deepEqual({
+    copied: organized.copied.length,
+    createdCanonicalPipelineCopy,
+    orphanReported
+  }, { copied: 0, createdCanonicalPipelineCopy: false, orphanReported: true })
 })
 
 test("mergeOpenCodePluginsConfig emits deduped config-relative plugin directories", (t) => {
