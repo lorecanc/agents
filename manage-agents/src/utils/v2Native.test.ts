@@ -25,6 +25,8 @@ const here = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.resolve(here, "../../..")
 const srcDir = path.join(repoRoot, "src")
 const agentsDir = path.join(srcDir, "agents")
+const commandsDir = path.join(srcDir, "commands")
+const categoriesDir = path.join(repoRoot, "export", "categories")
 const pluginsDir = path.join(srcDir, "plugins")
 const toolsDir = path.join(srcDir, "tools")
 const configPath = path.join(srcDir, "opencode.json")
@@ -36,7 +38,7 @@ const cliEntryPath = path.join(manageSrcDir, "index.tsx")
 const rel = (p: string) => path.relative(repoRoot, p) || "."
 const read = (p: string) => readFileSync(p, "utf8")
 
-const FORBIDDEN_AGENT_KEYS = ["permission", "temperature", "max_steps", "disable", "prompt", "variant"]
+const FORBIDDEN_AGENT_KEYS = ["permission", "temperature", "top_p", "top_k", "max_steps", "disable", "prompt", "variant", "tools"]
 // `lsp` IS a valid V2 permission action; `doom_loop` is not.
 const FORBIDDEN_RULE_ACTIONS = new Set([
   "doom_loop",
@@ -91,11 +93,21 @@ function importsLegacyPlugin(source: string): boolean {
 
 function collectAgentViolations(): string[] {
   const v: string[] = []
-  const files = topLevel(agentsDir).filter((f) => f.endsWith(".md")).sort()
+  const files = topLevel(agentsDir)
+    .filter((name) => name.endsWith(".md") && statSync(path.join(agentsDir, name)).isFile())
+    .map((name) => path.join(agentsDir, name))
   if (files.length === 0) v.push(`${rel(agentsDir)}: no agent markdown files found`)
+  for (const category of topLevel(categoriesDir).sort()) {
+    const categoryPath = path.join(categoriesDir, category)
+    if (!statSync(categoryPath).isDirectory()) continue
+    const categoryAgentsDir = path.join(categoryPath, "agents")
+    files.push(...topLevel(categoryAgentsDir)
+      .filter((name) => name.endsWith(".md") && statSync(path.join(categoryAgentsDir, name)).isFile())
+      .map((name) => path.join(categoryAgentsDir, name)))
+  }
+  files.sort()
 
-  for (const name of files) {
-    const file = path.join(agentsDir, name)
+  for (const file of files) {
     const where = rel(file)
     const raw = splitFrontmatter(read(file))
     if (raw === null) {
@@ -122,6 +134,12 @@ function collectAgentViolations(): string[] {
     for (const key of FORBIDDEN_AGENT_KEYS) {
       if (key in fm) v.push(`${where}: legacy key "${key}" is forbidden in V2`)
     }
+    const requestBody = fm.request?.body
+    if (requestBody && typeof requestBody === "object" && !Array.isArray(requestBody)) {
+      for (const key of ["temperature", "top_p", "top_k"]) {
+        if (key in requestBody) v.push(`${where}: frontmatter request.body contains legacy sampling key "${key}"`)
+      }
+    }
 
     if (Array.isArray(fm.permissions)) {
       fm.permissions.forEach((rule: any, index: number) => {
@@ -144,6 +162,46 @@ function collectAgentViolations(): string[] {
           v.push(`${at} grants execute (execute must be denied or absent)`)
         }
       })
+    }
+  }
+  return v
+}
+
+function collectCommandViolations(): string[] {
+  const v: string[] = []
+  const files = topLevel(commandsDir)
+    .filter((name) => name.endsWith(".md") && statSync(path.join(commandsDir, name)).isFile())
+    .map((name) => path.join(commandsDir, name))
+  for (const category of topLevel(categoriesDir).sort()) {
+    const categoryPath = path.join(categoriesDir, category)
+    if (!statSync(categoryPath).isDirectory()) continue
+    const categoryCommandsDir = path.join(categoryPath, "commands")
+    files.push(...topLevel(categoryCommandsDir)
+      .filter((name) => name.endsWith(".md") && statSync(path.join(categoryCommandsDir, name)).isFile())
+      .map((name) => path.join(categoryCommandsDir, name)))
+  }
+
+  for (const file of files.sort()) {
+    const text = read(file)
+    const raw = splitFrontmatter(text)
+    const where = rel(file)
+    if (raw === null) {
+      if (text.startsWith("---")) v.push(`${where}: malformed or unclosed YAML frontmatter delimiter`)
+      continue
+    }
+    let fm: any
+    try {
+      fm = parseYaml(raw)
+    } catch {
+      const keys = new Set([...raw.matchAll(/^([A-Za-z0-9_-]+)\s*:/gm)].map(([, key]) => key))
+      for (const key of ["subtask", "variant"]) {
+        if (keys.has(key)) v.push(`${where}: legacy command key "${key}" is forbidden in V2`)
+      }
+      continue
+    }
+    if (!fm || typeof fm !== "object" || Array.isArray(fm)) continue
+    for (const key of ["subtask", "variant"]) {
+      if (key in fm) v.push(`${where}: legacy command key "${key}" is forbidden in V2`)
     }
   }
   return v
@@ -350,6 +408,18 @@ function collectCompatViolations(): string[] {
   if (callers.length === 0) {
     v.push(`${where}: translateConfigV1ToV2 has no production call site under manage-agents/src`)
   }
+  if (!/export\s+function\s+translateCommandFrontmatterV1ToV2\s*\(/.test(source)) {
+    v.push(`${where}: translateCommandFrontmatterV1ToV2 is not exported`)
+  }
+  const commandCallers = walkFiles(manageSrcDir).filter((file) => {
+    if (!/\.(?:[cm]?[jt]s|tsx)$/.test(file)) return false
+    if (file === v2CompatPath) return false
+    if (/\.(?:test|spec)\.[cm]?[jt]sx?$/.test(file)) return false
+    return /translateCommandFrontmatterV1ToV2/.test(read(file))
+  })
+  if (commandCallers.length === 0) {
+    v.push(`${where}: translateCommandFrontmatterV1ToV2 has no production call site under manage-agents/src`)
+  }
   return v
 }
 
@@ -534,6 +604,7 @@ function collectCheckStatusViolations(): string[] {
 
 const checks: Array<[string, () => string[]]> = [
   ["agents", collectAgentViolations],
+  ["commands", collectCommandViolations],
   ["config", collectConfigViolations],
   ["plugins", collectPluginsViolations],
   ["tools", collectToolsViolations],
@@ -554,6 +625,10 @@ function assertNoViolations(violations: string[]) {
 
 test("agents: V2-native permissions arrays with normalized rules", () => {
   assertNoViolations(collectAgentViolations())
+})
+
+test("commands: V2-native frontmatter without subtask or separate variant", () => {
+  assertNoViolations(collectCommandViolations())
 })
 
 test("config: mcp.servers, codemode/disabled, and config-relative plugins", () => {

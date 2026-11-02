@@ -1,7 +1,7 @@
 ---
 description: Launch a Chrome DevTools audit in an isolated session with a structured diagnostic brief. Uses gpt-5-mini. Does not pollute the main context.
 agent: chrome-devtools
-subtask: true
+subagent: true
 ---
 
 Run a Chrome DevTools audit for the following problem:

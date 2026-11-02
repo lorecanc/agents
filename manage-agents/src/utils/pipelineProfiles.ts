@@ -3,7 +3,7 @@ import path from "node:path"
 import YAML from "yaml"
 import { checkPipelineResources, composeModelVariant, discoverCompanionResourcePaths, findAgentFiles, getExportDestination, resolveCategoriesSubdir, resolveSourceSubdir, saveAgentFile, type AgentInfo, type PipelineResourceProblem } from "./agents.js"
 import { copyCategoryCompanionLinks, getCompanionLinksConfigPath, loadCompanionLinks, saveCompanionLinks } from "./companionLinks.js"
-import { translateFrontmatterV1ToV2, translatePermissionsV1ToV2, translatePermissionsV2ToV1, type V2PermissionRule } from "./v2Compat.js"
+import { translateCommandFrontmatterV1ToV2, translateFrontmatterV1ToV2, translatePermissionsV1ToV2, translatePermissionsV2ToV1, type V2PermissionRule } from "./v2Compat.js"
 
 export const PIPELINE_ROLES = [
   "orchestrator", "planner", "reasoner", "executor", "tester", "refactorer", "code_reviewer", "critic", "ops",
@@ -56,16 +56,16 @@ export const DEFAULT_PIPELINE_PROFILES: PipelineProfilesConfig = {
     hybrid: {
       description: "Mistral GLM-5.3 for orchestration/planning/reasoning + DeepSeek V4.1 Flash for execution and specialists.",
       defaults: {
-        orchestration: { model: "mistral/zai-glm-5-3" },
-        planning: { model: "mistral/zai-glm-5-3" },
-        execution: { model: "opencode-go/deepseek-v4.1-flash" },
-        fast: { model: "opencode-go/deepseek-v4.1-flash" },
-        specialist: { model: "opencode-go/deepseek-v4.1-flash" }
+        orchestration: { model: "mistral/zai-glm-5-3", variant: "high" },
+        planning: { model: "mistral/zai-glm-5-3", variant: "high" },
+        execution: { model: "opencode-go/deepseek-v4.1-flash", variant: "high" },
+        fast: { model: "opencode-go/deepseek-v4.1-flash", variant: "high" },
+        specialist: { model: "opencode-go/deepseek-v4.1-flash", variant: "high" }
       }
     },
-    go: { description: "OpenCode Go DeepSeek V4.1 Flash across all pipeline roles.", defaults: { all: { model: "opencode-go/deepseek-v4.1-flash" } } },
-    mistral: { description: "Mistral ZAI GLM-5.3 across all pipeline roles.", defaults: { all: { model: "mistral/zai-glm-5-3" } } },
-    free: { description: "OpenCode Free Muse Spark 1.3 Contributor across all pipeline roles.", defaults: { all: { model: "opencode/muse-spark-1.3-contributor-free" } } }
+    go: { description: "OpenCode Go DeepSeek V4.1 Flash across all pipeline roles.", defaults: { all: { model: "opencode-go/deepseek-v4.1-flash", variant: "high" } } },
+    mistral: { description: "Mistral ZAI GLM-5.3 across all pipeline roles.", defaults: { all: { model: "mistral/zai-glm-5-3", variant: "high" } } },
+    free: { description: "OpenCode Free Muse Spark 1.3 Contributor across all pipeline roles.", defaults: { all: { model: "opencode/muse-spark-1.3-contributor-free", variant: "high" } } }
   }
 }
 
@@ -155,8 +155,21 @@ export function rewritePipelineTaskPermissions(taskPerm: Record<string, any>, re
 
 export function rewritePipelineCommandContent(content: string, resolvedTarget: string, sourceCategory = "pipeline"): string {
   const targetPrefix = resolvedTarget.replace(/-pipeline$/, "")
+  let rewritten = content
+  const frontmatterMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---(?=\r?\n|$)/)
+  if (frontmatterMatch) {
+    let frontmatter: unknown
+    try { frontmatter = YAML.parse(frontmatterMatch[1]) } catch { frontmatter = null }
+    if (frontmatter && typeof frontmatter === "object" && !Array.isArray(frontmatter)) {
+      const commandFrontmatter = frontmatter as Record<string, any>
+      if (Object.prototype.hasOwnProperty.call(commandFrontmatter, "subtask") || Object.prototype.hasOwnProperty.call(commandFrontmatter, "variant")) {
+        const normalized = translateCommandFrontmatterV1ToV2(commandFrontmatter)
+        rewritten = `---\n${YAML.stringify(normalized).trim()}\n---${content.slice(frontmatterMatch[0].length)}`
+      }
+    }
+  }
   const sourceOrchestrator = `${sourceCategory}-orchestrator`
-  let rewritten = content.replaceAll(sourceOrchestrator, `${resolvedTarget}-orchestrator`)
+  rewritten = rewritten.replaceAll(sourceOrchestrator, `${resolvedTarget}-orchestrator`)
   if (sourceCategory !== "pipeline") {
     rewritten = rewritten.replace(/(?<![A-Za-z0-9_-])pipeline-orchestrator/g, `${resolvedTarget}-orchestrator`)
   }
@@ -330,7 +343,7 @@ export function refreshStampedPipelinesFromSource(workspaceRoot: string, targetC
         basePermission.task = rewritePipelineTaskPermissions(basePermission.task, resolvedTarget, baseCategory)
       }
       if (existing) {
-        for (const key of ["model", "temperature", "mode", "hidden", "color"]) {
+        for (const key of ["model", "mode", "hidden", "color"]) {
           if (Object.prototype.hasOwnProperty.call(existing.frontmatter, key)) frontmatter[key] = existing.frontmatter[key]
         }
         if (Object.prototype.hasOwnProperty.call(existing.frontmatter, "variant")) frontmatter.variant = existing.frontmatter.variant
@@ -369,6 +382,19 @@ export function refreshStampedPipelinesFromSource(workspaceRoot: string, targetC
           if (typeof spec.variant === "string" && spec.variant.length > 0) frontmatter.variant = spec.variant
           else delete frontmatter.variant
         }
+      }
+
+      delete frontmatter.temperature
+      delete frontmatter.top_p
+      delete frontmatter.top_k
+      if (frontmatter.request && typeof frontmatter.request === "object") {
+        if (frontmatter.request.body && typeof frontmatter.request.body === "object") {
+          delete frontmatter.request.body.temperature
+          delete frontmatter.request.body.top_p
+          delete frontmatter.request.body.top_k
+          if (Object.keys(frontmatter.request.body).length === 0) delete frontmatter.request.body
+        }
+        if (Object.keys(frontmatter.request).length === 0) delete frontmatter.request
       }
 
       composeModelVariant(frontmatter)
@@ -534,7 +560,7 @@ export function forkStampedPipeline(
         const existingPermission = isPermissionMap(existing.frontmatter.permission)
           ? { ...existing.frontmatter.permission }
           : {}
-        const targetOwnedFields = new Set(["model", "variant", "temperature", "steps", "max_steps", "mode", "hidden", "color"])
+        const targetOwnedFields = new Set(["model", "variant", "steps", "max_steps", "mode", "hidden", "color"])
         for (const [key, value] of Object.entries(existing.frontmatter)) {
           if (key !== "permission" && (!Object.prototype.hasOwnProperty.call(agent.frontmatter, key) || targetOwnedFields.has(key))) frontmatter[key] = value
         }
@@ -552,6 +578,18 @@ export function forkStampedPipeline(
           .map(name => `@${name}`)
           .filter(reference => !body.includes(reference))
         if (missingReferences.length > 0) body = `${body.trimEnd()}\n\n${missingReferences.join("\n")}`
+      }
+      delete frontmatter.temperature
+      delete frontmatter.top_p
+      delete frontmatter.top_k
+      if (frontmatter.request && typeof frontmatter.request === "object") {
+        if (frontmatter.request.body && typeof frontmatter.request.body === "object") {
+          delete frontmatter.request.body.temperature
+          delete frontmatter.request.body.top_p
+          delete frontmatter.request.body.top_k
+          if (Object.keys(frontmatter.request.body).length === 0) delete frontmatter.request.body
+        }
+        if (Object.keys(frontmatter.request).length === 0) delete frontmatter.request
       }
       writePipelineAgent(targetPath, composeModelVariant(frontmatter), body, agent.frontmatterVersion)
       result.copied.push(`${agent.filename} -> ${targetFilename}`)

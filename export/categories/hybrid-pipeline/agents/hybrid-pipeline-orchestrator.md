@@ -7,9 +7,6 @@ model: mistral/mistral-large-4#high
 color: "#FFD700"
 hidden: false
 steps: 120
-request:
-  body:
-    temperature: 1
 permissions:
   - action: "*"
     resource: "*"

@@ -6,9 +6,6 @@ model: opencode/deepseek-v4.1-flash-free#high
 color: success
 hidden: true
 steps: 50
-request:
-  body:
-    temperature: 1
 permissions:
   - action: "*"
     resource: "*"

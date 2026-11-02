@@ -1646,8 +1646,8 @@ export function organizeAgents(workspaceRoot: string, agents: AgentInfo[]): { co
 
       const copyInfo = parseAgentFile(agent.targetPath, workspaceRoot)
       if (copyInfo && isValidFrontmatter(copyInfo.frontmatter)) {
-        copyInfo.frontmatter.category = agent.category
-      saveAgentFile(agent.targetPath, copyInfo.frontmatter, copyInfo.body, copyInfo.frontmatterVersion)
+        delete copyInfo.frontmatter.category
+        saveAgentFile(agent.targetPath, copyInfo.frontmatter, copyInfo.body, copyInfo.frontmatterVersion)
       } else {
         skipped.push(agent.filename)
         continue
@@ -2181,6 +2181,13 @@ function safeRelativeStat(sourceRoot: string, relative: string): fs.Stats | unde
   return fs.lstatSync(resolved, { throwIfNoEntry: false })
 }
 
+function isValidPluginDirectory(sourceRoot: string, relativeDir: string): boolean {
+  return /^plugins\/[^/]+$/.test(relativeDir) &&
+    safeRelativeStat(sourceRoot, relativeDir)?.isDirectory() === true &&
+    (safeRelativeStat(sourceRoot, path.posix.join(relativeDir, "index.ts"))?.isFile() === true ||
+      safeRelativeStat(sourceRoot, path.posix.join(relativeDir, "index.js"))?.isFile() === true)
+}
+
 function walkFiles(sourceRoot: string, relative: string): string[] {
   const stat = safeRelativeStat(sourceRoot, relative)
   if (!stat) return []
@@ -2321,6 +2328,8 @@ export function discoverCompanionResourcePaths(sourceRoot: string, domains: stri
         if (!sourcePrefix) continue
         const relative = resource.source.slice(sourcePrefix.slice(0, sourcePrefix.indexOf("/") + 1).length)
         if (relative.split(/[\\/]/).includes("..") || path.isAbsolute(relative)) throw new Error(`Invalid resource path in category manifest: ${resource.source}`)
+        if ((relative === "plugins" || relative.startsWith("plugins/")) &&
+          (resource.kind !== "directory" || !isValidPluginDirectory(sourceRoot, relative))) continue
         const source = path.resolve(sourceRoot, relative)
         if (!source.startsWith(`${path.resolve(sourceRoot)}${path.sep}`)) throw new Error(`Invalid resource path in category manifest: ${resource.source}`)
         let current = sourceRoot
@@ -2354,6 +2363,13 @@ export function discoverCompanionResourcePaths(sourceRoot: string, domains: stri
       })
       if (entryStat.isSymbolicLink()) {
         if (rootToolMatches || matches(entry.name) || matches(path.parse(entry.name).name)) throw new Error(`Refusing to export resource symlink: ${entryPath}`)
+        continue
+      }
+      if (root === "plugins") {
+        const relative = path.posix.join(root, entry.name)
+        if (entryStat.isDirectory() && matches(entry.name) && isValidPluginDirectory(sourceRoot, relative)) {
+          for (const file of walkFiles(sourceRoot, relative)) found.add(file)
+        }
         continue
       }
       if (rootToolMatches && entryStat.isFile() && !isExcludedCompanionFile(path.posix.join(root, entry.name))) found.add(path.posix.join(root, entry.name))
@@ -2402,17 +2418,15 @@ export function discoverCompanionResourcePaths(sourceRoot: string, domains: stri
     const links = getCategoryCompanionLinks(workspaceRoot, domain)
     for (const relative of [...links.plugins, ...links.commands, ...links.skills, ...links.tools]) {
       const normalized = relative.replace(/\\/g, "/")
+      if (normalized.startsWith("plugins/")) {
+        if (isValidPluginDirectory(sourceRoot, normalized)) {
+          for (const file of walkFiles(sourceRoot, normalized)) found.add(file)
+        }
+        continue
+      }
       const stat = safeRelativeStat(sourceRoot, normalized)
       if (stat?.isDirectory()) for (const file of walkFiles(sourceRoot, normalized)) found.add(file)
       else if (stat?.isFile() && !isExcludedCompanionFile(normalized)) found.add(normalized)
-      else if (links.plugins.includes(relative)) {
-        // Legacy single-file plugin checkouts still ship the module the V2
-        // directory entry replaced, but only while that file exists.
-        for (const extension of [".ts", ".js", ".mjs"]) {
-          const legacy = `${normalized}${extension}`
-          if (safeRelativeStat(sourceRoot, legacy)?.isFile() && !isExcludedCompanionFile(legacy)) found.add(legacy)
-        }
-      }
     }
   }
   for (const dependency of traceRelativeToolDependencies(sourceRoot, found)) found.add(dependency)
@@ -2602,6 +2616,7 @@ export function compareCompanionResources(workspaceRoot: string, agents?: AgentI
 const RESOURCE_EXPORT_MANIFEST = ".resource-export-manifest.json"
 const RESOURCE_EXPORT_MANIFEST_OWNER = "manage-agents"
 const RESOURCE_EXPORT_MANIFEST_VERSION = 1
+const LEGACY_SINGLE_FILE_MANAGED_PLUGINS = new Set(["pipeline-guard", "pipeline-tools", "doc-tools", "slide-tools"])
 const EXPORTER_OWNED_RESOURCE_ROOTS = ["tools", "commands", "skills", "plugins", "resources", ".opencode"] as const
 
 /**
@@ -2743,17 +2758,28 @@ function reconcileResourceManifest(
   const next = [...new Set([...installedRelatives].map(relative => relative.replace(/\\/g, "/")))]
     .filter(relative => relative !== RESOURCE_EXPORT_MANIFEST)
     .sort((a, b) => a.localeCompare(b))
+  const managedPluginNames = new Set(next.flatMap(relative => {
+    const match = /^plugins\/([^/]+)\/index\.(?:ts|js)$/.exec(relative)
+    return match ? [match[1]] : []
+  }))
+  const legacyPluginFiles = [...managedPluginNames].filter(name => LEGACY_SINGLE_FILE_MANAGED_PLUGINS.has(name)).flatMap(name =>
+    [".js", ".ts", ".mjs"].map(extension => `plugins/${name}${extension}`)
+  )
+  const legacyPluginFileSet = new Set(legacyPluginFiles)
   const previous = readResourceExportManifest(opencodeRoot)
   if (!options.completeExport) {
+    if (legacyPluginFiles.length > 0) {
+      pruneStaleResourceFiles(opencodeRoot, legacyPluginFiles, new Set(next), options.backupPath, options.removed)
+    }
     const union = [...new Set([...previous.map(relative => relative.replace(/\\/g, "/")), ...next])]
-      .filter(relative => relative !== RESOURCE_EXPORT_MANIFEST)
+      .filter(relative => relative !== RESOURCE_EXPORT_MANIFEST && !legacyPluginFileSet.has(relative))
       .sort((a, b) => a.localeCompare(b))
-    if (union.length === 0) return false
+    if (union.length === 0) return options.removed.length > 0
     writeResourceExportManifest(opencodeRoot, union)
-    return false
+    return options.removed.length > 0
   }
   if (next.length === 0 && previous.length === 0) return false
-  pruneStaleResourceFiles(opencodeRoot, previous, new Set(next), options.backupPath, options.removed)
+  pruneStaleResourceFiles(opencodeRoot, [...new Set([...previous, ...legacyPluginFiles])], new Set(next), options.backupPath, options.removed)
   writeResourceExportManifest(opencodeRoot, next)
   return options.removed.length > 0
 }

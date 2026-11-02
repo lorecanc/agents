@@ -7,9 +7,6 @@ model: opencode-go/deepseek-v4.1-flash#high
 color: "#BDC3C7"
 hidden: false
 steps: 120
-request:
-  body:
-    temperature: 1
 permissions:
   - action: "*"
     resource: "*"

@@ -8,9 +8,6 @@ model: mistral/deepseek-v4-1-flash-1017#high
 color: "#E67E22"
 hidden: true
 steps: 50
-request:
-  body:
-    temperature: 1
 permissions:
   - action: "*"
     resource: "*"

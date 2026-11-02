@@ -4,7 +4,7 @@
   "category": "docs",
   "manifestHash": "fc07729bd6236064beaebf0ce452e99c1baf4c8a31ae6cc45af46f7c47bf9994",
   "generatorVersion": "2.0.0",
-  "bundleDigest": "69f443ef33ed5d4f18feebc48a21bd61eb77ebcd34bcac2f0bd10eb8e5e09dc8",
+  "bundleDigest": "b652ace7acb07062ff1beb77d55209a048daa2032f66ed8b6cc1395f9399fe92",
   "entries": [
     {
       "target": "AGENTS.md",
@@ -44,7 +44,7 @@
     },
     {
       "target": "commands/web-audit.md",
-      "hash": "87067d7b3a66d129be24f985d02f59eb60d2f63e692b03cd8fee3115b119a23a"
+      "hash": "c5c7f6a36576cef2f8b9a9901851cd07b98eb9c1ec8dd8c68e32e63142679fb9"
     },
     {
       "target": "opencode.json",

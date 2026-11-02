@@ -6,9 +6,6 @@ model: mistral/mistral-large-4#high
 color: "#E67E22"
 hidden: true
 steps: 50
-request:
-  body:
-    temperature: 1
 permissions:
   - action: "*"
     resource: "*"

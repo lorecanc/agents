@@ -151,7 +151,8 @@ permission:
     "git add .*": deny
     "npm *": allow
   webfetch: deny
-temperature: 1
+max_steps: 40
+color: "#E67E22"
 ---
 
 # Body
@@ -169,7 +170,10 @@ test("rewriteBashRules replaces only the shell rules, keeps the body bytes, and 
   const before = YAML.parse(extractFrontmatter(SAMPLE).yamlText!)
   const after = YAML.parse(extractFrontmatter(next).yamlText!)
   assert.equal(after.mode, before.mode)
-  assert.equal(after.request?.body?.temperature, before.temperature)
+  assert.equal(after.steps, 40)
+  assert.equal(after.color, "#E67E22")
+  assert.equal(after.temperature, undefined)
+  assert.equal(after.request, undefined)
   assert.equal(extractFrontmatter(next).body, extractFrontmatter(SAMPLE).body, "body bytes are untouched")
   assert.equal(rewriteBashRules(next, rules), next, "idempotent once the file is V2")
   assert.equal(rewriteBashRules("no frontmatter", rules), null)
@@ -206,7 +210,10 @@ test("syncBashProfiles rewrites drifted agents, skips unprofiled ones, and is th
   assert.deepEqual(applied.skipped, ["src/agents/pipeline-planner.md"])
   const rewritten = YAML.parse(extractFrontmatter(fs.readFileSync(executor, "utf8")).yamlText!)
   assert.deepEqual(bashRulesOf(rewritten), expandBashRole(config, "executor"))
-  assert.equal(rewritten.request.body.temperature, 1, "non-bash frontmatter is preserved")
+  assert.equal(rewritten.steps, 40, "non-bash V2 frontmatter is preserved")
+  assert.equal(rewritten.color, "#E67E22", "non-bash V2 frontmatter is preserved")
+  assert.equal(rewritten.temperature, undefined)
+  assert.equal(rewritten.request, undefined)
   assert.deepEqual(syncBashProfiles(root), { changed: [], unchanged: ["src/agents/pipeline-executor.md"], skipped: ["src/agents/pipeline-planner.md"] })
 })
 

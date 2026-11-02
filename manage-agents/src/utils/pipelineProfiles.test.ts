@@ -36,6 +36,12 @@ test("defaults, role list, and profile persistence are available in workspace", 
   const root = workspace()
   assert.equal(loadPipelineProfiles(root).baseCategory, "pipeline")
   assert.equal(PIPELINE_ROLES.length, 21)
+  const hybridDefaults = Object.values(DEFAULT_PIPELINE_PROFILES.profiles.hybrid.defaults!)
+  assert.equal(hybridDefaults.length, 5)
+  assert.ok(hybridDefaults.every(spec => spec.variant === "high"))
+  for (const name of ["go", "mistral", "free"] as const) {
+    assert.equal(DEFAULT_PIPELINE_PROFILES.profiles[name].defaults?.all?.variant, "high")
+  }
   const config = structuredClone(DEFAULT_PIPELINE_PROFILES)
   config.profiles.custom = { description: "Custom", roles: { executor: { model: "test/model" } } }
   assert.equal(savePipelineProfiles(root, config), path.join(root, ".agent-manager", "pipeline-profiles.json"))
@@ -116,6 +122,7 @@ test("sync forks base agents, applies selected profile, and copies companion lin
   assert.equal(result.synced.length, 2)
   const target = parseAgentFile(path.join(root, "export", "categories", "go-pipeline", "agents", "go-pipeline-executor.md"), root)!
   assert.equal(target.model, "opencode-go/deepseek-v4.1-flash")
+  assert.equal(target.frontmatter.variant, "high")
   assert.equal(target.body.trim(), "Body for executor")
   const links = JSON.parse(fs.readFileSync(path.join(manager, "companion-links.json"), "utf8"))
   assert.deepEqual(links.categories["go-pipeline"].plugins, ["plugins/pipeline-guard"])
@@ -135,12 +142,25 @@ test("sync stamps command orchestrator references with exactly one profile prefi
     agent(root, "pipeline", "orchestrator")
     const commandPath = path.join(root, "src", "commands", "pipeline-bug.md")
     fs.mkdirSync(path.dirname(commandPath), { recursive: true })
-    fs.writeFileSync(commandPath, "---\nagent: pipeline-orchestrator\n---\n\nUse @pipeline-orchestrator.\n")
+    fs.writeFileSync(commandPath, [
+      "---",
+      "agent: pipeline-orchestrator",
+      "model: test/model",
+      "subtask: true",
+      "variant: high",
+      "---",
+      "",
+      "Use @pipeline-orchestrator.\n"
+    ].join("\n"))
 
     const result = syncPipelineProfile(root, family)
     const command = fs.readFileSync(path.join(result.outputDir, "commands", `${family}-bug.md`), "utf8")
 
     assert.match(command, new RegExp(`agent: ${family}-pipeline-orchestrator`))
+    assert.match(command, /subagent: true/)
+    assert.doesNotMatch(command, /\nsubtask:/)
+    assert.match(command, /model: test\/model#high/)
+    assert.doesNotMatch(command, /\nvariant:/)
     assert.match(command, new RegExp(`@${family}-pipeline-orchestrator`))
     assert.doesNotMatch(command, new RegExp(`${family}-${family}-pipeline-orchestrator`))
   }
@@ -207,6 +227,7 @@ test("sync to base category applies in place without creating backups", () => {
   assert.deepEqual(result.synced.sort(), [filePath, path.join(root, "src", "agents", "pipeline-executor.md")].sort())
   assert.equal(result.backupsPath, null)
   assert.equal(parseAgentFile(filePath, root)!.model, "mistral/zai-glm-5-3")
+  assert.equal(parseAgentFile(filePath, root)!.frontmatter.variant, "high")
 })
 
 test("delete refuses canonical base pipelines and categories present in source agents", () => {
@@ -371,6 +392,9 @@ test("refreshStampedPipelinesFromSource updates body, permissions, and companion
     variant: "high",
     steps: 150,
     temperature: 0.7,
+    top_p: 0.9,
+    top_k: 30,
+    request: { headers: { "x-test": "1" }, body: { seed: 7, temperature: 0.6, top_p: 0.8, top_k: 20 } },
     custom_target_note: "keep this value",
     permission: {
       ...(stampedOrchestrator.frontmatter.permission as Record<string, unknown>),
@@ -401,7 +425,10 @@ test("refreshStampedPipelinesFromSource updates body, permissions, and companion
   assert.equal(refreshed.frontmatter.model, "custom/model-x")
   assert.equal(refreshed.frontmatter.variant, "high")
   assert.equal(refreshed.frontmatter.max_steps, 150)
-  assert.equal(refreshed.frontmatter.temperature, 0.7)
+  assert.equal(refreshed.frontmatter.temperature, undefined)
+  assert.equal(refreshed.frontmatter.top_p, undefined)
+  assert.equal(refreshed.frontmatter.top_k, undefined)
+  assert.deepEqual(refreshed.frontmatter.request, { headers: { "x-test": "1" }, body: { seed: 7 } })
   assert.equal(refreshed.frontmatter.custom_target_note, "keep this value")
   assert.equal((refreshed.frontmatter.permission as Record<string, unknown>)["custom_mcp_*"], "allow")
   assert.equal(fs.readFileSync(path.join(stamped.outputDir, "plugins", "pipeline-guard", "index.ts"), "utf8"), "updated pipeline guard\n")
@@ -610,13 +637,16 @@ test("forkStampedPipeline forks from base pipeline or stamped pipeline into expo
     ...qwen.frontmatter,
     model: "custom/qwen",
     variant: "high",
-      temperature: 0.9,
-      max_steps: 42,
-      custom_target_note: "keep qwen",
-      permission: {
-        ...(qwen.frontmatter.permission as Record<string, unknown>),
-        task: { "*": "ask", "qwen-pipeline-planner": "allow", "qwen-pipeline-executor": "deny" }
-      }
+    temperature: 0.9,
+    top_p: 0.8,
+    top_k: 20,
+    request: { headers: { "x-test": "1" }, body: { seed: 42, temperature: 0.9, top_p: 0.8, top_k: 20 } },
+    max_steps: 42,
+    custom_target_note: "keep qwen",
+    permission: {
+      ...(qwen.frontmatter.permission as Record<string, unknown>),
+      task: { "*": "ask", "qwen-pipeline-planner": "allow", "qwen-pipeline-executor": "deny" }
+    }
   }
   saveAgentFile(qwenPath, qwen.frontmatter, qwen.body)
 
@@ -637,7 +667,10 @@ test("forkStampedPipeline forks from base pipeline or stamped pipeline into expo
   const reforkedQwen = parseAgentFile(qwenPath, root)!
   assert.equal(reforkedQwen.frontmatter.model, "custom/qwen")
   assert.equal(reforkedQwen.frontmatter.variant, "high")
-  assert.equal(reforkedQwen.frontmatter.temperature, 0.9)
+  assert.equal(reforkedQwen.frontmatter.temperature, undefined)
+  assert.equal(reforkedQwen.frontmatter.top_p, undefined)
+  assert.equal(reforkedQwen.frontmatter.top_k, undefined)
+  assert.deepEqual(reforkedQwen.frontmatter.request, { headers: { "x-test": "1" }, body: { seed: 42 } })
   assert.equal(reforkedQwen.frontmatter.max_steps, 42)
   assert.equal(reforkedQwen.frontmatter.custom_target_note, "keep qwen")
   assert.equal(reforkedQwen.frontmatter.description, "Refreshed orchestrator")

@@ -3,7 +3,7 @@
  *
  * V2 introduced several breaking changes to agent frontmatter:
  * - `max_steps` → `steps`
- * - `temperature`, `top_p` → `request.body.temperature`, `request.body.top_p`
+ * - Sampling fields (`temperature`, `top_p`, `top_k`) are removed from agent frontmatter
  * - `permission` (object) → `permissions` (array of {action, resource, effect})
  * - `disable` → `disabled`
  * - `prompt` → `system`
@@ -308,28 +308,41 @@ export function translateFrontmatterV1ToV2(fm: V1Frontmatter): V2Frontmatter {
     delete result.max_steps
   }
 
-  // temperature, top_p → request.body
-  if (fm.temperature !== undefined || fm.top_p !== undefined) {
-    result.request = { ...result.request }
-    result.request.body = { ...result.request?.body }
-    if (fm.temperature !== undefined) {
-      result.request.body.temperature = fm.temperature
-      delete result.temperature
+  delete result.temperature
+  delete result.top_p
+  delete result.top_k
+
+  if (isPlainObject(result.request) && isPlainObject(result.request.body)) {
+    result.request = { ...result.request, body: { ...result.request.body } }
+    delete result.request.body.temperature
+    delete result.request.body.top_p
+    delete result.request.body.top_k
+    if (Object.keys(result.request.body).length === 0) {
+      delete result.request.body
     }
-    if (fm.top_p !== undefined) {
-      result.request.body.top_p = fm.top_p
-      delete result.top_p
+    if (Object.keys(result.request).length === 0) {
+      delete result.request
     }
   }
 
-  // permission → permissions. An existing V2 `permissions` array wins: the
-  // translation is idempotent and never rebuilt from the singular legacy key.
-  if (fm.permission !== undefined) {
-    if (fm.permissions === undefined) {
-      result.permissions = translatePermissionsV1ToV2(fm.permission)
+  // V1 tools and permission fields → V2 permissions. Existing V2 permissions win.
+  const toolPermissions: V1PermissionObject = {}
+  if (isPlainObject(fm.tools)) {
+    for (const [key, value] of Object.entries(fm.tools)) {
+      if (value === true) toolPermissions[key] = "allow"
+      else if (value === false) toolPermissions[key] = "deny"
+      else if (value === "allow" || value === "ask" || value === "deny") toolPermissions[key] = value
     }
-    delete result.permission
   }
+  if (fm.permission !== undefined || isPlainObject(fm.tools)) {
+    const permissions = {
+      ...toolPermissions,
+      ...(isPlainObject(fm.permission) ? fm.permission : {}),
+    }
+    if (result.permissions === undefined) result.permissions = translatePermissionsV1ToV2(permissions)
+    if (fm.permission !== undefined) delete result.permission
+  }
+  delete result.tools
 
   // disable → disabled
   if (fm.disable !== undefined) {
@@ -359,6 +372,7 @@ export function translateFrontmatterV1ToV2(fm: V1Frontmatter): V2Frontmatter {
  */
 export function translateFrontmatterV2ToV1(fm: V2Frontmatter): V1Frontmatter {
   const result: V1Frontmatter = { ...fm }
+  delete result.tools
 
   // steps → max_steps
   if (fm.steps !== undefined) {
@@ -366,24 +380,20 @@ export function translateFrontmatterV2ToV1(fm: V2Frontmatter): V1Frontmatter {
     delete result.steps
   }
 
-  // request.body → temperature, top_p
+  delete result.temperature
+  delete result.top_p
+  delete result.top_k
+
   if (fm.request?.body) {
-    const body = fm.request.body
-    if (body.temperature !== undefined) {
-      result.temperature = body.temperature
-    }
-    if (body.top_p !== undefined) {
-      result.top_p = body.top_p
-    }
-    // Clean up empty request.body
-    if (Object.keys(body).length === 0) {
-      delete result.request
-    } else {
-      result.request = { ...fm.request }
+    result.request = { ...fm.request, body: { ...fm.request.body } }
+    delete result.request.body.temperature
+    delete result.request.body.top_p
+    delete result.request.body.top_k
+    if (Object.keys(result.request.body).length === 0) {
       delete result.request.body
-      if (Object.keys(result.request).length === 0) {
-        delete result.request
-      }
+    }
+    if (Object.keys(result.request).length === 0) {
+      delete result.request
     }
   }
 
@@ -412,6 +422,34 @@ export function translateFrontmatterV2ToV1(fm: V2Frontmatter): V1Frontmatter {
     result.variant = variant
   }
 
+  return result
+}
+
+export function translateCommandFrontmatterV1ToV2(fm: Record<string, any>): Record<string, any> {
+  const result: Record<string, any> = { ...fm }
+  if (fm.subtask !== undefined) {
+    if (result.subagent === undefined) result.subagent = fm.subtask
+    delete result.subtask
+  }
+  if (fm.variant !== undefined) {
+    const baseModel = typeof fm.model === "string" ? fm.model.split("#")[0] : ""
+    if (baseModel) result.model = fm.variant ? `${baseModel}#${fm.variant}` : baseModel
+    delete result.variant
+  }
+  return result
+}
+
+export function translateCommandFrontmatterV2ToV1(fm: Record<string, any>): Record<string, any> {
+  const result: Record<string, any> = { ...fm }
+  if (fm.subagent !== undefined) {
+    if (result.subtask === undefined) result.subtask = fm.subagent
+    delete result.subagent
+  }
+  if (typeof fm.model === "string" && fm.model.includes("#")) {
+    const [baseModel, variant] = fm.model.split("#", 2)
+    result.model = baseModel
+    result.variant = variant
+  }
   return result
 }
 
@@ -574,13 +612,13 @@ export function translateConfigV2ToV1(config: Record<string, any>): Record<strin
  */
 export function detectFrontmatterVersion(fm: Record<string, any>): "v1" | "v2" | "unknown" {
   const v2OnlyFields = ["steps", "disabled", "system", "permissions", "request"]
-  const v1OnlyFields = ["max_steps", "disable", "prompt", "permission"]
+  const v1OnlyFields = ["max_steps", "disable", "prompt", "permission", "temperature", "top_p", "top_k", "tools"]
 
   const hasV2 = v2OnlyFields.some(f => f in fm)
   const hasV1 = v1OnlyFields.some(f => f in fm)
 
-  // V1 agent files in this repository use `steps` alongside singular `permission`.
-  if ("steps" in fm && "permission" in fm && !["disabled", "system", "permissions", "request"].some(f => f in fm)) return "v1"
+  // V1 agent files in this repository may use `steps` alongside legacy permissions or sampling fields.
+  if ("steps" in fm && ["permission", "temperature", "top_p", "top_k"].some(f => f in fm) && !["disabled", "system", "permissions", "request"].some(f => f in fm)) return "v1"
   if (hasV2 && !hasV1) return "v2"
   if (hasV1 && !hasV2) return "v1"
   return "unknown"

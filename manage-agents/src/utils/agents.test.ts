@@ -413,6 +413,7 @@ test("V1 frontmatter renders as V2 at the write boundary", () => {
     "model: test/model",
     "max_steps: 7",
     "temperature: 0.3",
+    "top_p: 0.8",
     "permission:",
     "  read: allow",
     "variant: high",
@@ -429,9 +430,10 @@ test("V1 frontmatter renders as V2 at the write boundary", () => {
   assert.match(content, /\npermissions:\n  - action: read\n/)
   assert.doesNotMatch(content, /\npermission:/)
   assert.doesNotMatch(content, /\ntemperature:/)
+  assert.doesNotMatch(content, /\ntop_p:/)
   assert.doesNotMatch(content, /\nvariant:/)
   assert.match(content, /\nsteps: 7\n/)
-  assert.match(content, /\nrequest:\n  body:\n    temperature: 0\.3\n/)
+  assert.doesNotMatch(content, /\nrequest:/)
   assert.match(content, /\nmodel: test\/model#high\n/)
 })
 
@@ -447,6 +449,8 @@ test("V2 frontmatter round-trips without losing V2 fields", () => {
     description: "V2 source",
     model: "test/model",
     steps: 8,
+    temperature: 0.1,
+    top_p: 0.7,
     request: { body: { temperature: 0.2, top_p: 0.8 } },
     system: "Keep this prompt",
     permissions
@@ -459,8 +463,9 @@ test("V2 frontmatter round-trips without losing V2 fields", () => {
   const saved = parseAgentFile(filePath, workspace)!
   assert.equal(saved.frontmatterVersion, "v2")
   assert.equal(saved.frontmatter.max_steps, 8)
-  assert.equal(saved.frontmatter.temperature, 0.2)
-  assert.equal(saved.frontmatter.top_p, 0.8)
+  assert.equal(saved.frontmatter.temperature, undefined)
+  assert.equal(saved.frontmatter.top_p, undefined)
+  assert.equal(saved.frontmatter.request, undefined)
   assert.equal(saved.frontmatter.prompt, "Keep this prompt")
   assert.deepEqual(saved.frontmatter.permission, {
     read: "allow",
@@ -924,7 +929,8 @@ test("legacy V1 max_steps survives parsing and writes V2 on tuning updates", () 
   let content = fs.readFileSync(filePath, "utf8")
   assert.match(content, /\nsteps: 12\n/)
   assert.doesNotMatch(content, /\nmax_steps:/)
-  assert.match(content, /\nrequest:\n  body:\n    temperature: 0\.5\n/)
+  assert.doesNotMatch(content, /\n(?:temperature|top_p|top_k):/)
+  assert.doesNotMatch(content, /\nrequest:/)
   assert.equal(parseAgentFile(filePath, workspace)!.frontmatterVersion, "v2")
 
   updateAgentParams([agent], { steps: 20 })
@@ -956,8 +962,9 @@ test("multi-agent parameter tuning summarizes mixed values and only updates dirt
   const summary = (agentsMod as any).inspectTuningTargets([subagent, orchestrator])
   assert.equal(summary.steps.mixed, true)
   assert.equal(summary.steps.displayMixed, "(mixed: 50, 120 — unchanged)")
-  assert.equal(summary.temp.mixed, true)
-  assert.equal(summary.temp.displayMixed, "(mixed: 0.2, 1 — unchanged)")
+  assert.equal(summary.temp.mixed, false)
+  assert.equal(summary.temp.value, "0.2")
+  assert.equal(summary.temp.displayMixed, "0.2")
   assert.equal(summary.mode.mixed, true)
   assert.equal(summary.mode.displayMixed, "(mixed: PRIMARY, SUBAGENT — unchanged)")
   assert.equal(summary.hidden.mixed, true)
@@ -976,7 +983,10 @@ test("multi-agent parameter tuning summarizes mixed values and only updates dirt
   assert.equal(updatedOrchestrator.frontmatter.variant, "high")
   assert.equal(updatedOrchestrator.frontmatter.mode, "primary")
   assert.equal(updatedOrchestrator.frontmatter.max_steps, 120)
-  assert.equal(updatedOrchestrator.frontmatter.temperature, 1)
+  assert.equal(updatedSubagent.frontmatter.temperature, undefined)
+  assert.equal(updatedOrchestrator.frontmatter.temperature, undefined)
+  assert.doesNotMatch(fs.readFileSync(subagentPath, "utf8"), /\n(?:temperature|top_p|top_k):|\nrequest:/)
+  assert.doesNotMatch(fs.readFileSync(orchestratorPath, "utf8"), /\n(?:temperature|top_p|top_k):|\nrequest:/)
   assert.equal(updatedOrchestrator.frontmatter.hidden, false)
 })
 
@@ -1228,7 +1238,7 @@ test("export across canonical and multiple stamped pipelines installs each pipel
     "commands/pipeline-bug.md": "canonical pipeline command\n",
     "commands/go-bug.md": "go pipeline command\n",
     "commands/hybrid-bug.md": "hybrid pipeline command\n",
-    "plugins/pipeline-guard.js": "canonical pipeline guard\n",
+    "plugins/pipeline-guard/index.ts": "canonical pipeline guard\n",
     "skills/code-review-antipatterns/SKILL.md": "shared review skill\n",
     "tools/pipeline_state.ts": 'import "./_pipeline_core.js";\nexport const state = true\n',
     "tools/_pipeline_core.js": "export const core = true\n"
@@ -1240,7 +1250,7 @@ test("export across canonical and multiple stamped pipelines installs each pipel
   }
 
   const sharedLinks = {
-    plugins: ["plugins/pipeline-guard.js"],
+    plugins: ["plugins/pipeline-guard"],
     skills: ["skills/code-review-antipatterns"],
     tools: ["tools/pipeline_state.ts"]
   }
@@ -1261,12 +1271,12 @@ test("export across canonical and multiple stamped pipelines installs each pipel
   const goAgent = fixtureAgent(path.join(workspace, "export/categories/go-pipeline/agents/go-pipeline-orchestrator.md"), workspace, "test/model")
   const hybridAgent = fixtureAgent(path.join(workspace, "export/categories/hybrid-pipeline/agents/hybrid-pipeline-orchestrator.md"), workspace, "test/model")
 
-  const staleStampedPlugin = path.join(workspace, "export/categories/go-pipeline/plugins/pipeline-guard.js")
+  const staleStampedPlugin = path.join(workspace, "export/categories/go-pipeline/plugins/pipeline-guard/index.ts")
   fs.mkdirSync(path.dirname(staleStampedPlugin), { recursive: true })
   fs.writeFileSync(staleStampedPlugin, "stale stamped pipeline guard\n")
 
   const sharedResources = [
-    "plugins/pipeline-guard.js",
+    "plugins/pipeline-guard/index.ts",
     "skills/code-review-antipatterns/SKILL.md",
     "tools/pipeline_state.ts",
     "tools/_pipeline_core.js"
@@ -1312,7 +1322,7 @@ test("export across canonical and multiple stamped pipelines installs each pipel
       assert.ok(result.domainResources.includes(installedPath), `${relative} should be listed as an installed resource`)
       assert.ok(result.domainResources.filter(resource => resource === installedPath).length <= 1, `${relative} must not be listed more than once`)
     }
-    assert.equal(fs.readFileSync(path.join(opencodeRoot, "plugins/pipeline-guard.js"), "utf8"), sourceFiles["plugins/pipeline-guard.js"], "the canonical src copy wins over a stale stamped copy")
+    assert.equal(fs.readFileSync(path.join(opencodeRoot, "plugins/pipeline-guard/index.ts"), "utf8"), sourceFiles["plugins/pipeline-guard/index.ts"], "the canonical src copy wins over a stale stamped copy")
     assert.equal(new Set(result.domainResources).size, result.domainResources.length, "domain resource paths must be deduplicated")
 
     if (index === 1) {
@@ -1475,6 +1485,30 @@ test("legacy export prunes manifest resources, migrates opencode.json to V2, and
     "plugins/pipeline-tools/index.ts",
     "tools/pipeline_active.ts"
   ])
+})
+
+test("complete export removes only allowlisted legacy plugin files and preserves unrelated user files", (t) => {
+  const fixture = legacyExportFixture(t)
+  const { opencodeRoot, sourceRoot } = fixture
+  const manifestPath = path.join(opencodeRoot, ".resource-export-manifest.json")
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"))
+  manifest.resources = manifest.resources.filter((resource: string) => resource !== "plugins/pipeline-guard.js")
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n")
+  const unlistedPluginName = "pipeline-third-party"
+  fs.mkdirSync(path.join(sourceRoot, "plugins", unlistedPluginName), { recursive: true })
+  fs.writeFileSync(path.join(sourceRoot, "plugins", unlistedPluginName, "index.ts"), "export default {}\n")
+  const unlistedLegacyPluginPath = path.join(opencodeRoot, "plugins", `${unlistedPluginName}.js`)
+  fs.writeFileSync(unlistedLegacyPluginPath, "user-owned legacy plugin\n")
+  const userPluginPath = path.join(opencodeRoot, "plugins", "user-own.js")
+  fs.writeFileSync(userPluginPath, "user-owned legacy plugin\n")
+  assert.equal(manifest.resources.includes("plugins/pipeline-guard.js"), false)
+
+  exportAgents(fixture.agents, undefined, sourceRoot, { completeExport: true })
+
+  assert.equal(fs.existsSync(path.join(opencodeRoot, "plugins", "pipeline-guard.js")), false)
+  assert.equal(fs.readFileSync(path.join(opencodeRoot, "plugins", "pipeline-guard", "index.ts"), "utf8"), 'export default { name: "pipeline-guard" }\n')
+  assert.equal(fs.readFileSync(unlistedLegacyPluginPath, "utf8"), "user-owned legacy plugin\n")
+  assert.equal(fs.readFileSync(userPluginPath, "utf8"), "user-owned legacy plugin\n")
 })
 
 test("a second export leaves every file and the manifest unchanged and creates no new backups", (t) => {
@@ -1762,7 +1796,7 @@ test("category companion link changes control linked companion discovery", (t) =
   process.env.XDG_CONFIG_HOME = path.join(workspace, "xdg")
   const agent = fixtureAgent(path.join(workspace, "general/agents/custom-agent.md"), workspace, "test/model")
   const files = [
-    "plugins/linked-plugin.js",
+    "plugins/linked-plugin/index.ts",
     "skills/linked-skill/SKILL.md",
     "tools/linked_tool.ts"
   ]
@@ -1773,7 +1807,7 @@ test("category companion link changes control linked companion discovery", (t) =
   }
 
   updateCategoryCompanionLinks(workspace, "custom", {
-    plugins: ["plugins/linked-plugin.js"], skills: ["skills/linked-skill"], tools: ["tools/linked_tool.ts"]
+    plugins: ["plugins/linked-plugin"], skills: ["skills/linked-skill"], tools: ["tools/linked_tool.ts"]
   })
   const linked = compareCompanionResources(workspace, [agent]).map(item => item.relativePath.replace(/\\/g, "/"))
   for (const relative of files) assert.ok(linked.includes(relative), `${relative} should be discovered while linked`)
@@ -1781,6 +1815,37 @@ test("category companion link changes control linked companion discovery", (t) =
   updateCategoryCompanionLinks(workspace, "custom", { plugins: [], skills: [], tools: [] })
   const unlinked = compareCompanionResources(workspace, [agent]).map(item => item.relativePath.replace(/\\/g, "/"))
   for (const relative of files) assert.equal(unlinked.includes(relative), false, `${relative} should no longer be discovered`)
+})
+
+test("companion discovery ignores single-file and entrypoint-less plugins", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "agent-invalid-plugin-discovery-"))
+  const sourceRoot = path.join(workspace, "src")
+  const pluginsRoot = path.join(sourceRoot, "plugins")
+  fs.mkdirSync(pluginsRoot, { recursive: true })
+  fs.writeFileSync(path.join(pluginsRoot, "foo.js"), "legacy single-file plugin\n")
+  fs.mkdirSync(path.join(pluginsRoot, "pipeline-no-entrypoint"), { recursive: true })
+  const validPluginPath = path.join(pluginsRoot, "pipeline-valid", "index.ts")
+  fs.mkdirSync(path.dirname(validPluginPath), { recursive: true })
+  fs.writeFileSync(validPluginPath, "export default {}\n")
+
+  const managerDir = path.join(workspace, ".agent-manager")
+  fs.mkdirSync(managerDir, { recursive: true })
+  fs.writeFileSync(path.join(managerDir, "companion-links.json"), JSON.stringify({
+    version: 1,
+    categories: {
+      pipeline: {
+        plugins: ["plugins/foo.js", "plugins/pipeline-no-entrypoint", "plugins/pipeline-valid"],
+        commands: [],
+        skills: [],
+        tools: []
+      }
+    }
+  }))
+
+  const discovered = agentsMod.discoverCompanionResourcePaths(sourceRoot, ["pipeline"])
+  assert.equal(discovered.includes("plugins/foo.js"), false)
+  assert.equal(discovered.some(resource => resource.startsWith("plugins/pipeline-no-entrypoint/")), false)
+  assert.ok(discovered.includes("plugins/pipeline-valid/index.ts"))
 })
 
 test("unchanged companion resources are skipped while content or mode changes are replaced", (t) => {
@@ -2588,7 +2653,7 @@ test("hybrid companion resources are discovered and exported except for tests", 
     "tools/_pipeline_run.js",
     "tools/_pipeline_serve.js",
     "skills/code-review-antipatterns/SKILL.md",
-    "plugins/pipeline-guard.js"
+    "plugins/pipeline-guard/index.ts"
   ]
   const contents: Record<string, string> = {
     "tools/pipeline_state.ts": 'import "./_pipeline_core.js"\n',
@@ -2596,7 +2661,7 @@ test("hybrid companion resources are discovered and exported except for tests", 
     "tools/_pipeline_run.js": 'import "./_pipeline_serve.js"\n',
     "tools/_pipeline_serve.js": "pipeline serve dependency\n",
     "skills/code-review-antipatterns/SKILL.md": "review skill\n",
-    "plugins/pipeline-guard.js": "pipeline plugin\n"
+    "plugins/pipeline-guard/index.ts": "pipeline plugin\n"
   }
   for (const relative of [...resources, "tools/_pipeline_core.test.mjs"]) {
     for (const base of [sourceRoot, path.join(workspace, "general")]) {
@@ -2631,9 +2696,11 @@ test("OpenCode V2 agent updates preserve frontmatter while changing params, mode
     color: "#7c3aed",
     model: "old/model",
     steps: 8,
+    temperature: 0.2,
+    top_p: 0.8,
     request: { body: { temperature: 0.2, top_p: 0.8 } },
     system: "Keep this prompt",
-    tools: { read: true, write: false },
+    custom_metadata: { tier: "gold" },
     permissions: [
       { action: "read", resource: "*", effect: "allow" },
       { action: "skill", resource: "*", effect: "deny" },
@@ -2660,12 +2727,15 @@ test("OpenCode V2 agent updates preserve frontmatter while changing params, mode
 
   const saved = parseAgentFile(filePath, workspace)!
   const savedContent = fs.readFileSync(filePath, "utf8")
-  for (const key of ["name", "mode", "color", "top_p", "prompt", "tools", "metadata"]) {
+  for (const key of ["name", "mode", "color", "prompt", "custom_metadata", "metadata"]) {
     assert.deepEqual(saved.frontmatter[key], preserved[key], `${key} frontmatter should be preserved`)
   }
   assert.equal(saved.frontmatter.description, preserved.description)
-  assert.equal(saved.frontmatter.temperature, 0.4)
+  assert.equal(saved.frontmatter.temperature, undefined)
+  assert.equal(saved.frontmatter.top_p, undefined)
+  assert.equal(saved.frontmatter.request, undefined)
   assert.equal(saved.frontmatter.model, "new/model")
+  assert.doesNotMatch(savedContent, /\n(?:temperature|top_p|top_k):|\nrequest:/)
   assert.match(savedContent, /action: skill\n\s+resource: selected-skill\n\s+effect: allow/)
   assert.match(savedContent, /action: read\n\s+resource: ["']\*["']\n\s+effect: allow/)
   assert.match(saved.body, /V2 agent body\./)

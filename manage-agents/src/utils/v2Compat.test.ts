@@ -12,6 +12,8 @@ import {
   translateFrontmatterV2ToV1,
   translateConfigV1ToV2,
   translateConfigV2ToV1,
+  translateCommandFrontmatterV1ToV2,
+  translateCommandFrontmatterV2ToV1,
   detectFrontmatterVersion,
   isKnownPermissionKey,
 } from "./v2Compat.js"
@@ -383,13 +385,36 @@ test("translateFrontmatterV1ToV2 converts max_steps to steps", () => {
   assert.equal(v2.max_steps, undefined)
 })
 
-test("translateFrontmatterV1ToV2 moves temperature and top_p to request.body", () => {
-  const v1 = { temperature: 0.7, top_p: 0.9 }
+test("translateFrontmatterV1ToV2 strips top-level and request.body sampling fields", () => {
+  const v1 = {
+    temperature: 0.7,
+    top_p: 0.9,
+    top_k: 40,
+    request: { body: { temperature: 0.4, top_p: 0.8, top_k: 20 } },
+  }
   const v2 = translateFrontmatterV1ToV2(v1)
-  assert.equal(v2.request?.body?.temperature, 0.7)
-  assert.equal(v2.request?.body?.top_p, 0.9)
   assert.equal(v2.temperature, undefined)
   assert.equal(v2.top_p, undefined)
+  assert.equal(v2.top_k, undefined)
+  assert.equal(v2.request, undefined, "empty request.body and request objects are removed")
+})
+
+test("translateFrontmatterV1ToV2 preserves non-sampling request fields", () => {
+  const v1 = {
+    temperature: 0.2,
+    top_p: 0.8,
+    top_k: 24,
+    request: {
+      headers: { "x-test": "1" },
+      body: { seed: 7, temperature: 0.2, top_p: 0.8, top_k: 24 },
+    },
+  }
+  const v2 = translateFrontmatterV1ToV2(v1)
+
+  assert.deepEqual(v2.request, { headers: { "x-test": "1" }, body: { seed: 7 } })
+  assert.equal(v2.temperature, undefined)
+  assert.equal(v2.top_p, undefined)
+  assert.equal(v2.top_k, undefined)
 })
 
 test("translateFrontmatterV1ToV2 converts permission to permissions", () => {
@@ -397,6 +422,21 @@ test("translateFrontmatterV1ToV2 converts permission to permissions", () => {
   const v2 = translateFrontmatterV1ToV2(v1)
   assert.deepEqual(v2.permissions, [{ action: "shell", resource: "*", effect: "allow" }])
   assert.equal(v2.permission, undefined)
+})
+
+test("translateFrontmatterV1ToV2 converts tools to permissions and removes tools", () => {
+  const v2 = translateFrontmatterV1ToV2({ tools: { read: true, write: false } })
+  assert.deepEqual(v2.permissions, [
+    { action: "read", resource: "*", effect: "allow" },
+    { action: "edit", resource: "*", effect: "deny" },
+  ])
+  assert.equal(v2.tools, undefined)
+
+  const merged = translateFrontmatterV1ToV2({
+    tools: { read: true },
+    permission: { read: "deny" },
+  })
+  assert.deepEqual(merged.permissions, [{ action: "read", resource: "*", effect: "deny" }])
 })
 
 test("translateFrontmatterV1ToV2 converts disable to disabled", () => {
@@ -427,12 +467,36 @@ test("translateFrontmatterV2ToV1 converts steps to max_steps", () => {
   assert.equal(v1.steps, undefined)
 })
 
-test("translateFrontmatterV2ToV1 moves request.body to top-level", () => {
-  const v2 = { request: { body: { temperature: 0.7, top_p: 0.9 } } }
+test("translateFrontmatterV2ToV1 strips top-level and request.body sampling fields", () => {
+  const v2 = {
+    temperature: 0.7,
+    top_p: 0.9,
+    top_k: 40,
+    request: { body: { temperature: 0.4, top_p: 0.8, top_k: 20 } },
+  }
   const v1 = translateFrontmatterV2ToV1(v2)
-  assert.equal(v1.temperature, 0.7)
-  assert.equal(v1.top_p, 0.9)
-  assert.equal(v1.request, undefined)
+  assert.equal(v1.temperature, undefined)
+  assert.equal(v1.top_p, undefined)
+  assert.equal(v1.top_k, undefined)
+  assert.equal(v1.request, undefined, "empty request.body and request objects are removed")
+})
+
+test("translateFrontmatterV2ToV1 preserves non-sampling request fields", () => {
+  const v2 = {
+    temperature: 0.2,
+    top_p: 0.8,
+    top_k: 24,
+    request: {
+      headers: { "x-test": "1" },
+      body: { seed: 7, temperature: 0.2, top_p: 0.8, top_k: 24 },
+    },
+  }
+  const v1 = translateFrontmatterV2ToV1(v2)
+
+  assert.deepEqual(v1.request, { headers: { "x-test": "1" }, body: { seed: 7 } })
+  assert.equal(v1.temperature, undefined)
+  assert.equal(v1.top_p, undefined)
+  assert.equal(v1.top_k, undefined)
 })
 
 test("translateFrontmatterV2ToV1 converts permissions to permission", () => {
@@ -440,6 +504,10 @@ test("translateFrontmatterV2ToV1 converts permissions to permission", () => {
   const v1 = translateFrontmatterV2ToV1(v2)
   assert.deepEqual(v1.permission, { bash: "allow" })
   assert.equal(v1.permissions, undefined)
+})
+
+test("translateFrontmatterV2ToV1 removes tools", () => {
+  assert.equal(translateFrontmatterV2ToV1({ tools: { read: true } }).tools, undefined)
 })
 
 test("translateFrontmatterV2ToV1 converts disabled to disable", () => {
@@ -464,7 +532,7 @@ test("translateFrontmatterV2ToV1 splits model#variant", () => {
 })
 
 test("frontmatter translation is idempotent for simple cases", () => {
-  const v1 = { max_steps: 50, temperature: 0.7, disable: true, prompt: "test" }
+  const v1 = { max_steps: 50, disable: true, prompt: "test" }
   const v2 = translateFrontmatterV1ToV2(v1)
   const v1Again = translateFrontmatterV2ToV1(v2)
   assert.deepEqual(v1Again, v1)
@@ -491,16 +559,20 @@ test("model#variant is composed at most once", () => {
   assert.equal(alreadyJoined.model.includes("##"), false)
 })
 
-test("temperature and top_p merge into an existing request.body", () => {
-  const v1 = { temperature: 0.2, top_p: 0.8, request: { headers: { "x-test": "1" }, body: { seed: 7 } } }
-  const v2 = translateFrontmatterV1ToV2(v1)
+test("command frontmatter translates V1 subtask and variant into V2 fields idempotently", () => {
+  const v1 = { subtask: true, model: "anthropic/claude-sonnet-4-5", variant: "high" }
+  const v2 = translateCommandFrontmatterV1ToV2(v1)
 
-  assert.deepEqual(v2.request, {
-    headers: { "x-test": "1" },
-    body: { seed: 7, temperature: 0.2, top_p: 0.8 },
-  })
-  assert.equal(v2.temperature, undefined)
-  assert.equal(v2.top_p, undefined)
+  assert.deepEqual(v2, { subagent: true, model: "anthropic/claude-sonnet-4-5#high" })
+  assert.deepEqual(translateCommandFrontmatterV1ToV2(v2), v2, "already-V2 command frontmatter stays unchanged")
+})
+
+test("command frontmatter translates V2 subagent and model#variant into V1 fields idempotently", () => {
+  const v2 = { subagent: true, model: "anthropic/claude-sonnet-4-5#high" }
+  const v1 = translateCommandFrontmatterV2ToV1(v2)
+
+  assert.deepEqual(v1, { subtask: true, model: "anthropic/claude-sonnet-4-5", variant: "high" })
+  assert.deepEqual(translateCommandFrontmatterV2ToV1(v1), v1, "already-V1 command frontmatter stays unchanged")
 })
 
 // --- Config translation ---
@@ -663,6 +735,7 @@ test("mcp servers round trip from V2 back to flat V1 entries", () => {
 test("detectFrontmatterVersion detects V1 format", () => {
   const v1 = { max_steps: 50, disable: true, prompt: "test", permission: { bash: "allow" } }
   assert.equal(detectFrontmatterVersion(v1), "v1")
+  assert.equal(detectFrontmatterVersion({ tools: { read: true } }), "v1")
 })
 
 test("detectFrontmatterVersion detects V2 format", () => {
