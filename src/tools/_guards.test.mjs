@@ -253,7 +253,12 @@ test("slide_download_image verifies SHA-256 and MD5 before writing", async () =>
   }
 })
 
-test("html_docx_images embeds only images with matching SHA-256 and MD5", () => {
+test("html_docx_images embeds only images with matching SHA-256 and MD5", (t) => {
+  const pythonBin = ["python3", "python"].find((cmd) => spawnSync(cmd, ["-c", "import sys"], { encoding: "utf8" }).status === 0)
+  if (!pythonBin) {
+    t.skip("python not available")
+    return
+  }
   const python = String.raw`
 import hashlib
 import sys
@@ -346,10 +351,6 @@ with tempfile.TemporaryDirectory() as directory:
         images.Path = original_path
     assert images._load_image_stream(str(local_path), "bad", md5) is None
 `
-  const result = spawnSync(
-    "python3",
-    ["-B", "-c", python, join(REPO_ROOT, "src/tools/docx/scripts")],
-    { encoding: "utf8" },
-  )
+  const result = spawnSync(pythonBin, ["-B", "-c", python, join(REPO_ROOT, "src/tools/docx/scripts")], { encoding: "utf8" })
   assert.equal(result.status, 0, result.stderr || result.stdout)
 })

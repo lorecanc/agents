@@ -75,7 +75,7 @@ const scratchLogs = (info) => {
   }
 }
 
-test("start, status, stop: serves the page, then leaves no process, port, record or log behind", async () => {
+test("start, status, stop: serves the page, then leaves no process, port, record or log behind", { skip: process.platform === "win32" }, async () => {
   const info = mkRepo({ "server.js": SERVER("hello") }, smoke())
   const started = await startService({ info, ownerRoot: "ses_A" })
   assert.equal(started.status, "running", JSON.stringify(started))
@@ -95,7 +95,7 @@ test("start, status, stop: serves the page, then leaves no process, port, record
   assert.equal((await stopService({ info, callerRoot: "ses_A" })).note, "nothing was running")
 })
 
-test("startService: autodetects a package start script when no pipeline contract exists", async () => {
+test("startService: autodetects a package start script when no pipeline contract exists", { skip: process.platform === "win32" }, async () => {
   const info = mkRepo({
     "package.json": JSON.stringify({ scripts: { start: "node server.js" } }),
     "server.js": SERVER("autodetected"),
@@ -110,7 +110,7 @@ test("startService: autodetects a package start script when no pipeline contract
   assert.equal(stopped.port_free, true)
 })
 
-test("start is idempotent and only the owner can stop a live service of another live session", async () => {
+test("start is idempotent and only the owner can stop a live service of another live session", { skip: process.platform === "win32" }, async () => {
   const info = mkRepo({ "server.js": SERVER() }, smoke())
   const a = await startService({ info, ownerRoot: "ses_A" })
   const again = await startService({ info, ownerRoot: "ses_A" })
@@ -128,7 +128,7 @@ test("start is idempotent and only the owner can stop a live service of another 
   assert.equal(await portFreeSoon(a.port), true)
 })
 
-test("a service whose owner process is dead can be stopped by anyone", async () => {
+test("a service whose owner process is dead can be stopped by anyone", { skip: process.platform === "win32" }, async () => {
   const info = mkRepo({ "server.js": SERVER() }, smoke())
   const a = await startService({ info, ownerRoot: "ses_A" })
   const rec = readService(info)
@@ -138,7 +138,7 @@ test("a service whose owner process is dead can be stopped by anyone", async () 
   assert.equal(await portFreeSoon(a.port), true)
 })
 
-test("TTL: the supervisor stops the service by itself", async () => {
+test("TTL: the supervisor stops the service by itself", { skip: process.platform === "win32" }, async () => {
   const info = mkRepo({ "server.js": SERVER() }, smoke())
   const a = await startService({ info, ownerRoot: "ses_A", ttlS: 2 })
   assert.equal(a.status, "running")
@@ -150,7 +150,7 @@ test("TTL: the supervisor stops the service by itself", async () => {
   assert.deepEqual(scratchLogs(info), [])
 })
 
-test("status never reports a service as running after its TTL or owner are gone, even during the shutdown window", async () => {
+test("status never reports a service as running after its TTL or owner are gone, even during the shutdown window", { skip: process.platform === "win32" }, async () => {
   const info = mkRepo({ "server.js": SERVER() }, smoke())
   const a = await startService({ info, ownerRoot: "ses_A", ttlS: 600 })
   const rec = readService(info)
@@ -166,7 +166,7 @@ test("status never reports a service as running after its TTL or owner are gone,
   await stopService({ info, callerRoot: "ses_A" })
 })
 
-test("owner death (even kill -9) stops the service without anyone calling stop", async () => {
+test("owner death (even kill -9) stops the service without anyone calling stop", { skip: process.platform === "win32" }, async () => {
   const info = mkRepo({ "server.js": SERVER() }, smoke())
   const owner = spawn("sleep", ["60"], { stdio: "ignore", detached: true })
   owner.unref()
@@ -186,7 +186,7 @@ test("owner death (even kill -9) stops the service without anyone calling stop",
   }
 })
 
-test("everything the service spawned dies with it (grandchildren)", async () => {
+test("everything the service spawned dies with it (grandchildren)", { skip: process.platform === "win32" }, async () => {
   const info = mkRepo(
     { "server.js": SERVER(), "start.sh": "sleep 300 &\necho $! > grandchild.pid\nexec " + node + " server.js\n" },
     { smoke: { start: "sh start.sh", ready: { url: "http://127.0.0.1:${PORT}/", timeout_s: 15 }, checks: [] } },
@@ -200,7 +200,7 @@ test("everything the service spawned dies with it (grandchildren)", async () => 
   assert.equal(pidGone(gc), true, "the grandchild must be killed too")
 })
 
-test("stop still cleans up if the supervisor itself was killed with SIGKILL", async () => {
+test("stop still cleans up if the supervisor itself was killed with SIGKILL", { skip: process.platform === "win32" }, async () => {
   const info = mkRepo({ "server.js": SERVER() }, smoke())
   const a = await startService({ info, ownerRoot: "ses_A" })
   process.kill(readService(info).supervisorPid, "SIGKILL")
@@ -210,7 +210,7 @@ test("stop still cleans up if the supervisor itself was killed with SIGKILL", as
   assert.equal(res.port_free, true)
 })
 
-test("startup crash with an environment signature is classified env and nothing is left", async () => {
+test("startup crash with an environment signature is classified env and nothing is left", { skip: process.platform === "win32" }, async () => {
   const info = mkRepo({}, { smoke: { start: `echo "Error: connect ECONNREFUSED 127.0.0.1:5432"; exit 1`, ready: { port: "${PORT}", timeout_s: 10 }, checks: [] } })
   const res = await startService({ info, ownerRoot: "ses_A" })
   assert.equal(res.status, "fail")
@@ -220,7 +220,7 @@ test("startup crash with an environment signature is classified env and nothing 
   assert.deepEqual(scratchLogs(info), [])
 })
 
-test("a plain crash is unclassified and asks for a decision; a never-ready service is a harness problem and is killed", async () => {
+test("a plain crash is unclassified and asks for a decision; a never-ready service is a harness problem and is killed", { skip: process.platform === "win32" }, async () => {
   const crash = mkRepo({}, { smoke: { start: `echo "SyntaxError: Unexpected token" >&2; exit 1`, ready: { port: "${PORT}", timeout_s: 10 }, checks: [] } })
   const a = await startService({ info: crash, ownerRoot: "ses_A" })
   assert.equal(a.failure_class_hint, "unclassified")
@@ -246,7 +246,7 @@ test("an occupied fixed port is an env block and the foreign process is not touc
   foreign.close()
 })
 
-test("contract: serve section wins over smoke; none at all is inconclusive; urls must be local", async () => {
+test("contract: serve section wins over smoke; none at all is inconclusive; urls must be local", { skip: process.platform === "win32" }, async () => {
   const both = mkRepo(
     { "server.js": SERVER("smoke-server"), "dev.js": SERVER("dev-server") },
     { smoke: { start: `${node} server.js`, ready: { port: "${PORT}", timeout_s: 15 }, checks: [] }, serve: { start: `${node} dev.js`, ready: { port: "${PORT}", timeout_s: 15 } } },
@@ -266,7 +266,7 @@ test("contract: serve section wins over smoke; none at all is inconclusive; urls
   assert.equal(readService(remote), null)
 })
 
-test("env_file values reach the service and are never returned", async () => {
+test("env_file values reach the service and are never returned", { skip: process.platform === "win32" }, async () => {
   const info = mkRepo(
     { "server.js": `const http=require("http");http.createServer((q,r)=>{r.writeHead(200);r.end(process.env.SECRET_X==="s3cr3t"?"has-secret":"no-secret")}).listen(Number(process.env.PORT),"127.0.0.1")`, ".env.serve": "SECRET_X=s3cr3t\n" },
     smoke({ env_file: ".env.serve" }),
@@ -277,7 +277,7 @@ test("env_file values reach the service and are never returned", async () => {
   await stopService({ info, callerRoot: "ses_A" })
 })
 
-test("stopServicesOwnedBy stops only the service of the given root session", async () => {
+test("stopServicesOwnedBy stops only the service of the given root session", { skip: process.platform === "win32" }, async () => {
   const info = mkRepo({ "server.js": SERVER() }, smoke())
   const a = await startService({ info, ownerRoot: "ses_A" })
   assert.equal(await stopServicesOwnedBy(info, "ses_other"), null)
@@ -287,7 +287,7 @@ test("stopServicesOwnedBy stops only the service of the given root session", asy
   assert.equal(await portFreeSoon(a.port), true)
 })
 
-test("a repository removed while the service runs does not get its state recreated", async () => {
+test("a repository removed while the service runs does not get its state recreated", { skip: process.platform === "win32" }, async () => {
   const info = mkRepo({ "server.js": SERVER() }, smoke())
   const a = await startService({ info, ownerRoot: "ses_A", ttlS: 2 })
   const rec = readService(info)

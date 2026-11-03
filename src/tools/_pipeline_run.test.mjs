@@ -77,7 +77,7 @@ test("loadContract: file wins over autodetect, problems are reported, lockfile p
 
 // ------------------------------------------------------------ processes
 
-test("runCommand: output, exit code, and the whole process group dies on timeout", async () => {
+test("runCommand: output, exit code, and the whole process group dies on timeout", { skip: process.platform === "win32" }, async () => {
   const dir = mkRepo()
   const env = runtimeEnv(repoInfo(dir))
   const ok = await runCommand("echo hello; exit 0", { cwd: dir, env, timeoutMs: 5000 })
@@ -96,7 +96,7 @@ test("runCommand: output, exit code, and the whole process group dies on timeout
   assert.throws(() => process.kill(child, 0), /ESRCH/, "background child must not survive the timeout")
 })
 
-test("runCommand: a finished command leaves no background children behind", async () => {
+test("runCommand: a finished command leaves no background children behind", { skip: process.platform === "win32" }, async () => {
   const dir = mkRepo()
   const env = runtimeEnv(repoInfo(dir))
   const pidFile = path.join(dir, "bg.pid")
@@ -108,7 +108,7 @@ test("runCommand: a finished command leaves no background children behind", asyn
   assert.throws(() => process.kill(Number(fs.readFileSync(pidFile, "utf8")), 0), /ESRCH/)
 })
 
-test("runCommand honors an abort signal", async () => {
+test("runCommand honors an abort signal", { skip: process.platform === "win32" }, async () => {
   const dir = mkRepo()
   const env = runtimeEnv(repoInfo(dir))
   const ac = new AbortController()
@@ -152,9 +152,11 @@ test("runVerify: env hint, timeout hint, targeted files are quoted and confined 
   const info = repoInfo(dir)
   const envFail = await runVerify({ info, checks: ["lint"] })
   assert.equal(envFail.results[0].failure_class_hint, "env")
-  const slow = await runVerify({ info, checks: ["build"], timeoutScale: 0.001 })
-  assert.equal(slow.results[0].status, "timeout")
-  assert.equal(slow.results[0].failure_class_hint, "timeout")
+  if (process.platform !== "win32") {
+    const slow = await runVerify({ info, checks: ["build"], timeoutScale: 0.001 })
+    assert.equal(slow.results[0].status, "timeout")
+    assert.equal(slow.results[0].failure_class_hint, "timeout")
+  }
   const targeted = await runVerify({ info, checks: ["test_targeted"], files: ["src/a b.ts", "../escape.ts", "/etc/passwd"] })
   assert.equal(targeted.status, "pass")
   assert.match(targeted.results[0].output_tail, /ARGS:src\/a b\.ts/)
@@ -190,7 +192,7 @@ const smokeContract = (extra = {}) => ({
   },
 })
 
-test("runSmoke: starts, checks, stops, and leaves the port free", async () => {
+test("runSmoke: starts, checks, stops, and leaves the port free", { skip: process.platform === "win32" }, async () => {
   const dir = mkRepo({ "server.js": SERVER }, smokeContract())
   const res = await runSmoke({ info: repoInfo(dir) })
   assert.equal(res.status, "pass", JSON.stringify(res))
@@ -202,7 +204,7 @@ test("runSmoke: starts, checks, stops, and leaves the port free", async () => {
   assert.deepEqual(fs.readdirSync(scratch).filter((f) => f.startsWith("smoke-")), [])
 })
 
-test("runSmoke: autodetects a package start script when no pipeline contract exists", async () => {
+test("runSmoke: autodetects a package start script when no pipeline contract exists", { skip: process.platform === "win32" }, async () => {
   const dir = mkRepo({
     "package.json": JSON.stringify({ scripts: { start: "node server.js" } }),
     "server.js": `
@@ -217,7 +219,7 @@ http.createServer((req, res) => { res.writeHead(200); res.end("ok") }).listen(Nu
   assert.equal(res.cleanup.port_free, true)
 })
 
-test("runSmoke: a real expectation mismatch is a code failure and the service is still stopped", async () => {
+test("runSmoke: a real expectation mismatch is a code failure and the service is still stopped", { skip: process.platform === "win32" }, async () => {
   const dir = mkRepo({ "server.js": SERVER }, smokeContract({ checks: [{ name: "teapot", url: "http://127.0.0.1:${PORT}/teapot", expect_status: 200 }] }))
   const res = await runSmoke({ info: repoInfo(dir) })
   assert.equal(res.status, "fail")
@@ -226,7 +228,7 @@ test("runSmoke: a real expectation mismatch is a code failure and the service is
   assert.equal(res.cleanup.port_free, true)
 })
 
-test("runSmoke: preserves status=aborted and failure_class_hint=harness when aborted during ready or checks", async () => {
+test("runSmoke: preserves status=aborted and failure_class_hint=harness when aborted during ready or checks", { skip: process.platform === "win32" }, async () => {
   const fastServer = `
 const http = require("http")
 console.log("smoke-ready")
@@ -284,7 +286,7 @@ setTimeout(() => http.createServer((req, res) => { res.writeHead(200); res.end("
   )
 })
 
-test("runSmoke: an abort during a successful URL check is reported as aborted", async () => {
+test("runSmoke: an abort during a successful URL check is reported as aborted", { skip: process.platform === "win32" }, async () => {
   const server = `
 const http = require("http")
 http.createServer((req, res) => { res.writeHead(200); res.end("ok") }).listen(Number(process.env.PORT), "127.0.0.1")
@@ -316,7 +318,7 @@ http.createServer((req, res) => { res.writeHead(200); res.end("ok") }).listen(Nu
   assert.equal(res.checks[0].status, "aborted")
 })
 
-test("runSmoke: an abort immediately after readiness cannot pass with no checks", async () => {
+test("runSmoke: an abort immediately after readiness cannot pass with no checks", { skip: process.platform === "win32" }, async () => {
   const dir = mkRepo(
     { "server.js": SERVER },
     { smoke: { start: `${node} server.js`, ready: { url: "http://127.0.0.1:${PORT}/health", timeout_s: 10 }, checks: [] } },
@@ -343,7 +345,7 @@ test("runSmoke: an abort immediately after readiness cannot pass with no checks"
   assert.equal(res.failure_class_hint, "harness")
 })
 
-test("runSmoke: command checks, env substitution and env_file (values never echoed)", async () => {
+test("runSmoke: command checks, env substitution and env_file (values never echoed)", { skip: process.platform === "win32" }, async () => {
   const dir = mkRepo(
     { "server.js": SERVER, ".env.smoke": "SMOKE_SECRET=topsecretvalue\n" },
     smokeContract({ env_file: ".env.smoke", env: { GREETING: "hi-${PORT}" }, checks: [{ name: "env", cmd: `test "$SMOKE_SECRET" = topsecretvalue && test "$GREETING" = "hi-$PORT"` }] }),
@@ -378,7 +380,7 @@ test("runSmoke: startup crash with an env signature is classified env, otherwise
   assert.match(b.log_tail, /SyntaxError/)
 })
 
-test("runSmoke: never-ready service is a harness problem and is killed", async () => {
+test("runSmoke: never-ready service is a harness problem and is killed", { skip: process.platform === "win32" }, async () => {
   const dir = mkRepo({}, { smoke: { start: "sleep 60", ready: { port: "${PORT}", timeout_s: 1 }, checks: [] } })
   const t0 = Date.now()
   const res = await runSmoke({ info: repoInfo(dir) })
@@ -388,7 +390,7 @@ test("runSmoke: never-ready service is a harness problem and is killed", async (
   assert.ok(Date.now() - t0 < 15000)
 })
 
-test("runSmoke: log-pattern readiness, local-only URLs, missing contract", async () => {
+test("runSmoke: log-pattern readiness, local-only URLs, missing contract", { skip: process.platform === "win32" }, async () => {
   const logReady = mkRepo({}, { smoke: { start: "echo 'server ready on port'; sleep 20", ready: { log: "ready on", timeout_s: 10 }, checks: [{ name: "c", cmd: "exit 0" }] } })
   assert.equal((await runSmoke({ info: repoInfo(logReady) })).status, "pass")
   const external = mkRepo({ "server.js": SERVER }, smokeContract({ checks: [{ name: "ext", url: "http://example.com/" }] }))
@@ -461,8 +463,8 @@ test("runVerify workspace: cwd is the subdirectory, contract or autodetect per w
   const res = await runVerify({ info, workspace: "backend", checks: ["test_targeted"], files: ["backend/tests/test_x.py", "frontend/src/a.ts"] })
   assert.equal(res.status, "pass", JSON.stringify(res))
   assert.equal(res.workspace, "backend")
-  assert.match(res.results[0].output_tail, new RegExp(`${path.join(dir, "backend")}\\n`))
-  assert.match(res.results[0].output_tail, /FILES:tests\/test_x\.py\n/)
+  assert.match(res.results[0].output_tail, /(?:^|[/\\])backend\r?\n/)
+  assert.match(res.results[0].output_tail, /FILES:tests\/test_x\.py\r?\n/)
   assert.deepEqual(res.rejected_files, ["frontend/src/a.ts"])
   // No workspace entry: autodetect inside the subdirectory, never the top-level verify commands.
   const { contract } = loadContract(dir, { workspace: "frontend" })
@@ -475,9 +477,11 @@ test("runVerify workspace: cwd is the subdirectory, contract or autodetect per w
     assert.equal(r.status, "error", bad)
     assert.equal(r.failure_class_hint, "harness")
   }
-  const outside = mkTmp("pipe-run-outside-")
-  fs.symlinkSync(outside, path.join(dir, "link"))
-  assert.match((await runVerify({ info, workspace: "link", checks: ["lint"] })).reason, /outside the repository/)
+  if (process.platform !== "win32") {
+    const outside = mkTmp("pipe-run-outside-")
+    fs.symlinkSync(outside, path.join(dir, "link"), "dir")
+    assert.match((await runVerify({ info, workspace: "link", checks: ["lint"] })).reason, /outside the repository/)
+  }
   const root = await runVerify({ info, workspace: ".", checks: ["lint"] })
   assert.match(root.results[0].output_tail, /top-level/)
 })

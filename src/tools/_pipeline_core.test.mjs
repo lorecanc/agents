@@ -228,16 +228,17 @@ test("checkBash: git -C mutations stay in the repository and validate paths from
   const dir = mkRepo()
   const outside = mkTmp("outside-repo-")
   sh(outside, "init", "-q", "-b", "main")
+  const outsidePosix = outside.replaceAll("\\", "/")
   const sub = path.join(dir, "sub")
   fs.mkdirSync(sub)
   fs.writeFileSync(path.join(sub, "file.txt"), "file\n")
   const ctx = ctxFor(dir)
   const outsideCommands = [
-    `git -C ${outside} add a.txt`, `git -C${outside} add a.txt`, `git -C ${outside} mv a.txt b.txt`,
-    `git -C ${outside} rm a.txt`, `git -C ${outside} checkout --ours a.txt`, `git -C ${outside} restore --ours a.txt`,
-    `git -C ${outside} fetch`,
-    `git -C ${outside} commit -m x`, `git -C ${outside} pull`, `git -C ${outside} merge main`,
-    `git -C ${outside} rebase main`, `git -C ${outside} cherry-pick HEAD`,
+    `git -C ${outsidePosix} add a.txt`, `git -C${outsidePosix} add a.txt`, `git -C ${outsidePosix} mv a.txt b.txt`,
+    `git -C ${outsidePosix} rm a.txt`, `git -C ${outsidePosix} checkout --ours a.txt`, `git -C ${outsidePosix} restore --ours a.txt`,
+    `git -C ${outsidePosix} fetch`,
+    `git -C ${outsidePosix} commit -m x`, `git -C ${outsidePosix} pull`, `git -C ${outsidePosix} merge main`,
+    `git -C ${outsidePosix} rebase main`, `git -C ${outsidePosix} cherry-pick HEAD`,
   ]
   for (const command of outsideCommands) {
     assert.equal(
@@ -249,7 +250,7 @@ test("checkBash: git -C mutations stay in the repository and validate paths from
   assert.equal(checkBash("git -C sub add file.txt", "executor", ctx), null)
   assert.equal(checkBash("git -Csub add file.txt", "executor", ctx), null)
   assert.equal(checkBash("git -C sub -C .. add a.txt", "executor", ctx), null)
-  assert.equal(checkBash(`git -C ${outside} status`, "executor", ctx), null)
+  assert.equal(checkBash(`git -C ${outsidePosix} status`, "executor", ctx), null)
   assert.equal(
     checkBash("git -C /tmp/other-repo fetch", "executor", ctx),
     "Pipeline guard: 'git -C' for mutating git commands must stay inside the repository root.",
@@ -388,7 +389,7 @@ test("checkBash: writes outside the repository are blocked, scratch and repo pat
     "cp a.txt /tmp/a.txt", "mkdir -p /tmp/work", "tee /tmp/x < a.txt", "curl -s -o /tmp/r.json http://x",
     "wget -O /tmp/f http://x", "dd if=a.txt of=/tmp/o", "echo $(cat a.txt > /tmp/z)", "mktemp /tmp/xxx",
     "echo hi > /dev/null", "cmd 2>&1", "cmd >&2", "cp a.txt c.txt", "mkdir -p src/new",
-    `echo x > ${scratch}/log.txt`, "echo x > $TMPDIR/log.txt", "echo x > $PIPELINE_SCRATCH/log.txt",
+    `echo x > ${scratch.replaceAll("\\", "/")}/log.txt`, "echo x > $TMPDIR/log.txt", "echo x > $PIPELINE_SCRATCH/log.txt",
     "mktemp", "npm test", "ls /usr/bin", "cat /etc/hosts", "cp /usr/share/x ./local", "curl -s http://localhost:3000/health",
     "timeout 10 npm test", "chmod +x script.sh", "sed -i 's/a/b/' a.txt", "echo ${HOME} > out.txt",
     "cat <<'EOF'\nrm -rf /tmp/x\nEOF",
@@ -449,10 +450,10 @@ test("bashWriteTargets resolves redirects after cd from that segment's working d
   assert.ok(core.bashWriteTargets("cd sub && echo hi > file.txt", ctxFor(dir)).includes("sub/file.txt"))
 })
 
-test("checkWritePath resolves symlinks before comparing roots", () => {
+test("checkWritePath resolves symlinks before comparing roots", { skip: process.platform === "win32" }, () => {
   const dir = mkRepo()
   const outside = mkTmp("pipe-out-")
-  fs.symlinkSync(outside, path.join(dir, "escape"))
+  fs.symlinkSync(outside, path.join(dir, "escape"), "dir")
   const ctx = ctxFor(dir)
   assert.ok(checkWritePath("escape/file.txt", ctx))
   assert.equal(checkWritePath("regular/file.txt", ctx), null)

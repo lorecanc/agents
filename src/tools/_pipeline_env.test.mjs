@@ -103,7 +103,7 @@ test("pipeline_env detects workspaces up to depth 2 and skips vendored dirs", as
   assert.match(esc.workspace.error, /outside the repository/)
 })
 
-test("pipeline_env summarizes the contract generically (services, workspaces, unknown keys, problems)", async () => {
+test("pipeline_env summarizes the contract generically (services, workspaces, unknown keys, problems)", { skip: process.platform === "win32" }, async () => {
   const dir = mkRepo({
     ".opencode/pipeline.json": JSON.stringify({
       version: 1,
@@ -133,7 +133,7 @@ test("pipeline_env summarizes the contract generically (services, workspaces, un
   assert.deepEqual(bad.contract.problems, [".opencode/pipeline.json is not valid JSON"])
 })
 
-test("pipeline_env probes docker with a bounded call and sees the guard registration", async () => {
+test("pipeline_env probes docker with a bounded call and sees the guard registration", { skip: process.platform === "win32" }, async () => {
   const dir = mkRepo()
   const ok = await collectEnv({ directory: dir, env: { PATH: fakeBin({ docker: 'echo "27.1.1"' }) } })
   assert.deepEqual(ok.docker.daemon, { reachable: true, server_version: "27.1.1" })

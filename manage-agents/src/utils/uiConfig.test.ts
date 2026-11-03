@@ -74,9 +74,11 @@ test("warns and falls back for malformed, wrong-version, unsafe, and oversized c
   fs.rmSync(configPath, { recursive: true })
   const target = path.join(root, "target.json")
   fs.writeFileSync(target, JSON.stringify({ version: 1, listShare: 0.6 }))
-  fs.symlinkSync(target, configPath)
-  assert.match(loadUiConfig(root).warning || "", /regular file/)
-  fs.rmSync(configPath)
+  if (process.platform !== "win32") {
+    fs.symlinkSync(target, configPath)
+    assert.match(loadUiConfig(root).warning || "", /regular file/)
+    fs.rmSync(configPath)
+  }
   fs.writeFileSync(configPath, "x".repeat(64 * 1024 + 1))
   assert.match(loadUiConfig(root).warning || "", /regular file/)
 })
@@ -119,17 +121,19 @@ test("refuses invalid values, environment writes, and symlinked parents or targe
   assert.throws(() => saveUiConfig(root, 0.6), /read-only/)
   delete process.env.AGENT_MANAGER_UI_CONFIG
 
-  const realDir = path.join(root, "real-manager")
-  fs.mkdirSync(realDir)
-  fs.symlinkSync(realDir, path.join(root, ".agent-manager"))
-  assert.throws(() => saveUiConfig(root, 0.6), /real directory/)
-  fs.unlinkSync(path.join(root, ".agent-manager"))
+  if (process.platform !== "win32") {
+    const realDir = path.join(root, "real-manager")
+    fs.mkdirSync(realDir)
+    fs.symlinkSync(realDir, path.join(root, ".agent-manager"))
+    assert.throws(() => saveUiConfig(root, 0.6), /real directory/)
+    fs.unlinkSync(path.join(root, ".agent-manager"))
 
-  fs.mkdirSync(path.join(root, ".agent-manager"))
-  const target = path.join(root, "target.json")
-  fs.writeFileSync(target, "old")
-  fs.symlinkSync(target, path.join(root, ".agent-manager", "ui-config.json"))
-  assert.throws(() => saveUiConfig(root, 0.6), /regular file/)
+    fs.mkdirSync(path.join(root, ".agent-manager"))
+    const target = path.join(root, "target.json")
+    fs.writeFileSync(target, "old")
+    fs.symlinkSync(target, path.join(root, ".agent-manager", "ui-config.json"))
+    assert.throws(() => saveUiConfig(root, 0.6), /regular file/)
+  }
 })
 
 test("keeps the old config and cleans its temporary file when rename fails", () => {

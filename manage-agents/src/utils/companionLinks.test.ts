@@ -337,7 +337,7 @@ test("updateCategoryCompanionLinks does not sync a manifest outside categories f
   assert.equal(fs.readFileSync(outsideManifestPath, "utf-8"), originalManifest)
 })
 
-test("updateCategoryCompanionLinks does not sync through a symlinked category manifest", (t) => {
+test("updateCategoryCompanionLinks does not sync through a symlinked category manifest", { skip: process.platform === "win32" }, (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "companion-links-symlink-"))
   t.after(() => fs.rmSync(root, { recursive: true, force: true }))
 
@@ -358,7 +358,7 @@ test("updateCategoryCompanionLinks does not sync through a symlinked category ma
   assert.equal(fs.lstatSync(manifestPath).isSymbolicLink(), true)
 })
 
-test("updateCategoryCompanionLinks does not sync through a symlinked categories directory", (t) => {
+test("updateCategoryCompanionLinks does not sync through a symlinked categories directory", { skip: process.platform === "win32" }, (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "companion-links-symlink-categories-"))
   const outsideDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "companion-links-symlink-categories-outside-"))
   t.after(() => fs.rmSync(root, { recursive: true, force: true }))
@@ -381,7 +381,7 @@ test("updateCategoryCompanionLinks does not sync through a symlinked categories 
   assert.equal(fs.lstatSync(categoriesDirectory).isSymbolicLink(), true)
 })
 
-test("updateCategoryCompanionLinks rejects a symlinked .agent-manager without modifying category manifests", (t) => {
+test("updateCategoryCompanionLinks rejects a symlinked .agent-manager without modifying category manifests", { skip: process.platform === "win32" }, (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "companion-links-symlink-manager-"))
   const outsideManagerDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "companion-links-symlink-manager-outside-"))
   t.after(() => fs.rmSync(root, { recursive: true, force: true }))

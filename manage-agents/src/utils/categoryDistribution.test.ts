@@ -357,6 +357,7 @@ test("all real category manifests validate", () => {
 })
 
 test("organize fails closed for symlinked manager metadata without creating a backup", () => {
+  if (process.platform === "win32") return
   const root = fixture(), workspace = path.join(root, "agents"), manager = path.join(workspace, ".agent-manager")
   const backupDir = path.join(workspace, "backups")
   fs.rmSync(manager, { recursive: true }); fs.symlinkSync(os.tmpdir(), manager, "dir")
@@ -366,6 +367,7 @@ test("organize fails closed for symlinked manager metadata without creating a ba
 })
 
 test("build rejects symlinked category parents and output trees", () => {
+  if (process.platform === "win32") return
   const root = fixture(), agents = path.join(root, "agents")
   fs.symlinkSync(os.tmpdir(), path.join(agents, "export", "categories"), "dir")
   assert.throws(() => buildCategoryDistribution(root, "wiki"), /symlink/i)

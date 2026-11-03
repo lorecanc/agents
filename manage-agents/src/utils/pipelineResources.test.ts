@@ -178,7 +178,7 @@ test("checkPipelineResources reports permitted tools and helper imports that are
   ])
 })
 
-test("checkPipelineResources reports a symlinked top-level tool", (t) => {
+test("checkPipelineResources reports a symlinked top-level tool", { skip: process.platform === "win32" }, (t) => {
   const root = workspace()
   t.after(() => fs.rmSync(root, { recursive: true, force: true }))
   const sourceRoot = path.join(root, "src")

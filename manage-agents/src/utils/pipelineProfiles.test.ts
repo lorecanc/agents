@@ -176,7 +176,7 @@ test("sync rejects path-traversal pipeline categories before creating output", (
   assert.equal(fs.existsSync(path.join(root, "export", "categories", "outside-pipeline")), false)
 })
 
-test("sync rejects a symlinked pipeline category target before writing", () => {
+test("sync rejects a symlinked pipeline category target before writing", { skip: process.platform === "win32" }, () => {
   const root = workspace()
   agent(root, "pipeline", "orchestrator")
   const outside = fs.mkdtempSync(path.join(os.tmpdir(), "pipeline-sync-outside-"))
@@ -296,7 +296,7 @@ test("delete leaves the stamped pipeline intact when companion links are malform
   assert.equal(fs.existsSync(outputDir), true)
 })
 
-test("delete rejects symlinked stamped pipeline ancestors without changing targets", () => {
+test("delete rejects symlinked stamped pipeline ancestors without changing targets", { skip: process.platform === "win32" }, () => {
   const root = workspace()
   const targetRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pipeline-delete-target-"))
   const targetCategories = path.join(targetRoot, "categories")
@@ -350,7 +350,7 @@ test("delete can also remove matching installed agents and commands", () => {
   assert.equal(fs.existsSync(path.join(exportCommandsDir, "other-command.md")), true)
 })
 
-test("delete refuses installed destinations with symlinked ancestors before deleting the pipeline", () => {
+test("delete refuses installed destinations with symlinked ancestors before deleting the pipeline", { skip: process.platform === "win32" }, () => {
   const root = workspace()
   const outputDir = path.join(root, "export", "categories", "test-pipeline")
   fs.mkdirSync(outputDir, { recursive: true })
@@ -691,7 +691,7 @@ test("forkStampedPipeline rejects duplicate normalized targets before creating c
   assert.equal(fs.existsSync(categoriesRoot), false)
 })
 
-test("forkStampedPipeline rejects symlinked target paths before writing outside the workspace", () => {
+test("forkStampedPipeline rejects symlinked target paths before writing outside the workspace", { skip: process.platform === "win32" }, () => {
   const root = workspace()
   agent(root, "pipeline", "executor")
   agent(root, "pipeline", "orchestrator")

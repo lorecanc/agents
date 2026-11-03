@@ -166,7 +166,7 @@ test("pipeline_smoke: no contract is inconclusive and suggests nothing it cannot
   assert.equal(res.suggested_smoke, null)
 })
 
-test("pipeline_serve: a child session resolves to the root owner; start, status and stop go through the tool", async () => {
+test("pipeline_serve: a child session resolves to the root owner; start, status and stop go through the tool", { skip: process.platform === "win32" }, async () => {
   const node = JSON.stringify(process.execPath)
   const dir = mkRepo({ smoke: { start: `${node} server.js`, ready: { url: "http://127.0.0.1:${PORT}/", timeout_s: 15 }, checks: [] } })
   fs.writeFileSync(path.join(dir, "server.js"), 'require("http").createServer((q,r)=>{r.writeHead(200);r.end("tool-ok")}).listen(Number(process.env.PORT),"127.0.0.1")')

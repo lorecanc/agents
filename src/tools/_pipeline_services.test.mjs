@@ -78,7 +78,7 @@ test("serviceProblem: validates custom and postgres entries", () => {
   assert.equal(ws.contract.services.cache._cwd, path.join(dir, "backend"))
 })
 
-test("custom service: env reaches every check, and the service is always stopped with its port freed", async () => {
+test("custom service: env reaches every check, and the service is always stopped with its port freed", { skip: process.platform === "win32" }, async () => {
   const dir = mkRepo(
     { "dep.js": DEP },
     { services: { cache: cacheService() }, verify: { lint: PING, test_fast: `test "$CACHE_URL" = "http://127.0.0.1:$CACHE_PORT/" && ${PING}` } },
@@ -99,7 +99,7 @@ test("custom service: env reaches every check, and the service is always stopped
   assert.equal(pidAliveSync(Number(fs.readFileSync(path.join(dir, "dep.pid"), "utf8"))), false)
 })
 
-test("custom service: stopped after a failing check, and on abort mid-check", async () => {
+test("custom service: stopped after a failing check, and on abort mid-check", { skip: process.platform === "win32" }, async () => {
   const dir = mkRepo({ "dep.js": DEP }, { services: { cache: cacheService() }, verify: { lint: "exit 4", test_fast: "sleep 30" } })
   const fail = await runVerify({ info: repoInfo(dir), checks: ["lint"], withServices: ["cache"] })
   assert.equal(fail.status, "fail")
@@ -117,7 +117,7 @@ test("custom service: stopped after a failing check, and on abort mid-check", as
   assert.equal(pidAliveSync(Number(fs.readFileSync(path.join(dir, "dep.pid"), "utf8"))), false)
 })
 
-test("services start in order, later ones see earlier env, optional stop command runs", async () => {
+test("services start in order, later ones see earlier env, optional stop command runs", { skip: process.platform === "win32" }, async () => {
   const dir = mkRepo(
     { "dep.js": DEP },
     {
@@ -139,7 +139,7 @@ test("services start in order, later ones see earlier env, optional stop command
   assert.ok(fs.existsSync(path.join(dir, "stop-ran.txt")))
 })
 
-test("a service that crashes at startup blocks the run, nothing runs, earlier services are stopped", async () => {
+test("a service that crashes at startup blocks the run, nothing runs, earlier services are stopped", { skip: process.platform === "win32" }, async () => {
   const dir = mkRepo(
     { "dep.js": DEP },
     {
@@ -203,7 +203,7 @@ test("postgres builtin: without native binaries or docker it is blocked (env) an
   assert.ok(!fs.existsSync(path.join(dir, "ran.txt")))
 })
 
-test("postgres builtin: a fake docker CLI whose daemon is down is reported as such", async () => {
+test("postgres builtin: a fake docker CLI whose daemon is down is reported as such", { skip: process.platform === "win32" }, async () => {
   const bin = mkTmp("pipe-svc-fakedocker-")
   fs.writeFileSync(path.join(bin, "docker"), "#!/bin/sh\necho 'Cannot connect to the Docker daemon at unix:///var/run/docker.sock' >&2\nexit 1\n", { mode: 0o755 })
   const dir = mkRepo({}, { services: { db: { kind: "postgres" } }, verify: { test_fast: "true" } })
@@ -212,7 +212,7 @@ test("postgres builtin: a fake docker CLI whose daemon is down is reported as su
   assert.match(res.services[0].reason, /docker daemon not reachable/)
 })
 
-test("smoke: services declared in smoke.services are started first and stopped after", async () => {
+test("smoke: services declared in smoke.services are started first and stopped after", { skip: process.platform === "win32" }, async () => {
   const SERVER = `require("http").createServer(async (q, r) => { const t = await (await fetch(process.env.CACHE_URL)).text(); r.end("via-" + t) }).listen(Number(process.env.PORT), "127.0.0.1")`
   const dir = mkRepo(
     { "dep.js": DEP, "server.js": SERVER },

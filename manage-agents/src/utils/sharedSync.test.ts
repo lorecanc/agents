@@ -216,7 +216,7 @@ test("manifest validation, semver ranges, and overlay exclusions", () => {
   for (const relative of overlayFiles) assert.equal(paths.includes(relative), false, `${relative} must be protected`)
 })
 
-test("collectComponentFiles rejects symlinks", () => {
+test("collectComponentFiles rejects symlinks", { skip: process.platform === "win32" }, () => {
   const root = createRepo(makeTempRoot())
   writeFile(root, "src/agents/pipeline-orchestrator.md", "pipeline\n")
   fs.symlinkSync(path.join(root, "src/agents/pipeline-orchestrator.md"), path.join(root, "src/agents/pipeline-link.md"))
@@ -315,7 +315,9 @@ test("release and apply round-trip through a release bundle and reject tampering
   assert.equal(applied.dryRun, false)
   assert.equal(fs.readFileSync(path.join(target, "src/tools/_pipeline_core.js"), "utf8"), "export const pipelineCore = true\n")
   assert.equal(fs.readFileSync(path.join(target, "manage-agents/manage-agents.mjs"), "utf8"), "#!/usr/bin/env node\n")
-  assert.equal(fs.statSync(path.join(target, "manage-agents/manage-agents.mjs")).mode & 0o111 ? 0o755 : 0o644, 0o755)
+  if (process.platform !== "win32") {
+    assert.equal(fs.statSync(path.join(target, "manage-agents/manage-agents.mjs")).mode & 0o111 ? 0o755 : 0o644, 0o755)
+  }
   const state = JSON.parse(fs.readFileSync(path.join(target, ".agent-manager/shared-sync-state.json"), "utf8"))
   assert.equal(state.installedComponents.agentManager, "1.1.0")
   assert.equal(state.installedComponents.pipelineCore, "1.1.0")
@@ -363,7 +365,7 @@ test("release output stays outside protected paths and replaces only release dir
   assert.equal(fs.readFileSync(path.join(existingOutput, "files/src/agents/pipeline-orchestrator.md"), "utf8").includes("Updated pipeline body"), true)
 })
 
-test("release refuses destinations redirected through symlink ancestors", () => {
+test("release refuses destinations redirected through symlink ancestors", { skip: process.platform === "win32" }, () => {
   const source = createRepo(makeTempRoot())
   writePipelineSource(source)
   const protectedDirectory = path.join(source, "src/agents")

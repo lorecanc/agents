@@ -784,6 +784,7 @@ test("fork rejects a target occupied by an unselected source-category file", () 
 
 test("fork rejects symlink and non-regular targets before writes or backup", () => {
   for (const kind of ["symlink", "directory"] as const) {
+    if (kind === "symlink" && process.platform === "win32") continue
     const { workspace } = forkWorkspace()
     const target = path.join(workspace, "general/agents/bar-one.md")
     const original = fs.readFileSync(path.join(workspace, "general/agents/foo-one.md"))
@@ -1957,7 +1958,7 @@ test("resource replacement retains only the five newest backups", (t) => {
   assert.ok(seeded.slice(2).every(directory => retained.includes(path.basename(directory))))
 })
 
-test("export rejects a symlinked resource source root and agent destination", (t) => {
+test("export rejects a symlinked resource source root and agent destination", { skip: process.platform === "win32" }, (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-export-symlink-"))
   const xdg = path.join(root, "xdg")
   const opencodeRoot = path.join(xdg, "opencode")
@@ -2196,7 +2197,7 @@ test("import rolls back overwritten files and removes newly created files after 
   assert.deepEqual(fs.readdirSync(path.join(workspace, "general")).filter(name => name.startsWith(".import-stage-")), [])
 })
 
-test("agent export validation failure rolls back earlier agent writes and preserves mode", (t) => {
+test("agent export validation failure rolls back earlier agent writes and preserves mode", { skip: process.platform === "win32" }, (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-export-agent-rollback-"))
   const xdg = path.join(root, "xdg")
   const workspace = path.join(root, "workspace")
@@ -2225,7 +2226,7 @@ test("agent export validation failure rolls back earlier agent writes and preser
   assertPosixMode(fs.statSync(firstTarget).mode & 0o7777, 0o751)
 })
 
-test("preview and import reject symlinked agent and companion import paths", (t) => {
+test("preview and import reject symlinked agent and companion import paths", { skip: process.platform === "win32" }, (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-import-symlink-"))
   const xdg = path.join(root, "xdg")
   const opencodeRoot = path.join(xdg, "opencode")

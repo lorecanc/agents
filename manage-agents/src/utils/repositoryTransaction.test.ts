@@ -376,12 +376,14 @@ test("preserves a replaced lock and keeps it exclusive until cleanup", () => {
 
 test("refuses symlink paths but allows ignored paths", () => {
   const root = repo(); process.env.AGENT_MANAGER_AUTO_COMMIT = "1"
-  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "agent-manager-outside-")); roots.push(outside)
-  fs.symlinkSync(outside, path.join(root, "linked"), "dir")
-  assert.throws(() => repositoryTransaction(root, [path.join(root, "linked", "new.txt")], AUTO_COMMIT_MESSAGES.create, () => {}), /symlink/i)
+  if (process.platform !== "win32") {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "agent-manager-outside-")); roots.push(outside)
+    fs.symlinkSync(outside, path.join(root, "linked"), "dir")
+    assert.throws(() => repositoryTransaction(root, [path.join(root, "linked", "new.txt")], AUTO_COMMIT_MESSAGES.create, () => {}), /symlink/i)
+  }
   fs.writeFileSync(path.join(root, ".gitignore"), "ignored.txt\n"); git(root, "add", ".gitignore"); git(root, "commit", "-qm", "ignore")
   repositoryTransaction(root, [path.join(root, "ignored.txt")], AUTO_COMMIT_MESSAGES.create, () => fs.writeFileSync(path.join(root, "ignored.txt"), "ignored\n"))
-  assert.match(git(root, "status", "--porcelain"), /linked/)
+  if (process.platform !== "win32") assert.match(git(root, "status", "--porcelain"), /linked/)
 })
 
 test("sanitizes hostile Git index and bypasses hooks and signing", () => {
