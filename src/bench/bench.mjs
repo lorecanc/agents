@@ -2,12 +2,13 @@
 // Benchmark runner for the *-pipeline-* agent families.
 //
 //   node bench.mjs list
-//   node bench.mjs run [--family hybrid] [--task <id>]... [--config-dir <dir>] [--model <provider/model>]
-//                      [--timeout-min 20] [--out results.json] [--keep] [--dry-run]
+//   node bench.mjs run [--family hybrid | --agent <name>] [--task <id>]... [--config-dir <dir>]
+//                      [--model <provider/model>] [--timeout-min 20] [--out results.json] [--keep] [--dry-run]
 //   node bench.mjs compare <a.json> <b.json>
 //
 // Each task runs in a throwaway git repository created from a fixture (a temp directory outside this
-// repository), with `opencode run --agent <family>-pipeline-orchestrator --auto`. Checks use hidden tests
+// repository), with `opencode run --agent <family>-pipeline-orchestrator --auto` (or any primary agent given
+// with --agent, e.g. `flow-build`). Checks use hidden tests
 // the agent never sees. Besides pass/fail, the result records cost, steps, delegations, guard blocks,
 // and safety facts: new branches/worktrees/stashes, writes outside the repository, honest verification.
 //
@@ -98,6 +99,10 @@ export async function evaluateChecks(task, ctx) {
     } else if (c.type === "text_contains") {
       pass = new RegExp(c.pattern, "i").test(ctx.finalText || "")
       detail = pass ? "found in the final answer" : "not found in the final answer"
+    } else if (c.pipeline_only && ctx.agent && !/-pipeline-/.test(ctx.agent)) {
+      // Process checks such as "the tester was used" describe the pipeline's lanes, not the outcome.
+      pass = true
+      detail = `n/a for ${ctx.agent}`
     } else if (c.type === "delegated") {
       const n = (ctx.metrics && ctx.metrics.delegations && Object.entries(ctx.metrics.delegations).filter(([k]) => k.endsWith(`-${c.agent}`) || k === c.agent).reduce((a, [, v]) => a + v, 0)) || 0
       pass = n >= (c.min ?? 1)
@@ -182,7 +187,7 @@ export async function runTask(task, opts) {
   const info = repoInfo(dir)
   const baseCommit = gitT(dir, ["rev-parse", "HEAD"])
   const before = snapshot(info)
-  const agent = `${opts.family}-pipeline-orchestrator`
+  const agent = opts.agent || `${opts.family}-pipeline-orchestrator`
   const args = ["run", "--agent", agent, "--auto", "--format", "json", "--dir", dir]
   if (opts.model) args.push("-m", opts.model)
   args.push(task.prompt)
@@ -216,7 +221,7 @@ export async function runTask(task, opts) {
     record.git = gitSafety(before, after)
     record.commits_made = Number(gitT(dir, ["rev-list", "--count", `${baseCommit}..HEAD`], { allowFail: true }) || 0)
     installHiddenTests(task, dir)
-    record.checks = await evaluateChecks(task, { dir, baseCommit, finalText: text, metrics })
+    record.checks = await evaluateChecks(task, { dir, baseCommit, finalText: text, metrics, agent })
     record.metrics = metrics
     record.final_text_excerpt = text.slice(0, 600)
     const safe = record.git.ok && (!metrics || metrics.violations.executed.length === 0)
@@ -270,7 +275,10 @@ export function compareResults(a, b) {
       pass: [ra ? ra.pass : null, rb ? rb.pass : null],
       regression: Boolean(ra && rb && ra.pass && !rb.pass),
       improvement: Boolean(ra && rb && !ra.pass && rb.pass),
-      delta: ra && rb ? { steps: d((m) => m.steps), cost: d((m) => m.cost), tokens_out: d((m) => m.tokens.output), guard_blocks: d((m) => m.guard_blocks) } : null,
+      delta: ra && rb ? {
+        steps: d((m) => m.steps), cost: d((m) => m.cost), tokens_in: d((m) => m.tokens.input), tokens_out: d((m) => m.tokens.output),
+        guard_blocks: d((m) => m.guard_blocks), wall_s: Number.isFinite(ra.wall_ms) && Number.isFinite(rb.wall_ms) ? (rb.wall_ms - ra.wall_ms) / 1000 : null,
+      } : null,
     })
   }
   return out
@@ -286,6 +294,7 @@ function parseArgs(argv) {
     const next = () => argv[++i]
     if (a === "--task") o.tasks.push(next())
     else if (a === "--family") o.family = next()
+    else if (a === "--agent") o.agent = next()
     else if (a === "--config-dir") o.configDir = path.resolve(next())
     else if (a === "--model") o.model = next()
     else if (a === "--timeout-min") o.timeoutMin = Number(next())
@@ -322,7 +331,7 @@ export async function main(argv) {
         console.error(`running ${t.id} ...`)
         results.push(await runTask(t, { ...o, bin, timeoutMs: o.timeoutMin * 60000, workRoot: os.tmpdir() }))
       }
-      const doc = { meta: { when: new Date().toISOString(), opencode: version, family: o.family, config_dir: o.configDir || null, model: o.model || null, dry_run: o.dryRun }, results }
+      const doc = { meta: { when: new Date().toISOString(), opencode: version, family: o.agent ? null : o.family, agent: o.agent || `${o.family}-pipeline-orchestrator`, config_dir: o.configDir || null, model: o.model || null, dry_run: o.dryRun }, results }
       if (o.out) fs.writeFileSync(o.out, JSON.stringify(doc, null, 2))
       console.log(renderTable(results))
       if (o.out) console.error(`results written to ${o.out}`)

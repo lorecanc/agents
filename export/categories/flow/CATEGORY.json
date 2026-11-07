@@ -1,0 +1,301 @@
+{
+  "schemaVersion": 2,
+  "distributionVersion": "1.0.0",
+  "category": "flow",
+  "manifestHash": "fb4cbb31f12543659f6fefe79e93aa96203c1139731c3cba094dea650147df9e",
+  "generatorVersion": "2.0.0",
+  "entries": [
+    {
+      "target": "AGENTS.md",
+      "hash": "7403a7b1c9af4f92940627ba8be99ba2782892019dc22b4e62c2b5bba222ea0e"
+    },
+    {
+      "target": "LICENSE",
+      "hash": "4648484047eae043e7aa936decb4b0886b084ae32a9eb35d4187f614ebf4f393"
+    },
+    {
+      "target": "README.md",
+      "hash": "7d195c459125cfc7a032b3baa43f7f056e06cf466b504f198ce131e3756a5798"
+    },
+    {
+      "target": "agents/flow-build.md",
+      "hash": "cc209026a935a14bb3bc325abd48e4c71d763828f96f4a7d8a3b82a4ec04d938"
+    },
+    {
+      "target": "agents/flow-explore.md",
+      "hash": "413f268a0c0917b325080b9932dcdff704746dab0a6001d4c754945c9acf74cf"
+    },
+    {
+      "target": "agents/flow-eye.md",
+      "hash": "06fe66341042701e0c8f22ef19db5575d7cbbf9384edbffcd1c2fb11825c1563"
+    },
+    {
+      "target": "agents/flow-ops.md",
+      "hash": "a47406970eb06924ca1dd2b3e9e30e178d59a0c4c45aa037feaa69c1abbfe20d"
+    },
+    {
+      "target": "agents/flow-plan.md",
+      "hash": "76740cb8938f620e6d91f09c964e8c0d0c7d14f34d3958b9b69e4930f074af7f"
+    },
+    {
+      "target": "agents/flow-research.md",
+      "hash": "123753936d4477f8e09b44b2b46c25da8b71c7dbbdbbf6eae1a05d6c837a1916"
+    },
+    {
+      "target": "agents/flow-review.md",
+      "hash": "bec30263fd85b6d96872e0bfcac38174254fd47ecb607eb30f499c9d5827bb69"
+    },
+    {
+      "target": "commands/flow-bug.md",
+      "hash": "a07c3da59ed2b3323efa24452e7ee2a00a6616977c57096d0baf86a0b17c5ed3"
+    },
+    {
+      "target": "commands/flow-commit.md",
+      "hash": "ef49e5d117d53a4edeb98ed45cb0b812c38a7aaf53fba87a6aecfc4574a8d288"
+    },
+    {
+      "target": "commands/flow-design.md",
+      "hash": "2321b46693d756b83c8a77f54af9a3889fee863e7ff4d8a40f67fca5e08fa917"
+    },
+    {
+      "target": "commands/flow-explain.md",
+      "hash": "5f5fdfa36be657d4120b01bf3f4365faeebdce5a850ab1878bc1058c3fe0e7b7"
+    },
+    {
+      "target": "commands/flow-feature.md",
+      "hash": "7c09e0055304f4d78769df6ccc86ef71a81112015f0612cbd16eaad4c11884ae"
+    },
+    {
+      "target": "commands/flow-review.md",
+      "hash": "510b5154b7738d391114cf93e3732cf4a4816b88f310b8b0542cd2fd12bd5ce8"
+    },
+    {
+      "target": "commands/flow-simplify.md",
+      "hash": "605fb3e1c416ac1621911ed5fd44fc734d65611d85c35f788e38ddc0ebd02856"
+    },
+    {
+      "target": "opencode.json",
+      "hash": "5669537355c4dbec8d516856b910cf52bdc78824bb4be16e7b822e42d38bda6b"
+    },
+    {
+      "target": "plugins/flow-guard/index.ts",
+      "hash": "9212b3838dbd7fe6515ce19ff8cd27128930152acc98207b277e3f32b6f2918d"
+    },
+    {
+      "target": "plugins/pipeline-tools/index.ts",
+      "hash": "3ef0cacc95a2c6372bb86cdf80d9dfe338ef85009dbe4168927dfcd31ea1f0c8"
+    },
+    {
+      "target": "skills/chrome-devtools-a11y-debugging/SKILL.md",
+      "hash": "f2ee15c98641fd101275fcfe25083de0fe38f0d2145c17d6fcbe11d454b1d286"
+    },
+    {
+      "target": "skills/chrome-devtools-a11y-debugging/references/a11y-snippets.md",
+      "hash": "93a02d8889738300461b63da77c1647d4d0156fd9b75107574fbed0a931c20ab"
+    },
+    {
+      "target": "skills/chrome-devtools-debug-optimize-lcp/SKILL.md",
+      "hash": "3617cbbc6437865295b48b30a250bcb3d5a989eef97fc8a6552b2783ea9d6bad"
+    },
+    {
+      "target": "skills/chrome-devtools-debug-optimize-lcp/references/elements-and-size.md",
+      "hash": "a99e9e5f93ad2e5b5b65e84abd2bb220e0560be66cc87059361f1d5f7ef2aed7"
+    },
+    {
+      "target": "skills/chrome-devtools-debug-optimize-lcp/references/lcp-breakdown.md",
+      "hash": "c63bb071fa465c41464446100f4afc069118eab9092cbec0b284dd452404a947"
+    },
+    {
+      "target": "skills/chrome-devtools-debug-optimize-lcp/references/lcp-snippets.md",
+      "hash": "b54d0c26e9df7eea1e58cc118bbbe1ef2037d097a146603ef31c17fe47a6b8b8"
+    },
+    {
+      "target": "skills/chrome-devtools-debug-optimize-lcp/references/optimization-strategies.md",
+      "hash": "786691daf6216f1aacb0e2bafdc08ef8450067a392ab26814337ac9837c048c1"
+    },
+    {
+      "target": "skills/chrome-devtools-memory-leak-debugging/SKILL.md",
+      "hash": "483d4fe3ba2f383feef048dff5aa40ea254083a4ff55bddbb7e8b14084e92279"
+    },
+    {
+      "target": "skills/chrome-devtools-memory-leak-debugging/references/common-leaks.md",
+      "hash": "3e0fb7c7c7987eac919740fdf36a0d2af02a6d2dfc0aeeece4268ed64e75024c"
+    },
+    {
+      "target": "skills/chrome-devtools-memory-leak-debugging/references/compare_snapshots.js",
+      "hash": "9de364f064b9b8c970b172e09c4be60a6cdc46e80060f9177b223ee3e8f2a781"
+    },
+    {
+      "target": "skills/chrome-devtools-memory-leak-debugging/references/memlab.md",
+      "hash": "cd516e9fad19dc720ffbd92ae860531534c396c9033eb7f9f026b55ebd42c4ae"
+    },
+    {
+      "target": "skills/chrome-devtools-troubleshooting/SKILL.md",
+      "hash": "b12e5163b89f714cbaa2c886b750f7a079a00f9625e70b44fe2db812bf5b9e53"
+    },
+    {
+      "target": "skills/chrome-devtools/SKILL.md",
+      "hash": "3fb1cdc33e3f484cf1445b452cad0b70ca4e5a34bb50b0c5e174440727a343a6"
+    },
+    {
+      "target": "skills/code-review-antipatterns/SKILL.md",
+      "hash": "ece5f9c381a1bf20f83663ad788c82a485927c439acaef3d580804311d817a49"
+    },
+    {
+      "target": "skills/code-review-antipatterns/references/accidental-complexity.md",
+      "hash": "467a723a5cd4331a5fc94df7f1ea60ebf9bb9a9fa36247cd5d3a918bc3c570b4"
+    },
+    {
+      "target": "skills/code-review-antipatterns/references/arrow-anti-pattern.md",
+      "hash": "d388d45e8adb662d42b9fc00d468295e2f89059f5820797d050d0ddf887980bc"
+    },
+    {
+      "target": "skills/code-review-antipatterns/references/band-aid-fix.md",
+      "hash": "a6e022a0771499127d812f1d2165c53f75fbd0ad2fed34e2a0f6475a7ce726a0"
+    },
+    {
+      "target": "skills/code-review-antipatterns/references/big-ball-of-mud.md",
+      "hash": "254273894ab9269fefd056e81d83ceabbc1585d922e0b0332ad5925e89ee8934"
+    },
+    {
+      "target": "skills/code-review-antipatterns/references/boolean-parameter-trap.md",
+      "hash": "7b7c5683b624c23af5844baa38aeea8fe39cc97da9259af597d2c79d9dc45254"
+    },
+    {
+      "target": "skills/code-review-antipatterns/references/configuration-theater.md",
+      "hash": "321c494e08d57b7abf5cdf4eb02a2c31842c90b0a7a24219c0ff0213aff46618"
+    },
+    {
+      "target": "skills/code-review-antipatterns/references/environment-pollution.md",
+      "hash": "33750e420218962bfbd695040e254632f2ac9b8f6e8ed5dfaa703cc1903f350d"
+    },
+    {
+      "target": "skills/code-review-antipatterns/references/gas-factory.md",
+      "hash": "d3a3965b2916420a4bac257b7a7c743206c032662099c47cf92613bff33c79b8"
+    },
+    {
+      "target": "skills/code-review-antipatterns/references/god-class.md",
+      "hash": "f27493348f640d4d723bb97b4ece056c54c9604c4126482b4f20d17929385139"
+    },
+    {
+      "target": "skills/code-review-antipatterns/references/interface-for-one-implementation.md",
+      "hash": "4802180e71bb51bcf6e52c676afc15590acb85151136c5662269f01cf8882d12"
+    },
+    {
+      "target": "skills/code-review-antipatterns/references/knowledge-duplication.md",
+      "hash": "6fdc131da9e7d193f63687c6228dcffcb702c367c60b85799fafb07f1f863008"
+    },
+    {
+      "target": "skills/code-review-antipatterns/references/layer-boundary-violation.md",
+      "hash": "ae157b6a41ae0431e86c8ac72ccb18f27d2d2673d57655432996d5c3943ebb67"
+    },
+    {
+      "target": "skills/code-review-antipatterns/references/magic-values-and-hidden-domain-knowledge.md",
+      "hash": "d80fc241b947579fd003ebae53a8c52304cf897ce965bc65eae10948d3b2f300"
+    },
+    {
+      "target": "skills/code-review-antipatterns/references/modularity-violations.md",
+      "hash": "8f37e5e143a38ecf41b6c187bf97c8437969fef6860bcce1d4919fac05ef3e7a"
+    },
+    {
+      "target": "skills/code-review-antipatterns/references/onion-helper-encapsulation.md",
+      "hash": "42e46b62135fd55633eea7a5590a0482afcaa73767c6a463133b051f1c849d7b"
+    },
+    {
+      "target": "skills/code-review-antipatterns/references/reinventing-the-square-wheel.md",
+      "hash": "f2e38d105400f9ef3a4cf9f13e38b3d66d9364513f7a5eea9bec9c6eb3e13728"
+    },
+    {
+      "target": "skills/code-review-antipatterns/references/reinventing-the-wheel.md",
+      "hash": "d799343c856de454620ef18892a69f8b79fe8b1dd34f7f6c0024b769b11a3af4"
+    },
+    {
+      "target": "skills/code-review-antipatterns/references/yagni-violations.md",
+      "hash": "db8793d21982386412ac36d0269df6004671822269f28e159bd90dfc63c88d40"
+    },
+    {
+      "target": "skills/flow-commit/SKILL.md",
+      "hash": "50e02beedaffbc89626d70d2546a93ba47de0b33291ec297e5b53e79d6dcbad8"
+    },
+    {
+      "target": "skills/flow-frontend-design/SKILL.md",
+      "hash": "cd06cf3bdb9534e3eae95cdcc07dc7a1788755f4f6205e8f669a83a24a1da435"
+    },
+    {
+      "target": "skills/flow-kotlin/SKILL.md",
+      "hash": "83b09d569448f5c5a34dadb0110c6886efcaf93facca07ac9435921bcdfd3da3"
+    },
+    {
+      "target": "skills/flow-security/SKILL.md",
+      "hash": "106bb5e39e1bb0e98e14395ba768cbb77697ae0b024a40dc7079c99df8a5251c"
+    },
+    {
+      "target": "skills/flow-simplify/SKILL.md",
+      "hash": "5a363495e454d905d95365819375d97f745b1a1d53c7e96ce223c146dfc5037c"
+    },
+    {
+      "target": "skills/flow-swift/SKILL.md",
+      "hash": "37bc16d5ca890cdb7b21c0f5b905f5b0699a00726f5cea49976e570ff76a96d4"
+    },
+    {
+      "target": "skills/flow-testing/SKILL.md",
+      "hash": "56318591d13a6edfa6bc521ba8ec98c2d5915662c5cc17d09e912ce4053b5b86"
+    },
+    {
+      "target": "skills/flow-visual-loop/SKILL.md",
+      "hash": "6885382b02bd2a6d23f2c1f1864e0c2bc76f922d33bbee15fff1a0453991a4f3"
+    },
+    {
+      "target": "tools/_flow_guard.js",
+      "hash": "a395299c5cb600d0384cba9b5ffc98186ded2c546ea2f81ca843913a6d595700"
+    },
+    {
+      "target": "tools/_pipeline_core.js",
+      "hash": "112f6fc3a810f21d4da425de88e8f0dabd35e0cf90e58bba6cc343ce3ff05005"
+    },
+    {
+      "target": "tools/_pipeline_env.js",
+      "hash": "bd73252d7d62cd7ce6b9e4f0aaec7e56d1ba8adbde8c9feb5f9da5ba8bf4ea92"
+    },
+    {
+      "target": "tools/_pipeline_run.js",
+      "hash": "27e37b878864709b4907dc34df3084873cca7231ea563e58c93bd546c16bcf35"
+    },
+    {
+      "target": "tools/_pipeline_serve.js",
+      "hash": "8dec5d7951f720a0c7194208227f8192f7eab8529465ea6cb444a4c6bcfe2ea6"
+    },
+    {
+      "target": "tools/_pipeline_services.js",
+      "hash": "c35978c03f393ec531e25eed61d0101b413a60ad1364ae8f82e8071b88344ce6"
+    },
+    {
+      "target": "tools/_tool.ts",
+      "hash": "7f896bb01b2b27559e6c693d8393a1372afa60de9b279e13e885b17c02f091f4"
+    },
+    {
+      "target": "tools/pipeline_commit.ts",
+      "hash": "90c3e836840725559311e8f8f603d360230b27738ed8db693e44a25a4e473e44"
+    },
+    {
+      "target": "tools/pipeline_env.ts",
+      "hash": "38cb13506f86f190b305cce8b966a2deef055b2277802ccf1a534037cad68162"
+    },
+    {
+      "target": "tools/pipeline_serve.ts",
+      "hash": "a90c3e61631c42835486504c1d93cf350630dfe7f69666fb54104519281196be"
+    },
+    {
+      "target": "tools/pipeline_smoke.ts",
+      "hash": "87bbea722dc9fff905cf6ff09d1d4d66a566c81f5d2a507f630a670b8bc31c14"
+    },
+    {
+      "target": "tools/pipeline_state.ts",
+      "hash": "9a5ffdfab7e21a7ce84e050d89a9fb02e57f00ed9d5dafde6398d9839fc7308e"
+    },
+    {
+      "target": "tools/pipeline_verify.ts",
+      "hash": "34a46b6851f4958ceb93b05b73e7f0c41fcbe8c22982566ead41a7e44e82b2aa"
+    }
+  ]
+}

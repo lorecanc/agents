@@ -329,6 +329,25 @@ test("runTask: dry run builds the command without calling the model and leaves n
   assert.deepEqual(fs.readdirSync(work), [])
 })
 
+test("runTask: --agent runs any primary agent instead of the pipeline orchestrator", async () => {
+  const fake = withFake({}, {})
+  const r = await runTask(task("feature-median"), opts(fake.bin, { dryRun: true, workRoot: mkTmp("bench-dry-"), agent: "flow-build" }))
+  assert.deepEqual(r.command.slice(0, 4), [fake.bin, "run", "--agent", "flow-build"])
+  assert.equal(r.agent, "flow-build")
+})
+
+test("evaluateChecks: pipeline_only checks are n/a for other agents and still apply to the pipeline", async () => {
+  const dir = prepareWorkspace(task("bug-average-empty"), { root: mkTmp("bench-eval-") })
+  const base = execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir, encoding: "utf8" }).trim()
+  const checks = { checks: [{ type: "delegated", agent: "tester", min: 1, pipeline_only: true }] }
+  const ctx = { dir, baseCommit: base, finalText: "", metrics: { delegations: {} } }
+  const flow = await evaluateChecks(checks, { ...ctx, agent: "flow-build" })
+  assert.equal(flow[0].pass, true)
+  assert.match(flow[0].detail, /n\/a for flow-build/)
+  const pipeline = await evaluateChecks(checks, { ...ctx, agent: "hybrid-pipeline-orchestrator" })
+  assert.equal(pipeline[0].pass, false)
+})
+
 test("evaluateChecks: glob matching, counts, and unknown check types", async () => {
   const dir = prepareWorkspace(task("bug-average-empty"), { root: mkTmp("bench-eval-") })
   const base = execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir, encoding: "utf8" }).trim()

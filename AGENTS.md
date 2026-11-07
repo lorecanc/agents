@@ -27,12 +27,13 @@ ALWAYS prefer MCP graph tools over grep/glob/file-search for code discovery.
 ## 1. Architettura delle sorgenti (`src/` vs `.agent-manager/` vs `export/`)
 
 - `src/` è l'unica fonte canonica: include `src/agents/`, `src/plugins/`, `src/tools/`, `src/commands/`, `src/skills/` e `src/opencode.json`. Non modificare mai a mano i file generati sotto `export/categories/**` o `export/bridges/**`.
-- `src/AGENTS.md` viene distribuito in `export/categories/{docs,slides,wiki}/AGENTS.md`. Questo `AGENTS.md` nella root è invece l'handoff per gli agenti che lavorano su questa repository.
+- `src/AGENTS.md` viene distribuito in `export/categories/{docs,slides,wiki,flow}/AGENTS.md`. Questo `AGENTS.md` nella root è invece l'handoff per gli agenti che lavorano su questa repository.
+- La categoria `flow` (`src/agents/flow-*.md`, skill `src/skills/flow-*`, comandi `src/commands/flow-*.md`, plugin `src/plugins/flow-guard`) è la v2 della pipeline in stile Claude Code: un agente di lavoro (`flow-build`), un agente di pianificazione (`flow-plan`) e subagent read-only (`flow-explore`, `flow-review`, `flow-research`, `flow-eye`, `flow-ops`). È una categoria con manifest V2 (`.agent-manager/categories/flow.json`) e non tocca la pipeline v1. È multi-provider con profili propri, separati da quelli della pipeline: `.agent-manager/flow-profiles.json` → bundle timbrati `export/categories/<profilo>-flow` (`manage-agents flow …`, logica in `manage-agents/src/utils/flowProfiles.ts`). Gli agenti canonici `flow-*` non fissano `model`; i modelli arrivano dai profili o dal TUI. `flow-eye` richiede un modello con input immagini (gruppo `vision`).
 - La categoria canonica `pipeline` vive nei file `src/agents/pipeline-*.md` e non deve mai avere una cartella `export/categories/pipeline/`: se compare, è un orfano bloccato da `organizeAgents` e segnalato da `category check --all`. I bundle distribuiti della pipeline sono solo i profili timbrati `export/categories/*-pipeline` (`free-pipeline`, `go-pipeline`, `hybrid-pipeline`, `mistral-pipeline`).
 
 ## 2. Due meccanismi di distribuzione delle categorie (Manifest V2 vs profili `*-pipeline`)
 
-- **Categorie con manifest (`docs`, `slides`, `wiki`)**: sono governate da `.agent-manager/categories/<id>.json` (`schemaVersion: 2`), che definisce l'allowlist esatta delle risorse con `policy: "text" | "binary" | "mixed" | "runtime"` e i metadati di provenienza SHA-256 (`CATEGORY.json`, `PROVENANCE.json`, `opencode.json`).
+- **Categorie con manifest (`docs`, `slides`, `wiki`, `flow`)**: sono governate da `.agent-manager/categories/<id>.json` (`schemaVersion: 2`), che definisce l'allowlist esatta delle risorse con `policy: "text" | "binary" | "mixed" | "runtime"` e i metadati di provenienza SHA-256 (`CATEGORY.json`, `PROVENANCE.json`, `opencode.json`).
 - **Sincronizzazione Resource Manager (`U` nella TUI) ↔ manifest**: `.agent-manager/companion-links.json` governa i companion link per l'export diretto a OpenCode e per i profili `*-pipeline`. Quando si aggiornano i plugin di una categoria con manifest V2 (`updateCategoryCompanionLinks`), le risorse plugin già presenti in `.agent-manager/categories/<id>.json` mantengono la policy esistente (per esempio `"text"`), mentre le nuove voci plugin aggiunte ricevono `policy: "runtime"`; l'operazione valida l'ID categoria e rifiuta path traversal e symlink, poi ricostruisce il bundle in `export/categories/<id>`.
 - **Profili `*-pipeline`**: sono governati da `.agent-manager/pipeline-profiles.json` e `.agent-manager/companion-links.json` (non hanno manifest in `.agent-manager/categories/`). Si rigenerano da `src/` tramite `refreshStampedPipelinesFromSource` o `category build --all`.
 
@@ -45,7 +46,7 @@ ALWAYS prefer MCP graph tools over grep/glob/file-search for code discovery.
 ## 4. Checklist operativa per aggiornare la pipeline e verificare la repository
 
 1. Modificare solo i file canonici in `src/`. Se cambiano i profili Bash in `.agent-manager/bash-profiles.json`, eseguire `node manage-agents/manage-agents.mjs --no-auto-commit pipeline sync-bash`.
-2. Rigenerare categorie e profili `*-pipeline` con `node manage-agents/manage-agents.mjs --no-auto-commit category build --all`. Il comando è idempotente sui contenuti e sulle `mtime` dei file invariati.
+2. Rigenerare categorie, profili `*-pipeline` e bundle `*-flow` con `node manage-agents/manage-agents.mjs --no-auto-commit category build --all`. Il comando è idempotente sui contenuti e sulle `mtime` dei file invariati.
 3. Se cambiano agenti, skill o configurazione MCP della pipeline, rigenerare i bridge:
    - `node manage-agents/manage-agents.mjs --no-auto-commit bridge --category pipeline --target claude`
    - `node manage-agents/manage-agents.mjs --no-auto-commit bridge --category pipeline --target codex`

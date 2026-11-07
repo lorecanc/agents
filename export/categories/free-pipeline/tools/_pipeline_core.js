@@ -1170,7 +1170,7 @@ function gitFileArgs(args) {
   return separator >= 0 ? args.slice(separator + 1) : args.filter((r) => !r.startsWith("-"))
 }
 
-function checkGitCommand(args, role, ctx) {
+export function checkGitCommand(args, role, ctx) {
   let effectiveCwd = (ctx && ctx.cwd) || (ctx && ctx.info && ctx.info.top) || process.cwd()
   let gitDirError = null
   let i = 0
@@ -1367,7 +1367,7 @@ function checkSegment(tokens, role, ctx, depth = 0, rawSeg = []) {
       }
     }
   }
-  if (cmd === "git") return checkGitCommand(args, role, ctx)
+  if (cmd === "git") return typeof ctx?.gitPolicy === "function" ? ctx.gitPolicy(args, ctx) : checkGitCommand(args, role, ctx)
   if (cmd === "cd" || cmd === "pushd") {
     const target = args.find((a) => !a.startsWith("-"))
     if (target && checkWritePath(target, ctx)) return `cd "${target}" leaves the repository. Stay inside the repo.`
@@ -1422,7 +1422,8 @@ function checkSegment(tokens, role, ctx, depth = 0, rawSeg = []) {
 
 /**
  * Check a bash command issued by a pipeline agent.
- * ctx: { info, cwd, scratch }, role: pipeline role such as "executor".
+ * ctx: { info, cwd, scratch, gitPolicy? }, role: pipeline role such as "executor".
+ * gitPolicy(args, ctx), when given, replaces the role-based git check for every git segment.
  * Returns null when acceptable, otherwise a human-readable reason.
  */
 export function checkBash(command, role, ctx, depth = 0) {

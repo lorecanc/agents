@@ -522,6 +522,20 @@ Questa sezione è il riferimento operativo per passare il lavoro sulla pipeline 
 - `src/` contiene le sorgenti canoniche della pipeline e dei relativi plugin, strumenti e comandi. `.agent-manager/` contiene configurazione e metadati di distribuzione; `export/` contiene gli output generati. Modifica le sorgenti e la configurazione necessaria, non correggere a mano gli output.
 - La categoria canonica `pipeline` vive **solo** in `src/agents/pipeline-*.md`. Non deve mai esistere `export/categories/pipeline/`: i bundle pipeline sono i profili timbrati `export/categories/*-pipeline` (per esempio `go-pipeline` o `hybrid-pipeline`).
 
+### Profili multi-provider di Flow (`*-flow`)
+
+Flow e pipeline sono famiglie separate, ognuna con i propri profili. I profili di Flow vivono in `.agent-manager/flow-profiles.json` e assegnano un modello (`model` + `variant`) per gruppo di ruoli: `main` (build, plan), `review`, `fast` (explore, research, ops) e `vision` (eye, serve un modello con input immagini). `defaults.all` copre i gruppi non assegnati, `roles.<ruolo>` sovrascrive un singolo agente.
+
+| Obiettivo | Comando |
+|---|---|
+| Vedere profili e bundle | `node manage-agents/manage-agents.mjs flow list` / `flow show hybrid` |
+| Creare o aggiornare `hybrid-flow` | `node manage-agents/manage-agents.mjs flow sync hybrid` (oppure `--target lab` per `lab-flow`) |
+| Applicare un profilo agli agenti canonici `flow-*` | `node manage-agents/manage-agents.mjs flow apply hybrid` |
+| Rigenerare i bundle dopo modifiche in `src/` | `category build --all` (oppure `flow refresh`) |
+| Eliminare un bundle | `node manage-agents/manage-agents.mjs flow delete hybrid-flow [--also-installed]` |
+
+Ogni bundle `export/categories/<profilo>-flow` contiene agenti `<profilo>-flow-*`, comandi `/<profilo>-flow-*`, le skill `flow-*`, i plugin `flow-guard` e `pipeline-tools` e i tool necessari; i riferimenti tra agenti e comandi sono riscritti, le skill restano condivise. Le modifiche di modello fatte sul bundle (TUI o `tune --category hybrid-flow`) sopravvivono ai refresh. Nella TUI, `f` su una cartella `flow` o `*-flow` apre lo stamping con i profili Flow e `D` elimina un `*-flow`.
+
 ### Manifest V2 e profili `*-pipeline`
 
 Le categorie `docs`, `slides` e `wiki` usano manifest V2 distinti, uno per categoria in `.agent-manager/categories/<id>.json`, con `schemaVersion: 2`. `.agent-manager/companion-links.json` descrive i collegamenti alle risorse companion; `.agent-manager/pipeline-profiles.json` definisce i profili timbrati `*-pipeline`. I profili non sono categorie V2 e non vanno aggiunti come manifest duplicati.

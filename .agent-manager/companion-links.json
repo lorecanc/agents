@@ -26,6 +26,273 @@
         "tools/docx"
       ]
     },
+    "flow": {
+      "plugins": [
+        "plugins/flow-guard",
+        "plugins/pipeline-tools"
+      ],
+      "commands": [
+        "commands/flow-bug.md",
+        "commands/flow-commit.md",
+        "commands/flow-design.md",
+        "commands/flow-explain.md",
+        "commands/flow-feature.md",
+        "commands/flow-review.md",
+        "commands/flow-simplify.md"
+      ],
+      "skills": [
+        "skills/chrome-devtools",
+        "skills/chrome-devtools-a11y-debugging",
+        "skills/chrome-devtools-debug-optimize-lcp",
+        "skills/chrome-devtools-memory-leak-debugging",
+        "skills/chrome-devtools-troubleshooting",
+        "skills/code-review-antipatterns",
+        "skills/flow-commit",
+        "skills/flow-frontend-design",
+        "skills/flow-kotlin",
+        "skills/flow-security",
+        "skills/flow-simplify",
+        "skills/flow-swift",
+        "skills/flow-testing",
+        "skills/flow-visual-loop"
+      ],
+      "tools": [
+        "tools/pipeline_commit.ts",
+        "tools/pipeline_env.ts",
+        "tools/pipeline_serve.ts",
+        "tools/pipeline_smoke.ts",
+        "tools/pipeline_state.ts",
+        "tools/pipeline_verify.ts"
+      ]
+    },
+    "free-flow": {
+      "plugins": [
+        "plugins/flow-guard",
+        "plugins/pipeline-tools"
+      ],
+      "commands": [
+        "commands/flow-bug.md",
+        "commands/flow-commit.md",
+        "commands/flow-design.md",
+        "commands/flow-explain.md",
+        "commands/flow-feature.md",
+        "commands/flow-review.md",
+        "commands/flow-simplify.md"
+      ],
+      "skills": [
+        "skills/chrome-devtools",
+        "skills/chrome-devtools-a11y-debugging",
+        "skills/chrome-devtools-debug-optimize-lcp",
+        "skills/chrome-devtools-memory-leak-debugging",
+        "skills/chrome-devtools-troubleshooting",
+        "skills/code-review-antipatterns",
+        "skills/flow-commit",
+        "skills/flow-frontend-design",
+        "skills/flow-kotlin",
+        "skills/flow-security",
+        "skills/flow-simplify",
+        "skills/flow-swift",
+        "skills/flow-testing",
+        "skills/flow-visual-loop"
+      ],
+      "tools": [
+        "tools/pipeline_commit.ts",
+        "tools/pipeline_env.ts",
+        "tools/pipeline_serve.ts",
+        "tools/pipeline_smoke.ts",
+        "tools/pipeline_state.ts",
+        "tools/pipeline_verify.ts"
+      ]
+    },
+    "go-flow": {
+      "plugins": [
+        "plugins/flow-guard",
+        "plugins/pipeline-tools"
+      ],
+      "commands": [
+        "commands/flow-bug.md",
+        "commands/flow-commit.md",
+        "commands/flow-design.md",
+        "commands/flow-explain.md",
+        "commands/flow-feature.md",
+        "commands/flow-review.md",
+        "commands/flow-simplify.md"
+      ],
+      "skills": [
+        "skills/chrome-devtools",
+        "skills/chrome-devtools-a11y-debugging",
+        "skills/chrome-devtools-debug-optimize-lcp",
+        "skills/chrome-devtools-memory-leak-debugging",
+        "skills/chrome-devtools-troubleshooting",
+        "skills/code-review-antipatterns",
+        "skills/flow-commit",
+        "skills/flow-frontend-design",
+        "skills/flow-kotlin",
+        "skills/flow-security",
+        "skills/flow-simplify",
+        "skills/flow-swift",
+        "skills/flow-testing",
+        "skills/flow-visual-loop"
+      ],
+      "tools": [
+        "tools/pipeline_commit.ts",
+        "tools/pipeline_env.ts",
+        "tools/pipeline_serve.ts",
+        "tools/pipeline_smoke.ts",
+        "tools/pipeline_state.ts",
+        "tools/pipeline_verify.ts"
+      ]
+    },
+    "hybrid-flow": {
+      "plugins": [
+        "plugins/flow-guard",
+        "plugins/pipeline-tools"
+      ],
+      "commands": [
+        "commands/flow-bug.md",
+        "commands/flow-commit.md",
+        "commands/flow-design.md",
+        "commands/flow-explain.md",
+        "commands/flow-feature.md",
+        "commands/flow-review.md",
+        "commands/flow-simplify.md"
+      ],
+      "skills": [
+        "skills/chrome-devtools",
+        "skills/chrome-devtools-a11y-debugging",
+        "skills/chrome-devtools-debug-optimize-lcp",
+        "skills/chrome-devtools-memory-leak-debugging",
+        "skills/chrome-devtools-troubleshooting",
+        "skills/code-review-antipatterns",
+        "skills/flow-commit",
+        "skills/flow-frontend-design",
+        "skills/flow-kotlin",
+        "skills/flow-security",
+        "skills/flow-simplify",
+        "skills/flow-swift",
+        "skills/flow-testing",
+        "skills/flow-visual-loop"
+      ],
+      "tools": [
+        "tools/pipeline_commit.ts",
+        "tools/pipeline_env.ts",
+        "tools/pipeline_serve.ts",
+        "tools/pipeline_smoke.ts",
+        "tools/pipeline_state.ts",
+        "tools/pipeline_verify.ts"
+      ]
+    },
+    "mistral-flow": {
+      "plugins": [
+        "plugins/flow-guard",
+        "plugins/pipeline-tools"
+      ],
+      "commands": [
+        "commands/flow-bug.md",
+        "commands/flow-commit.md",
+        "commands/flow-design.md",
+        "commands/flow-explain.md",
+        "commands/flow-feature.md",
+        "commands/flow-review.md",
+        "commands/flow-simplify.md"
+      ],
+      "skills": [
+        "skills/chrome-devtools",
+        "skills/chrome-devtools-a11y-debugging",
+        "skills/chrome-devtools-debug-optimize-lcp",
+        "skills/chrome-devtools-memory-leak-debugging",
+        "skills/chrome-devtools-troubleshooting",
+        "skills/code-review-antipatterns",
+        "skills/flow-commit",
+        "skills/flow-frontend-design",
+        "skills/flow-kotlin",
+        "skills/flow-security",
+        "skills/flow-simplify",
+        "skills/flow-swift",
+        "skills/flow-testing",
+        "skills/flow-visual-loop"
+      ],
+      "tools": [
+        "tools/pipeline_commit.ts",
+        "tools/pipeline_env.ts",
+        "tools/pipeline_serve.ts",
+        "tools/pipeline_smoke.ts",
+        "tools/pipeline_state.ts",
+        "tools/pipeline_verify.ts"
+      ]
+    },
+    "ontology": {
+      "plugins": [],
+      "commands": [],
+      "skills": [
+        "skills/ontology-ontogpt-author-template",
+        "skills/ontology-ontogpt-extract",
+        "skills/ontology-ontogpt-select-template",
+        "skills/ontology-ontogpt-troubleshoot"
+      ],
+      "tools": [
+        "tools/ontology",
+        "tools/ontology_arq.ts",
+        "tools/ontology_elk.ts",
+        "tools/ontology_infer.ts",
+        "tools/ontology_iri.ts",
+        "tools/ontology_jena.ts",
+        "tools/ontology_jena.version.ts",
+        "tools/ontology_juuid.ts",
+        "tools/ontology_kgcl.ts",
+        "tools/ontology_langtag.ts",
+        "tools/ontology_linkml.ts",
+        "tools/ontology_logmap_llm.ts",
+        "tools/ontology_logmap.ts",
+        "tools/ontology_nquads.ts",
+        "tools/ontology_ntriples.ts",
+        "tools/ontology_ontogenix.ts",
+        "tools/ontology_ontogpt.ts",
+        "tools/ontology_oops.ts",
+        "tools/ontology_pyshacl.ts",
+        "tools/ontology_qparse.ts",
+        "tools/ontology_rdfcat.ts",
+        "tools/ontology_rdfcompare.ts",
+        "tools/ontology_rdfcopy.ts",
+        "tools/ontology_rdfdiff.ts",
+        "tools/ontology_rdfparse.ts",
+        "tools/ontology_rdfpatch.ts",
+        "tools/ontology_rdfxml.ts",
+        "tools/ontology_riot.ts",
+        "tools/ontology_robot.ts",
+        "tools/ontology_rset.ts",
+        "tools/ontology_rsparql.ts",
+        "tools/ontology_rupdate.ts",
+        "tools/ontology_schemagen.ts",
+        "tools/ontology_shacl.ts",
+        "tools/ontology_shex.ts",
+        "tools/ontology_sparql.ts",
+        "tools/ontology_tdb1.xloader.ts",
+        "tools/ontology_tdb2.tdbbackup.ts",
+        "tools/ontology_tdb2.tdbcompact.ts",
+        "tools/ontology_tdb2.tdbdump.ts",
+        "tools/ontology_tdb2.tdbloader.ts",
+        "tools/ontology_tdb2.tdbquery.ts",
+        "tools/ontology_tdb2.tdbstats.ts",
+        "tools/ontology_tdb2.tdbupdate.ts",
+        "tools/ontology_tdb2.xloader.ts",
+        "tools/ontology_tdbbackup.ts",
+        "tools/ontology_tdbdump.ts",
+        "tools/ontology_tdbloader.ts",
+        "tools/ontology_tdbloader2.ts",
+        "tools/ontology_tdbquery.ts",
+        "tools/ontology_tdbstats.ts",
+        "tools/ontology_tdbupdate.ts",
+        "tools/ontology_trig.ts",
+        "tools/ontology_turtle.ts",
+        "tools/ontology_uparse.ts",
+        "tools/ontology_update.ts",
+        "tools/ontology_utf8.ts",
+        "tools/ontology_widoco.ts",
+        "tools/ontology_wwwdec.ts",
+        "tools/ontology_wwwenc.ts"
+      ]
+    },
     "pipeline": {
       "plugins": [
         "plugins/doc-tools",
@@ -85,7 +352,6 @@
     },
     "wiki": {
       "plugins": [],
-      "tools": [],
       "commands": [
         "commands/wiki.md"
       ],
@@ -93,7 +359,8 @@
         "skills/wiki-conventions",
         "skills/wiki-navigate",
         "skills/wiki-templates"
-      ]
+      ],
+      "tools": []
     }
   }
 }

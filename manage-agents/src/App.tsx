@@ -45,6 +45,7 @@ import {
 import { loadModelCatalog, suggestModels, collectInvalidModelGroups, modelDisplayValue, getModelVariants, type ModelCatalog } from "./utils/models.js"
 import { discoverAvailableCategoryCompanionItems, getCompanionLinksConfigPath, type SelectableCompanionItem, updateCategoryCompanionLinks } from "./utils/companionLinks.js"
 import { applyPipelineProfile, loadPipelineProfiles, syncPipelineProfile, loadStampedPipelineAgents, deleteStampedPipeline, refreshStampedPipelinesFromSource, forkStampedPipeline } from "./utils/pipelineProfiles.js"
+import { deleteStampedFlow, FLOW_BASE_CATEGORY, forkStampedFlow, isStampedFlowCategory, loadFlowProfiles, refreshStampedFlowsFromSource } from "./utils/flowProfiles.js"
 import { buildCategoryDistribution } from "./utils/categoryDistribution.js"
 import { bridgeToClaudeCode } from "./utils/bridge.js"
 import { bridgeToCodex } from "./utils/codexBridge.js"
@@ -449,12 +450,13 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
 
   const refreshData = () => {
     try { refreshStampedPipelinesFromSource(workspaceRoot) } catch {}
+    try { refreshStampedFlowsFromSource(workspaceRoot) } catch {}
     const list = findAgentFiles(workspaceRoot)
     const canonicalPaths = new Set(list.map(agent => agent.currentPath))
     const categoriesDir = path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot))
     if (fs.existsSync(categoriesDir)) {
       for (const entry of fs.readdirSync(categoriesDir, { withFileTypes: true })) {
-        if (!entry.isDirectory() || !entry.name.endsWith("-pipeline")) continue
+        if (!entry.isDirectory() || !(entry.name.endsWith("-pipeline") || isStampedFlowCategory(entry.name))) continue
         const stamped = loadStampedPipelineAgents(workspaceRoot, entry.name)
         if (stamped) list.push(...stamped.agents.filter(agent => !canonicalPaths.has(agent.currentPath)))
       }
@@ -1014,7 +1016,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           setForkReplaceQuery("")
           setForkProfileName("")
           setForkProfileTarget("")
-          if (item.category === "pipeline" || item.category?.endsWith("-pipeline")) {
+          if (item.category === "pipeline" || item.category?.endsWith("-pipeline") || item.category === FLOW_BASE_CATEGORY || isStampedFlowCategory(item.category || "")) {
             setForkFindQuery(item.category)
             setForkFocusedField("replace")
           } else {
@@ -1128,7 +1130,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
       } else if (key === "d" && !e.shift) {
         const item = activeItems[focusedIndex]
         if (!item || item.type !== "folder") {
-          setLayoutStatus("Focus a stamped pipeline folder header (e.g. go-pipeline) and press D to delete it.")
+          setLayoutStatus("Focus a stamped pipeline or flow folder header (e.g. go-pipeline, go-flow) and press D to delete it.")
         } else {
           const baseCategory = loadPipelineProfiles(workspaceRoot).baseCategory || "pipeline"
           const sourcePrefix = path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot)) + path.sep
@@ -1136,7 +1138,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
             setLayoutStatus(item.category === "pipeline" || item.category === baseCategory
               ? `Cannot delete '${item.category}': it is the canonical base pipeline in ${resolveSourceSubdir(workspaceRoot)}/agents/. Only stamped pipelines in ${resolveCategoriesSubdir(workspaceRoot)}/ can be deleted.`
               : `Cannot delete '${item.category}': categories in ${resolveSourceSubdir(workspaceRoot)}/agents/ cannot be deleted as a stamped pipeline.`)
-          } else if (item.category.endsWith("-pipeline") && fs.existsSync(path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot), item.category))) {
+          } else if ((item.category.endsWith("-pipeline") || isStampedFlowCategory(item.category)) && fs.existsSync(path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot), item.category))) {
             setDeleteTargetCategory(item.category)
             setDeleteAlsoInstalled(false)
             setLayoutStatus("")
@@ -1255,7 +1257,9 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           const tx = mutate([
             path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot), category),
             getCompanionLinksConfigPath(workspaceRoot)
-          ], "pipeline", () => deleteStampedPipeline(workspaceRoot, category, { alsoInstalled: deleteAlsoInstalled }))
+          ], isStampedFlowCategory(category) ? "flow" : "pipeline", () => isStampedFlowCategory(category)
+            ? deleteStampedFlow(workspaceRoot, category, { alsoInstalled: deleteAlsoInstalled })
+            : deleteStampedPipeline(workspaceRoot, category, { alsoInstalled: deleteAlsoInstalled }))
           const result = tx.value
           setSelectedAgentPaths(previous => {
             const next = new Set(previous)
@@ -1269,7 +1273,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           })
           setDeleteTargetCategory(null)
           try { refreshData() } catch (error) { setMutationRefreshFailure(error, tx.warning); return }
-          setMutationSuccess("Stamped Pipeline Deleted", [
+          setMutationSuccess(isStampedFlowCategory(category) ? "Stamped Flow Deleted" : "Stamped Pipeline Deleted", [
             `Deleted category: ${result.deletedCategory}`,
             `Removed ${result.removedAgentsCount} stamped agent file(s) from:`,
             `  ${result.outputDir}`,
@@ -1471,19 +1475,21 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
       }
     } else if (viewMode === "fork-prompt") {
       // 5. Fork category prompt mode
-      const isPipelineFork = forkSourceCategory === "pipeline" || forkSourceCategory.endsWith("-pipeline")
+      const isFlowFork = forkSourceCategory === FLOW_BASE_CATEGORY || isStampedFlowCategory(forkSourceCategory)
+      const isPipelineFork = isFlowFork || forkSourceCategory === "pipeline" || forkSourceCategory.endsWith("-pipeline")
+      const stampSuffix = isFlowFork ? "-flow" : "-pipeline"
       if (key === "escape") {
         setViewMode("main")
       } else if (key === "tab" || key === "up" || key === "down") {
-        const profiles = Object.keys(loadPipelineProfiles(workspaceRoot).profiles)
+        const profiles = Object.keys(isFlowFork ? loadFlowProfiles(workspaceRoot).profiles : loadPipelineProfiles(workspaceRoot).profiles)
         if ((isPipelineFork && (key === "tab" || key === "up" || key === "down")) || forkFocusedField === "profile" || key === "up" || key === "down") {
           const current = profiles.indexOf(forkProfileName)
           const next = (current + (key === "up" ? -1 : 1) + profiles.length + 1) % (profiles.length + 1)
           const profile = next === 0 ? "" : profiles[next - 1]
           setForkProfileName(profile)
           if (isPipelineFork) {
-            setForkReplaceQuery(profile ? `${profile}-pipeline` : "")
-            setForkProfileTarget(profile ? `${profile}-pipeline` : "")
+            setForkReplaceQuery(profile ? `${profile}${stampSuffix}` : "")
+            setForkProfileTarget(profile ? `${profile}${stampSuffix}` : "")
           } else if (!forkProfileTarget || forkProfileTarget === `${forkProfileName}-pipeline`) setForkProfileTarget(profile ? `${profile}-pipeline` : "")
           setForkFocusedField(isPipelineFork ? "replace" : "profile")
         } else {
@@ -1501,6 +1507,31 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           setForkProfileTarget(prev => prev.slice(0, -1))
         }
       } else if (key === "enter" || key === "return") {
+        if (isFlowFork) {
+          const rawTargetInput = (forkReplaceQuery || forkProfileTarget || (forkProfileName ? `${forkProfileName}-flow` : "")).trim()
+          if (!rawTargetInput) {
+            setLayoutStatus("Enter one or more target flow names (e.g. go or hybrid, mistral).")
+            return
+          }
+          try {
+            const paths = [path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot)), getCompanionLinksConfigPath(workspaceRoot)]
+            const tx = mutate(paths, "flow", () => forkStampedFlow(workspaceRoot, parseForkReplacements(rawTargetInput), { profileName: forkProfileName || undefined }))
+            const result = tx.value
+            setExpandedCategories(prev => new Set([...prev, ...result.createdCategories]))
+            try { refreshData() } catch (error) { setMutationRefreshFailure(error, tx.warning); return }
+            setMutationSuccess("Flow Stamped / Updated", [
+              `Profile: ${forkProfileName || "(keep current models)"}`,
+              `Created: ${result.createdCategories.join(", ") || "none"}; updated: ${result.updatedCategories.join(", ") || "none"}`,
+              `${result.agents} agents in ${result.outputDirs.join(", ")}`
+            ], tx.warning)
+            setViewMode("action-result")
+          } catch (error: any) {
+            setActionResultTitle("Error Stamping Flow")
+            setActionResultLines([`An error occurred:`, `  ${error.message || error}`])
+            setViewMode("action-result")
+          }
+          return
+        }
         if (isPipelineFork) {
           const rawTargetInput = (forkReplaceQuery || forkProfileTarget || (forkProfileName ? `${forkProfileName}-pipeline` : "")).trim()
           if (!rawTargetInput) {
@@ -1934,7 +1965,8 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           ? path.join(workspaceRoot, ".agent-manager", "categories", `${resourceCategoryTarget}.json`)
           : ""
         const hasCategoryManifest = Boolean(categoryManifestPath && fs.existsSync(categoryManifestPath))
-        const refreshStampedPipelines = Boolean(resourceCategoryTarget && (resourceCategoryTarget === "pipeline" || resourceCategoryTarget.endsWith("-pipeline")))
+        const refreshStampedPipelines = Boolean(resourceCategoryTarget && (resourceCategoryTarget === "pipeline" || resourceCategoryTarget.endsWith("-pipeline")
+          || resourceCategoryTarget === FLOW_BASE_CATEGORY || isStampedFlowCategory(resourceCategoryTarget)))
         const allowedPaths = [
           ...(companionChanged ? [getCompanionLinksConfigPath(workspaceRoot)] : []),
           ...(companionChanged && hasCategoryManifest ? [categoryManifestPath, path.join(workspaceRoot, "export", "categories", resourceCategoryTarget!)] : []),
@@ -1948,6 +1980,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
               const key = resourceCategoryTarget
               updateCategoryCompanionLinks(workspaceRoot, key, nextLinks)
               if (key === "pipeline" || key.endsWith("-pipeline")) refreshStampedPipelinesFromSource(workspaceRoot)
+              if (key === FLOW_BASE_CATEGORY || isStampedFlowCategory(key)) refreshStampedFlowsFromSource(workspaceRoot)
               if (fs.existsSync(path.join(workspaceRoot, ".agent-manager", "categories", `${key}.json`))) buildCategoryDistribution(workspaceRoot, key)
             }
             const agentResult = resourceTargetAgent
@@ -3589,21 +3622,24 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
         >
           <box flexDirection="column" gap={1}>
             {(() => {
-              const isPipelineFork = forkSourceCategory === "pipeline" || forkSourceCategory.endsWith("-pipeline")
+              const isFlowFork = forkSourceCategory === FLOW_BASE_CATEGORY || isStampedFlowCategory(forkSourceCategory)
+              const isPipelineFork = isFlowFork || forkSourceCategory === "pipeline" || forkSourceCategory.endsWith("-pipeline")
               return <>
             <box flexDirection="row">
               <text style={{ textColor: "white" }} b>FORK CATEGORY: </text>
               <text style={{ textColor: "yellow" }} b>{forkSourceCategory.toUpperCase()}</text>
             </box>
             <text style={{ textColor: "gray" }} marginTop={1}>
-              {isPipelineFork
+              {isFlowFork
+                ? "Stamp flow to one or more multi-provider bundles (<name>-flow). Names may omit the -flow suffix; comma-separate multiple targets. Flow profiles live in .agent-manager/flow-profiles.json."
+                : isPipelineFork
                 ? "Stamp this pipeline to one or more target pipeline categories. Names may omit the -pipeline suffix; comma-separate multiple targets."
                 : "Copy agents and replace the find pattern in filenames and content. Plain text is one literal replacement; for multiple replacements, enter go-, kimi-, hybrid-, free-. Brackets are optional for backward compatibility."}
             </text>
 
             <box flexDirection="column" borderStyle="single" borderColor={forkFocusedField === "profile" ? "cyan" : "#333333"} paddingLeft={1} paddingRight={1} marginTop={1}>
-              <text style={{ textColor: forkFocusedField === "profile" ? "cyan" : "gray" }} b>Pipeline profile: {forkProfileName || "(keep current models)"}</text>
-              <text style={{ textColor: "gray" }}>{forkProfileName ? loadPipelineProfiles(workspaceRoot).profiles[forkProfileName]?.description || "" : "Use Up/Down while focused to choose a declarative model profile."}</text>
+              <text style={{ textColor: forkFocusedField === "profile" ? "cyan" : "gray" }} b>{isFlowFork ? "Flow" : "Pipeline"} profile: {forkProfileName || "(keep current models)"}</text>
+              <text style={{ textColor: "gray" }}>{forkProfileName ? (isFlowFork ? loadFlowProfiles(workspaceRoot).profiles[forkProfileName]?.description : loadPipelineProfiles(workspaceRoot).profiles[forkProfileName]?.description) || "" : "Use Up/Down while focused to choose a declarative model profile."}</text>
             </box>
             {forkProfileName && !isPipelineFork && <box flexDirection="column" borderStyle="single" borderColor={forkFocusedField === "target" ? "cyan" : "#333333"} paddingLeft={1} paddingRight={1} marginTop={1}>
               <text style={{ textColor: forkFocusedField === "target" ? "cyan" : "gray" }} b>Target category: {forkProfileTarget || `${forkProfileName}-pipeline`}</text>

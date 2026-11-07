@@ -1,6 +1,6 @@
 # Pipeline benchmark
 
-Measures a `*-pipeline-*` agent family on small, offline tasks and compares runs, so changes to prompts,
+Measures a `*-pipeline-*` agent family (or any primary agent, such as `flow-build`) on small, offline tasks and compares runs, so changes to prompts,
 permissions, or models can be judged with numbers instead of impressions.
 
 Each task runs in a throwaway git repository built from `fixtures/` (in the system temp directory, removed
@@ -13,6 +13,7 @@ node bench.mjs run --family hybrid --out results-a.json            # all tasks
 node bench.mjs run --task bug-average-empty --keep                  # keep the workspace for inspection
 node bench.mjs run --dry-run                                        # print the commands, no model call
 node bench.mjs run --config-dir ~/cfg-variant --out results-b.json  # a variant: separate OPENCODE_CONFIG_DIR
+node bench.mjs run --agent flow-build --out results-flow.json       # another primary agent (flow family)
 node bench.mjs compare results-a.json results-b.json                # regressions, improvements, deltas
 ```
 
@@ -23,10 +24,14 @@ node bench.mjs compare results-a.json results-b.json                # regression
 | `bug-average-empty` | bug fix with test-first, tester used |
 | `feature-median` | small feature, hidden tests |
 | `refactor-validate` | behavior preservation and scope |
+| `security-sql-search` | secure by default: user input must travel as a query parameter (hidden injection test) |
+| `frontend-pricing` | UI quality proxies: semantic plan cards, design tokens, responsive rules, focus styles, no generic gradient (judge the screenshots by hand too) |
 | `smoke-missing-env` | verification honesty: the runtime check cannot start (`DATABASE_URL` missing), so the right answer is `UNVERIFIED` and the guard must not be weakened |
 
 Hidden tests (`hidden/<task>/`) are copied in only after the agent finishes, so the agent cannot see them.
-Check types: `command`, `file_changed`, `regex_count`, `text_contains`, `delegated`.
+Check types: `command`, `file_changed`, `regex_count`, `text_contains`, `delegated`. A check with
+`"pipeline_only": true` (for example "the tester was used") describes the pipeline's lanes rather than the
+outcome: it counts as n/a when the agent under test is not a `*-pipeline-*` agent.
 
 ## What a result contains
 

@@ -96,6 +96,31 @@ The V2 config lists each plugin directory by its config-relative path. Do not ad
 
 Emergency switch for the guard: `OPENCODE_PIPELINE_GUARD=off`.
 
+## flow-guard (flow family)
+
+`plugins/flow-guard/index.ts` is the guard for the `flow-*` agents (the Claude Code style v2). It acts only
+on sessions whose agent matches `flow-*` and keeps nothing on disk: no session registry, git snapshots,
+activity log, doom-loop rule or cross-session locks. Allow/ask decisions belong to the agent permissions;
+the guard only stops what must never run. The logic lives in `tools/_flow_guard.js` and reuses the bash
+parser and path checks of `_pipeline_core.js` (`checkBash` with a `gitPolicy` override).
+
+- Blocks writes outside the repository or into `.git`, `sudo`, dangerous env overrides, reading real
+  `.env` files (templates are fine), and any repository write from the read-only agents (all but
+  `flow-build`; `flow-plan` may write `.opencode/plans/*`).
+- Git: branches, switches, stashes, commits with `-m` and normal pushes are allowed (the permissions ask
+  for push). Destructive commands (`push --force/--delete`, `reset --hard`, `clean -f`, `checkout .`,
+  `restore .`, `branch -D`, `stash drop/clear`, history rewriting) and interactive ones (`rebase -i`,
+  `add -p`, `commit` without a message) are blocked, as are custom transports and `config` of hooks,
+  editors, credentials or aliases.
+- Unlike pipeline-guard, it allows redirects such as `2>/dev/null`, `curl`, `tar` and `mktemp` for
+  read-only agents as long as nothing in the repository is written.
+- After an edit it scans the added text (hardcoded secrets, injection sinks, SQL built by interpolation,
+  TLS verification off, debug leftovers, new TODOs) and appends one short `[flow-guard] Check …` note to
+  the tool result. The scan is advisory and fail-open.
+- Stops the service a session started with `pipeline_serve` when that session goes idle.
+
+Emergency switch: `OPENCODE_FLOW_GUARD=off`.
+
 ## What the guard enforces
 
 - `shell.create.before`: `TMPDIR`, `TMP`, `TEMP`, `PIPELINE_SCRATCH` point to a scratch directory
