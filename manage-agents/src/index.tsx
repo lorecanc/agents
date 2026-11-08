@@ -22,7 +22,7 @@ import { AUTO_COMMIT_MESSAGES, isRepositoryLocalPath, repositoryTransaction, par
 import { buildCategoryDistribution, buildAllCategoryDistributions, recoverBuildAllCategoryDistributions, checkCategoryDistribution, loadCategoryManifest, packageCategoryDistributions, parseCategoryArgs, listBundleFiles, pruneGeneratedBundle, extraGeneratedBundleFiles } from "./utils/categoryDistribution.js"
 import { loadUiConfig } from "./utils/uiConfig.js"
 import { loadPipelineProfiles, applyPipelineProfile, syncPipelineProfile, deleteStampedPipeline, resolveProfileRoleSpec, PIPELINE_ROLES, loadStampedPipelineAgents, refreshStampedPipelinesFromSource, checkPipelineBundles, type RefreshStampedPipelinesResult } from "./utils/pipelineProfiles.js"
-import { applyFlowProfile, checkFlowBundles, deleteStampedFlow, FLOW_BASE_CATEGORY, FLOW_ROLES, isStampedFlowCategory, listStampedFlowCategories, loadFlowProfiles, normalizeFlowCategoryName, refreshStampedFlowsFromSource, resolveFlowRoleSpec, syncFlowProfile } from "./utils/flowProfiles.js"
+import { agentRoutingConfigPath, agentRoutingOutputPath, buildAgentRouting, checkAgentRouting, describeAgentRouting, isRoutableArchetype, ROUTABLE_ARCHETYPES, setArchetypeConfig } from "./utils/agentRouting.js"
 import { getCompanionLinksConfigPath } from "./utils/companionLinks.js"
 import { BASH_PROFILES_FILE, checkBashProfiles, syncBashProfiles } from "./utils/bashProfiles.js"
 import { claudeNextSteps } from "./utils/claudeNextSteps.js"
@@ -585,7 +585,8 @@ Options:
   --all, -a               Export all agents
   --yes, -y                  Skip confirmation prompt
   --category, -c <name>   Export only agents from a specific category
-  --profile, -p <name>    Apply a pipeline profile (or a flow profile with --category flow / <x>-flow) before exporting
+  --profile, -p <name>    Apply a pipeline profile before exporting
+                          (agent routing is rebuilt first: see manage-agents routing show)
   --stack, -s <path>      Optional ontology-stack directory to persist in ontology-stack.json
   --help, -h              Show this help
 `)
@@ -594,7 +595,11 @@ Options:
   }
 
   try { refreshStampedPipelinesFromSource(workspaceRoot, category || undefined) } catch {}
-  try { if (!category || isStampedFlowCategory(category)) refreshStampedFlowsFromSource(workspaceRoot, category || undefined) } catch {}
+  try {
+    repositoryMutation(workspaceRoot, [agentRoutingOutputPath(workspaceRoot)], AUTO_COMMIT_MESSAGES.routing, () => buildAgentRouting(workspaceRoot))
+  } catch (error: any) {
+    console.error(`Agent routing not rebuilt: ${error?.message || error}`)
+  }
 
   const sourceSubdir = resolveSourceSubdir(workspaceRoot)
   let agentsToExport: ReturnType<typeof findAgentFiles>
@@ -604,17 +609,6 @@ Options:
       applyPipelineProfile(workspaceRoot, profile, "pipeline")
     )
     agentsToExport = findAgentFiles(workspaceRoot, sourceSubdir).filter(agent => agent.category === "pipeline")
-  } else if (profile && (category === FLOW_BASE_CATEGORY || isStampedFlowCategory(category))) {
-    const synced = repositoryMutation(workspaceRoot, [path.join(workspaceRoot, sourceSubdir, "agents"), path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot)), getCompanionLinksConfigPath(workspaceRoot)], AUTO_COMMIT_MESSAGES.flow, () =>
-      category === FLOW_BASE_CATEGORY ? syncFlowProfile(workspaceRoot, profile, FLOW_BASE_CATEGORY) : syncFlowProfile(workspaceRoot, profile, category)
-    )
-    if (synced.targetCategory === FLOW_BASE_CATEGORY) agentsToExport = findAgentFiles(workspaceRoot, sourceSubdir).filter(agent => agent.category === FLOW_BASE_CATEGORY)
-    else {
-      const stamped = loadStampedPipelineAgents(workspaceRoot, synced.targetCategory)
-      if (!stamped) throw new Error(`No stamped agents found for category '${synced.targetCategory}'.`)
-      agentsToExport = stamped.agents
-      resourceSourceRoot = stamped.resourceRoot
-    }
   } else if (profile) {
     const synced = repositoryMutation(workspaceRoot, [path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot)), getCompanionLinksConfigPath(workspaceRoot)], "pipeline", () =>
       syncPipelineProfile(workspaceRoot, profile, category || undefined)
@@ -630,7 +624,7 @@ Options:
       const categoriesRoot = path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot))
       if (fs.existsSync(categoriesRoot)) {
         for (const entry of fs.readdirSync(categoriesRoot, { withFileTypes: true })) {
-          if (!entry.isDirectory() || !(entry.name.endsWith("-pipeline") || isStampedFlowCategory(entry.name))) continue
+          if (!entry.isDirectory() || !entry.name.endsWith("-pipeline")) continue
           const stamped = loadStampedPipelineAgents(workspaceRoot, entry.name)
           if (stamped) agentsToExport.push(...stamped.agents)
         }
@@ -1075,66 +1069,47 @@ async function runPipelineCLI(workspaceRoot: string) {
   console.log(`Synced profile '${profileName}' to category '${result.targetCategory}': ${result.synced.length} agents at ${result.outputDir}.`)
 }
 
-// Flow profiles are independent of the pipeline ones: own config (.agent-manager/flow-profiles.json),
-// own stamped bundles (export/categories/<profile>-flow).
-function runFlowCLI(workspaceRoot: string) {
-  const [action, name, ...options] = process.argv.slice(3)
-  if (!action || action === "--help" || action === "-h") {
-    console.log("Usage: manage-agents flow list|show <profile>|apply <profile> [--category flow|<x>-flow]|sync <profile> [--target <x>]|refresh [--target <x>-flow]|delete <x>-flow [--also-installed]")
-    return
+// Model configurations for archetypes (see ARCHETIPI.md): when the reference agent (flow-build) runs
+// on a provider or model, which models its subagents use. The TUI edits them with M on the archetype
+// folder; this CLI is the scriptable twin. Stored in .agent-manager/agent-routing.json, resolved into
+// <source>/plugins/agent-router/routing.json for the runtime plugin.
+function runRoutingCLI(workspaceRoot: string) {
+  const [action, ...rest] = process.argv.slice(3)
+  const usage = `Usage: manage-agents routing show|build|check
+       manage-agents routing set <archetype> <provider|provider/model> [<role>=<provider/model#variant|inherit> ...]
+       manage-agents routing unset <archetype> <provider|provider/model>
+Archetypes: ${ROUTABLE_ARCHETYPES.join(", ")}. Missing roles inherit the reference's model. Stored in ${path.relative(workspaceRoot, agentRoutingConfigPath(workspaceRoot))}.`
+  if (!action || action === "--help" || action === "-h") { console.log(usage); return }
+  const output = agentRoutingOutputPath(workspaceRoot)
+  const build = () => {
+    const result = repositoryMutation(workspaceRoot, [output], AUTO_COMMIT_MESSAGES.routing, () => buildAgentRouting(workspaceRoot))
+    for (const warning of result.warnings) console.warn(`warning: ${warning}`)
+    const relative = path.relative(workspaceRoot, result.path)
+    console.log(!result.configured ? "No model configurations: nothing to build." : result.changed ? `Wrote ${relative}. Run \`category build --all\` and \`export\` to ship it.` : `${relative} is current.`)
   }
-  const categoriesDir = path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot))
-  const targetOf = (args: string[]) => {
-    for (let i = 0; i < args.length; i++) if ((args[i] === "--target" || args[i] === "-t" || args[i] === "--category") && args[i + 1]) return args[i + 1]
-    return ""
+  const simple: Record<string, () => void> = {
+    show: () => console.log(describeAgentRouting(workspaceRoot).join("\n")),
+    build,
+    check: () => {
+      const { problems, warnings } = checkAgentRouting(workspaceRoot)
+      for (const warning of warnings) console.warn(`warning: ${warning}`)
+      if (problems.length) { console.log(problems.join("\n")); process.exitCode = 1 } else console.log("Agent routing is current.")
+    },
   }
-  if (action === "list") {
-    for (const [profileName, profile] of Object.entries(loadFlowProfiles(workspaceRoot).profiles)) console.log(`${profileName}: ${profile.description}`)
-    const stamped = listStampedFlowCategories(workspaceRoot)
-    console.log(`Stamped bundles: ${stamped.length ? stamped.join(", ") : "none"}`)
-    return
+  if (simple[action]) { simple[action](); return }
+  if (action !== "set" && action !== "unset") throw new Error(`Unknown routing action '${action}'\n${usage}`)
+  const [archetype, trigger, ...assignments] = rest
+  if (!archetype || !trigger || (action === "unset" && assignments.length)) throw new Error(usage)
+  const roles: Record<string, string> = {}
+  for (const assignment of assignments) {
+    const [role, model] = assignment.split("=", 2)
+    if (!role || !model) throw new Error(`Expected <role>=<model>, got '${assignment}'\n${usage}`)
+    roles[role] = model
   }
-  if (action === "refresh") {
-    const target = targetOf([name, ...options].filter(Boolean))
-    const result = repositoryMutation(workspaceRoot, [categoriesDir], AUTO_COMMIT_MESSAGES.flow, () => {
-      const refreshed = refreshStampedFlowsFromSource(workspaceRoot, target || undefined)
-      for (const [id, files] of Object.entries(refreshed.expected)) pruneGeneratedBundle(path.join(categoriesDir, id), files)
-      return refreshed
-    })
-    console.log(`Refreshed ${result.refreshedCategories.length} stamped flow(s): ${result.updatedAgents.length} agent file(s), ${result.updatedCompanions.length} companion file(s) updated.`)
-    return
-  }
-  if (!["show", "apply", "sync", "delete"].includes(action)) throw new Error(`Unknown flow action '${action}'`)
-  if (!name || name.startsWith("-")) throw new Error(`flow ${action} requires a name`)
-  if (action === "delete") {
-    const alsoInstalled = options.includes("--also-installed")
-    const target = normalizeFlowCategoryName(name)
-    const result = repositoryMutation(workspaceRoot, [path.join(categoriesDir, target), getCompanionLinksConfigPath(workspaceRoot)], AUTO_COMMIT_MESSAGES.flow, () =>
-      deleteStampedFlow(workspaceRoot, name, { alsoInstalled }))
-    console.log(`Deleted '${result.deletedCategory}': removed ${result.removedAgentsCount} agents from ${result.outputDir}.`)
-    if (alsoInstalled) console.log(`Removed ${result.removedInstalledAgents.length} installed agents and ${result.removedInstalledCommands.length} installed commands.`)
-    return
-  }
-  const profile = loadFlowProfiles(workspaceRoot).profiles[name]
-  if (!profile) throw new Error(`Unknown flow profile '${name}'`)
-  if (action === "show") {
-    console.log(`${name}: ${profile.description}`)
-    for (const role of FLOW_ROLES) {
-      const spec = resolveFlowRoleSpec(profile, role)
-      console.log(`  ${role}: ${spec ? `${spec.model}${spec.variant ? `#${spec.variant}` : ""}` : "(not set: OpenCode default)"}`)
-    }
-    return
-  }
-  const target = targetOf(options)
-  if (action === "apply") {
-    const result = repositoryMutation(workspaceRoot, [path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot), "agents"), categoriesDir], AUTO_COMMIT_MESSAGES.flow, () =>
-      applyFlowProfile(workspaceRoot, name, target || FLOW_BASE_CATEGORY))
-    console.log(`Applied flow profile '${name}' to '${result.targetCategory}': updated ${result.updated.length} agent files.`)
-    return
-  }
-  const result = repositoryMutation(workspaceRoot, [path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot), "agents"), categoriesDir, getCompanionLinksConfigPath(workspaceRoot)], AUTO_COMMIT_MESSAGES.flow, () =>
-    syncFlowProfile(workspaceRoot, name, target || undefined))
-  console.log(`Synced flow profile '${name}' to '${result.targetCategory}': ${result.synced.length} agents at ${result.outputDir}.`)
+  repositoryMutation(workspaceRoot, [agentRoutingConfigPath(workspaceRoot), output], AUTO_COMMIT_MESSAGES.routing, () =>
+    setArchetypeConfig(workspaceRoot, archetype, trigger, action === "unset" ? null : roles))
+  console.log(`${action === "set" ? "Saved" : "Removed"} configuration ${archetype} / ${trigger}.`)
+  console.log(describeAgentRouting(workspaceRoot).join("\n"))
 }
 
 const SHARED_SYNC_COMPONENTS: SharedComponentId[] = ["agentManager", "pipelineCore"]
@@ -1375,10 +1350,7 @@ async function runCategory(workspaceRoot: string) {
       ? fs.readdirSync(categoriesRoot, { withFileTypes: true }).filter(entry => entry.isDirectory() && entry.name.endsWith("-pipeline")).map(entry => entry.name)
       : []
     : ids.filter(isPipelineId)
-  // Stamped `<profile>-flow` bundles are flow's own multi-provider copies (no manifest), handled like the
-  // stamped pipelines but by flowProfiles. The canonical `flow` category itself is a manifest.
-  const flowIds = all ? listStampedFlowCategories(repoRoot) : ids.filter(isStampedFlowCategory)
-  const manifestIds = ids.filter(id => !isPipelineId(id) && !isStampedFlowCategory(id))
+  const manifestIds = ids.filter(id => !isPipelineId(id))
   // `check`/`status` are read-only: run the refresh renderer against a throwaway
   // copy of the bundle so drift can be reported without persisting it.
   const previewStampedPipelines = (category?: string): RefreshStampedPipelinesResult => {
@@ -1448,28 +1420,17 @@ async function runCategory(workspaceRoot: string) {
       if (extras.length > 0) pipelineExtras.push({ category: id, files: extras })
     }
   }
-  const flowExtras: Array<{ category: string; files: string[] }> = []
-  if (flowIds.length > 0 && parsed.action === "build") {
-    repositoryMutation(repoRoot, [categoriesRoot, getCompanionLinksConfigPath(repoRoot)], AUTO_COMMIT_MESSAGES.flow, () => {
-      for (const id of flowIds) {
-        const refreshed = refreshStampedFlowsFromSource(repoRoot, id)
-        for (const [category, files] of Object.entries(refreshed.expected)) pruneGeneratedBundle(path.join(categoriesRoot, category), files)
-      }
-    })
-  } else if (flowIds.length > 0 && (parsed.action === "check" || parsed.action === "status")) {
-    for (const id of flowIds) for (const [category, files] of Object.entries(refreshStampedFlowsFromSource(repoRoot, id, { dryRun: true }).expected)) {
-      const extras = extraGeneratedBundleFiles(path.join(categoriesRoot, category), files)
-      if (extras.length > 0) flowExtras.push({ category, files: extras })
-    }
-  }
-  const flowChecks = flowIds.length > 0 ? checkFlowBundles(repoRoot, flowIds) : []
+  // routing.json lives in the canonical plugin directory, so it is rebuilt before the manifests copy it.
+  const routingInScope = all || ids.some(isRoutableArchetype)
+  if (routingInScope && parsed.action === "build") repositoryMutation(repoRoot, [agentRoutingOutputPath(repoRoot)], AUTO_COMMIT_MESSAGES.routing, () => buildAgentRouting(repoRoot))
+  const routingCheck = routingInScope && (parsed.action === "check" || parsed.action === "status") ? checkAgentRouting(repoRoot) : { problems: [], warnings: [] }
   const results = parsed.action === "build" && all
     ? buildAllCategoryDistributions(repoRoot)
     : manifestIds.map(id => parsed.action === "check" || parsed.action === "status" ? checkCategoryDistribution(repoRoot, id) : repositoryMutation(repoRoot, [path.join(repoRoot, resolveCategoriesSubdir(repoRoot), id)], `chore(agent-manager): build ${id} category`, () => buildCategoryDistribution(repoRoot, id)))
   const resultIds = parsed.action === "build" && all ? ids : manifestIds
   const pipelineChecks = all || pipelineIds.length > 0 ? checkPipelineBundles(repoRoot, all ? undefined : pipelineIds) : []
   const pipelineDriftFiles = pipelineDrifts.flatMap(drift => [...drift.updatedAgents, ...drift.updatedCompanions]).sort()
-  if (parsed.json) console.log(JSON.stringify(pipelineChecks.length || pipelineDriftFiles.length || pipelineExtras.length || flowChecks.length ? { categories: results, pipelines: pipelineChecks, ...(pipelineDriftFiles.length ? { pipelineDrift: pipelineDrifts } : {}), ...(pipelineExtras.length ? { pipelineExtras } : {}), ...(flowChecks.length ? { flows: flowChecks } : {}), ...(flowExtras.length ? { flowExtras } : {}) } : results))
+  if (parsed.json) console.log(JSON.stringify(pipelineChecks.length || pipelineDriftFiles.length || pipelineExtras.length || routingCheck.problems.length ? { categories: results, pipelines: pipelineChecks, ...(pipelineDriftFiles.length ? { pipelineDrift: pipelineDrifts } : {}), ...(pipelineExtras.length ? { pipelineExtras } : {}), ...(routingCheck.problems.length ? { routing: routingCheck } : {}) } : results))
   else {
     results.forEach((result, index) => console.log(result.status === "current" ? `Category ${resultIds[index]} is current.` : `Category ${resultIds[index]} is stale.\nMissing: ${result.missing.join(", ") || "none"}\nChanged: ${result.changed.join(", ") || "none"}\nExtra: ${result.extra.join(", ") || "none"}`))
     for (const check of pipelineChecks) {
@@ -1477,8 +1438,8 @@ async function runCategory(workspaceRoot: string) {
       else if (check.problems.length === 0) console.log(`Pipeline ${check.category} ships its OpenCode tools and plugin.`)
       else console.log(`Pipeline ${check.category} is incomplete:\n${check.problems.map(problem => `  - [${problem.kind}] ${problem.detail}`).join("\n")}`)
     }
-    for (const check of flowChecks) console.log(check.problems.length === 0 ? `Flow ${check.category} is current and ships its guard and tools.` : `Flow ${check.category} needs attention:\n${check.problems.map(problem => `  - ${problem}`).join("\n")}`)
-    for (const extra of flowExtras) console.log(`Flow ${extra.category} has extra generated files (run \`category build --all\` to remove them):\n${extra.files.map(file => `  - ${file}`).join("\n")}`)
+    for (const problem of routingCheck.problems) console.log(`Agent routing: ${problem}`)
+    for (const warning of routingCheck.warnings) console.log(`Agent routing warning: ${warning}`)
     for (const extra of pipelineExtras) console.log(`Pipeline ${extra.category} has extra generated files (run \`category build --all\` to remove them):\n${extra.files.map(file => `  - ${file}`).join("\n")}`)
     for (const drift of pipelineDrifts) {
       const outOfDate = drift.updatedAgents.length + drift.updatedCompanions.length
@@ -1490,8 +1451,7 @@ async function runCategory(workspaceRoot: string) {
     : []
   if (!parsed.json) for (const drift of bashDrifts) console.log(`Bash allowlist drift in ${drift.file} (role ${drift.role}, ${drift.problem}); fix with \`pipeline sync-bash\` then \`category build --all\`:\n${drift.diff.map(line => `    ${line}`).join("\n")}`)
   else if (bashDrifts.length) console.log(JSON.stringify({ bashDrifts }))
-  const pipelineFailed = pipelineChecks.some(check => check.problems.length > 0) || pipelineDriftFiles.length > 0 || pipelineExtras.length > 0 || bashDrifts.length > 0
-    || flowChecks.some(check => check.problems.length > 0) || flowExtras.length > 0
+  const pipelineFailed = pipelineChecks.some(check => check.problems.length > 0) || pipelineDriftFiles.length > 0 || pipelineExtras.length > 0 || bashDrifts.length > 0 || routingCheck.problems.length > 0
   if ((parsed.action === "check" || parsed.action === "status") && (results.some(result => result.status !== "current") || pipelineFailed)) process.exitCode = 1
   if (parsed.action === "build" && pipelineFailed) process.exitCode = 1
 }
@@ -1519,7 +1479,7 @@ async function run() {
   // Intercept CLI commands
   if (process.argv[2] === "--help" || process.argv[2] === "-h") {
     console.log("Usage: manage-agents <command> [options]")
-    console.log("Commands: create, bridge, export, lint, fix-names, audit, import, tune, pipeline, flow, category, sync")
+    console.log("Commands: create, bridge, export, lint, fix-names, audit, import, tune, pipeline, routing, category, sync")
     return
   }
 
@@ -1574,8 +1534,8 @@ async function run() {
     return
   }
 
-  if (process.argv[2] === "flow") {
-    runFlowCLI(workspaceRoot)
+  if (process.argv[2] === "routing") {
+    runRoutingCLI(workspaceRoot)
     return
   }
 

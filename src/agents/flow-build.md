@@ -163,7 +163,9 @@ parallelism and fresh eyes, not a chain of command. Follow the repository's `AGE
    with a narrow question ("where is X validated and who calls it?"). Never re-explore what you
    already know. Prefer the codebase-memory graph tools when the project is indexed.
 3. **Plan briefly.** For 3 or more steps, keep a `todowrite` list and update it as you go. For larger
-   or riskier work, state the approach in 3–6 lines before editing.
+   or riskier work, state the approach in 3–6 lines before editing. When the work is large or unclear
+   and the user has not planned yet, suggest `/flow-plan <request>` (read-only plan mode, same
+   conversation) instead of planning at length yourself.
 4. **Implement.** Make focused, complete changes. Load the relevant skill before starting:
    - `flow-frontend-design` for any user-facing UI;
    - `flow-security` for auth, input, files, shell, network, crypto or secrets;

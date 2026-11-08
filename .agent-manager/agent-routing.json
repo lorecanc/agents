@@ -1,0 +1,29 @@
+{
+  "version": 2,
+  "$comment": "Model configurations per archetype, owned by manage-agents (TUI: M on the archetype folder; CLI: `manage-agents routing`). configs.<trigger>: trigger = the provider (\"mistral\") or exact model (\"mistral/zai-glm-5-3\") the reference agent runs on, the exact model wins; value = { <role>: \"provider/model#variant\" | \"inherit\" }, a missing role inherits. See ARCHETIPI.md.",
+  "archetypes": {
+    "flow": {
+      "configs": {
+        "mistral": {
+          "explore": "mistral/deepseek-v4-1-flash-1017#high",
+          "eye": "mistral/zai-glm-5-3-flash#high",
+          "ops": "mistral/deepseek-v4-1-flash-1017#high",
+          "research": "mistral/deepseek-v4-1-flash-1017#high",
+          "review": "mistral/deepseek-v4-1-flash-1017#high"
+        },
+        "opencode": {
+          "explore": "opencode/muse-spark-1.3-contributor-free#high",
+          "ops": "opencode/muse-spark-1.3-contributor-free#high",
+          "research": "opencode/muse-spark-1.3-contributor-free#high",
+          "review": "opencode/muse-spark-1.3-contributor-free#high"
+        },
+        "opencode-go": {
+          "explore": "opencode-go/deepseek-v4.1-flash#high",
+          "ops": "opencode-go/deepseek-v4.1-flash#high",
+          "research": "opencode-go/deepseek-v4.1-flash#high",
+          "review": "opencode-go/deepseek-v4.1-flash#high"
+        }
+      }
+    }
+  }
+}

@@ -17,6 +17,7 @@ This portable package is an inventory-driven projection of the canonical OpenCod
 - `src/agents/flow-eye.md` → `agents/flow-eye.md`
 - `src/agents/flow-ops.md` → `agents/flow-ops.md`
 - `src/commands/flow-feature.md` → `commands/flow-feature.md`
+- `src/commands/flow-plan.md` → `commands/flow-plan.md`
 - `src/commands/flow-bug.md` → `commands/flow-bug.md`
 - `src/commands/flow-design.md` → `commands/flow-design.md`
 - `src/commands/flow-review.md` → `commands/flow-review.md`
@@ -37,9 +38,11 @@ This portable package is an inventory-driven projection of the canonical OpenCod
 - `src/skills/chrome-devtools-debug-optimize-lcp` → `skills/chrome-devtools-debug-optimize-lcp`
 - `src/skills/chrome-devtools-memory-leak-debugging` → `skills/chrome-devtools-memory-leak-debugging`
 - `src/skills/chrome-devtools-troubleshooting` → `skills/chrome-devtools-troubleshooting`
+- `src/plugins/agent-router` → `plugins/agent-router`
 - `src/plugins/flow-guard` → `plugins/flow-guard`
 - `src/plugins/pipeline-tools` → `plugins/pipeline-tools`
 - `src/tools/_tool.ts` → `tools/_tool.ts`
+- `src/tools/_agent_router.js` → `tools/_agent_router.js`
 - `src/tools/_flow_guard.js` → `tools/_flow_guard.js`
 - `src/tools/_pipeline_core.js` → `tools/_pipeline_core.js`
 - `src/tools/_pipeline_run.js` → `tools/_pipeline_run.js`

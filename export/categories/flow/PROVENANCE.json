@@ -2,9 +2,9 @@
   "schemaVersion": 2,
   "distributionVersion": "1.0.0",
   "category": "flow",
-  "manifestHash": "fb4cbb31f12543659f6fefe79e93aa96203c1139731c3cba094dea650147df9e",
+  "manifestHash": "f0e261374bde833d220cbf6bcd5489b52eaeddf983d306e64bd92ebf5ac96de0",
   "generatorVersion": "2.0.0",
-  "bundleDigest": "692c7b3f441b3e2e1dd2c45bb7cab85f0f70d8b8cf5ef11110057966339e8fc2",
+  "bundleDigest": "6b9b22eae0600b7063543b3ec60f0e7116297626d4c0fc60e31bc88b0d8b4343",
   "entries": [
     {
       "target": "AGENTS.md",
@@ -16,11 +16,11 @@
     },
     {
       "target": "README.md",
-      "hash": "7d195c459125cfc7a032b3baa43f7f056e06cf466b504f198ce131e3756a5798"
+      "hash": "693902277a1b72e855b284196f5271f6b98ea14b6b0d0f64e7215857f2224d5d"
     },
     {
       "target": "agents/flow-build.md",
-      "hash": "cc209026a935a14bb3bc325abd48e4c71d763828f96f4a7d8a3b82a4ec04d938"
+      "hash": "8804ca6ddd731fa06da231039d08d0a8a1e097e3c0c2536c84cf5f106c19c5fa"
     },
     {
       "target": "agents/flow-explore.md",
@@ -28,7 +28,7 @@
     },
     {
       "target": "agents/flow-eye.md",
-      "hash": "06fe66341042701e0c8f22ef19db5575d7cbbf9384edbffcd1c2fb11825c1563"
+      "hash": "2b35e7c1eec410006a827cc1fd08d174f8b91776eac8b266b18f2298e7cfc77e"
     },
     {
       "target": "agents/flow-ops.md",
@@ -36,7 +36,7 @@
     },
     {
       "target": "agents/flow-plan.md",
-      "hash": "76740cb8938f620e6d91f09c964e8c0d0c7d14f34d3958b9b69e4930f074af7f"
+      "hash": "35096ab23bf6d5a73435dc8739aac3d7250d7e7ec280432ffe8f70935c1e4f20"
     },
     {
       "target": "agents/flow-research.md",
@@ -67,6 +67,10 @@
       "hash": "7c09e0055304f4d78769df6ccc86ef71a81112015f0612cbd16eaad4c11884ae"
     },
     {
+      "target": "commands/flow-plan.md",
+      "hash": "5063f79f79c5b1bb5ae9c4ad8f4a161628ee47e970ea5476fe426ecfebb7b45e"
+    },
+    {
       "target": "commands/flow-review.md",
       "hash": "510b5154b7738d391114cf93e3732cf4a4816b88f310b8b0542cd2fd12bd5ce8"
     },
@@ -76,7 +80,15 @@
     },
     {
       "target": "opencode.json",
-      "hash": "5669537355c4dbec8d516856b910cf52bdc78824bb4be16e7b822e42d38bda6b"
+      "hash": "d3cbf92a7c0fb9a7aafa3c8a5db19be74258653ec96d85627569d93565c00f60"
+    },
+    {
+      "target": "plugins/agent-router/index.ts",
+      "hash": "e47413948a5c0c4e66bdc22c689dfe86aecd21149f1d984f29d48f30baa0231e"
+    },
+    {
+      "target": "plugins/agent-router/routing.json",
+      "hash": "64b176844a1460936943fd6dff340b080c8e325db1c56c4d7f9545e83967ff52"
     },
     {
       "target": "plugins/flow-guard/index.ts",
@@ -245,6 +257,10 @@
     {
       "target": "skills/flow-visual-loop/SKILL.md",
       "hash": "6885382b02bd2a6d23f2c1f1864e0c2bc76f922d33bbee15fff1a0453991a4f3"
+    },
+    {
+      "target": "tools/_agent_router.js",
+      "hash": "8815e9f640a203848178b5a8e6a00fb523a233cc7516d08524b9a39199cbccb1"
     },
     {
       "target": "tools/_flow_guard.js",

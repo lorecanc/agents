@@ -375,7 +375,7 @@ Avvia la TUI con `npm start` da `manage-agents/`, con `npm start --prefix manage
 
 | Tasto | Azione |
 |---|---|
-| `m` | Sceglie un modello dal catalogo verificato. Agisce sull’agente attivo o sugli agenti selezionati. Se il catalogo non è disponibile, `m` mostra una finestra con il risultato; premi `y` in quella finestra per riprovare il refresh. Il selettore dei modelli si apre solo quando il catalogo è disponibile. |
+| `m` | Sceglie un modello dal catalogo verificato. Agisce sull’agente attivo o sugli agenti selezionati. Se il catalogo non è disponibile, `m` mostra una finestra con il risultato; premi `y` in quella finestra per riprovare il refresh. Il selettore dei modelli si apre solo quando il catalogo è disponibile; scrivendo si filtra la lista (ogni parola deve comparire in `provider/modello`), `Esc` svuota la ricerca, `Ctrl+R` ricarica il catalogo. Su una cartella di archetipo (`flow`) `m` apre le configurazioni modelli. |
 | `v` | Avvia la riparazione dei modelli non validi, se ce ne sono. Scegli una sostituzione per ogni gruppo e conferma per applicare. |
 | `Shift-T` | Assegna un tier di traduzione ai ruoli degli agenti selezionati o attivi. I ruoli sono condivisi nella configurazione: controlla l’avviso sugli altri agenti che possono essere coinvolti prima di confermare. |
 | `t` | Apre Parameter Tuning per l’agente o la selezione: `steps`, `temperature`, `mode` (`subagent`/`primary`), stato `hidden` e Thinking / Effort (`variant`). `Tab`/frecce cambiano campo; `Space` commuta mode/hidden. Nel campo `variant`, `Space` o `←`/`→` scorre i variant standard OpenCode (`none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`) e unset/default. Puoi digitare un nome personalizzato, per esempio `thinking`, e usare `Backspace` per cancellare il valore. Steps non negativi; la temperatura è accettata ma inerte in OpenCode 2.2.5, quindi per il comportamento usa il variant, definito sul modello. |
@@ -522,19 +522,21 @@ Questa sezione è il riferimento operativo per passare il lavoro sulla pipeline 
 - `src/` contiene le sorgenti canoniche della pipeline e dei relativi plugin, strumenti e comandi. `.agent-manager/` contiene configurazione e metadati di distribuzione; `export/` contiene gli output generati. Modifica le sorgenti e la configurazione necessaria, non correggere a mano gli output.
 - La categoria canonica `pipeline` vive **solo** in `src/agents/pipeline-*.md`. Non deve mai esistere `export/categories/pipeline/`: i bundle pipeline sono i profili timbrati `export/categories/*-pipeline` (per esempio `go-pipeline` o `hybrid-pipeline`).
 
-### Profili multi-provider di Flow (`*-flow`)
+### Configurazioni modelli degli archetipi (Flow)
 
-Flow e pipeline sono famiglie separate, ognuna con i propri profili. I profili di Flow vivono in `.agent-manager/flow-profiles.json` e assegnano un modello (`model` + `variant`) per gruppo di ruoli: `main` (build, plan), `review`, `fast` (explore, research, ops) e `vision` (eye, serve un modello con input immagini). `defaults.all` copre i gruppi non assegnati, `roles.<ruolo>` sovrascrive un singolo agente.
+Flow si installa una volta sola con i suoi agenti canonici `flow-*`. Il plugin `agent-router` decide i modelli dei subagent in base al modello su cui gira l'agente di riferimento (`flow-build`). La guida completa, comprese le regole per gli agenti, è in [`ARCHETIPI.md`](../ARCHETIPI.md).
+
+- **Nel TUI**: cursore sulla cartella `flow`, poi `M`, apre le configurazioni. Ognuna dice: se `flow-build` gira su un provider (qualsiasi modello) o su un modello esatto (vince sul provider), questi subagent usano questi modelli. Gli agenti non impostati ereditano. L'editor funziona come la lista agenti (`Space`/`a` selezionano, `m` sceglie il modello per la selezione, `Tab` la variante, `Backspace` torna a "eredita") e ogni modifica si salva subito; poi `E` sulla cartella installa.
+- **Piano**: `flow-build` è l'unico agente primario visibile. `/flow-plan <richiesta>` porta la stessa conversazione in plan mode (sola lettura) e Tab torna a `flow-build`.
+- **Agenti fissi**: `M` su un singolo subagent gli dà un modello fisso, che le configurazioni saltano (per esempio `flow-eye` sul modello vision). `M` su `flow-build` imposta il modello con cui parte.
+- **File**: `.agent-manager/agent-routing.json` è l'archivio scritto dal TUI. `src/plugins/agent-router/routing.json` è generato: non va modificato a mano, e `category check --all` segnala se è vecchio.
 
 | Obiettivo | Comando |
 |---|---|
-| Vedere profili e bundle | `node manage-agents/manage-agents.mjs flow list` / `flow show hybrid` |
-| Creare o aggiornare `hybrid-flow` | `node manage-agents/manage-agents.mjs flow sync hybrid` (oppure `--target lab` per `lab-flow`) |
-| Applicare un profilo agli agenti canonici `flow-*` | `node manage-agents/manage-agents.mjs flow apply hybrid` |
-| Rigenerare i bundle dopo modifiche in `src/` | `category build --all` (oppure `flow refresh`) |
-| Eliminare un bundle | `node manage-agents/manage-agents.mjs flow delete hybrid-flow [--also-installed]` |
-
-Ogni bundle `export/categories/<profilo>-flow` contiene agenti `<profilo>-flow-*`, comandi `/<profilo>-flow-*`, le skill `flow-*`, i plugin `flow-guard` e `pipeline-tools` e i tool necessari; i riferimenti tra agenti e comandi sono riscritti, le skill restano condivise. Le modifiche di modello fatte sul bundle (TUI o `tune --category hybrid-flow`) sopravvivono ai refresh. Nella TUI, `f` su una cartella `flow` o `*-flow` apre lo stamping con i profili Flow e `D` elimina un `*-flow`.
+| Vedere tutte le configurazioni | `node manage-agents/manage-agents.mjs routing show` |
+| Salvare una configurazione | `… routing set flow mistral explore=mistral/deepseek-v4-1-flash-1017#high review=…` |
+| Eliminarla | `… routing unset flow mistral` |
+| Rigenerare o verificare | `routing build` / `routing check` |
 
 ### Manifest V2 e profili `*-pipeline`
 

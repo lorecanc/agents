@@ -11,6 +11,7 @@
     }
   },
   "plugins": [
+    "./plugins/agent-router",
     "./plugins/flow-guard",
     "./plugins/pipeline-tools"
   ]

@@ -45,7 +45,7 @@ import {
 import { loadModelCatalog, suggestModels, collectInvalidModelGroups, modelDisplayValue, getModelVariants, type ModelCatalog } from "./utils/models.js"
 import { discoverAvailableCategoryCompanionItems, getCompanionLinksConfigPath, type SelectableCompanionItem, updateCategoryCompanionLinks } from "./utils/companionLinks.js"
 import { applyPipelineProfile, loadPipelineProfiles, syncPipelineProfile, loadStampedPipelineAgents, deleteStampedPipeline, refreshStampedPipelinesFromSource, forkStampedPipeline } from "./utils/pipelineProfiles.js"
-import { deleteStampedFlow, FLOW_BASE_CATEGORY, forkStampedFlow, isStampedFlowCategory, loadFlowProfiles, refreshStampedFlowsFromSource } from "./utils/flowProfiles.js"
+import { agentRoutingConfigPath, agentRoutingOutputPath, buildAgentRouting, describeArchetype, INHERIT, isRoutableArchetype, setArchetypeConfig, type ArchetypeAgent, type RoleModels } from "./utils/agentRouting.js"
 import { buildCategoryDistribution } from "./utils/categoryDistribution.js"
 import { bridgeToClaudeCode } from "./utils/bridge.js"
 import { bridgeToCodex } from "./utils/codexBridge.js"
@@ -85,6 +85,8 @@ type ViewMode =
   | "import-diff"
   | "layout"
   | "delete-confirm"
+  | "routing-configs"
+  | "routing-editor"
 
 interface ActiveItem {
   type: "file" | "folder"
@@ -217,6 +219,19 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
   const [tierScrollOffset, setTierScrollOffset] = useState(0)
 
   const [expandedProviders, setExpandedProviders] = useState<Set<string>>(new Set())
+  // Typing in the model selector filters the catalog (every word must match "provider/model").
+  const [modelFilter, setModelFilter] = useState("")
+  // Model configurations of an archetype (M on its folder): list -> editor -> model selector.
+  const [routingArchetype, setRoutingArchetype] = useState<string | null>(null)
+  const [routingFocus, setRoutingFocus] = useState(0)
+  const [routingEditorFocus, setRoutingEditorFocus] = useState(0)
+  const [routingDraft, setRoutingDraft] = useState<{ previousTrigger?: string; trigger: string; roles: RoleModels } | null>(null)
+  type RoutingPick = { kind: "trigger" } | { kind: "roles"; roles: string[] }
+  const [routingPick, setRoutingPick] = useState<RoutingPick | null>(null)
+  const [routingSelected, setRoutingSelected] = useState<Set<string>>(new Set())
+  const [routingConfirmDelete, setRoutingConfirmDelete] = useState(false)
+  const [routingStatus, setRoutingStatus] = useState("")
+  const [routingRevision, setRoutingRevision] = useState(0)
 
   const [actionResultTitle, setRawActionResultTitle] = useState("")
   const [actionResultLines, setRawActionResultLines] = useState<string[]>([])
@@ -450,13 +465,14 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
 
   const refreshData = () => {
     try { refreshStampedPipelinesFromSource(workspaceRoot) } catch {}
-    try { refreshStampedFlowsFromSource(workspaceRoot) } catch {}
+    // A model set or cleared on a canonical archetype subagent pins or unpins it in the router.
+    try { buildAgentRouting(workspaceRoot) } catch {}
     const list = findAgentFiles(workspaceRoot)
     const canonicalPaths = new Set(list.map(agent => agent.currentPath))
     const categoriesDir = path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot))
     if (fs.existsSync(categoriesDir)) {
       for (const entry of fs.readdirSync(categoriesDir, { withFileTypes: true })) {
-        if (!entry.isDirectory() || !(entry.name.endsWith("-pipeline") || isStampedFlowCategory(entry.name))) continue
+        if (!entry.isDirectory() || !entry.name.endsWith("-pipeline")) continue
         const stamped = loadStampedPipelineAgents(workspaceRoot, entry.name)
         if (stamped) list.push(...stamped.agents.filter(agent => !canonicalPaths.has(agent.currentPath)))
       }
@@ -742,8 +758,10 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
 
   // Group models by provider and build tree items
   const modelTreeItems = useMemo<ModelTreeItem[]>(() => {
+    const words = modelFilter.toLowerCase().split(/\s+/).filter(Boolean)
+    const matches = (value: string) => words.every(word => value.toLowerCase().includes(word))
     const providers: Record<string, string[]> = {}
-    models.forEach(model => {
+    models.filter(matches).forEach(model => {
       const parts = model.split("/")
       const provider = parts.length > 1 ? parts[0] : "other"
       if (!providers[provider]) {
@@ -756,10 +774,13 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
     if (viewMode === "repair-selector" && repairGroupKey !== null) {
       const group = invalidModelGroups[Number(repairGroupKey)]
       const suggestions = group ? suggestModels(group.value, modelCatalog) : []
-      suggestions.forEach(model => items.push({ type: "model", id: model, label: `★ ${model}`, provider: "suggestions" }))
+      suggestions.filter(matches).forEach(model => items.push({ type: "model", id: model, label: `★ ${model}`, provider: "suggestions" }))
+    }
+    if (viewMode === "model-selector" && routingPick?.kind === "roles") {
+      items.push({ type: "model", id: INHERIT, label: "↺ inherit (use the reference agent's model)", provider: "routing" })
     }
     Object.keys(providers).forEach(prov => {
-      const isExpanded = expandedProviders.has(prov)
+      const isExpanded = words.length > 0 || expandedProviders.has(prov)
       items.push({
         type: "provider",
         id: prov,
@@ -768,6 +789,10 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
       })
 
       if (isExpanded) {
+        // A configuration can trigger on a whole provider; the exact model wins at runtime.
+        if (viewMode === "model-selector" && routingPick?.kind === "trigger") {
+          items.push({ type: "model", id: prov, label: `  ★ any ${prov} model`, provider: prov })
+        }
         providers[prov].forEach(model => {
           items.push({
             type: "model",
@@ -779,7 +804,70 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
       }
     })
     return items
-  }, [models, expandedProviders, viewMode, repairGroupKey, invalidModelGroups, modelCatalog])
+  }, [models, expandedProviders, viewMode, repairGroupKey, invalidModelGroups, modelCatalog, routingPick, modelFilter])
+  useEffect(() => {
+    if (viewMode !== "model-selector" && viewMode !== "repair-selector") setModelFilter("")
+  }, [viewMode])
+
+  const routingLoad = useMemo((): { view: ReturnType<typeof describeArchetype>; error: string } => {
+    if (!routingArchetype) return { view: null, error: "" }
+    try {
+      return { view: describeArchetype(workspaceRoot, routingArchetype), error: "" }
+    } catch (error: any) {
+      return { view: null, error: error?.message || String(error) }
+    }
+  }, [workspaceRoot, routingArchetype, routingRevision, agents])
+  const routingView = routingLoad.view
+  const routingVariantChoices = (model: string) => {
+    const variants = getModelVariants(modelCatalog, model)
+    return variants !== null ? ["", ...variants] : ["", ...AGENT_EFFORT_VARIANTS]
+  }
+  const withRoutingVariant = (model: string, variant: string) => {
+    const base = model.split("#")[0]
+    return variant && routingVariantChoices(base).includes(variant) ? `${base}#${variant}` : base
+  }
+  /** "review, explore → model#high · eye inherits": roles grouped by the model they get. */
+  const summarizeRoutingConfig = (roles: RoleModels, related: ArchetypeAgent[]) => {
+    const groups = new Map<string, string[]>()
+    for (const agent of related) {
+      const model = roles[agent.role] ?? INHERIT
+      groups.set(model, [...(groups.get(model) ?? []), agent.role])
+    }
+    return [...groups].map(([model, names]) => model === INHERIT ? `${names.join(", ")} ${names.length === 1 ? "inherits" : "inherit"}` : `${names.join(", ")} → ${model}`).join(" · ")
+  }
+  const saveRoutingConfig = (trigger: string, roles: RoleModels | null, previousTrigger?: string) => {
+    if (!routingArchetype) return false
+    try {
+      // Like the Resource Manager, keep the archetype's bundle in step so `category check` stays green.
+      const bundle = path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot), routingArchetype)
+      const hasManifest = fs.existsSync(path.join(workspaceRoot, ".agent-manager", "categories", `${routingArchetype}.json`))
+      const tx = mutate([agentRoutingConfigPath(workspaceRoot), agentRoutingOutputPath(workspaceRoot), ...(hasManifest ? [bundle] : [])], "routing", () => {
+        setArchetypeConfig(workspaceRoot, routingArchetype, trigger, roles, { previousTrigger })
+        if (hasManifest) buildCategoryDistribution(workspaceRoot, routingArchetype)
+      })
+      setRoutingRevision(revision => revision + 1)
+      setRoutingStatus(`${roles ? "Saved" : "Deleted"} configuration '${trigger}'. Press E on the folder to install it in OpenCode.${tx.warning ? ` ⚠ auto-commit: ${tx.warning.message}` : ""}`)
+      return true
+    } catch (error: any) {
+      setRoutingStatus(`Error: ${error?.message || error}`)
+      return false
+    }
+  }
+  /** Save a draft at once (like every edit in the agent list); on success it becomes the new baseline. */
+  const applyRoutingDraft = (next: { previousTrigger?: string; trigger: string; roles: RoleModels }) => {
+    const roles: RoleModels = Object.fromEntries(Object.entries<string>(next.roles).filter(([, model]) => model !== INHERIT))
+    if (!saveRoutingConfig(next.trigger, roles, next.previousTrigger)) return false
+    setRoutingDraft({ previousTrigger: next.trigger, trigger: next.trigger, roles })
+    return true
+  }
+  const openRoutingPicker = (pick: RoutingPick, current?: string) => {
+    const provider = current && current !== INHERIT ? current.split("/")[0] : ""
+    if (provider) setExpandedProviders(previous => new Set([...previous, provider]))
+    setRoutingPick(pick)
+    setFocusedModelIndex(0)
+    setModelScrollOffset(0)
+    setViewMode("model-selector")
+  }
 
   // Clamp model index on layout tree size updates
   useEffect(() => {
@@ -976,6 +1064,15 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           setViewMode("action-result")
           return
         }
+        const focusedFolder = activeItems[focusedIndex]
+        if (selectedAgentPaths.size === 0 && focusedFolder?.type === "folder" && isRoutableArchetype(focusedFolder.category)) {
+          setRoutingArchetype(focusedFolder.category)
+          setRoutingFocus(0)
+          setRoutingConfirmDelete(false)
+          setRoutingStatus("")
+          setViewMode("routing-configs")
+          return
+        }
         if (activeItems.length === 0 || (!activeItems[focusedIndex]?.agent && selectedAgentPaths.size === 0)) {
           setActionResultTitle("No Agent Focused")
            setActionResultLines([
@@ -1016,7 +1113,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           setForkReplaceQuery("")
           setForkProfileName("")
           setForkProfileTarget("")
-          if (item.category === "pipeline" || item.category?.endsWith("-pipeline") || item.category === FLOW_BASE_CATEGORY || isStampedFlowCategory(item.category || "")) {
+          if (item.category === "pipeline" || item.category?.endsWith("-pipeline")) {
             setForkFindQuery(item.category)
             setForkFocusedField("replace")
           } else {
@@ -1130,7 +1227,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
       } else if (key === "d" && !e.shift) {
         const item = activeItems[focusedIndex]
         if (!item || item.type !== "folder") {
-          setLayoutStatus("Focus a stamped pipeline or flow folder header (e.g. go-pipeline, go-flow) and press D to delete it.")
+          setLayoutStatus("Focus a stamped pipeline folder header (e.g. go-pipeline) and press D to delete it.")
         } else {
           const baseCategory = loadPipelineProfiles(workspaceRoot).baseCategory || "pipeline"
           const sourcePrefix = path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot)) + path.sep
@@ -1138,7 +1235,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
             setLayoutStatus(item.category === "pipeline" || item.category === baseCategory
               ? `Cannot delete '${item.category}': it is the canonical base pipeline in ${resolveSourceSubdir(workspaceRoot)}/agents/. Only stamped pipelines in ${resolveCategoriesSubdir(workspaceRoot)}/ can be deleted.`
               : `Cannot delete '${item.category}': categories in ${resolveSourceSubdir(workspaceRoot)}/agents/ cannot be deleted as a stamped pipeline.`)
-          } else if ((item.category.endsWith("-pipeline") || isStampedFlowCategory(item.category)) && fs.existsSync(path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot), item.category))) {
+          } else if (item.category.endsWith("-pipeline") && fs.existsSync(path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot), item.category))) {
             setDeleteTargetCategory(item.category)
             setDeleteAlsoInstalled(false)
             setLayoutStatus("")
@@ -1257,9 +1354,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           const tx = mutate([
             path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot), category),
             getCompanionLinksConfigPath(workspaceRoot)
-          ], isStampedFlowCategory(category) ? "flow" : "pipeline", () => isStampedFlowCategory(category)
-            ? deleteStampedFlow(workspaceRoot, category, { alsoInstalled: deleteAlsoInstalled })
-            : deleteStampedPipeline(workspaceRoot, category, { alsoInstalled: deleteAlsoInstalled }))
+          ], "pipeline", () => deleteStampedPipeline(workspaceRoot, category, { alsoInstalled: deleteAlsoInstalled }))
           const result = tx.value
           setSelectedAgentPaths(previous => {
             const next = new Set(previous)
@@ -1273,7 +1368,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           })
           setDeleteTargetCategory(null)
           try { refreshData() } catch (error) { setMutationRefreshFailure(error, tx.warning); return }
-          setMutationSuccess(isStampedFlowCategory(category) ? "Stamped Flow Deleted" : "Stamped Pipeline Deleted", [
+          setMutationSuccess("Stamped Pipeline Deleted", [
             `Deleted category: ${result.deletedCategory}`,
             `Removed ${result.removedAgentsCount} stamped agent file(s) from:`,
             `  ${result.outputDir}`,
@@ -1291,8 +1386,15 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
         }
       }
     } else if (viewMode === "model-selector" || viewMode === "repair-selector") {
-      // 3. Model selector mode
-      if (key === "up" || key === "k") {
+      // 3. Model selector mode. Printable keys type into the filter; arrows navigate.
+      const typed = !e.ctrl && !e.meta && e.sequence.length === 1 && /^[\x20-\x7E]$/.test(e.sequence)
+      if (typed || (key === "backspace" && modelFilter) || (key === "escape" && modelFilter)) {
+        setModelFilter(filter => typed ? filter + e.sequence : key === "backspace" ? filter.slice(0, -1) : "")
+        setFocusedModelIndex(0)
+        setModelScrollOffset(0)
+        return
+      }
+      if (key === "up") {
         if (modelTreeItems.length === 0) return
         const next = focusedModelIndex > 0 ? focusedModelIndex - 1 : modelTreeItems.length - 1
         setFocusedModelIndex(next)
@@ -1301,7 +1403,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           if (next >= offset + maxVisibleModels) return next - maxVisibleModels + 1
           return offset
         })
-      } else if (key === "down" || key === "j") {
+      } else if (key === "down") {
         if (modelTreeItems.length === 0) return
         const next = focusedModelIndex < modelTreeItems.length - 1 ? focusedModelIndex + 1 : 0
         setFocusedModelIndex(next)
@@ -1315,7 +1417,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
         const next = Math.max(0, Math.min(Math.max(0, modelTreeItems.length - 1), focusedModelIndex + delta))
         setFocusedModelIndex(next)
         setModelScrollOffset(Math.max(0, Math.min(Math.max(0, modelTreeItems.length - maxVisibleModels), next)))
-      } else if (key === "left" || key === "h") {
+      } else if (key === "left") {
         if (modelTreeItems.length > 0) {
           const item = modelTreeItems[focusedModelIndex]
           if (item.type === "provider" && expandedProviders.has(item.id)) {
@@ -1326,7 +1428,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
             })
           }
         }
-      } else if (key === "right" || key === "l") {
+      } else if (key === "right") {
         if (modelTreeItems.length > 0) {
           const item = modelTreeItems[focusedModelIndex]
           if (item.type === "provider" && !expandedProviders.has(item.id)) {
@@ -1352,6 +1454,20 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
             })
           } else {
             const selectedModel = item.id
+            if (routingPick && routingDraft) {
+              const pick = routingPick
+              setRoutingPick(null)
+              if (pick.kind === "trigger") {
+                const saved = applyRoutingDraft({ ...routingDraft, trigger: selectedModel })
+                setViewMode(saved || routingDraft.previousTrigger ? "routing-editor" : "routing-configs")
+              } else {
+                const roles = { ...routingDraft.roles }
+                for (const role of pick.roles) roles[role] = selectedModel === INHERIT ? INHERIT : withRoutingVariant(selectedModel, routingDraft.roles[role]?.split("#")[1] ?? "")
+                if (applyRoutingDraft({ ...routingDraft, roles })) setRoutingSelected(new Set())
+                setViewMode("routing-editor")
+              }
+              return
+            }
             try {
               if (viewMode === "repair-selector") {
                 const index = Number(repairGroupKey)
@@ -1389,9 +1505,12 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
         }
       } else if (key === "escape") {
         setRepairGroupKey(null)
-        setViewMode("main")
-      } else if (key === "y") {
+        // Leaving the trigger picker of a configuration not saved yet goes back to the list.
+        setViewMode(!routingPick ? "main" : routingDraft?.previousTrigger ? "routing-editor" : "routing-configs")
+        setRoutingPick(null)
+      } else if (key === "r" && e.ctrl) {
         refreshModelCatalog()
+        setRoutingPick(null)
         setViewMode("main")
       }
     } else if (viewMode === "repair-confirm") {
@@ -1475,21 +1594,19 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
       }
     } else if (viewMode === "fork-prompt") {
       // 5. Fork category prompt mode
-      const isFlowFork = forkSourceCategory === FLOW_BASE_CATEGORY || isStampedFlowCategory(forkSourceCategory)
-      const isPipelineFork = isFlowFork || forkSourceCategory === "pipeline" || forkSourceCategory.endsWith("-pipeline")
-      const stampSuffix = isFlowFork ? "-flow" : "-pipeline"
+      const isPipelineFork = forkSourceCategory === "pipeline" || forkSourceCategory.endsWith("-pipeline")
       if (key === "escape") {
         setViewMode("main")
       } else if (key === "tab" || key === "up" || key === "down") {
-        const profiles = Object.keys(isFlowFork ? loadFlowProfiles(workspaceRoot).profiles : loadPipelineProfiles(workspaceRoot).profiles)
+        const profiles = Object.keys(loadPipelineProfiles(workspaceRoot).profiles)
         if ((isPipelineFork && (key === "tab" || key === "up" || key === "down")) || forkFocusedField === "profile" || key === "up" || key === "down") {
           const current = profiles.indexOf(forkProfileName)
           const next = (current + (key === "up" ? -1 : 1) + profiles.length + 1) % (profiles.length + 1)
           const profile = next === 0 ? "" : profiles[next - 1]
           setForkProfileName(profile)
           if (isPipelineFork) {
-            setForkReplaceQuery(profile ? `${profile}${stampSuffix}` : "")
-            setForkProfileTarget(profile ? `${profile}${stampSuffix}` : "")
+            setForkReplaceQuery(profile ? `${profile}-pipeline` : "")
+            setForkProfileTarget(profile ? `${profile}-pipeline` : "")
           } else if (!forkProfileTarget || forkProfileTarget === `${forkProfileName}-pipeline`) setForkProfileTarget(profile ? `${profile}-pipeline` : "")
           setForkFocusedField(isPipelineFork ? "replace" : "profile")
         } else {
@@ -1507,31 +1624,6 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           setForkProfileTarget(prev => prev.slice(0, -1))
         }
       } else if (key === "enter" || key === "return") {
-        if (isFlowFork) {
-          const rawTargetInput = (forkReplaceQuery || forkProfileTarget || (forkProfileName ? `${forkProfileName}-flow` : "")).trim()
-          if (!rawTargetInput) {
-            setLayoutStatus("Enter one or more target flow names (e.g. go or hybrid, mistral).")
-            return
-          }
-          try {
-            const paths = [path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot)), getCompanionLinksConfigPath(workspaceRoot)]
-            const tx = mutate(paths, "flow", () => forkStampedFlow(workspaceRoot, parseForkReplacements(rawTargetInput), { profileName: forkProfileName || undefined }))
-            const result = tx.value
-            setExpandedCategories(prev => new Set([...prev, ...result.createdCategories]))
-            try { refreshData() } catch (error) { setMutationRefreshFailure(error, tx.warning); return }
-            setMutationSuccess("Flow Stamped / Updated", [
-              `Profile: ${forkProfileName || "(keep current models)"}`,
-              `Created: ${result.createdCategories.join(", ") || "none"}; updated: ${result.updatedCategories.join(", ") || "none"}`,
-              `${result.agents} agents in ${result.outputDirs.join(", ")}`
-            ], tx.warning)
-            setViewMode("action-result")
-          } catch (error: any) {
-            setActionResultTitle("Error Stamping Flow")
-            setActionResultLines([`An error occurred:`, `  ${error.message || error}`])
-            setViewMode("action-result")
-          }
-          return
-        }
         if (isPipelineFork) {
           const rawTargetInput = (forkReplaceQuery || forkProfileTarget || (forkProfileName ? `${forkProfileName}-pipeline` : "")).trim()
           if (!rawTargetInput) {
@@ -1722,6 +1814,78 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
         setViewMode("action-result")
       } else if (key === "n" || key === "escape") {
         setViewMode("main")
+      }
+    } else if (viewMode === "routing-configs") {
+      // Model configurations of an archetype: one row per trigger, then "new configuration".
+      const triggers = Object.keys(routingView?.configs ?? {})
+      const rows = triggers.length + 1
+      const trigger = triggers[routingFocus]
+      if (key === "escape") {
+        setRoutingArchetype(null)
+        setViewMode("main")
+      } else if (key === "up" || key === "k" || key === "down" || key === "j") {
+        setRoutingFocus(focus => (focus + (key === "up" || key === "k" ? -1 : 1) + rows) % rows)
+        setRoutingConfirmDelete(false)
+      } else if ((key === "enter" || key === "return") && routingView) {
+        setRoutingEditorFocus(trigger ? 1 : 0)
+        setRoutingSelected(new Set())
+        setRoutingStatus("")
+        if (trigger) {
+          setRoutingDraft({ previousTrigger: trigger, trigger, roles: { ...routingView.configs[trigger] } })
+          setViewMode("routing-editor")
+        } else {
+          setRoutingDraft({ trigger: "", roles: {} })
+          openRoutingPicker({ kind: "trigger" })
+        }
+      } else if ((key === "d" || key === "delete") && trigger) {
+        if (!routingConfirmDelete) {
+          setRoutingConfirmDelete(true)
+          setRoutingStatus(`Press D again to delete '${trigger}'.`)
+          return
+        }
+        setRoutingConfirmDelete(false)
+        if (saveRoutingConfig(trigger, null)) setRoutingFocus(focus => Math.max(0, Math.min(focus, triggers.length - 1)))
+      }
+    } else if (viewMode === "routing-editor") {
+      // Rows: the trigger, then one per related subagent. Same keys as the agent list: SPACE/A select,
+      // M or ENTER choose the model for the selection (or the focused row). Every change is saved at once.
+      const related = routingView?.related ?? []
+      const rows = related.length + 1
+      const focusedAgent = routingEditorFocus > 0 ? related[routingEditorFocus - 1] : undefined
+      const targets = routingSelected.size > 0 ? related.filter(agent => routingSelected.has(agent.role)).map(agent => agent.role) : focusedAgent ? [focusedAgent.role] : []
+      if (!routingDraft) {
+        setViewMode("routing-configs")
+      } else if (key === "escape") {
+        if (routingSelected.size > 0) { setRoutingSelected(new Set()); return }
+        setRoutingDraft(null)
+        setViewMode("routing-configs")
+      } else if (key === "up" || key === "k" || key === "down" || key === "j") {
+        setRoutingEditorFocus(focus => (focus + (key === "up" || key === "k" ? -1 : 1) + rows) % rows)
+      } else if (key === "space" && focusedAgent) {
+        setRoutingSelected(previous => {
+          const next = new Set(previous)
+          if (next.has(focusedAgent.role)) next.delete(focusedAgent.role)
+          else next.add(focusedAgent.role)
+          return next
+        })
+      } else if (key === "a") {
+        setRoutingSelected(previous => previous.size === related.length ? new Set() : new Set(related.map(agent => agent.role)))
+      } else if (key === "enter" || key === "return" || key === "m") {
+        if (routingEditorFocus === 0) openRoutingPicker({ kind: "trigger" }, routingDraft.trigger)
+        else if (targets.length > 0) openRoutingPicker({ kind: "roles", roles: targets }, routingDraft.roles[targets[0]])
+      } else if ((key === "tab" || key === "left" || key === "right") && targets.length > 0) {
+        const withModel = targets.filter(role => routingDraft.roles[role] && routingDraft.roles[role] !== INHERIT)
+        if (withModel.length === 0) { setRoutingStatus("Choose a model first: variants belong to a model."); return }
+        const [base, variant = ""] = routingDraft.roles[withModel[0]].split("#")
+        const choices = routingVariantChoices(base)
+        const nextVariant = choices[(choices.indexOf(variant) + (key === "left" ? -1 : 1) + choices.length) % choices.length]
+        const roles = { ...routingDraft.roles }
+        for (const role of withModel) roles[role] = withRoutingVariant(roles[role], nextVariant)
+        applyRoutingDraft({ ...routingDraft, roles })
+      } else if ((key === "backspace" || key === "delete") && targets.length > 0) {
+        const roles = { ...routingDraft.roles }
+        for (const role of targets) roles[role] = INHERIT
+        if (applyRoutingDraft({ ...routingDraft, roles })) setRoutingSelected(new Set())
       }
     } else if (viewMode === "color-selector") {
       // 8. Color selector mode
@@ -1965,8 +2129,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           ? path.join(workspaceRoot, ".agent-manager", "categories", `${resourceCategoryTarget}.json`)
           : ""
         const hasCategoryManifest = Boolean(categoryManifestPath && fs.existsSync(categoryManifestPath))
-        const refreshStampedPipelines = Boolean(resourceCategoryTarget && (resourceCategoryTarget === "pipeline" || resourceCategoryTarget.endsWith("-pipeline")
-          || resourceCategoryTarget === FLOW_BASE_CATEGORY || isStampedFlowCategory(resourceCategoryTarget)))
+        const refreshStampedPipelines = Boolean(resourceCategoryTarget && (resourceCategoryTarget === "pipeline" || resourceCategoryTarget.endsWith("-pipeline")))
         const allowedPaths = [
           ...(companionChanged ? [getCompanionLinksConfigPath(workspaceRoot)] : []),
           ...(companionChanged && hasCategoryManifest ? [categoryManifestPath, path.join(workspaceRoot, "export", "categories", resourceCategoryTarget!)] : []),
@@ -1980,7 +2143,6 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
               const key = resourceCategoryTarget
               updateCategoryCompanionLinks(workspaceRoot, key, nextLinks)
               if (key === "pipeline" || key.endsWith("-pipeline")) refreshStampedPipelinesFromSource(workspaceRoot)
-              if (key === FLOW_BASE_CATEGORY || isStampedFlowCategory(key)) refreshStampedFlowsFromSource(workspaceRoot)
               if (fs.existsSync(path.join(workspaceRoot, ".agent-manager", "categories", `${key}.json`))) buildCategoryDistribution(workspaceRoot, key)
             }
             const agentResult = resourceTargetAgent
@@ -3385,7 +3547,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           borderStyle="double"
           borderColor="#00AAFF"
           backgroundColor="#1e1e1e"
-           title={viewMode === "repair-selector" ? ` Repair Model Group ${Number(repairGroupKey) + 1}/${invalidModelGroups.length} ` : " Select LLM Model "}
+           title={viewMode === "repair-selector" ? ` Repair Model Group ${Number(repairGroupKey) + 1}/${invalidModelGroups.length} ` : routingPick ? " Model Configuration " : " Select LLM Model "}
           titleColor="#00AAFF"
           padding={1}
           flexDirection="column"
@@ -3394,8 +3556,13 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           <text style={{ textColor: "white" }} paddingBottom={1} flexShrink={0}>
              {viewMode === "repair-selector"
                 ? middleEllipsis(`Choose an exact replacement for explicit model ${JSON.stringify(invalidModelGroups[Number(repairGroupKey)]?.value)} (${invalidModelGroups[Number(repairGroupKey)]?.agents.length || 0} agents):`, modelModalInnerWidth)
-               : `Choose model to apply to ${selectedAgentPaths.size > 0 ? selectedAgentPaths.size : 1} selected agents:`}
+               : routingPick?.kind === "trigger"
+                 ? middleEllipsis(`When ${routingView?.reference.name ?? "the reference agent"} runs on… (a model, or ★ any model of a provider):`, modelModalInnerWidth)
+                 : routingPick?.kind === "roles"
+                   ? middleEllipsis(`${routingPick.roles.map(role => `${routingArchetype}-${role}`).join(", ")} use (when ${routingView?.reference.name} runs on ${routingDraft?.trigger || "?"}):`, modelModalInnerWidth)
+                   : `Choose model to apply to ${selectedAgentPaths.size > 0 ? selectedAgentPaths.size : 1} selected agents:`}
           </text>
+          <text style={{ textColor: modelFilter ? "cyan" : "gray" }} flexShrink={0}>{middleEllipsis(modelFilter ? `Search: ${modelFilter}▏ (${modelTreeItems.filter(item => item.type === "model").length} matches)` : "Search: type to filter models", modelModalInnerWidth)}</text>
           {viewMode === "repair-selector" && invalidModelGroups[Number(repairGroupKey)] && (
             <text style={{ textColor: "gray" }}>
                Suggestions: {middleEllipsis(suggestModels(invalidModelGroups[Number(repairGroupKey)].value, modelCatalog).join(", ") || "none (choose from catalog below)", modelModalInnerWidth)}
@@ -3432,8 +3599,8 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
 
           <box flexDirection="column" borderStyle="single" border={["top"]} borderColor="#333333" paddingTop={1} flexShrink={0}>
               <text width="100%" height={1} flexShrink={0} wrapMode="none" overflow="hidden" style={{ textColor: "gray" }}>{middleEllipsis(`Total: ${modelTreeItems.length} · Position: ${focusedModelIndex + 1}/${modelTreeItems.length}`, modelModalInnerWidth)}</text>
-              <text width="100%" height={1} flexShrink={0} wrapMode="none" overflow="hidden" style={{ textColor: "gray" }}>{middleEllipsis("ENTER select · ↑/↓ browse", modelModalInnerWidth)}</text>
-              <text width="100%" height={1} flexShrink={0} wrapMode="none" overflow="hidden" style={{ textColor: "gray" }}>{middleEllipsis("suggestions then catalog · ESC cancel", modelModalInnerWidth)}</text>
+              <text width="100%" height={1} flexShrink={0} wrapMode="none" overflow="hidden" style={{ textColor: "gray" }}>{middleEllipsis("ENTER select · ↑/↓ browse · ←/→ fold provider · type to search", modelModalInnerWidth)}</text>
+              <text width="100%" height={1} flexShrink={0} wrapMode="none" overflow="hidden" style={{ textColor: "gray" }}>{middleEllipsis("BACKSPACE edit search · ESC clear search / cancel · CTRL+R reload catalog", modelModalInnerWidth)}</text>
           </box>
         </box>
       ) : null}
@@ -3467,6 +3634,62 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           <text style={{ textColor: "gray" }} flexShrink={0}>[UP/DOWN/j/k] Select | [ENTER] Assign | [ESC] Cancel</text>
         </box>
       })()}
+
+      {/* Modal - Model configurations of an archetype (M on its folder) */}
+      {(viewMode === "routing-configs" || viewMode === "routing-editor") && (
+        <box
+          style={{ position: "absolute", left: "10%", top: "10%", width: "80%", height: "80%" }}
+          borderStyle="double"
+          borderColor="#00AAFF"
+          backgroundColor="#1e1e1e"
+          title={` ${(routingArchetype || "").toUpperCase()} · Model Configurations `}
+          titleColor="#00AAFF"
+          padding={1}
+          flexDirection="column"
+          overflow="hidden"
+        >
+          {!routingView ? (
+            <text style={{ textColor: "red" }}>{routingLoad.error || `No reference agent found for ${routingArchetype}.`}</text>
+          ) : (
+            <>
+              <text style={{ textColor: "white" }} flexShrink={0}>{middleEllipsis(viewMode === "routing-configs"
+                ? `When ${routingView.reference.name} runs on a model or provider, its subagents use these models. Anything else: they inherit its model.`
+                : `Select one or more subagents (SPACE, A) and press M to set their model, as in the agent list.`, modelModalInnerWidth)}</text>
+              <text style={{ textColor: "gray" }} flexShrink={0}>{middleEllipsis(`Starts on: ${routingView.reference.model || "the model chosen in OpenCode"} (M on ${routingView.reference.name})`, modelModalInnerWidth)}</text>
+              {routingView.pinned.length > 0 && <text style={{ textColor: "gray" }} flexShrink={0}>{middleEllipsis(`Fixed, skipped by configurations (M on the agent to change): ${routingView.pinned.map(agent => `${agent.name} = ${agent.model}`).join(", ")}`, modelModalInnerWidth)}</text>}
+              <box flexGrow={1} flexDirection="column" marginTop={1} overflow="hidden">
+                {viewMode === "routing-configs"
+                  ? [...Object.entries(routingView.configs), ["", null] as const].map(([trigger, roles], index) => {
+                      const focused = index === routingFocus
+                      return (
+                        <box key={`routing-${trigger || "new"}`} flexDirection="column" backgroundColor={focused ? "#00AAFF" : "transparent"} paddingLeft={1} flexShrink={0}>
+                          <text style={{ textColor: focused ? "#FFFFFF" : trigger ? "yellow" : "#7EE787" }}>{roles ? `${focused ? "> " : "  "}${routingView.reference.name} on ${trigger}${trigger.includes("/") ? "" : " (any model)"}` : `${focused ? "> " : "  "}+ New configuration`}</text>
+                          {roles && <text style={{ textColor: focused ? "#FFFFFF" : "gray" }}>{middleEllipsis(`    ${summarizeRoutingConfig(roles, routingView.related)}`, modelModalInnerWidth)}</text>}
+                        </box>
+                      )
+                    })
+                  : routingDraft && [
+                      { role: "", label: `When ${routingView.reference.name} runs on`, value: `${routingDraft.trigger}${routingDraft.trigger.includes("/") ? "" : " (any model)"}` },
+                      ...routingView.related.map(agent => ({ role: agent.role, label: agent.name, value: routingDraft.roles[agent.role] && routingDraft.roles[agent.role] !== INHERIT ? routingDraft.roles[agent.role] : INHERIT })),
+                    ].map((row, index) => {
+                      const focused = index === routingEditorFocus
+                      const selected = routingSelected.has(row.role)
+                      return (
+                        <box key={`routing-row-${index}`} flexDirection="row" backgroundColor={focused ? "#00AAFF" : "transparent"} paddingLeft={1} height={1} flexShrink={0} marginBottom={index === 0 ? 1 : 0}>
+                          <text style={{ textColor: focused ? "#FFFFFF" : index === 0 ? "yellow" : selected ? "green" : "#E1E4E8" }} width="40%">{index === 0 ? `${focused ? "> " : "  "}${row.label}` : `${selected ? "[x]" : "[ ]"} ${row.label}`}</text>
+                          <text style={{ textColor: focused ? "#FFFFFF" : row.value === INHERIT ? "gray" : "cyan" }}>{middleEllipsis(row.value === INHERIT ? "inherit (same model as the reference)" : row.value, Math.max(1, Math.floor(modelModalInnerWidth * 0.6)))}</text>
+                        </box>
+                      )
+                    })}
+              </box>
+            </>
+          )}
+          {routingStatus && <text style={{ textColor: routingStatus.startsWith("Error") ? "red" : "yellow" }} flexShrink={0}>{middleEllipsis(routingStatus, modelModalInnerWidth)}</text>}
+          <text style={{ textColor: "gray" }} flexShrink={0}>{viewMode === "routing-configs"
+            ? "[↑/↓] Select | [ENTER] Edit / new | [D] Delete | [ESC] Close"
+            : "[SPACE] Select | [A] All | [M/ENTER] Model | [TAB/←/→] Variant | [BACKSPACE] Inherit | [ESC] Back · changes are saved at once"}</text>
+        </box>
+      )}
 
       {/* Modal - Color Selection */}
       {viewMode === "color-selector" && (
@@ -3622,24 +3845,21 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
         >
           <box flexDirection="column" gap={1}>
             {(() => {
-              const isFlowFork = forkSourceCategory === FLOW_BASE_CATEGORY || isStampedFlowCategory(forkSourceCategory)
-              const isPipelineFork = isFlowFork || forkSourceCategory === "pipeline" || forkSourceCategory.endsWith("-pipeline")
+              const isPipelineFork = forkSourceCategory === "pipeline" || forkSourceCategory.endsWith("-pipeline")
               return <>
             <box flexDirection="row">
               <text style={{ textColor: "white" }} b>FORK CATEGORY: </text>
               <text style={{ textColor: "yellow" }} b>{forkSourceCategory.toUpperCase()}</text>
             </box>
             <text style={{ textColor: "gray" }} marginTop={1}>
-              {isFlowFork
-                ? "Stamp flow to one or more multi-provider bundles (<name>-flow). Names may omit the -flow suffix; comma-separate multiple targets. Flow profiles live in .agent-manager/flow-profiles.json."
-                : isPipelineFork
+              {isPipelineFork
                 ? "Stamp this pipeline to one or more target pipeline categories. Names may omit the -pipeline suffix; comma-separate multiple targets."
                 : "Copy agents and replace the find pattern in filenames and content. Plain text is one literal replacement; for multiple replacements, enter go-, kimi-, hybrid-, free-. Brackets are optional for backward compatibility."}
             </text>
 
             <box flexDirection="column" borderStyle="single" borderColor={forkFocusedField === "profile" ? "cyan" : "#333333"} paddingLeft={1} paddingRight={1} marginTop={1}>
-              <text style={{ textColor: forkFocusedField === "profile" ? "cyan" : "gray" }} b>{isFlowFork ? "Flow" : "Pipeline"} profile: {forkProfileName || "(keep current models)"}</text>
-              <text style={{ textColor: "gray" }}>{forkProfileName ? (isFlowFork ? loadFlowProfiles(workspaceRoot).profiles[forkProfileName]?.description : loadPipelineProfiles(workspaceRoot).profiles[forkProfileName]?.description) || "" : "Use Up/Down while focused to choose a declarative model profile."}</text>
+              <text style={{ textColor: forkFocusedField === "profile" ? "cyan" : "gray" }} b>Pipeline profile: {forkProfileName || "(keep current models)"}</text>
+              <text style={{ textColor: "gray" }}>{forkProfileName ? loadPipelineProfiles(workspaceRoot).profiles[forkProfileName]?.description || "" : "Use Up/Down while focused to choose a declarative model profile."}</text>
             </box>
             {forkProfileName && !isPipelineFork && <box flexDirection="column" borderStyle="single" borderColor={forkFocusedField === "target" ? "cyan" : "#333333"} paddingLeft={1} paddingRight={1} marginTop={1}>
               <text style={{ textColor: forkFocusedField === "target" ? "cyan" : "gray" }} b>Target category: {forkProfileTarget || `${forkProfileName}-pipeline`}</text>

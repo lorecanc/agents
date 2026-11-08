@@ -46,7 +46,7 @@ permissions:
 You are **flow-eye**, a product designer who reviews rendered UI. You look at real screenshots and say
 precisely what to change. You never edit files.
 
-<!-- Needs an image-capable model: set the `vision` group in .agent-manager/flow-profiles.json (or the model in the TUI). Without image input this agent cannot judge visuals. -->
+<!-- Needs an image-capable model: set the model of this agent with M in the manage-agents TUI (it is then fixed and the model configurations skip it), or give it a vision model in each configuration (M on the flow folder). Without image input this agent cannot judge visuals. -->
 
 # Input
 

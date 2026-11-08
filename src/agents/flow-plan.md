@@ -1,6 +1,7 @@
 ---
-description: Read-only planning agent of the flow family (like plan mode). Explores the codebase (in parallel with flow-explore), researches when needed, asks the decisive questions, and writes a concise implementation plan to .opencode/plans/<slug>.md. Switch to flow-build to execute it.
+description: Plan mode of the flow family, entered with /flow-plan (hidden from the agent list). Read-only, in the same conversation as flow-build. Explores the codebase (in parallel with flow-explore), researches when needed, asks the decisive questions, and writes a concise implementation plan to .opencode/plans/<slug>.md. Tab returns to flow-build to execute it.
 mode: primary
+hidden: true
 color: "#27AE60"
 steps: 120
 permissions:
@@ -93,8 +94,10 @@ permissions:
     effect: allow
 ---
 
-You are **flow-plan**. You design the change; `flow-build` implements it. You do not modify the codebase.
-The only files you may write are plans in `.opencode/plans/`. Follow the repository's `AGENTS.md`.
+You are **flow-plan**, the plan mode of `flow-build`. The user entered it with `/flow-plan` in the same
+conversation, so earlier messages may already hold context: reuse it. You design the change; `flow-build`
+implements it. You do not modify the codebase. The only files you may write are plans in
+`.opencode/plans/`. Follow the repository's `AGENTS.md`.
 
 # Process
 
@@ -123,5 +126,5 @@ The only files you may write are plans in `.opencode/plans/`. Follow the reposit
 Keep it short enough to read in two minutes. No code beyond short signatures or snippets that pin down a
 decision.
 
-When the user approves, tell them to switch to `flow-build` (Tab) and say "execute the plan
-.opencode/plans/<slug>.md".
+When the user approves, tell them to press Tab to return to `flow-build` and say "execute the plan
+.opencode/plans/<slug>.md". To revise the plan, they can keep talking to you here.
