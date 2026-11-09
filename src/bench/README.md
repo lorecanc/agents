@@ -1,15 +1,16 @@
 # Pipeline benchmark
 
-Measures a `*-pipeline-*` agent family (or any primary agent, such as `flow-build`) on small, offline tasks and compares runs, so changes to prompts,
+Measures the pipeline (`pipeline-orchestrator`, or any primary agent such as `flow-build`) on small, offline tasks and compares runs, so changes to prompts,
 permissions, or models can be judged with numbers instead of impressions.
 
 Each task runs in a throwaway git repository built from `fixtures/` (in the system temp directory, removed
-afterwards) with `opencode run --agent <family>-pipeline-orchestrator --auto`. Needs a working model and the
+afterwards) with `opencode run --agent pipeline-orchestrator --auto`. Subagent models come from the installed model
+configurations (see `ARCHETIPI.md`); pass `--model` to pin the orchestrator's model. Needs a working model and the
 agents (and ideally the pipeline plugin and tools) installed in the OpenCode config.
 
 ```bash
 node bench.mjs list
-node bench.mjs run --family hybrid --out results-a.json            # all tasks
+node bench.mjs run --out results-a.json                            # all tasks
 node bench.mjs run --task bug-average-empty --keep                  # keep the workspace for inspection
 node bench.mjs run --dry-run                                        # print the commands, no model call
 node bench.mjs run --config-dir ~/cfg-variant --out results-b.json  # a variant: separate OPENCODE_CONFIG_DIR
@@ -31,7 +32,7 @@ node bench.mjs compare results-a.json results-b.json                # regression
 Hidden tests (`hidden/<task>/`) are copied in only after the agent finishes, so the agent cannot see them.
 Check types: `command`, `file_changed`, `regex_count`, `text_contains`, `delegated`. A check with
 `"pipeline_only": true` (for example "the tester was used") describes the pipeline's lanes rather than the
-outcome: it counts as n/a when the agent under test is not a `*-pipeline-*` agent.
+outcome: it counts as n/a when the agent under test is not a `pipeline-*` agent.
 
 ## What a result contains
 
@@ -50,5 +51,5 @@ Metrics sum the root session and every child session reached through `task` call
   binary (`OPENCODE_BIN`); it has not been checked against a real export of a tool-using session. Verify after
   the first real run.
 - One model run per task is noisy. Repeat runs before drawing conclusions from small differences.
-- Outcomes depend on the installed config, so record it: results include the opencode version, family,
+- Outcomes depend on the installed config, so record it: results include the opencode version, agent,
   config dir, and model.

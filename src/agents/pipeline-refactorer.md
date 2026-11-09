@@ -1,10 +1,8 @@
 ---
 description: Performs behavior-preserving simplification and cleanup. No new features, no speculative architecture.
 mode: subagent
-model: opencode-go/deepseek-v4.1-flash
 color: "#E67E22"
 steps: 100
-hidden: true
 permissions:
   - action: "*"
     resource: "*"

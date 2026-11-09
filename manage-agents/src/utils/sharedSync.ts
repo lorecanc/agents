@@ -4,7 +4,6 @@ import os from "node:os"
 import path from "node:path"
 import { spawnSync } from "node:child_process"
 import { discoverCompanionResourcePaths, findAgentFiles } from "./agents.js"
-import { refreshStampedPipelinesFromSource } from "./pipelineProfiles.js"
 import { syncBashProfiles } from "./bashProfiles.js"
 
 export const SHARED_SYNC_MANIFEST_PATH = ".agent-manager/shared-sync.json"
@@ -907,65 +906,6 @@ function createState(source: ResolvedSource, old: SharedSyncState | null, files:
   }
 }
 
-interface StampedPipelineSnapshot {
-  files: Map<string, { bytes: Buffer; mode: SharedSyncMode }>
-  directories: Set<string>
-}
-
-function profileFilesToSnapshot(targetRoot: string): StampedPipelineSnapshot {
-  const categoryRoot = path.join(targetRoot, "export", "categories")
-  const snapshot: StampedPipelineSnapshot = { files: new Map(), directories: new Set() }
-  const stat = fs.lstatSync(categoryRoot, { throwIfNoEntry: false })
-  if (!stat) return snapshot
-  if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error(`Refusing to refresh stamped pipelines through a non-directory: ${categoryRoot}`)
-  for (const category of fs.readdirSync(categoryRoot, { withFileTypes: true })) {
-    if (!category.isDirectory() || !category.name.endsWith("-pipeline")) continue
-    const categoryPath = path.join(categoryRoot, category.name)
-    const visit = (directory: string, relativeDirectory: string) => {
-      snapshot.directories.add(relativeDirectory)
-      for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-        const relative = `${relativeDirectory}/${entry.name}`
-        const full = path.join(directory, entry.name)
-        const stat = fs.lstatSync(full)
-        if (stat.isSymbolicLink()) throw new Error(`Refusing stamped pipeline symlink: ${relative}`)
-        if (stat.isDirectory()) visit(full, relative)
-        else if (stat.isFile()) snapshot.files.set(relative, { bytes: fs.readFileSync(full), mode: stat.mode & 0o111 ? 0o755 : 0o644 })
-      }
-    }
-    visit(categoryPath, `export/categories/${category.name}`)
-  }
-  return snapshot
-}
-
-function rollbackProfileFiles(targetRoot: string, snapshot: StampedPipelineSnapshot): void {
-  const categoryRoot = path.join(targetRoot, "export", "categories")
-  const stat = fs.lstatSync(categoryRoot, { throwIfNoEntry: false })
-  if (!stat || stat.isSymbolicLink() || !stat.isDirectory()) return
-  const currentDirectories: string[] = []
-  for (const category of fs.readdirSync(categoryRoot, { withFileTypes: true })) {
-    if (!category.isDirectory() || !category.name.endsWith("-pipeline")) continue
-    const categoryPath = path.join(categoryRoot, category.name)
-    const visit = (directory: string, relativeDirectory: string) => {
-      currentDirectories.push(relativeDirectory)
-      for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-        const relative = `${relativeDirectory}/${entry.name}`
-        const full = path.join(directory, entry.name)
-        const entryStat = fs.lstatSync(full)
-        if (entryStat.isSymbolicLink()) throw new Error(`Refusing stamped pipeline symlink during rollback: ${relative}`)
-        if (entryStat.isDirectory()) visit(full, relative)
-        else if (entryStat.isFile() && !snapshot.files.has(relative)) fs.rmSync(full, { force: true })
-      }
-    }
-    visit(categoryPath, `export/categories/${category.name}`)
-  }
-  for (const relative of currentDirectories.sort((a, b) => b.length - a.length)) {
-    if (!snapshot.directories.has(relative)) {
-      try { fs.rmdirSync(path.join(targetRoot, ...relative.split("/"))) } catch {}
-    }
-  }
-  for (const [relative, file] of snapshot.files) writeTargetFile(targetRoot, relative, file.bytes, file.mode)
-}
-
 export function applySharedSync(options: {
   sourceRoot: string
   targetRoot: string
@@ -1026,9 +966,6 @@ export function applySharedSync(options: {
 
   const filesToBackup = new Set([...updateFiles.map(file => file.entry.path), manifestRelative, stateRelative])
   const createdDirectories = missingParentDirectories(options.targetRoot, filesToBackup)
-  const profileSnapshot: StampedPipelineSnapshot = selected.includes("pipelineCore") && options.refreshPipelines !== false
-    ? profileFilesToSnapshot(options.targetRoot)
-    : { files: new Map(), directories: new Set() }
   const transactionDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "shared-sync-transaction-"))
   const transactionBackups = new Map<string, { backupPath: string; mode: SharedSyncMode } | null>()
   try {
@@ -1047,9 +984,8 @@ export function applySharedSync(options: {
     for (const file of updateFiles) writeTargetFile(options.targetRoot, file.entry.path, file.bytes, file.entry.mode)
     writeTargetFile(options.targetRoot, manifestRelative, manifestBytes, 0o644)
     writeTargetFile(options.targetRoot, stateRelative, stateBytes, 0o644)
-    if (selected.includes("pipelineCore") && options.refreshPipelines !== false) {
-      refreshStampedPipelinesFromSource(options.targetRoot)
-      if (fs.existsSync(path.join(options.targetRoot, ".agent-manager", "bash-profiles.json"))) syncBashProfiles(options.targetRoot)
+    if (selected.includes("pipelineCore") && options.refreshPipelines !== false && fs.existsSync(path.join(options.targetRoot, ".agent-manager", "bash-profiles.json"))) {
+      syncBashProfiles(options.targetRoot)
     }
   } catch (error) {
     try {
@@ -1057,7 +993,6 @@ export function applySharedSync(options: {
         if (backup) writeTargetFile(options.targetRoot, relative, fs.readFileSync(backup.backupPath), backup.mode)
         else fs.rmSync(path.join(options.targetRoot, ...relative.split("/")), { force: true })
       }
-      if (selected.includes("pipelineCore") && options.refreshPipelines !== false) rollbackProfileFiles(options.targetRoot, profileSnapshot)
       for (const directory of createdDirectories) {
         try { fs.rmdirSync(directory) } catch {}
       }

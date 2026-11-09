@@ -1,10 +1,8 @@
 ---
 description: Frontend debugging and visual validation agent. Uses Chrome DevTools for performance audits, a11y testing, layout verification, and console error detection. Called in the frontend lane before and after code changes. Can start the project's service itself with dev_serve.
 mode: subagent
-model: opencode-go/deepseek-v4.1-flash
 color: "#E67E22"
 steps: 75
-hidden: true
 permissions:
   - action: "*"
     resource: "*"

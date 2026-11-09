@@ -3,7 +3,6 @@ description: Visual reviewer for the flow family. Opens a running page in Chrome
 mode: subagent
 color: "#F2994A"
 steps: 50
-hidden: true
 permissions:
   - action: "*"
     resource: "*"

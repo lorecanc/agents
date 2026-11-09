@@ -1,10 +1,8 @@
 ---
 description: Handles visual inputs such as screenshots, UI mockups, diagrams, and image-based debugging before planning or implementation.
 mode: subagent
-model: opencode-go/deepseek-v4.1-flash
 color: "#E67E22"
 steps: 50
-hidden: true
 permissions:
   - action: "*"
     resource: "*"

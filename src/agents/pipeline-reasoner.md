@@ -1,10 +1,8 @@
 ---
 description: Deep reasoning agent for complex bugs, algorithms, architecture, performance, security, concurrency, and root-cause analysis.
 mode: subagent
-model: mistral/zai-glm-5-3
 color: "#E67E22"
 steps: 50
-hidden: true
 permissions:
   - action: "*"
     resource: "*"

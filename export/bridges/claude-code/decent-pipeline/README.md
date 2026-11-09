@@ -68,6 +68,7 @@ After setup, launch Claude Code and use `/mcp` to verify that every required ser
 
 These OpenCode companions are linked by the category but are not transpiled by the bridge:
 
+- Plugin: `plugins/agent-router`
 - Plugin: `plugins/dev-tools`
 - Plugin: `plugins/doc-tools`
 - Plugin: `plugins/pipeline-guard`

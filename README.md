@@ -14,7 +14,7 @@ Use this repository when you want a ready-made multi-agent workflow, a portable 
 
 The canonical catalog lives under `src/`: agent prompts, commands, skills, tools, and the OpenCode configuration blueprint. Generated distributions live separately under `export/`.
 
-Four pipeline families—free, Go, hybrid, and Mistral—plus the docs, general, slides, and wiki catalogs cover planning, research/exploration, implementation, testing, review, security, documentation, orchestration, and post-session verification. Shared stock roles include orchestrator, planner, reasoner, researcher, explorer, executor, tester, critic, code reviewer, refactorer, security auditor, frontend specialist, Swift specialist, Kotlin specialist, multimodal, docs grounding, Chrome DevTools, HITL, fast lane, and post-session.
+Two agent archetypes, the multi-agent `pipeline` and the Claude Code style `flow`, plus the docs, general, slides, and wiki catalogs cover planning, research/exploration, implementation, testing, review, security, documentation, orchestration, and post-session verification. Shared stock roles include orchestrator, planner, reasoner, researcher, explorer, executor, tester, critic, code reviewer, refactorer, security auditor, frontend specialist, Swift specialist, Kotlin specialist, multimodal, docs grounding, Chrome DevTools, HITL, fast lane, and post-session.
 
 The general catalog includes the manager-facing orchestrator, shell executor, loop verifier, and reusable document/slide workflows. Docs and slides provide HTML/A4 and PowerPoint planning, authoring, composition, and validation. Wiki provides analyzer, indexer, orchestrator, updater, and writer agents plus its command and three supporting skills.
 
@@ -22,19 +22,18 @@ The general catalog includes the manager-facing orchestrator, shell executor, lo
 
 ```text
 /src/                         # canonical sources
-  agents/                     # pipeline-* base plus docs-*, slides-*, wiki-* agents
+  agents/                     # pipeline-*, flow-*, docs-*, slides-*, wiki-* agents
   commands/ plugins/ skills/ tools/ bench/ bin/ opencode.json
-/export/                      # generated and stamped distributions
-  categories/docs, general, slides, wiki
-  categories/{free,go,hybrid,mistral}-pipeline
+/export/                      # generated distributions
+  categories/docs, flow, general, pipeline, slides, wiki
   bridges/                     # Claude Code and Codex
 /.agent-manager/               # declarative configuration
-  pipeline-profiles.json, companion-links.json, translation-config.json
+  agent-routing.json, companion-links.json, translation-config.json
   categories/*.json
 /manage-agents/                # CLI and interactive TUI manager
 ```
 
-Edit canonical files under `src/` and declarations under `.agent-manager/`. Regenerate distributions and bridges with the manager; do not edit generated output. The `pipeline-*` files in `src/agents/` are the prefixless base pipeline used to stamp provider profiles. Category distributions are deterministic and contain no nested Git repository.
+Edit canonical files under `src/` and declarations under `.agent-manager/`. Regenerate distributions and bridges with the manager; do not edit generated output. `pipeline` and `flow` are archetypes: their canonical agents are installed once, and the models of their subagents come from the per-provider model configurations in `.agent-manager/agent-routing.json` (see `ARCHETIPI.md`). Category distributions are deterministic and contain no nested Git repository.
 
 ## Quick start
 
@@ -49,7 +48,7 @@ The launcher starts the TUI. For a portable OpenCode setup, use `src/opencode.js
 
 ## Install into OpenCode
 
-Copy `src/opencode.json` to your OpenCode configuration location, then install agents with `node manage-agents/manage-agents.mjs export --category pipeline` (or `--all`, or a stamped `--category go-pipeline`). Export writes agents to `~/.config/opencode/agents/` (with an `agents_backup/`) and their companion resources under the same relative paths: for pipeline agents that is the five plugin directories `plugins/dev-tools`, `plugins/pipeline-guard`, `plugins/pipeline-tools`, `plugins/doc-tools`, and `plugins/slide-tools` (registered through the `plugins` config key as config-relative paths) plus the `tools/` modules and helper modules their registries import, keeping `plugins/` and `tools/` siblings. Replaced resources are backed up in `resource_export_backup_*`. Do not copy agents by hand without their tools: prompts expect `pipeline_state`, `pipeline_commit`, the `dev_*` tools, and the guard plugin. Category distributions are generated under `export/categories/` from `.agent-manager/categories/` manifests (stamped `*-pipeline` bundles are refreshed by `category build --all` and verified by `category check --all`); deterministic packages can be shared manually as artifacts.
+Copy `src/opencode.json` to your OpenCode configuration location, then install agents with `node manage-agents/manage-agents.mjs export --category pipeline` (or `--all`). Export writes agents to `~/.config/opencode/agents/` (with an `agents_backup/`) and their companion resources under the same relative paths: for pipeline agents that is the six plugin directories `plugins/agent-router`, `plugins/dev-tools`, `plugins/pipeline-guard`, `plugins/pipeline-tools`, `plugins/doc-tools`, and `plugins/slide-tools` (registered through the `plugins` config key as config-relative paths) plus the `tools/` modules and helper modules their registries import, keeping `plugins/` and `tools/` siblings. Replaced resources are backed up in `resource_export_backup_*`. Do not copy agents by hand without their tools: prompts expect `pipeline_state`, `pipeline_commit`, the `dev_*` tools, and the guard plugin. Category distributions are generated under `export/categories/` from `.agent-manager/categories/` manifests by `category build --all` and verified by `category check --all`; deterministic packages can be shared manually as artifacts.
 
 ## Workflow and validation
 

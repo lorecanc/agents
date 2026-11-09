@@ -1,10 +1,11 @@
 # Pipeline guard, tools and worktree launcher
 
-Deterministic support for the `*-pipeline-*` agent family (hybrid, mistral, free, ...). Prompts and
+Deterministic support for the `pipeline-*` agent family. Prompts and
 permissions in `../agents/` are the primary control; everything here is defense in depth plus the
 parts that must not be left to a model: scoped commits, process cleanup, git-state tracking.
 
-Only sessions whose agent name matches `*-pipeline-*` are affected. Other sessions are untouched.
+Only sessions whose agent name matches `pipeline-*` (or a legacy `*-pipeline-*` name) are affected.
+Other sessions are untouched.
 
 ## V2 layout
 
@@ -164,8 +165,8 @@ EnterPlanMode / ExitPlanMode. The rules and texts live in `tools/_flow_mode.js`.
 `plugins/agent-router/index.ts` applies the model configurations of an archetype (see `ARCHETIPI.md`):
 the model of each subagent follows the provider or model the calling agent runs on, so one set of
 canonical agents serves every provider. It acts only when a canonical archetype agent listed in
-`routing.json` (today `flow-build` and `flow-plan`, each judged on the model it runs on) calls the `subagent` tool; other agents (stamped
-`*-pipeline-*` bundles, ...) are untouched. The decision logic lives in `tools/_agent_router.js`.
+`routing.json` (today `flow-build`, `flow-plan` and `pipeline-orchestrator`, each judged on the model it
+runs on) calls the `subagent` tool; other agents are untouched. The decision logic lives in `tools/_agent_router.js`.
 
 - `model.request` records the agent and model of each session (title/summary/compaction are ignored).
 - `tool.execute.before` sets `input.model` on `subagent` calls. OpenCode picks a subagent's model as
@@ -368,7 +369,7 @@ files.
 Worktree mode, for large or risky work:
 
 ```bash
-opencode-wt start fix-login -- --agent hybrid-pipeline-orchestrator   # worktree in .git/opencode-worktrees/
+opencode-wt start fix-login -- --agent pipeline-orchestrator   # worktree in .git/opencode-worktrees/
 opencode-wt finish fix-login   # rebase on the base branch, ff-only merge, remove worktree and branch
 opencode-wt abort fix-login    # discard everything
 opencode-wt gc [--dry-run]     # prune stale metadata and merged pipeline/* branches

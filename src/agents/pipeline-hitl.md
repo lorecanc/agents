@@ -1,10 +1,8 @@
 ---
 description: Human-in-the-loop checkpoint agent. Explains repository changes in plain Italian with the why, a visual Mermaid map, simple concrete examples, and essential diffs—without technical jargon. Informational and non-blocking.
 mode: subagent
-model: opencode-go/deepseek-v4.1-flash
 color: "#E67E22"
 steps: 50
-hidden: true
 permissions:
   - action: "*"
     resource: "*"

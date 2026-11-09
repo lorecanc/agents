@@ -4,7 +4,7 @@
   "category": "flow",
   "manifestHash": "a03a4daf755856d4fed15721c0281cabdeb97d69fc8803b883a660548bab792e",
   "generatorVersion": "2.0.0",
-  "bundleDigest": "087a81e5bc6319ad2a7447acc5f29296f881029e8dce88e0928f79a156fb5c10",
+  "bundleDigest": "ef0656a3c5b59979af57792c3e04a2fb1f999074bc6ab7aafd324f1db11423df",
   "entries": [
     {
       "target": "AGENTS.md",
@@ -24,15 +24,15 @@
     },
     {
       "target": "agents/flow-explore.md",
-      "hash": "413f268a0c0917b325080b9932dcdff704746dab0a6001d4c754945c9acf74cf"
+      "hash": "a19b8ebe989e9186a64c36ac96bbd3efb9d8b5e639b988b07a8d0fda3f6d2ed4"
     },
     {
       "target": "agents/flow-eye.md",
-      "hash": "9f5896a83bf81edeb1bde8f1d7f3d6c3eed96ffea9d786cddeb302fad7ae7986"
+      "hash": "9e2ab3d75342a36c3ac94b76997ada654fcdd577c4b5b6bb60f2f5c6a0e42dfe"
     },
     {
       "target": "agents/flow-ops.md",
-      "hash": "7db1ae9f02f3a48b581738e00c4b54d8f57fa120f92b082e17fb00805498a032"
+      "hash": "2d05a206a17b7732d4aa001a6ffc57c8703dfd1daedb174e57a12cb47c39600f"
     },
     {
       "target": "agents/flow-plan.md",
@@ -40,11 +40,11 @@
     },
     {
       "target": "agents/flow-research.md",
-      "hash": "123753936d4477f8e09b44b2b46c25da8b71c7dbbdbbf6eae1a05d6c837a1916"
+      "hash": "031bcf6cb77022d9343e2e534245efd82211a1eee9ffaed1496c311937ce1360"
     },
     {
       "target": "agents/flow-review.md",
-      "hash": "0fb32b6926758b7953b043b902251833199e9fd8bde0b53e9aff587cac8c7344"
+      "hash": "c5ec3c36c38d1f361c7720c209901eebbee3d4eec70c95783ef2ad634abe8a41"
     },
     {
       "target": "commands/flow-bug.md",
@@ -88,7 +88,7 @@
     },
     {
       "target": "plugins/agent-router/routing.json",
-      "hash": "e17cd4e0805ceed0c82812b0a504d651f115824cd8794a71e54bc2246f8e3da3"
+      "hash": "3a441604ff0f91b63d5dbf5e34298f4ae34bfb71b8f6e9ee94b934f220a15643"
     },
     {
       "target": "plugins/dev-tools/index.ts",
@@ -284,7 +284,7 @@
     },
     {
       "target": "tools/_env.js",
-      "hash": "121e3d96efb45ab0aa02f524806b02d40926003af2a7f86feb134bdc271991a8"
+      "hash": "7ac49fe83c77280ad6da0eb7c554ae931f960cbfbd7643fce290e3dfbe43e8cd"
     },
     {
       "target": "tools/_flow_context.js",

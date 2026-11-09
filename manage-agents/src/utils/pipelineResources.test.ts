@@ -4,7 +4,6 @@ import os from "node:os"
 import path from "node:path"
 import test from "node:test"
 import { checkPipelineResources, discoverCompanionResourcePaths, exportAgents, findAgentFiles, mergeOpenCodePluginsConfig, organizeAgents, traceRelativeToolDependencies } from "./agents.js"
-import { checkPipelineBundles, refreshStampedPipelinesFromSource } from "./pipelineProfiles.js"
 import { DEFAULT_COMPANION_LINKS } from "./companionLinks.js"
 
 function write(file: string, content: string) {
@@ -83,40 +82,6 @@ test("plugin-imported tools trace opencodePath assets and transitive helper impo
   const agents = findAgentFiles(root, "src").filter(agent => agent.category === "pipeline")
   const discovered = discoverCompanionResourcePaths(sourceRoot, ["pipeline"], undefined, agents)
   assert.ok(expected.every(file => discovered.includes(file)))
-})
-
-test("refreshed pipeline profiles include doc and slide runtime assets and report removals", (t) => {
-  const root = workspace()
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
-  const sourceRoot = path.join(root, "src")
-  write(path.join(sourceRoot, "plugins", "doc-tools", "index.ts"), `import "../../tools/doc_runtime.js"\n`)
-  write(path.join(sourceRoot, "plugins", "slide-tools", "index.ts"), `import "../../tools/slide_runtime.js"\n`)
-  write(path.join(sourceRoot, "tools", "doc_runtime.ts"), `opencodePath("docx", "scripts")\n`)
-  write(path.join(sourceRoot, "tools", "docx", "scripts", "convert.py"), `print("convert")\n`)
-  write(path.join(sourceRoot, "tools", "docx", "scripts", "nested", "shared.py"), `print("shared")\n`)
-  write(path.join(sourceRoot, "tools", "slide_runtime.ts"), `opencodePath("pptx", "html2pptx_runner.js")\nopencodePath("pptx", "render_comp_assets.py")\nopencodePath("pptx", "thumbnail.py")\n`)
-  for (const asset of ["html2pptx_runner.js", "render_comp_assets.py", "thumbnail.py"]) {
-    write(path.join(sourceRoot, "tools", "pptx", asset), "runtime asset\n")
-  }
-  write(path.join(root, "export", "categories", "go-pipeline", "agents", "go-pipeline-orchestrator.md"), agentFile({ pipeline_state: "allow" }))
-
-  refreshStampedPipelinesFromSource(root, "go-pipeline")
-
-  const stamped = path.join(root, "export", "categories", "go-pipeline")
-  const agents = findAgentFiles(root, "src").filter(agent => agent.category === "pipeline")
-  const expected = [
-    "tools/docx/scripts/convert.py",
-    "tools/docx/scripts/nested/shared.py",
-    "tools/pptx/html2pptx_runner.js",
-    "tools/pptx/render_comp_assets.py",
-    "tools/pptx/thumbnail.py"
-  ]
-  for (const file of expected) assert.ok(fs.existsSync(path.join(stamped, ...file.split("/"))), file)
-  assert.deepEqual(checkPipelineResources(stamped, agents, { root: sourceRoot, agents }), [])
-
-  fs.unlinkSync(path.join(stamped, "tools", "docx", "scripts", "nested", "shared.py"))
-  const problems = checkPipelineResources(stamped, agents, { root: sourceRoot, agents })
-  assert.ok(problems.some(problem => problem.path === "tools/docx/scripts/nested/shared.py"))
 })
 
 test("OpenCode export installs the V2 plugin directories and all pipeline tools as siblings", () => {
@@ -224,47 +189,24 @@ test("checkPipelineResources reports a plugin directory without index.ts", () =>
 
 test("checkPipelineResources compares plugin directories byte-for-byte and reports extra files", () => {
   const root = workspace()
-  const stamped = path.join(root, "export", "categories", "go-pipeline")
-  fs.cpSync(path.join(root, "src"), stamped, { recursive: true })
-  fs.writeFileSync(path.join(stamped, "plugins", "pipeline-guard", "index.ts"), "drifted\n")
-  fs.rmSync(path.join(stamped, "plugins", "slide-tools", "index.ts"))
-  write(path.join(stamped, "plugins", "pipeline-guard", "extra.ts"), "export default 1\n")
+  const bundle = path.join(root, "export", "categories", "pipeline")
+  fs.cpSync(path.join(root, "src"), bundle, { recursive: true })
+  fs.writeFileSync(path.join(bundle, "plugins", "pipeline-guard", "index.ts"), "drifted\n")
+  fs.rmSync(path.join(bundle, "plugins", "slide-tools", "index.ts"))
+  write(path.join(bundle, "plugins", "pipeline-guard", "extra.ts"), "export default 1\n")
 
   const agents = findAgentFiles(root, "src").filter(agent => agent.category === "pipeline")
-  const problems = checkPipelineResources(stamped, agents, { root: path.join(root, "src"), agents })
+  const problems = checkPipelineResources(bundle, agents, { root: path.join(root, "src"), agents })
   assert.ok(problems.some(problem => problem.kind === "stale-companion" && problem.path === "plugins/pipeline-guard/index.ts"))
   assert.ok(problems.some(problem => problem.kind === "extra-companion" && problem.path === "plugins/pipeline-guard/extra.ts"))
   assert.ok(problems.some(problem => problem.kind === "missing-companion" && problem.path === "plugins/slide-tools/index.ts"))
 })
 
-test("stamped pipelines are refreshed with new plugin directories and checked against the canonical copy", () => {
-  const root = workspace()
-  const stamped = path.join(root, "export", "categories", "go-pipeline")
-  write(path.join(stamped, "agents", "go-pipeline-orchestrator.md"), agentFile({ pipeline_state: "allow" }))
-  write(path.join(stamped, "tools", "pipeline_state.ts"), `stale\n`)
-  write(path.join(root, "export", "categories", "kimi-pipeline", "tools", "pipeline_state.ts"), `orphan\n`)
-
-  const before = checkPipelineBundles(root)
-  const go = before.find(check => check.category === "go-pipeline")!
-  assert.ok(go.problems.some(problem => problem.kind === "stale-companion" && problem.path === "tools/pipeline_state.ts"))
-  assert.ok(go.problems.some(problem => problem.kind === "missing-companion" && problem.path === "tools/dev_env.ts"))
-  assert.ok(go.problems.some(problem => problem.kind === "missing-companion" && problem.path === "plugins/pipeline-guard/index.ts"))
-  assert.deepEqual(before.find(check => check.category === "kimi-pipeline"), { category: "kimi-pipeline", resourceRoot: path.join(root, "export", "categories", "kimi-pipeline"), orphan: true, problems: [] })
-  assert.deepEqual(before.find(check => check.category === "pipeline")?.problems, [])
-
-  refreshStampedPipelinesFromSource(root, "go-pipeline")
-  const after = checkPipelineBundles(root, ["go-pipeline"])
-  assert.equal(after.length, 1)
-  assert.deepEqual(after[0].problems, [])
-  for (const file of PIPELINE_PAYLOAD) assert.ok(fs.existsSync(path.join(stamped, ...file.split("/"))), file)
-  assert.equal(fs.existsSync(path.join(stamped, "tools", "_testutil.mjs")), false)
-  assert.equal(fs.existsSync(path.join(stamped, "tools", "_pipeline_core.test.mjs")), false)
-})
-
-test("organizeAgents skips canonical pipeline and checkPipelineBundles flags orphan export/categories/pipeline", (t) => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pipeline-organize-orphan-"))
+test("organizeAgents leaves the pipeline to its category manifest", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pipeline-organize-"))
   t.after(() => fs.rmSync(root, { recursive: true, force: true }))
   write(path.join(root, "src", "agents", "pipeline-orchestrator.md"), agentFile({ read: "allow" }))
+  write(path.join(root, ".agent-manager", "categories", "pipeline.json"), "{}\n")
   fs.mkdirSync(path.join(root, "export"), { recursive: true })
   const agents = findAgentFiles(root, "src")
   for (const current of agents) {
@@ -272,19 +214,9 @@ test("organizeAgents skips canonical pipeline and checkPipelineBundles flags orp
     current.targetPath = path.join(root, "export", "categories", "pipeline", "agents", current.filename)
   }
   const organized = organizeAgents(root, agents)
-  const orphan = path.join(root, "export", "categories", "pipeline")
-  const createdCanonicalPipelineCopy = fs.existsSync(path.join(orphan, "agents", "pipeline-orchestrator.md"))
-  write(path.join(orphan, "agents", "pipeline-orchestrator.md"), agentFile({ read: "allow" }))
-
-  const checks = checkPipelineBundles(root)
-  const orphanReported = checks.some(check =>
-    path.resolve(check.resourceRoot) === path.resolve(orphan) && check.problems.length > 0
-  )
-  assert.deepEqual({
-    copied: organized.copied.length,
-    createdCanonicalPipelineCopy,
-    orphanReported
-  }, { copied: 0, createdCanonicalPipelineCopy: false, orphanReported: true })
+  assert.equal(organized.copied.length, 0)
+  assert.match(organized.skipped[0], /manifest-backed/)
+  assert.equal(fs.existsSync(path.join(root, "export", "categories", "pipeline", "agents", "pipeline-orchestrator.md")), false)
 })
 
 test("mergeOpenCodePluginsConfig emits deduped config-relative plugin directories", (t) => {

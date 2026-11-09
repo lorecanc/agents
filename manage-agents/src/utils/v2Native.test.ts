@@ -19,7 +19,6 @@ import { parse as parseYaml } from "yaml"
 //   - src/tools/*.ts stop importing the legacy `@opencode-ai/plugin`
 //   - manage-agents/src/utils/v2Compat.ts translates MCP config and is wired
 //     into production code (not only its own test)
-//   - the manage-agents `check`/`status` CLI path never writes pipelines
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.resolve(here, "../../..")
@@ -33,7 +32,6 @@ const configPath = path.join(srcDir, "opencode.json")
 const agentManagerDir = path.join(repoRoot, ".agent-manager")
 const manageSrcDir = path.join(repoRoot, "manage-agents", "src")
 const v2CompatPath = path.join(manageSrcDir, "utils", "v2Compat.ts")
-const cliEntryPath = path.join(manageSrcDir, "index.tsx")
 
 const rel = (p: string) => path.relative(repoRoot, p) || "."
 const read = (p: string) => readFileSync(p, "utf8")
@@ -411,15 +409,6 @@ function collectCompatViolations(): string[] {
   if (!/export\s+function\s+translateCommandFrontmatterV1ToV2\s*\(/.test(source)) {
     v.push(`${where}: translateCommandFrontmatterV1ToV2 is not exported`)
   }
-  const commandCallers = walkFiles(manageSrcDir).filter((file) => {
-    if (!/\.(?:[cm]?[jt]s|tsx)$/.test(file)) return false
-    if (file === v2CompatPath) return false
-    if (/\.(?:test|spec)\.[cm]?[jt]sx?$/.test(file)) return false
-    return /translateCommandFrontmatterV1ToV2/.test(read(file))
-  })
-  if (commandCallers.length === 0) {
-    v.push(`${where}: translateCommandFrontmatterV1ToV2 has no production call site under manage-agents/src`)
-  }
   return v
 }
 
@@ -478,130 +467,6 @@ function collectEnabledFlagViolations(): string[] {
   return v
 }
 
-// --- 7. check/status must not write --------------------------------------
-
-// Replace string literals and comments with spaces (same length) so brace and
-// paren matching cannot be derailed by text content.
-function sanitize(source: string): string {
-  let out = ""
-  let i = 0
-  while (i < source.length) {
-    const ch = source[i]
-    const next = source[i + 1]
-    if (ch === "/" && next === "/") {
-      while (i < source.length && source[i] !== "\n") {
-        out += " "
-        i++
-      }
-      continue
-    }
-    if (ch === "/" && next === "*") {
-      out += "  "
-      i += 2
-      while (i < source.length && !(source[i] === "*" && source[i + 1] === "/")) {
-        out += source[i] === "\n" ? "\n" : " "
-        i++
-      }
-      if (i < source.length) {
-        out += "  "
-        i += 2
-      }
-      continue
-    }
-    if (ch === '"' || ch === "'" || ch === "`") {
-      out += " "
-      i++
-      while (i < source.length) {
-        if (source[i] === "\\") {
-          out += "  "
-          i += 2
-          continue
-        }
-        const cur = source[i]
-        out += cur === "\n" ? "\n" : " "
-        i++
-        if (cur === ch) break
-      }
-      continue
-    }
-    out += ch
-    i++
-  }
-  return out
-}
-
-function matchBrace(sanitized: string, openIndex: number): number {
-  let depth = 0
-  for (let i = openIndex; i < sanitized.length; i++) {
-    if (sanitized[i] === "{") depth++
-    else if (sanitized[i] === "}") {
-      depth--
-      if (depth === 0) return i
-    }
-  }
-  return -1
-}
-
-function matchParen(sanitized: string, openIndex: number): number {
-  let depth = 0
-  for (let i = openIndex; i < sanitized.length; i++) {
-    if (sanitized[i] === "(") depth++
-    else if (sanitized[i] === ")") {
-      depth--
-      if (depth === 0) return i
-    }
-  }
-  return -1
-}
-
-// Extract braced bodies of every `if (...)` whose condition tests the check or
-// status action. `build` is deliberately out of scope: the contract lets it
-// write, so it must never be scanned here.
-function checkStatusBodies(source: string, sanitized: string): string[] {
-  const bodies: string[] = []
-  const pattern = /\bif\s*\(([^)]*)\)\s*\{/g
-  let match: RegExpExecArray | null
-  while ((match = pattern.exec(source)) !== null) {
-    const condition = match[1]
-    const testsAction = /\baction\b/.test(condition)
-    const isCheckOrStatus = /["'`](?:check|status)["'`]/.test(condition)
-    if (!testsAction || !isCheckOrStatus) continue
-    const open = match.index + match[0].length - 1
-    const close = matchBrace(sanitized, open)
-    if (close < 0) continue
-    bodies.push(source.slice(open + 1, close))
-  }
-  return bodies
-}
-
-function collectCheckStatusViolations(): string[] {
-  const v: string[] = []
-  if (!existsSync(cliEntryPath)) return [`${rel(cliEntryPath)}: missing`]
-  const source = read(cliEntryPath)
-  const sanitized = sanitize(source)
-  const bodies = checkStatusBodies(source, sanitized)
-  const where = rel(cliEntryPath)
-
-  if (bodies.length === 0) {
-    v.push(`${where}: no identifiable check/status branch; cannot verify the read-only CLI path`)
-    return v
-  }
-
-  for (const body of bodies) {
-    const bodySanitized = sanitize(body)
-    const callPattern = /refreshPipelines\s*\(/g
-    let call: RegExpExecArray | null
-    while ((call = callPattern.exec(bodySanitized)) !== null) {
-      const open = call.index + call[0].length - 1
-      const close = matchParen(bodySanitized, open)
-      const args = close < 0 ? "" : body.slice(open + 1, close).trim()
-      if (/dry[-_]?run/i.test(args)) continue
-      v.push(`${where}: check/status path calls refreshPipelines(${args}) without a dry-run flag`)
-    }
-  }
-  return v
-}
-
 const checks: Array<[string, () => string[]]> = [
   ["agents", collectAgentViolations],
   ["commands", collectCommandViolations],
@@ -610,7 +475,6 @@ const checks: Array<[string, () => string[]]> = [
   ["tools", collectToolsViolations],
   ["compat", collectCompatViolations],
   ["enabled-flags", collectEnabledFlagViolations],
-  ["check-status", collectCheckStatusViolations],
 ]
 
 function assertNoViolations(violations: string[]) {
@@ -658,10 +522,6 @@ test("v2Compat: MCP translation present and wired into production", () => {
 
 test("no MCP 'enabled' flags in config or .agent-manager", () => {
   assertNoViolations(collectEnabledFlagViolations())
-})
-
-test("cli: check/status never refresh pipelines without a dry-run flag", () => {
-  assertNoViolations(collectCheckStatusViolations())
 })
 
 test("summary: zero V2-native contract violations", () => {

@@ -860,34 +860,6 @@ test("fork rejects a case-equivalent existing target without overwrite or siblin
   assert.deepEqual(backupDirectories(workspace), [])
 })
 
-test("forkCategory on pipeline preserves pipeline_* tools, pipeline.json, and pipeline-guard/index.ts", () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-fork-pipeline-"))
-  const sourcePath = path.join(root, "src", "agents", "pipeline-orchestrator.md")
-  fs.mkdirSync(path.dirname(sourcePath), { recursive: true })
-  saveAgentFile(sourcePath, {
-    description: "Pipeline orchestrator",
-    permission: {
-      pipeline_state: "allow",
-      dev_verify: "allow",
-      task: { "pipeline-executor": "allow" }
-    }
-  }, "Use @pipeline-executor with .opencode/pipeline.json, PIPELINE_SCRATCH, and plugins/pipeline-guard/index.ts.")
-
-  forkCategory(root, "pipeline", "pipeline", "custom")
-
-  const forkedPath = path.join(root, "export", "categories", "custom-pipeline", "agents", "custom-pipeline-orchestrator.md")
-  assert.equal(fs.existsSync(forkedPath), true, "pipeline forks should be stamped under export/categories")
-  const forked = parseAgentFile(forkedPath, root)!
-  const permission = forked.frontmatter.permission as { [key: string]: unknown, task: Record<string, unknown> }
-  assert.match(forked.body, /@custom-pipeline-executor/)
-  assert.equal(permission.task["custom-pipeline-executor"], "allow")
-  assert.equal(permission.pipeline_state, "allow")
-  assert.equal(permission.dev_verify, "allow")
-  assert.match(forked.body, /\.opencode\/pipeline\.json/)
-  assert.match(forked.body, /PIPELINE_SCRATCH/)
-  assert.match(forked.body, /plugins\/pipeline-guard\/index\.ts/)
-})
-
 test("agent params set effort variants and preserve other frontmatter and body", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "agent-variant-"))
   const filePath = path.join(workspace, "general/agents/a.md")
@@ -1099,6 +1071,36 @@ test("selected export installs matching domain resources, backs up replacements,
   assert.equal(fs.readFileSync(path.join(result.backupPath!, "unrelated-agent.md"), "utf8"), "keep agent file\n")
 })
 
+test("exporting the pipeline removes the retired stamped pipeline agents, by exact name only", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-retired-pipeline-"))
+  const xdg = path.join(root, "xdg")
+  const destination = path.join(xdg, "opencode", "agents")
+  const sourceRoot = path.join(root, "resource-source")
+  const workspace = path.join(root, "workspace")
+  const previousXdg = process.env.XDG_CONFIG_HOME
+  t.after(() => {
+    if (previousXdg === undefined) delete process.env.XDG_CONFIG_HOME
+    else process.env.XDG_CONFIG_HOME = previousXdg
+  })
+  process.env.XDG_CONFIG_HOME = xdg
+  fs.mkdirSync(sourceRoot, { recursive: true })
+  fs.mkdirSync(destination, { recursive: true })
+  for (const name of ["hybrid-pipeline-executor.md", "go-pipeline-orchestrator.md", "my-pipeline-executor.md", "hybrid-pipeline-custom.md"]) {
+    fs.writeFileSync(path.join(destination, name), "installed\n")
+  }
+  const docsAgent = fixtureAgent(path.join(workspace, "general/agents/docs-writer.md"), workspace, "test/model")
+  exportAgents([docsAgent], new Set([docsAgent.currentPath]), sourceRoot)
+  assert.ok(fs.existsSync(path.join(destination, "hybrid-pipeline-executor.md")), "only a pipeline export retires them")
+
+  const pipelineAgent = fixtureAgent(path.join(workspace, "general/agents/pipeline-executor.md"), workspace, "test/model")
+  const result = exportAgents([pipelineAgent], new Set([pipelineAgent.currentPath]), sourceRoot)
+  assert.deepEqual(result.exported, [pipelineAgent.filename])
+  assert.equal(fs.existsSync(path.join(destination, "hybrid-pipeline-executor.md")), false)
+  assert.equal(fs.existsSync(path.join(destination, "go-pipeline-orchestrator.md")), false)
+  assert.ok(fs.existsSync(path.join(destination, "my-pipeline-executor.md")), "other prefixes are not ours")
+  assert.ok(fs.existsSync(path.join(destination, "hybrid-pipeline-custom.md")), "unknown roles are not ours")
+})
+
 test("export rolls back agent and companion resource changes after a mid-install failure", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-domain-rollback-"))
   const xdg = path.join(root, "xdg")
@@ -1225,114 +1227,6 @@ test("manifest, linked resources and reachable dependencies export without unrel
   assert.equal(fs.existsSync(path.join(opencodeRoot, "commands", "docs-extra.md")), false, "unrelated domains must not be installed")
 })
 
-test("export across canonical and multiple stamped pipelines installs each pipeline's commands and deduplicates shared companion resources", (t) => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-multi-pipeline-export-"))
-  const workspace = path.join(root, "workspace")
-  const sourceRoot = path.join(workspace, "src")
-  const previousXdg = process.env.XDG_CONFIG_HOME
-  t.after(() => {
-    if (previousXdg === undefined) delete process.env.XDG_CONFIG_HOME
-    else process.env.XDG_CONFIG_HOME = previousXdg
-  })
-
-  const sourceFiles: Record<string, string> = {
-    "commands/pipeline-bug.md": "canonical pipeline command\n",
-    "commands/go-bug.md": "go pipeline command\n",
-    "commands/hybrid-bug.md": "hybrid pipeline command\n",
-    "plugins/pipeline-guard/index.ts": "canonical pipeline guard\n",
-    "skills/code-review-antipatterns/SKILL.md": "shared review skill\n",
-    "tools/pipeline_state.ts": 'import "./_pipeline_core.js";\nexport const state = true\n',
-    "tools/_pipeline_core.js": "export const core = true\n"
-  }
-  for (const [relative, contents] of Object.entries(sourceFiles)) {
-    const filePath = path.join(sourceRoot, relative)
-    fs.mkdirSync(path.dirname(filePath), { recursive: true })
-    fs.writeFileSync(filePath, contents)
-  }
-
-  const sharedLinks = {
-    plugins: ["plugins/pipeline-guard"],
-    skills: ["skills/code-review-antipatterns"],
-    tools: ["tools/pipeline_state.ts"]
-  }
-  updateCategoryCompanionLinks(workspace, "pipeline", {
-    ...sharedLinks,
-    commands: ["commands/pipeline-bug.md"]
-  })
-  updateCategoryCompanionLinks(workspace, "go-pipeline", {
-    ...sharedLinks,
-    commands: ["commands/go-bug.md"]
-  })
-  updateCategoryCompanionLinks(workspace, "hybrid-pipeline", {
-    ...sharedLinks,
-    commands: ["commands/hybrid-bug.md"]
-  })
-
-  const canonicalAgent = fixtureAgent(path.join(sourceRoot, "agents", "pipeline-orchestrator.md"), workspace, "test/model")
-  const goAgent = fixtureAgent(path.join(workspace, "export/categories/go-pipeline/agents/go-pipeline-orchestrator.md"), workspace, "test/model")
-  const hybridAgent = fixtureAgent(path.join(workspace, "export/categories/hybrid-pipeline/agents/hybrid-pipeline-orchestrator.md"), workspace, "test/model")
-
-  const staleStampedPlugin = path.join(workspace, "export/categories/go-pipeline/plugins/pipeline-guard/index.ts")
-  fs.mkdirSync(path.dirname(staleStampedPlugin), { recursive: true })
-  fs.writeFileSync(staleStampedPlugin, "stale stamped pipeline guard\n")
-
-  const sharedResources = [
-    "plugins/pipeline-guard/index.ts",
-    "skills/code-review-antipatterns/SKILL.md",
-    "tools/pipeline_state.ts",
-    "tools/_pipeline_core.js"
-  ]
-  const cases = [
-    {
-      agents: [canonicalAgent, goAgent, hybridAgent],
-      commands: ["commands/pipeline-bug.md", "commands/go-bug.md", "commands/hybrid-bug.md"],
-      absentCommands: [] as string[]
-    },
-    {
-      agents: [goAgent, hybridAgent],
-      commands: ["commands/go-bug.md", "commands/hybrid-bug.md"],
-      absentCommands: ["commands/pipeline-bug.md"]
-    }
-  ]
-
-  for (const [index, scenario] of cases.entries()) {
-    const xdg = path.join(root, `xdg-${index}`)
-    const opencodeRoot = path.join(xdg, "opencode")
-    process.env.XDG_CONFIG_HOME = xdg
-
-    if (index === 1) {
-      for (const relative of sharedResources) {
-        const destination = path.join(opencodeRoot, relative)
-        fs.mkdirSync(path.dirname(destination), { recursive: true })
-        fs.writeFileSync(destination, `pre-existing ${relative}\n`)
-      }
-    }
-
-    const selected = new Set(scenario.agents.map(agent => agent.currentPath))
-    const result = exportAgents(scenario.agents, selected, sourceRoot)
-
-    for (const relative of scenario.commands) {
-      assert.equal(fs.existsSync(path.join(opencodeRoot, relative)), true, `${relative} should be installed`)
-    }
-    for (const relative of scenario.absentCommands) {
-      assert.equal(fs.existsSync(path.join(opencodeRoot, relative)), false, `${relative} should not be installed`)
-    }
-    for (const relative of sharedResources) {
-      const installedPath = path.join(opencodeRoot, relative)
-      assert.equal(fs.existsSync(installedPath), true, `${relative} should be installed`)
-      assert.ok(result.domainResources.includes(installedPath), `${relative} should be listed as an installed resource`)
-      assert.ok(result.domainResources.filter(resource => resource === installedPath).length <= 1, `${relative} must not be listed more than once`)
-    }
-    assert.equal(fs.readFileSync(path.join(opencodeRoot, "plugins/pipeline-guard/index.ts"), "utf8"), sourceFiles["plugins/pipeline-guard/index.ts"], "the canonical src copy wins over a stale stamped copy")
-    assert.equal(new Set(result.domainResources).size, result.domainResources.length, "domain resource paths must be deduplicated")
-
-    if (index === 1) {
-      const backups = fs.readdirSync(opencodeRoot).filter(name => name.startsWith("resource_export_backup_"))
-      assert.ok(backups.length <= 1, "overwriting shared resources should create at most one backup directory")
-      assert.equal(backups.length, 1, "pre-existing shared resources should be backed up")
-    }
-  }
-})
 
 function legacyExportFixture(t: any) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-legacy-export-"))
@@ -2642,12 +2536,12 @@ test("resource update restores agent.currentPath and bytes when opencode write f
   assert.deepEqual(fs.readFileSync(opencodePath), originalConfigBytes)
 }))
 
-test("hybrid companion resources are discovered and exported except for tests", (t) => withTemporaryXdgConfigHome(xdg => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-hybrid-resources-"))
+test("pipeline companion resources are discovered and exported except for tests", (t) => withTemporaryXdgConfigHome(xdg => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-pipeline-resources-"))
   const opencodeRoot = path.join(xdg, "opencode")
   const sourceRoot = path.join(root, "source")
   const workspace = path.join(root, "workspace")
-  const hybridAgent = fixtureAgent(path.join(workspace, "general/agents/hybrid-orchestrator.md"), workspace, "test/model")
+  const pipelineAgent = fixtureAgent(path.join(workspace, "general/agents/pipeline-orchestrator.md"), workspace, "test/model")
   const resources = [
     "tools/pipeline_state.ts",
     "tools/_pipeline_core.js",
@@ -2672,13 +2566,13 @@ test("hybrid companion resources are discovered and exported except for tests", 
     }
   }
 
-  const catalog = discoverAgentResources(workspace, hybridAgent)
+  const catalog = discoverAgentResources(workspace, pipelineAgent)
   for (const relative of resources) {
     assert.ok(catalog.companionFiles.some(file => file.replace(/\\/g, "/").endsWith(relative)), `${relative} should be discovered`)
   }
   assert.equal(catalog.companionFiles.some(file => file.replace(/\\/g, "/").endsWith("tools/_pipeline_core.test.mjs")), false)
 
-  const result = exportAgents([hybridAgent], new Set([hybridAgent.currentPath]), sourceRoot)
+  const result = exportAgents([pipelineAgent], new Set([pipelineAgent.currentPath]), sourceRoot)
   for (const relative of resources) {
     assert.equal(fs.readFileSync(path.join(opencodeRoot, relative), "utf8"), contents[relative])
     assert.ok(result.domainResources.includes(path.join(opencodeRoot, relative)))

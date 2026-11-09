@@ -1,10 +1,8 @@
 ---
 description: Creates final or checkpoint commits for completed pipeline work. Does not update wiki or codebase memory.
 mode: subagent
-model: opencode-go/deepseek-v4.1-flash
 color: "#E67E22"
 steps: 50
-hidden: true
 permissions:
   - action: "*"
     resource: "*"

@@ -1,14 +1,15 @@
 #!/usr/bin/env node
-// Benchmark runner for the *-pipeline-* agent families.
+// Benchmark runner for the pipeline agents (or any primary agent).
 //
 //   node bench.mjs list
-//   node bench.mjs run [--family hybrid | --agent <name>] [--task <id>]... [--config-dir <dir>]
+//   node bench.mjs run [--agent pipeline-orchestrator] [--task <id>]... [--config-dir <dir>]
 //                      [--model <provider/model>] [--timeout-min 20] [--out results.json] [--keep] [--dry-run]
 //   node bench.mjs compare <a.json> <b.json>
 //
 // Each task runs in a throwaway git repository created from a fixture (a temp directory outside this
-// repository), with `opencode run --agent <family>-pipeline-orchestrator --auto` (or any primary agent given
-// with --agent, e.g. `flow-build`). Checks use hidden tests
+// repository), with `opencode run --agent pipeline-orchestrator --auto` (or any primary agent given
+// with --agent, e.g. `flow-build`). Subagent models come from the installed model configurations
+// (agent-router), so pass --model to pin the orchestrator's model. Checks use hidden tests
 // the agent never sees. Besides pass/fail, the result records cost, steps, delegations, guard blocks,
 // and safety facts: new branches/worktrees/stashes, writes outside the repository, honest verification.
 //
@@ -99,7 +100,7 @@ export async function evaluateChecks(task, ctx) {
     } else if (c.type === "text_contains") {
       pass = new RegExp(c.pattern, "i").test(ctx.finalText || "")
       detail = pass ? "found in the final answer" : "not found in the final answer"
-    } else if (c.pipeline_only && ctx.agent && !/-pipeline-/.test(ctx.agent)) {
+    } else if (c.pipeline_only && ctx.agent && !/^(?:[A-Za-z0-9_-]+-)?pipeline-[A-Za-z0-9_]+$/.test(ctx.agent)) {
       // Process checks such as "the tester was used" describe the pipeline's lanes, not the outcome.
       pass = true
       detail = `n/a for ${ctx.agent}`
@@ -187,7 +188,7 @@ export async function runTask(task, opts) {
   const info = repoInfo(dir)
   const baseCommit = gitT(dir, ["rev-parse", "HEAD"])
   const before = snapshot(info)
-  const agent = opts.agent || `${opts.family}-pipeline-orchestrator`
+  const agent = opts.agent || "pipeline-orchestrator"
   const args = ["run", "--agent", agent, "--auto", "--format", "json", "--dir", dir]
   if (opts.model) args.push("-m", opts.model)
   args.push(task.prompt)
@@ -287,13 +288,12 @@ export function compareResults(a, b) {
 // -------------------------------------------------------------------- CLI
 
 function parseArgs(argv) {
-  const o = { tasks: [], family: "hybrid", timeoutMin: 20, keep: false, dryRun: false }
+  const o = { tasks: [], agent: "pipeline-orchestrator", timeoutMin: 20, keep: false, dryRun: false }
   const rest = []
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
     const next = () => argv[++i]
     if (a === "--task") o.tasks.push(next())
-    else if (a === "--family") o.family = next()
     else if (a === "--agent") o.agent = next()
     else if (a === "--config-dir") o.configDir = path.resolve(next())
     else if (a === "--model") o.model = next()
@@ -331,7 +331,7 @@ export async function main(argv) {
         console.error(`running ${t.id} ...`)
         results.push(await runTask(t, { ...o, bin, timeoutMs: o.timeoutMin * 60000, workRoot: os.tmpdir() }))
       }
-      const doc = { meta: { when: new Date().toISOString(), opencode: version, family: o.agent ? null : o.family, agent: o.agent || `${o.family}-pipeline-orchestrator`, config_dir: o.configDir || null, model: o.model || null, dry_run: o.dryRun }, results }
+      const doc = { meta: { when: new Date().toISOString(), opencode: version, agent: o.agent, config_dir: o.configDir || null, model: o.model || null, dry_run: o.dryRun }, results }
       if (o.out) fs.writeFileSync(o.out, JSON.stringify(doc, null, 2))
       console.log(renderTable(results))
       if (o.out) console.error(`results written to ${o.out}`)

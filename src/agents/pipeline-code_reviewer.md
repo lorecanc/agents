@@ -1,10 +1,8 @@
 ---
 description: Reviews code changes for correctness, simplicity, maintainability, regressions, and security. Does not implement by default.
 mode: subagent
-model: opencode-go/deepseek-v4.1-flash
 color: "#E67E22"
 steps: 75
-hidden: true
 permissions:
   - action: "*"
     resource: "*"

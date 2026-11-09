@@ -1,10 +1,8 @@
 ---
 description: Operational diagnostics, runtime verification, and controlled deployment agent. Runs bash commands (gcloud, docker, kubectl, curl, etc.) for log inspection, infrastructure checks, runtime verification, and user-authorized deployments. Cannot modify repository files.
 mode: subagent
-model: opencode-go/deepseek-v4.1-flash
 color: "#E67E22"
 steps: 80
-hidden: true
 permissions:
   - action: "*"
     resource: "*"

@@ -1,10 +1,8 @@
 ---
 description: Kotlin/Android specialist. Uses Google Developer Knowledge MCP (developer.android.com docs, Jetpack guides, API reference) to validate plans and code against Android conventions and API correctness. Does not edit files.
 mode: subagent
-model: opencode-go/deepseek-v4.1-flash
 color: "#E67E22"
 steps: 50
-hidden: true
 permissions:
   - action: "*"
     resource: "*"

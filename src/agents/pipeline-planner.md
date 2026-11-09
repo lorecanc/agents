@@ -1,10 +1,8 @@
 ---
 description: Creates minimal implementation plans after repository context is available. Does not edit files.
 mode: subagent
-model: mistral/zai-glm-5-3
 color: "#E67E22"
 steps: 75
-hidden: true
 permissions:
   - action: "*"
     resource: "*"

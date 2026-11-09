@@ -1,10 +1,9 @@
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
-import { findAgentFiles, resolveCategoriesSubdir } from "./agents.js"
+import { findAgentFiles } from "./agents.js"
 import { bridgeToClaudeCode } from "./bridge.js"
 import { bridgeToCodex } from "./codexBridge.js"
-import { loadStampedPipelineAgents } from "./pipelineProfiles.js"
 import type { TranslationConfig } from "./translationConfig.js"
 
 /** Relative POSIX path -> file bytes. */
@@ -115,22 +114,7 @@ export function checkBridge(options: BridgeCheckOptions): BridgeCheckResult {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "bridge-check-"))
   try {
     mirrorWorkspaceInputs(workspaceRoot, tempRoot, config)
-    const categoriesSubdir = resolveCategoriesSubdir(workspaceRoot)
-    const sourceCategoriesRoot = path.resolve(workspaceRoot, categoriesSubdir)
-    const destinationCategoriesRoot = path.resolve(tempRoot, categoriesSubdir)
-    const sourceCategoryPath = path.resolve(sourceCategoriesRoot, category)
-    const destinationCategoryPath = path.resolve(destinationCategoriesRoot, category)
-    for (const [root, candidate] of [[sourceCategoriesRoot, sourceCategoryPath], [destinationCategoriesRoot, destinationCategoryPath]]) {
-      const relative = path.relative(root, candidate)
-      if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
-        throw new Error(`Invalid bridge category "${category}"`)
-      }
-    }
-    copyIfPresent(sourceCategoryPath, destinationCategoryPath)
-    let agents = findAgentFiles(tempRoot, config.sourceDir).filter(agent => agent.category === category)
-    if (agents.length === 0) {
-      agents = loadStampedPipelineAgents(workspaceRoot, category)?.agents ?? []
-    }
+    const agents = findAgentFiles(tempRoot, config.sourceDir).filter(agent => agent.category === category)
     if (agents.length === 0) {
       throw new Error(`No agents found for category '${category}' under ${path.join(workspaceRoot, config.sourceDir)}`)
     }

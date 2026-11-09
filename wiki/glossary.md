@@ -5,7 +5,9 @@
 | Term | Definition | See Also |
 |------|------------|----------|
 | Activity log | Per-root JSONL log under `<git-common-dir>/opencode-pipeline/logs/`, shared by a root session and its subagents and read back by `pipeline_state`. | [OpenCode Tools and Plugin Hooks](./api/opencode-tools-and-plugin.md) |
-| Agent Manager | CLI and TUI for managing agents, categories, profiles, and exports. | [Agent Manager](./modules/agent-manager.md) |
+| Agent router | OpenCode plugin (`src/plugins/agent-router`) that sets a subagent's model from the archetype model configuration matching the caller's provider or model. | [Tools and Plugins](./modules/tools-and-plugins.md) |
+| Agent Manager | CLI and TUI for managing agents, categories, model configurations, and exports. | [Agent Manager](./modules/agent-manager.md) |
+| Archetype | Agent family installed once as canonical agents (`flow`, `pipeline`), with subagent models chosen by model configurations. See `ARCHETIPI.md`. | [Agent Manager](./modules/agent-manager.md) |
 | Bash profile | Named, reusable set of `permission.bash` rules in `.agent-manager/bash-profiles.json`, composed per agent role and applied with `pipeline sync-bash`. | [Workspace and Distribution Configuration](./config/workspace-and-distribution.md) |
 | Bridge | Generated translation layer for Claude Code or Codex. | [Workspace and Distribution Configuration](./config/workspace-and-distribution.md) |
 | Bridge check | Read-only validation (`bridge check`) that generated bridge outputs match a fresh regeneration from the current sources. | [Bridges](./modules/bridges.md) |
@@ -15,11 +17,11 @@
 | decent-pipeline | Plugin name given to the Claude Code and Codex bridge output of pipeline agents (`pluginName` in `translation-config.json`). | [Bridges](./modules/bridges.md) |
 | Doom-loop guard | `pipeline-guard` rule that rejects the third consecutive identical tool call in a session. | [OpenCode Tools and Plugin Hooks](./api/opencode-tools-and-plugin.md) |
 | Export manifest | `.resource-export-manifest.json`, which tracks managed OpenCode configuration resources so `export` is idempotent and prunes stale ones. | [Agent Manager](./modules/agent-manager.md) |
-| Local overlay (neverOverwrite) | Paths protected from shared sync, such as `pipeline-profiles.json`, `companion-links.json`, category manifests, and generated exports. | [Workspace and Distribution Configuration](./config/workspace-and-distribution.md) |
+| Local overlay (neverOverwrite) | Paths protected from shared sync, such as `agent-routing.json`, `companion-links.json`, category manifests, and generated exports. | [Workspace and Distribution Configuration](./config/workspace-and-distribution.md) |
 | MCP | Model Context Protocol; the configured tool servers and integrations used by the workspace. | [OpenCode Tools and Plugin Hooks](./api/opencode-tools-and-plugin.md) |
+| Model configuration | Per-archetype rule in `.agent-manager/agent-routing.json`: when the calling primary (`flow-build`, `flow-plan`, `pipeline-orchestrator`) runs on a provider or exact model, its subagents use the listed models; roles left out inherit. Replaced the per-provider `*-pipeline` profiles. | [Workspace and Distribution Configuration](./config/workspace-and-distribution.md) |
 | Pipeline guard | OpenCode plugin safeguarding pipeline tool execution and session operations. | [Tools and Plugins](./modules/tools-and-plugins.md) |
 | dev_env | Read-only environment probe tool that reports verification feasibility as `verification_outlook`. | [Tools and Plugins](./modules/tools-and-plugins.md) |
 | Resource Manager | TUI area (key `u`, shown as `U` in the footer) that discovers and syncs companion plugin, command, skill, and tool links. | [Agent Manager](./modules/agent-manager.md) |
 | Shared sync | Versioned mechanism, declared in `.agent-manager/shared-sync.json`, that distributes components (`agentManager`, `pipelineCore`) with include and exclude globs. | [Workspace and Distribution Configuration](./config/workspace-and-distribution.md) |
-| Stamped pipeline | Provider/profile-specific pipeline generated from shared roles and profile settings. | [Workspace and Distribution Configuration](./config/workspace-and-distribution.md) |
 | Translation tier | Planning, execution, or light model tier that maps a role to a Claude or Codex model in `translation-config.json`. | [Bridges](./modules/bridges.md) |

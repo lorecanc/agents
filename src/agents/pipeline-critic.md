@@ -1,10 +1,8 @@
 ---
 description: Final validation agent for complex work. Checks whether the result satisfies the original request without overengineering.
 mode: subagent
-model: opencode-go/deepseek-v4.1-flash
 color: "#E67E22"
 steps: 50
-hidden: true
 permissions:
   - action: "*"
     resource: "*"

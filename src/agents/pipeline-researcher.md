@@ -1,10 +1,8 @@
 ---
 description: External research agent. Looks outside the repository (web, registries, changelogs, advisories) for best practices, alternatives, known issues and migration guides, and returns sourced findings. Does not explore the repo; that is the explorer's job.
 mode: subagent
-model: opencode-go/deepseek-v4.1-flash
 color: "#E67E22"
 steps: 50
-hidden: true
 permissions:
   - action: "*"
     resource: "*"

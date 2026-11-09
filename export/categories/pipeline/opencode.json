@@ -1,0 +1,21 @@
+{
+  "mcp": {
+    "servers": {
+      "codebase-memory-mcp": {
+        "type": "local",
+        "command": [
+          "codebase-memory-mcp"
+        ],
+        "codemode": false
+      }
+    }
+  },
+  "plugins": [
+    "./plugins/agent-router",
+    "./plugins/dev-tools",
+    "./plugins/doc-tools",
+    "./plugins/pipeline-guard",
+    "./plugins/pipeline-tools",
+    "./plugins/slide-tools"
+  ]
+}

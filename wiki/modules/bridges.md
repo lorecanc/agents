@@ -15,7 +15,7 @@ source_files:
   - "manage-agents/src/App.tsx"
   - "src/plugins/README.md"
 created: "2026-11-02"
-last_updated: "2026-11-02"
+last_updated: "2026-11-09"
 language: en
 ---
 
@@ -27,6 +27,8 @@ The bridges translate the canonical pipeline agents (`src/agents/pipeline-*.md`)
 
 - **Claude Code plugin** (`bridge.ts`, target `claude`): a plugin directory with a local marketplace manifest, agent prompts, plugin skills, and runtime MCP/LSP configuration.
 - **Codex translation layer** (`codexBridge.ts`, target `codex`): a plugin directory with Codex subagent TOML files, per-agent skills, and MCP configuration.
+
+The input is always the canonical `src/agents/pipeline-*.md` set. Bridges do not use the archetype model configurations (`.agent-manager/agent-routing.json`): models are mapped through `.agent-manager/translation-config.json`.
 
 The output directories are generated artifacts. Their README files state that they must not be edited by hand; changes go to the canonical sources or to `.agent-manager/translation-config.json`, followed by regeneration. Model selection is driven by translation tiers and role mappings (see [Translation tiers and model mapping](#translation-tiers-and-model-mapping)). A read-only regeneration check, `bridge check`, detects drift between committed output and the current sources (see [Bridge check](#bridge-check)).
 
@@ -118,7 +120,7 @@ The checked-in `.agent-manager/translation-config.json` sets `version: 2`, `targ
 | `execution` | `sonnet` | `gpt-5.6-luna` | `max` |
 | `light` | `haiku` | `gpt-5.6-luna` | `max` |
 
-Roles map an agent name to a tier. The name used for lookup is the filename without `.md`, with the configured prefix stripped. The checked-in `roles` map, for example, assigns `orchestrator`, `planner`, and `reasoner` to `planning`, and `executor` and `explorer` to `light`. It sets `critic` to `execution`, while the built-in default is `planning`. Role keys in the file that carry a category prefix (for example `go-pipeline-explorer`) are consulted only when they equal the agent name after the configured prefix is stripped.
+Roles map an agent name to a tier. The name used for lookup is the filename without `.md`, with the configured prefix stripped. The checked-in `roles` map, for example, assigns `orchestrator`, `planner`, and `reasoner` to `planning`, and `executor` and `explorer` to `light`. It sets `critic` to `execution`, while the built-in default is `planning`.
 
 `resolveModelTarget` decides each agent's model in this order:
 
@@ -200,11 +202,11 @@ node manage-agents/manage-agents.mjs bridge check
 node manage-agents/manage-agents.mjs bridge check --category pipeline --target codex
 ```
 
-The TUI opens the bridge prompt for the focused category: `B` for Claude and `Shift+B` for Codex. The prompt pre-fills the plugin name, prefix, and source directory from the config. Stamped `*-pipeline` categories default to `decent-<category>` and the category prefix.
+The TUI opens the bridge prompt for the focused category: `B` for Claude and `Shift+B` for Codex. The prompt pre-fills the plugin name, prefix, and source directory from the config.
 
 ## Known limitations
 
-- **OpenCode TypeScript plugins are not transpiled.** The bridges do not convert `src/plugins/*` (for example `dev-tools`, `pipeline-guard`, `pipeline-tools`, `doc-tools`, `slide-tools`). The Claude bridge lists linked plugin and tool files in the README section "OpenCode plugins and tools" and emits one warning per file, both stating they are not transpiled. The README's hook table (`tool.execute.before` → `PreToolUse`, `tool.execute.after` → `PostToolUse`, `session.idle` → `Stop`, `permission.asked` → `PermissionRequest`) is a reference only and is not generated. The Codex bridge does not mention companion plugins or tools at all. Plugin behavior is documented in `src/plugins/README.md`.
+- **OpenCode TypeScript plugins are not transpiled.** The bridges do not convert `src/plugins/*` (for example `agent-router`, `dev-tools`, `pipeline-guard`, `pipeline-tools`, `doc-tools`, `slide-tools`). The Claude bridge lists linked plugin and tool files in the README section "OpenCode plugins and tools" and emits one warning per file, both stating they are not transpiled. The README's hook table (`tool.execute.before` → `PreToolUse`, `tool.execute.after` → `PostToolUse`, `session.idle` → `Stop`, `permission.asked` → `PermissionRequest`) is a reference only and is not generated. The Codex bridge does not mention companion plugins or tools at all. Plugin behavior is documented in `src/plugins/README.md`.
 - **Per-agent bash rules are not enforced.** Claude plugin agents accept only a `tools:` list, so every agent with any allowed `bash` gets `Bash`. Codex sets only `sandbox_mode`. The source rules are listed in each README's "Per-agent bash allowlists (not enforced)" section for review.
 - **OpenCode-only `dev_*` and `pipeline_*` tools are unavailable** in both targets. Prompts receive a runtime note instead.
 - **Claude only: command skills and companion skills** are generated. Codex does not generate them.
@@ -232,7 +234,7 @@ graph LR
 ```
 
 - Internal: [Agent Manager](agent-manager.md) owns the CLI and TUI entry points; [Agent Catalog](agent-catalog.md) supplies the agent sources; [Tools and Plugins](tools-and-plugins.md) describes the OpenCode-only companions that are not transpiled.
-- Internal modules (`manage-agents/src/utils/`): `agents.ts` (agent discovery and frontmatter), `translationConfig.ts`, `opencodeMcp.ts`, `bridgeToolReferences.ts`, `companionLinks.ts` (linked commands, skills, plugins, and tools), `pathValidation.ts` (workspace containment checks), `v2Compat.ts` (V2 permission translation), `pipelineProfiles.ts` (stamped `*-pipeline` agents).
+- Internal modules (`manage-agents/src/utils/`): `agents.ts` (agent discovery and frontmatter), `translationConfig.ts`, `opencodeMcp.ts`, `bridgeToolReferences.ts`, `companionLinks.ts` (linked commands, skills, plugins, and tools), `pathValidation.ts` (workspace containment checks), and `v2Compat.ts` (V2 permission translation).
 - External: the `yaml` package (YAML frontmatter and skill files in `bridge.ts`); the `claude` CLI, invoked through `spawnSync` for validation and registration; `node:fs`, `node:path`, `node:os` for file output and temporary check directories.
 
 ## Related pages

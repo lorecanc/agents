@@ -1,7 +1,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import YAML from "yaml"
-import { extractFrontmatter, findAgentFiles, resolveCategoriesSubdir, resolveSourceSubdir, type AgentInfo } from "./agents.js"
+import { extractFrontmatter, findAgentFiles, resolveSourceSubdir, type AgentInfo } from "./agents.js"
 import { translateFrontmatterV1ToV2, translateFrontmatterV2ToV1, type V2PermissionRule } from "./v2Compat.js"
 
 /**
@@ -122,7 +122,7 @@ export interface BashDrift {
   diff: string[]
 }
 
-const PIPELINE_ROLE = /^(?:[a-z0-9_-]+-)?pipeline-([a-z0-9_]+)\.md$/i
+const PIPELINE_ROLE = /^pipeline-([a-z0-9_]+)\.md$/i
 
 function roleOf(agent: AgentInfo): string | null {
   return path.basename(agent.filename).match(PIPELINE_ROLE)?.[1]?.toLowerCase() ?? null
@@ -151,22 +151,13 @@ export function checkAgentsAgainstBashProfiles(config: BashProfilesConfig, agent
 }
 
 /**
- * Check canonical pipeline agents and every stamped `*-pipeline` copy.
+ * Check the canonical pipeline agents.
  * Returns an empty list when no profile file exists.
  */
 export function checkBashProfiles(workspaceRoot: string): BashDrift[] {
   const config = loadBashProfiles(workspaceRoot)
   if (!config) return []
-  const sourceSubdir = resolveSourceSubdir(workspaceRoot)
-  const agents = findAgentFiles(workspaceRoot, sourceSubdir).filter(agent => roleOf(agent) !== null && /^pipeline-/.test(agent.filename))
-  const categoriesSubdir = resolveCategoriesSubdir(workspaceRoot)
-  const categoriesRoot = path.join(workspaceRoot, categoriesSubdir)
-  if (fs.existsSync(categoriesRoot)) {
-    for (const entry of fs.readdirSync(categoriesRoot, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
-      if (!entry.isDirectory() || !entry.name.endsWith("-pipeline") || !fs.existsSync(path.join(categoriesRoot, entry.name, "agents"))) continue
-      agents.push(...findAgentFiles(workspaceRoot, path.join(categoriesSubdir, entry.name)).filter(agent => roleOf(agent) !== null))
-    }
-  }
+  const agents = findAgentFiles(workspaceRoot, resolveSourceSubdir(workspaceRoot)).filter(agent => roleOf(agent) !== null && /^pipeline-/.test(agent.filename))
   return checkAgentsAgainstBashProfiles(config, agents, workspaceRoot)
 }
 

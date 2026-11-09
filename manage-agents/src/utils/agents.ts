@@ -1064,7 +1064,7 @@ export function auditSecurityPermissions(agents: AgentInfo[]) {
 
 /**
  * Computes recurring prefixes across filenames to identify known categories or family-category pairs.
- * E.g., 'go-pipeline', 'hybrid-pipeline', 'slides', 'docs', 'wiki'.
+ * E.g., 'pipeline', 'flow', 'slides', 'docs', 'wiki'.
  */
 export function getKnownPrefixes(filenames: string[]): string[] {
   const prefixCounts: Record<string, number> = {}
@@ -1605,12 +1605,6 @@ export function organizeAgents(workspaceRoot: string, agents: AgentInfo[]): { co
   const copied: string[] = []
   const skipped: string[] = []
   const protectedCategories = discoverManifestCategories(workspaceRoot)
-  protectedCategories.add("pipeline")
-  const pipelineProfilesPath = path.join(workspaceRoot, ".agent-manager", "pipeline-profiles.json")
-  if (fs.existsSync(pipelineProfilesPath)) {
-    const pipelineProfiles = JSON.parse(fs.readFileSync(pipelineProfilesPath, "utf8"))
-    if (typeof pipelineProfiles?.baseCategory === "string") protectedCategories.add(pipelineProfiles.baseCategory)
-  }
   const eligible = agents.filter(agent => isInGeneralAgents(agent.currentPath) && agent.currentPath !== agent.targetPath && !protectedCategories.has(agent.category))
   for (const agent of agents) {
     if (isInGeneralAgents(agent.currentPath) && agent.currentPath !== agent.targetPath && protectedCategories.has(agent.category)) skipped.push(`${agent.filename} (category '${agent.category}' is manifest-backed; run category build ${agent.category})`)
@@ -1935,26 +1929,12 @@ export function forkCategory(
   replaceStr: string | readonly string[],
   selectedPaths?: string[]
 ): ForkResult {
-  const isPipelineCategory = sourceCategory === "pipeline" || sourceCategory.endsWith("-pipeline")
   // Find all agents under general/agents/ belonging to sourceCategory
   const sourceDir = resolveSourceSubdir(workspaceRoot)
   const allAgents = findAgentFiles(workspaceRoot, sourceDir)
   let sourceAgents = allAgents.filter(
     (agent) => agent.category === sourceCategory && isInGeneralAgents(agent.currentPath)
   )
-  if (isPipelineCategory && sourceAgents.length === 0) {
-    sourceAgents = allAgents.filter(agent =>
-      isInGeneralAgents(agent.currentPath) && agent.filename.startsWith(`${sourceCategory}-`)
-    )
-  }
-  if (isPipelineCategory && sourceAgents.length === 0) {
-    const stampedSourceDir = path.join(resolveCategoriesSubdir(workspaceRoot), sourceCategory)
-    const stampedSourcePath = path.join(workspaceRoot, stampedSourceDir)
-    if (fs.existsSync(stampedSourcePath)) {
-      sourceAgents = findAgentFiles(workspaceRoot, stampedSourceDir)
-        .filter(agent => agent.category === sourceCategory || agent.filename.startsWith(`${sourceCategory}-`))
-    }
-  }
 
   // If specific files are selected, only fork those selected files
   if (selectedPaths && selectedPaths.length > 0) {
@@ -1986,24 +1966,9 @@ export function forkCategory(
     const filename = agent.filename
     for (const replacement of replacements) {
       const replacementLabel = JSON.stringify(replacement)
-      let targetCategory: string | undefined
-      let newFilename: string
-      if (isPipelineCategory) {
-        const trimmedRep = replacement.trim().replace(/-+$/, "")
-        targetCategory = trimmedRep === "pipeline" || trimmedRep.endsWith("-pipeline") ? trimmedRep : `${trimmedRep}-pipeline`
-        sanitizeFilename(targetCategory)
-        newFilename = sanitizeFilename(filename.replace(new RegExp(`^${escapeRegExp(sourceCategory)}-`), `${targetCategory}-`))
-      } else {
-        // Compute target filename by replacing findStr with this replacement.
-        newFilename = sanitizeFilename(filename.split(findStr).join(replacement))
-      }
-      const useStampedPipelineLayout = isPipelineCategory && (
-        fs.existsSync(path.join(workspaceRoot, "export", "categories")) ||
-        fs.existsSync(path.join(workspaceRoot, "src", "agents"))
-      )
-      const targetDir = useStampedPipelineLayout
-        ? path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot), targetCategory!, "agents")
-        : path.join(workspaceRoot, sourceDir, "agents")
+      // Compute target filename by replacing findStr with this replacement.
+      const newFilename = sanitizeFilename(filename.split(findStr).join(replacement))
+      const targetDir = path.join(workspaceRoot, sourceDir, "agents")
       const targetPath = path.join(targetDir, newFilename)
       const resolvedTargetPath = path.resolve(targetPath)
       if (!resolvedTargetPath.startsWith(path.resolve(targetDir) + path.sep)) {
@@ -2063,63 +2028,24 @@ export function forkCategory(
       const sourceContent = fs.readFileSync(agent.currentPath, "utf-8")
       const sourceModel = Object.prototype.hasOwnProperty.call(agent.frontmatter, "model") ? agent.frontmatter.model : undefined
       const sourceHasModel = Object.prototype.hasOwnProperty.call(agent.frontmatter, "model")
-      let frontmatter: Record<string, any>
-      let body: string
-      let frontmatterVersion: "v1" | "v2" | "unknown"
-      if (isPipelineCategory) {
-        frontmatter = { ...agent.frontmatter }
-        body = agent.body
-        frontmatterVersion = agent.frontmatterVersion ?? "unknown"
-        if (frontmatter.category !== undefined) frontmatter.category = targetCategory
-        const permission = frontmatter.permission
-        if (permission && typeof permission === "object" && !Array.isArray(permission)) {
-          frontmatter.permission = { ...permission }
-          const task = permission.task
-          if (task && typeof task === "object" && !Array.isArray(task)) {
-            const rewrittenTask = Object.fromEntries(Object.entries(task).map(([key, value]) => {
-              if (key.startsWith(`${sourceCategory}-`)) return [`${targetCategory}${key.slice(sourceCategory.length)}`, value]
-              if (key.startsWith("pipeline-")) return [`${targetCategory}${key.slice("pipeline".length)}`, value]
-              return [key, value]
-            }))
-            frontmatter.permission.task = Object.prototype.hasOwnProperty.call(rewrittenTask, "*")
-              ? { "*": rewrittenTask["*"], ...Object.fromEntries(Object.entries(rewrittenTask).filter(([key]) => key !== "*")) }
-              : rewrittenTask
-          }
-        }
-        const sourcePrefix = sourceCategory.replace(/-pipeline$/, "")
-        const targetPrefix = targetCategory!.replace(/-pipeline$/, "")
-        const pipelineGuardPath = "plugins/pipeline-guard/index.ts"
-        const pipelineGuardPlaceholder = "\0PIPELINE_GUARD_PATH\0"
-        body = body
-          .replaceAll(pipelineGuardPath, pipelineGuardPlaceholder)
-          .replace(new RegExp(`@${escapeRegExp(sourceCategory)}-`, "g"), `@${targetCategory}-`)
-          .replace(/@pipeline-/g, `@${targetCategory}-`)
-          .replace(new RegExp(`# ${escapeRegExp(sourceCategory)}-`, "g"), `# ${targetCategory}-`)
-          .replace(/# pipeline-/g, `# ${targetCategory}-`)
-        if (sourceCategory !== "pipeline") {
-          body = body.replace(new RegExp(`/${escapeRegExp(sourcePrefix)}-`, "g"), `/${targetPrefix}-`)
-        }
-        body = body.replace(/\/pipeline-/g, `/${targetPrefix}-`).replaceAll(pipelineGuardPlaceholder, pipelineGuardPath)
-      } else {
-        const updatedContent = sourceContent.split(findStr).join(replacement)
-        const { yamlText, body: updatedBody } = extractFrontmatter(updatedContent)
-        body = updatedBody
-        if (yamlText === null) {
-          skipped.push(`${filename} [${replacementLabel}]`)
-          continue
-        }
-        try {
-          frontmatter = YAML.parse(yamlText)
-          if (!isValidFrontmatter(frontmatter)) {
-            skipped.push(`${filename} [${replacementLabel}]`)
-            continue
-          }
-        } catch (e) {
-          skipped.push(`${filename} [${replacementLabel}]`)
-          continue
-        }
-        frontmatterVersion = detectFrontmatterVersion(frontmatter)
+      const updatedContent = sourceContent.split(findStr).join(replacement)
+      const { yamlText, body } = extractFrontmatter(updatedContent)
+      if (yamlText === null) {
+        skipped.push(`${filename} [${replacementLabel}]`)
+        continue
       }
+      let frontmatter: Record<string, any>
+      try {
+        frontmatter = YAML.parse(yamlText)
+        if (!isValidFrontmatter(frontmatter)) {
+          skipped.push(`${filename} [${replacementLabel}]`)
+          continue
+        }
+      } catch (e) {
+        skipped.push(`${filename} [${replacementLabel}]`)
+        continue
+      }
+      const frontmatterVersion = detectFrontmatterVersion(frontmatter)
 
       // Never replace a model as part of the global content substitution.
       if (!hasExistingModel && sourceHasModel) frontmatter.model = sourceModel
@@ -2467,8 +2393,8 @@ function unresolvedRelativeImports(resourceRoot: string, relative: string): stri
 }
 
 /**
- * Verify that a pipeline bundle (the canonical source root or a stamped
- * `*-pipeline` category) ships every OpenCode tool its agents permit, every
+ * Verify that a pipeline bundle (the canonical source root or the built
+ * `export/categories/pipeline`) ships every OpenCode tool its agents permit, every
  * helper module those tools and the guard plugin import, and — when a
  * canonical root is given — byte-identical copies of the canonical pipeline
  * tools and plugins.
@@ -2792,9 +2718,6 @@ function copyDomainResources(sourceRoot: string, opencodeRoot: string, agents: A
     const bundle = bundles.get(root) ?? { domains: new Set<string>(), agents: [] }
     bundle.domains.add(agentDomain(agent.filename))
     bundle.domains.add(agent.category)
-    if (path.basename(path.dirname(root)) === "categories" && path.basename(root).endsWith("-pipeline")) {
-      bundle.domains.add("pipeline")
-    }
     bundle.agents.push(agent)
     bundles.set(root, bundle)
   }
@@ -2963,6 +2886,16 @@ const RETIRED_ONTOLOGY_AGENT_FILES = [
   "ontology-release_builder.md",
   "ontology-hitl.md",
 ] as const
+
+// The pipeline used to ship as one stamped copy per provider profile; it is now the canonical
+// pipeline-* archetype. Exact names only, so a personal agent with a similar name is never touched.
+const RETIRED_STAMPED_PIPELINE_ROLES = [
+  "chrome_devtools", "code_reviewer", "critic", "docs_grounding", "executor", "explorer", "fast_lane",
+  "frontend_specialist", "hitl", "kotlin_specialist", "multimodal", "ops", "orchestrator", "planner",
+  "post_session", "reasoner", "refactorer", "researcher", "security_auditor", "swift_specialist", "tester",
+] as const
+export const RETIRED_STAMPED_PIPELINE_AGENT_FILES: readonly string[] = ["free", "go", "hybrid", "mistral"]
+  .flatMap(profile => RETIRED_STAMPED_PIPELINE_ROLES.map(role => `${profile}-pipeline-${role}.md`))
 
 export interface ExportOptions {
   runCommand?: typeof spawnSync
@@ -3774,15 +3707,18 @@ export function exportAgents(
 
   const domains = successfulAgents.map(agent => agentDomain(agent.filename))
   const removedRetiredAgents: string[] = []
-  if (successfulAgents.some(agent => agentDomain(path.basename(agent.currentPath)) === "ontology")) {
-    for (const filename of RETIRED_ONTOLOGY_AGENT_FILES) {
-      const targetPath = path.join(destinationPath, filename)
-      if (!fs.existsSync(targetPath)) continue
-      const stat = fs.lstatSync(targetPath)
-      if (!stat.isSymbolicLink() && stat.isFile()) {
-        fs.unlinkSync(targetPath)
-        removedRetiredAgents.push(filename)
-      }
+  const exportedDomains = new Set(successfulAgents.map(agent => agentDomain(path.basename(agent.currentPath))))
+  const retiredAgentFiles = [
+    ...(exportedDomains.has("ontology") ? RETIRED_ONTOLOGY_AGENT_FILES : []),
+    ...(exportedDomains.has("pipeline") ? RETIRED_STAMPED_PIPELINE_AGENT_FILES : []),
+  ]
+  for (const filename of retiredAgentFiles) {
+    const targetPath = path.join(destinationPath, filename)
+    if (!fs.existsSync(targetPath)) continue
+    const stat = fs.lstatSync(targetPath)
+    if (!stat.isSymbolicLink() && stat.isFile()) {
+      fs.unlinkSync(targetPath)
+      removedRetiredAgents.push(filename)
     }
   }
   let repoRoot: string | undefined

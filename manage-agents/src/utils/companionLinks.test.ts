@@ -11,6 +11,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../
 
 test("default companion links ship V2 plugin directories, not plugin files", () => {
   assert.deepEqual(DEFAULT_COMPANION_LINKS.categories.pipeline.plugins, [
+    "plugins/agent-router",
     "plugins/dev-tools",
     "plugins/doc-tools",
     "plugins/pipeline-guard",

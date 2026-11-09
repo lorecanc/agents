@@ -4,8 +4,9 @@ import { parseAgentFile, resolveSourceSubdir } from "./agents.js"
 
 // Model configurations for archetypes (see ARCHETIPI.md and src/plugins/agent-router).
 //
-// An archetype (flow, later pipeline) is one set of canonical agents in src/agents/<id>-*.md with a
-// reference agent (flow-build) and possibly other primaries (flow-plan, its plan mode). The primaries
+// An archetype (flow, pipeline) is one set of canonical agents in src/agents/<id>-*.md with a
+// reference agent (flow-build, pipeline-orchestrator) and possibly other primaries (flow-plan, its plan
+// mode). The primaries
 // are the callers: a configuration says, when the calling primary runs on <trigger> (a provider
 // "mistral" or an exact model "mistral/zai-glm-5-3"; the exact model wins), each related subagent
 // runs on this model, or inherits the caller's one. Build and plan may run on different models; the
@@ -15,7 +16,8 @@ import { parseAgentFile, resolveSourceSubdir } from "./agents.js"
 //            `manage-agents routing set`. Plain storage: it can be edited, but the TUI owns it.
 // Generated: <source>/plugins/agent-router/routing.json, read by the plugin at runtime. Never edited
 //            by hand; `routing build` rewrites it and `category check` reports drift.
-// Bridges (Claude Code, Codex) have no plugin: they stamp the models of one configuration instead.
+// Bridges (Claude Code, Codex) have no plugin and ignore the configurations: they translate models to
+// Claude or Codex aliases through .agent-manager/translation-config.json.
 //
 // Pinned agents are not configured here: a canonical subagent with a `model` in its frontmatter (set
 // with M on the agent) keeps it, and the configurations skip it. A primary's own model in frontmatter
@@ -52,10 +54,10 @@ export interface ArchetypeView {
   configs: Record<string, RoleModels>
 }
 
-// One entry per archetype whose canonical agents are installed as-is. The pipeline still ships as
-// stamped bundles, so it becomes routable when it moves to canonical agents (see ARCHETIPI.md).
+// One entry per archetype whose canonical agents are installed as-is (see ARCHETIPI.md).
 const ARCHETYPES: Record<string, { reference: string }> = {
   flow: { reference: "build" },
+  pipeline: { reference: "orchestrator" },
 }
 
 export const ROUTABLE_ARCHETYPES = Object.keys(ARCHETYPES)

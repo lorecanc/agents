@@ -3,7 +3,6 @@ description: Operational agent for the flow family. Inspects logs, services, con
 mode: subagent
 color: "#828282"
 steps: 80
-hidden: true
 permissions:
   - action: "*"
     resource: "*"

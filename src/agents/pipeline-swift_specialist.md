@@ -1,10 +1,8 @@
 ---
 description: Apple/Swift specialist. Uses Cupertino MCP (363K Apple docs, HIG, Swift Evolution, symbol search) and Axiom MCP (264 iOS skills, 41 agents, diagnostics tools) to validate plans and code against Apple conventions. Does not edit files.
 mode: subagent
-model: opencode-go/deepseek-v4.1-flash
 color: "#E67E22"
 steps: 50
-hidden: true
 permissions:
   - action: "*"
     resource: "*"

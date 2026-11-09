@@ -1,10 +1,8 @@
 ---
 description: Designs, writes, and evaluates tests for changed behavior. Focuses on minimal meaningful coverage and regression prevention.
 mode: subagent
-model: opencode-go/deepseek-v4.1-flash
 color: "#E67E22"
 steps: 100
-hidden: true
 permissions:
   - action: "*"
     resource: "*"

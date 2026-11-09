@@ -1,10 +1,8 @@
 ---
 description: Fetches and summarizes external library documentation to ground the planner and executor in real APIs. Does not edit files.
 mode: subagent
-model: opencode-go/deepseek-v4.1-flash
 color: "#E67E22"
 steps: 50
-hidden: true
 permissions:
   - action: "*"
     resource: "*"

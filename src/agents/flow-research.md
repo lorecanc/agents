@@ -3,7 +3,6 @@ description: External research agent for the flow family. Looks up library docum
 mode: subagent
 color: "#9B51E0"
 steps: 40
-hidden: true
 permissions:
   - action: "*"
     resource: "*"

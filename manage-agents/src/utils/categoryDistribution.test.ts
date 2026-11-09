@@ -3,8 +3,7 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { test } from "node:test"
-import { buildCategoryDistribution, buildAllCategoryDistributions, checkCategoryDistribution, loadCategoryManifest, packageCategoryDistributions, parseCategoryArgs, recoverBuildAllCategoryDistributions, validateCategoryManifest, validateCategoryPackage, listBundleFiles, pruneGeneratedBundle, extraGeneratedBundleFiles } from "./categoryDistribution.js"
-import { refreshStampedPipelinesFromSource, syncPipelineProfile } from "./pipelineProfiles.js"
+import { buildCategoryDistribution, buildAllCategoryDistributions, checkCategoryDistribution, loadCategoryManifest, packageCategoryDistributions, parseCategoryArgs, recoverBuildAllCategoryDistributions, validateCategoryManifest, validateCategoryPackage, listBundleFiles } from "./categoryDistribution.js"
 import { findAgentFiles, organizeAgents } from "./agents.js"
 import { execFileSync } from "node:child_process"
 import crypto from "node:crypto"
@@ -39,6 +38,13 @@ function regularFiles(current: string, logical = ""): string[] {
     else throw new Error(`Refusing non-regular entry at ${name}`)
   }
   return files.sort()
+}
+
+function snapshot(directory: string): Map<string, { bytes: Buffer; mtimeMs: number }> {
+  return new Map(listBundleFiles(directory).map(file => {
+    const absolute = path.join(directory, file)
+    return [file, { bytes: fs.readFileSync(absolute), mtimeMs: fs.statSync(absolute).mtimeMs }]
+  }))
 }
 
 test("regularFiles fails closed for symlinks without reading their targets", () => {
@@ -538,127 +544,6 @@ test("build refuses an unresolved journal until explicit recovery", () => {
   fs.writeFileSync(journal, "{}")
   assert.throws(() => buildAllCategoryDistributions(root), /recover explicitly/)
   assert.equal(fs.existsSync(journal), true)
-})
-
-function stampedFixture(): { root: string; bundle: string } {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "category-stamped-"))
-  fs.mkdirSync(path.join(root, "src", "agents"), { recursive: true })
-  fs.mkdirSync(path.join(root, "src", "plugins", "pipeline-guard"), { recursive: true })
-  fs.mkdirSync(path.join(root, "export"), { recursive: true })
-  fs.mkdirSync(path.join(root, ".agent-manager"), { recursive: true })
-  fs.writeFileSync(path.join(root, "src", "agents", "pipeline-orchestrator.md"), "---\ndescription: orchestrator\n---\n\nBody for orchestrator\n")
-  fs.writeFileSync(path.join(root, "src", "agents", "pipeline-executor.md"), "---\ndescription: executor\n---\n\nBody for executor\n")
-  fs.writeFileSync(path.join(root, "src", "plugins", "pipeline-guard", "index.ts"), "export {}\n")
-  fs.writeFileSync(path.join(root, ".agent-manager", "companion-links.json"), JSON.stringify({
-    version: 1,
-    categories: {
-      pipeline: { plugins: ["plugins/pipeline-guard"], commands: [], skills: [], tools: [] },
-      "go-pipeline": { plugins: [], commands: [], skills: [], tools: [] }
-    }
-  }))
-  syncPipelineProfile(root, "go", "go")
-  return { root, bundle: path.join(root, "export", "categories", "go-pipeline") }
-}
-
-function stampedExpectedFiles(root: string, category: string): string[] {
-  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "category-stamped-expected-"))
-  try {
-    for (const relative of [".agent-manager", "src"]) {
-      const source = path.join(root, relative)
-      if (fs.existsSync(source)) fs.cpSync(source, path.join(temporary, relative), { recursive: true })
-    }
-    const bundle = path.join(temporary, "export", "categories", category)
-    fs.mkdirSync(path.join(bundle, "agents"), { recursive: true })
-    refreshStampedPipelinesFromSource(temporary, category)
-    return listBundleFiles(bundle)
-  } finally {
-    fs.rmSync(temporary, { recursive: true, force: true })
-  }
-}
-
-function snapshot(directory: string): Map<string, { bytes: Buffer; mtimeMs: number }> {
-  return new Map(listBundleFiles(directory).map(file => {
-    const absolute = path.join(directory, file)
-    return [file, { bytes: fs.readFileSync(absolute), mtimeMs: fs.statSync(absolute).mtimeMs }]
-  }))
-}
-
-function buildStamped(root: string, bundle: string, category: string): void {
-  refreshStampedPipelinesFromSource(root, category)
-  pruneGeneratedBundle(bundle, stampedExpectedFiles(root, category))
-}
-
-test("build removes stale generated files from a stamped bundle", () => {
-  const { root, bundle } = stampedFixture()
-  const stale = path.join(bundle, "plugins", "pipeline-guard.js")
-  fs.writeFileSync(stale, "export default { id: 'pipeline-guard', server }\n")
-  assert.equal(fs.existsSync(stale), true)
-  buildStamped(root, bundle, "go-pipeline")
-  assert.equal(fs.existsSync(stale), false)
-  assert.equal(fs.existsSync(path.join(bundle, "plugins", "pipeline-guard", "index.ts")), true)
-})
-
-test("a second stamped build is a byte-identical no-op without touching kept mtimes", () => {
-  const { root, bundle } = stampedFixture()
-  buildStamped(root, bundle, "go-pipeline")
-  const first = snapshot(bundle)
-  buildStamped(root, bundle, "go-pipeline")
-  const second = snapshot(bundle)
-  assert.deepEqual([...second.keys()], [...first.keys()])
-  for (const [file, before] of first) {
-    assert.deepEqual(second.get(file)!.bytes, before.bytes, `${file} bytes changed`)
-    assert.equal(second.get(file)!.mtimeMs, before.mtimeMs, `${file} mtime changed`)
-  }
-})
-
-test("check reports stale stamped files as extra without writing", () => {
-  const { root, bundle } = stampedFixture()
-  fs.writeFileSync(path.join(bundle, "plugins", "pipeline-guard.js"), "stale\n")
-  const before = snapshot(bundle)
-  assert.deepEqual(extraGeneratedBundleFiles(bundle, stampedExpectedFiles(root, "go-pipeline")), ["plugins/pipeline-guard.js"])
-  const after = snapshot(bundle)
-  assert.deepEqual([...after.keys()], [...before.keys()])
-  for (const [file, value] of before) {
-    assert.deepEqual(after.get(file)!.bytes, value.bytes)
-    assert.equal(after.get(file)!.mtimeMs, value.mtimeMs)
-  }
-})
-
-test("prune refuses symlinks inside a bundle without following or deleting them", () => {
-  if (process.platform === "win32") return
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "category-prune-")), outside = fs.mkdtempSync(path.join(os.tmpdir(), "category-prune-outside-"))
-  try {
-    fs.mkdirSync(path.join(root, "plugins"))
-    fs.writeFileSync(path.join(root, "plugins", "keep.ts"), "keep\n")
-    fs.writeFileSync(path.join(outside, "secret.txt"), "secret\n")
-    fs.symlinkSync(outside, path.join(root, "plugins", "linked"), "dir")
-    fs.symlinkSync(path.join(outside, "secret.txt"), path.join(root, "plugins", "linked-file"), "file")
-    assert.throws(() => pruneGeneratedBundle(root, ["plugins/keep.ts"]), /symlink/i)
-    assert.equal(fs.readFileSync(path.join(outside, "secret.txt"), "utf8"), "secret\n")
-    assert.equal(fs.readFileSync(path.join(root, "plugins", "keep.ts"), "utf8"), "keep\n")
-    assert.equal(fs.lstatSync(path.join(root, "plugins", "linked")).isSymbolicLink(), true)
-    assert.equal(fs.lstatSync(path.join(root, "plugins", "linked-file")).isSymbolicLink(), true)
-    assert.throws(() => extraGeneratedBundleFiles(root, ["plugins/keep.ts"]), /unsafe output entry|symlink/i)
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true })
-    fs.rmSync(outside, { recursive: true, force: true })
-  }
-})
-
-test("prune validates the whole bundle before deleting a stale file that sorts before an unsafe entry", () => {
-  if (process.platform === "win32") return
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "category-prune-validate-")), outside = fs.mkdtempSync(path.join(os.tmpdir(), "category-prune-validate-outside-"))
-  try {
-    fs.mkdirSync(path.join(root, "plugins"))
-    fs.writeFileSync(path.join(root, "plugins", "aa-stale.ts"), "stale\n")
-    fs.writeFileSync(path.join(outside, "secret.txt"), "secret\n")
-    fs.symlinkSync(outside, path.join(root, "plugins", "zz-linked"), "dir")
-    assert.throws(() => pruneGeneratedBundle(root, []), /symlink/i)
-    assert.equal(fs.readFileSync(path.join(root, "plugins", "aa-stale.ts"), "utf8"), "stale\n", "nothing may be deleted before validation completes")
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true })
-    fs.rmSync(outside, { recursive: true, force: true })
-  }
 })
 
 test("manifest build removes stale generated files", () => {

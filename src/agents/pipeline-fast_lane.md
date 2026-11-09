@@ -1,10 +1,8 @@
 ---
 description: Fast low-cost agent for trivial or small, clear, low-risk coding tasks and obvious local bug fixes.
 mode: subagent
-model: opencode-go/deepseek-v4.1-flash
 color: "#E67E22"
 steps: 75
-hidden: true
 permissions:
   - action: "*"
     resource: "*"

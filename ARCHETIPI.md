@@ -4,7 +4,7 @@ Guida per chi lavora su questa repository, persone o agenti: come funziona il mo
 
 ## 1. Il modello in breve
 
-Un **archetipo** è una famiglia di agenti che lavorano insieme. Oggi ce n'è uno: `flow`. In un secondo passo si aggiungerà `pipeline`, vedi §7.
+Un **archetipo** è una famiglia di agenti che lavorano insieme. Gli archetipi sono due: `flow` e `pipeline`.
 
 Ogni archetipo ha tre parti:
 
@@ -14,7 +14,7 @@ Ogni archetipo ha tre parti:
 | **Risorse** | skill, tool, plugin, comandi distribuiti con l'archetipo | TUI `U` (Resource Manager) → `.agent-manager/companion-links.json` e `.agent-manager/categories/<id>.json` |
 | **Configurazioni modelli** | "se build o plan gira su X, i subagent che chiama usano questi modelli" | TUI `M` sulla **cartella** dell'archetipo → `.agent-manager/agent-routing.json` |
 
-L'**agente di riferimento** è quello da cui si parte in OpenCode: per `flow` è `flow-build`. Gli altri primari dell'archetipo sono modalità della stessa conversazione: per `flow` c'è `flow-plan`, la plan mode in sola lettura. Si entra in tre modi:
+L'**agente di riferimento** è quello da cui si parte in OpenCode: per `flow` è `flow-build`, per `pipeline` è `pipeline-orchestrator`. La pipeline ha un solo primario. In `flow` gli altri primari dell'archetipo sono modalità della stessa conversazione: per `flow` c'è `flow-plan`, la plan mode in sola lettura. Si entra in tre modi:
 
 - Shift+Tab;
 - `/flow-plan <richiesta>`;
@@ -22,11 +22,11 @@ L'**agente di riferimento** è quello da cui si parte in OpenCode: per `flow` è
 
 Il piano finisce con `flow_plan_exit`, che chiede all'utente di approvarlo e, se approvato, riporta la conversazione su `flow-build`. Se l'utente rifiuta scrivendo un messaggio, il messaggio torna al pianificatore. Tutto questo lo fa il plugin `flow-mode`.
 
-Build e plan sono i **chiamanti**: chi dei due delega a un subagent sceglie la configurazione in base al modello su cui gira in quel momento. Possono anche girare su modelli diversi. I subagent sono gli "agenti collegati" di una configurazione.
+I primari sono i **chiamanti**: in `flow` sono build e plan, in `pipeline` l'orchestratore. Chi delega a un subagent sceglie la configurazione in base al modello su cui gira in quel momento, e build e plan possono anche girare su modelli diversi. I subagent sono gli "agenti collegati" di una configurazione.
 
-`flow-plan` non è più nascosto (`hidden`): OpenCode 2.1.3 non gestisce un primario nascosto come agente corrente, e così Shift+Tab non riportava a build.
+Negli archetipi nessun agente è nascosto (`hidden`). OpenCode 2.1.3 non gestisce un primario nascosto come agente corrente, e così Shift+Tab non riportava a build. Per i subagent c'è un altro motivo: il tool `subagent` mostra al chiamante solo gli agenti non nascosti che i permessi gli consentono. Con i subagent nascosti l'elenco conteneva solo `general`, e `flow-build` delegava le review a `general` invece che a `flow-review`. L'effetto collaterale è che i subagent compaiono tra i suggerimenti @ del prompt.
 
-Non esistono più famiglie timbrate per provider: niente `hybrid-flow`, `go-flow`, `flow-profiles.json`, `flow apply` e simili. Erano due sistemi in parallelo e sono stati rimossi apposta. Non reintrodurli.
+Non esistono più famiglie timbrate per provider: niente `hybrid-flow`, `go-flow`, `flow-profiles.json`, `flow apply`, e niente `hybrid-pipeline`, `go-pipeline`, `pipeline-profiles.json` o `manage-agents pipeline apply|sync`. Erano due sistemi in parallelo e sono stati rimossi apposta. Non reintrodurli.
 
 ## 2. Una configurazione
 
@@ -36,23 +36,30 @@ Non esistono più famiglie timbrate per provider: niente `hybrid-flow`, `go-flow
     "mistral":            { "explore": "mistral/deepseek-v4-1-flash-1017#high", "review": "mistral/deepseek-v4-1-flash-1017#high" },
     "mistral/zai-glm-5-3": { "review": "mistral/mistral-large-4#high" }
   }
+},
+"pipeline": {
+  "configs": {
+    "mistral": { "executor": "mistral/deepseek-v4-1-flash-1017#high", "explorer": "mistral/deepseek-v4-1-flash-1017#high" }
+  }
 }
 ```
 
-- **Trigger** (la chiave): il provider (`mistral`, cioè qualsiasi modello di quel provider) o il modello esatto (`mistral/zai-glm-5-3`) su cui gira il primario che chiama, `flow-build` o `flow-plan`. **Il modello esatto vince** sul provider. La variante (`#high`) del chiamante non conta per la scelta.
+Nella pipeline reale la configurazione `mistral` assegna il modello flash a 17 subagent. Planner, reasoner e security_auditor non compaiono e quindi ereditano il modello dell'orchestratore. Per `opencode-go` e `opencode` non serve una configurazione: tutti i subagent ereditano.
+
+- **Trigger** (la chiave): il provider (`mistral`, cioè qualsiasi modello di quel provider) o il modello esatto (`mistral/zai-glm-5-3`) su cui gira il primario che chiama (`flow-build`, `flow-plan` o `pipeline-orchestrator`). **Il modello esatto vince** sul provider. La variante (`#high`) del chiamante non conta per la scelta.
 - **Valore**: per ogni subagent, `provider/modello#variante` oppure `inherit`. Un ruolo assente eredita.
 - **Nessuna configurazione corrispondente**: tutti i subagent ereditano il modello del chiamante, che è il comportamento normale di OpenCode.
 - **Agenti fissi**: un subagent canonico con `model` nel frontmatter (impostato con `M` sull'agente) resta su quel modello. Le configurazioni lo saltano e il TUI lo mostra come "Fixed". È il caso tipico di `flow-eye` su un modello vision.
-- **Modello iniziale dei primari**: il `model` nel frontmatter di `flow-build` o `flow-plan`, impostato con `M` sull'agente, è solo il modello con cui parte in OpenCode. L'utente può cambiarlo e le configurazioni lo seguono.
+- **Modello iniziale dei primari**: il `model` nel frontmatter di `flow-build`, `flow-plan` o `pipeline-orchestrator`, impostato con `M` sull'agente, è solo il modello con cui parte in OpenCode. L'utente può cambiarlo e le configurazioni lo seguono.
 
 ## 3. Cosa succede a runtime
 
 ```mermaid
 flowchart LR
-  TUI["TUI: M sulla cartella flow"] -->|scrive| CFG[".agent-manager/agent-routing.json"]
+  TUI["TUI: M sulla cartella flow o pipeline"] -->|scrive| CFG[".agent-manager/agent-routing.json"]
   CFG -->|routing build / category build / TUI| GEN["src/plugins/agent-router/routing.json"]
   GEN -->|export E| OC["~/.config/opencode/plugins/agent-router"]
-  OC -->|"subagent call di flow-build o flow-plan"| PICK{"modello del chiamante"}
+  OC -->|"subagent call di un primario"| PICK{"modello del chiamante"}
   PICK -->|"provider/modello o provider"| SET["input.model = modello del ruolo"]
   PICK -->|nessuna configurazione| INH["eredita"]
 ```
@@ -75,7 +82,7 @@ Il plugin rilegge `routing.json` a ogni chiamata, quindi non serve riavviare Ope
 
 **Nel TUI di manage-agents** (il modo normale):
 
-1. Cursore sulla cartella `flow`, nessuna selezione, poi `M`: si apre l'elenco delle configurazioni.
+1. Cursore sulla cartella `flow` o `pipeline`, nessuna selezione, poi `M`: si apre l'elenco delle configurazioni.
 2. `Invio` su "+ New configuration" o su una configurazione esistente, oppure `D` due volte per eliminarla.
    Una nuova configurazione parte dalla scelta del trigger.
 3. L'editor funziona come la lista agenti:
@@ -87,7 +94,8 @@ Il plugin rilegge `routing.json` a ogni chiamata, quindi non serve riavviare Ope
    - Il selettore si apre con la cartella del provider del modello attuale già aperta; le altre cartelle sono chiuse e si aprono con `→` o `Invio`.
    - Nel selettore basta scrivere per filtrare: ogni parola deve comparire in `provider/modello` e i provider con risultati si mostrano aperti. `Esc` svuota la ricerca.
 4. Ogni modifica si salva subito, come nella lista agenti: valida, scrive `agent-routing.json`, rigenera `routing.json` e, con auto-commit attivo, committa.
-5. `E` sulla cartella `flow` installa in OpenCode.
+5. `E` sulla cartella installa in OpenCode. L'export della pipeline elimina anche gli agenti timbrati installati in passato (`hybrid-pipeline-*`, `go-pipeline-*`, `mistral-pipeline-*`, `free-pipeline-*`), cercandoli per nome esatto.
+6. `f` (fork) non vale per gli archetipi: un archetipo si installa una volta sola.
 
 **Da CLI** (per script e agenti):
 
@@ -105,7 +113,8 @@ I nomi esatti dei modelli si trovano con `opencode models`.
 - **La fonte è il TUI o la CLI.** Puoi modificare `.agent-manager/agent-routing.json` a mano, è un normale archivio JSON. Dopo però esegui sempre `routing build` (o `category build --all`) e `routing check`.
 - **Non modificare mai `src/plugins/agent-router/routing.json`**: è generato, e `category check --all` fallisce se non corrisponde alla configurazione.
 - **Non mettere `model` negli agenti canonici di un archetipo** per "configurarli": li rende fissi e le configurazioni smettono di valere. Si fa solo quando l'utente vuole davvero un agente fisso, per esempio il modello vision di `flow-eye`.
-- **Non creare copie per provider** degli agenti (bundle timbrati) per flow: è la strada abbandonata.
+- **Non creare copie per provider** degli agenti (bundle timbrati) per nessun archetipo: è la strada abbandonata.
+- **Non nascondere i subagent** di un archetipo con `hidden: true`: sparirebbero dall'elenco del tool `subagent` (vedi §1).
 - **Non proporre di testa tua cambi di modello, temperatura o modello per ruolo** durante le review delle pipeline: decide l'utente.
 - **Risorse di un archetipo** (skill, tool, plugin): si aggiungono con il Resource Manager (`U`), oppure in `.agent-manager/companion-links.json` e nel manifest `.agent-manager/categories/<id>.json`. Poi `category build --all`. Un plugin che importa file da `src/tools/` va elencato anche nel manifest.
 - **Prima di chiudere**: `npm --prefix manage-agents run validate`.
@@ -123,10 +132,10 @@ I nomi esatti dei modelli si trovano con `opencode models`.
 3. L'archetipo deve essere distribuito come agenti canonici, cioè una categoria con manifest V2 che includa `src/plugins/agent-router` e `src/tools/_agent_router.js`, più la voce `plugins/agent-router` in `companion-links.json`.
 4. Aggiungi i test in `manage-agents/src/utils/agentRouting.test.ts`, poi esegui la validazione.
 
-## 7. Stato e prossimi passi
+## 7. Stato
 
-- **Fatto, passo 1:** `flow` usa il modello unico. I bundle `*-flow`, `flow-profiles.json` e i comandi `manage-agents flow …` sono stati rimossi.
-- **Da fare, passo 2:** migrare `pipeline`. Si parte solo dopo che flow è stato verificato in una sessione reale.
-  - Gli agenti canonici `pipeline-*` hanno `pipeline-orchestrator` come riferimento e sostituiscono i bundle `*-pipeline` e `pipeline-profiles.json`.
-  - Punti delicati: i permessi `task` degli agenti sono legati ai nomi timbrati; ci sono i profili bash; i bridge Claude Code e Codex oggi partono dai bundle timbrati.
-- **Bridge Claude Code e Codex:** non usano le configurazioni. Traducono i modelli in alias Claude (`sonnet`, `opus`…) tramite `.agent-manager/translation-config.json`, perché non possono far girare i modelli dei provider OpenCode.
+- **Passo 1, `flow`:** usa il modello unico. I bundle `*-flow`, `flow-profiles.json` e i comandi `manage-agents flow …` sono stati rimossi.
+- **Passo 2, `pipeline`:** usa il modello unico. Gli agenti canonici `pipeline-*` hanno `pipeline-orchestrator` come riferimento, e solo l'orchestratore ha `model`. La categoria ha il manifest `.agent-manager/categories/pipeline.json` e si costruisce in `export/categories/pipeline`. I bundle `*-pipeline`, `pipeline-profiles.json` e i comandi `manage-agents pipeline list|show|apply|sync|refresh|delete` sono stati rimossi; `pipeline sync-bash` resta.
+  - I permessi `subagent` dell'orchestratore usano già i nomi canonici, e i profili bash si applicano solo a `src/agents/pipeline-*.md`.
+  - I valori di `steps` e `color` ritoccati nelle vecchie copie timbrate non esistono più: valgono quelli degli agenti canonici.
+- **Bridge Claude Code e Codex:** partono dagli agenti canonici `src/agents/pipeline-*.md` e non usano le configurazioni. Traducono i modelli in alias Claude (`sonnet`, `opus`…) o Codex tramite `.agent-manager/translation-config.json`, perché non possono far girare i modelli dei provider OpenCode.

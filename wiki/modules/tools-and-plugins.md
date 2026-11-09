@@ -40,9 +40,10 @@ source_files:
   - "src/plugins/pipeline-tools/index.ts"
   - "src/plugins/doc-tools/index.ts"
   - "src/plugins/slide-tools/index.ts"
+  - "src/plugins/agent-router/index.ts"
   - "src/plugins/README.md"
 created: "2026-10-16"
-last_updated: "2026-11-02"
+last_updated: "2026-11-09"
 ---
 
 # Tools and Plugins
@@ -106,6 +107,10 @@ The guard registers OpenCode V2 hooks; the V1 hook names no longer exist. The re
 - **Doom-loop guard**: V2 has no `doom_loop` permission action, so the guard rejects the third consecutive identical tool call in a session. Calls are compared as `(tool, stable input)` signatures with object keys sorted at every level. A different call, an idle session, or a session end resets the streak. The state is in-memory only.
 - **Activity log**: one JSON line per event goes to `<git-common-dir>/opencode-pipeline/logs/<rootId>.jsonl`, shared by a root session and its subagents. Events are `tool`, `guard_block`, `permission`, `steps` (per-session LLM and tool-call counts, written on idle and at process exit), `session_error`, and `warning`. The file is capped at 512 KB; when full, the oldest half is dropped and a `truncated` marker records how many events were removed. `pipeline_state` reads the log back as `activity`.
 - **Idle handling**: when a root session goes idle, the guard stops the service that session started with `dev_serve` (`stopServicesOwnedBy` from `_serve.js`), compares git state with the session baseline, and warns about new branches, worktrees, stashes, or a changed checked-out branch.
+
+## Agent router
+
+`src/plugins/agent-router/index.ts` ships with both the `flow` and `pipeline` bundles and registers no tools. When `flow-build`, `flow-plan`, or `pipeline-orchestrator` calls the `subagent` tool, it sets the subagent's model from the archetype model configuration that matches the caller's provider or exact model, read from the generated `routing.json` next to the plugin; roles without a configuration inherit the caller's model. The decision logic is in `src/tools/_agent_router.js`. See `ARCHETIPI.md` and `src/plugins/README.md`.
 
 ## Dependencies
 

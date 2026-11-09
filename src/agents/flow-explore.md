@@ -3,7 +3,6 @@ description: Fast read-only codebase explorer for the flow family. Answers one n
 mode: subagent
 color: "#56CCF2"
 steps: 40
-hidden: true
 permissions:
   - action: "*"
     resource: "*"

@@ -42,6 +42,55 @@
           }
         }
       }
+    },
+    "pipeline": {
+      "roles": [
+        "chrome_devtools",
+        "code_reviewer",
+        "critic",
+        "docs_grounding",
+        "executor",
+        "explorer",
+        "fast_lane",
+        "frontend_specialist",
+        "hitl",
+        "kotlin_specialist",
+        "multimodal",
+        "ops",
+        "orchestrator",
+        "planner",
+        "post_session",
+        "reasoner",
+        "refactorer",
+        "researcher",
+        "security_auditor",
+        "swift_specialist",
+        "tester"
+      ],
+      "pinned": [],
+      "routes": {
+        "mistral": {
+          "roles": {
+            "chrome_devtools": "mistral/deepseek-v4-1-flash-1017#high",
+            "code_reviewer": "mistral/deepseek-v4-1-flash-1017#high",
+            "critic": "mistral/deepseek-v4-1-flash-1017#high",
+            "docs_grounding": "mistral/deepseek-v4-1-flash-1017#high",
+            "executor": "mistral/deepseek-v4-1-flash-1017#high",
+            "explorer": "mistral/deepseek-v4-1-flash-1017#high",
+            "fast_lane": "mistral/deepseek-v4-1-flash-1017#high",
+            "frontend_specialist": "mistral/deepseek-v4-1-flash-1017#high",
+            "hitl": "mistral/deepseek-v4-1-flash-1017#high",
+            "kotlin_specialist": "mistral/deepseek-v4-1-flash-1017#high",
+            "multimodal": "mistral/deepseek-v4-1-flash-1017#high",
+            "ops": "mistral/deepseek-v4-1-flash-1017#high",
+            "post_session": "mistral/deepseek-v4-1-flash-1017#high",
+            "refactorer": "mistral/deepseek-v4-1-flash-1017#high",
+            "researcher": "mistral/deepseek-v4-1-flash-1017#high",
+            "swift_specialist": "mistral/deepseek-v4-1-flash-1017#high",
+            "tester": "mistral/deepseek-v4-1-flash-1017#high"
+          }
+        }
+      }
     }
   }
 }

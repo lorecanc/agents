@@ -33,6 +33,7 @@ export const DEFAULT_COMPANION_LINKS: CompanionLinksConfig = {
   categories: {
     pipeline: {
       plugins: [
+        "plugins/agent-router",
         "plugins/dev-tools",
         "plugins/doc-tools",
         "plugins/pipeline-guard",
@@ -181,19 +182,8 @@ export function getCompanionLinksConfigPath(workspaceRoot: string): string {
   return path.join(workspaceRoot, ".agent-manager", "companion-links.json")
 }
 
-export function resolveCompanionCategoryKey(config: CompanionLinksConfig, categoryOrDomain: string): string {
-  const key = categoryOrDomain.trim().toLocaleLowerCase("und")
-  if (key === "pipeline" || key === "hybrid" || key === "hybrid-pipeline" || key.endsWith("-pipeline")) {
-    if (config.categories[key]) return key
-    if (config.categories[`${key}-pipeline`]) return `${key}-pipeline`
-    if (config.categories.pipeline) return "pipeline"
-  }
-  if (config.categories[key]) return key
-  const pipelineKey = `${key}-pipeline`
-  if (config.categories[pipelineKey]) return pipelineKey
-  const domainKey = key.endsWith("-pipeline") ? key.slice(0, -"-pipeline".length) : ""
-  if (domainKey && config.categories[domainKey]) return domainKey
-  return key
+export function resolveCompanionCategoryKey(_config: CompanionLinksConfig, categoryOrDomain: string): string {
+  return categoryOrDomain.trim().toLocaleLowerCase("und")
 }
 
 function emptyLinks(): CompanionCategoryLinks {
@@ -642,35 +632,10 @@ export function syncCategoryManifestTransitiveDependencies(workspaceRoot: string
   fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf-8")
 }
 
-function categoryDomain(category: string): string {
-  const key = category.trim().toLocaleLowerCase("und")
-  return key.endsWith("-pipeline") ? key.slice(0, -"-pipeline".length) : key
-}
-
 function resolveSourceRoot(workspaceRoot: string): string {
   return fs.existsSync(path.join(workspaceRoot, "src"))
     ? path.join(workspaceRoot, "src")
     : path.join(workspaceRoot, "general")
-}
-
-export function copyCategoryCompanionLinks(workspaceRoot: string, sourceCategory: string, targetCategory: string): string {
-  const config = loadCompanionLinks(workspaceRoot)
-  const sourceKey = resolveCompanionCategoryKey(config, sourceCategory)
-  const targetKey = resolveCompanionCategoryKey(config, targetCategory)
-  const source = normalizeCategoryLinks(config.categories[sourceKey])
-  const sourceDomain = categoryDomain(sourceKey)
-  const targetDomain = categoryDomain(targetKey)
-  const sourceRoot = resolveSourceRoot(workspaceRoot)
-  const commandsDirectory = path.join(sourceRoot, "commands")
-  let targetCommands: string[] = []
-  if (fs.existsSync(commandsDirectory) && fs.statSync(commandsDirectory).isDirectory()) {
-    targetCommands = fs.readdirSync(commandsDirectory)
-      .filter(name => name.startsWith(`${targetDomain}-`) && name.endsWith(".md") && fs.statSync(path.join(commandsDirectory, name)).isFile())
-      .map(name => `commands/${name}`)
-  }
-  const commands = [...source.commands, ...targetCommands]
-  config.categories[targetKey] = { ...source, commands: normalizePaths(commands) }
-  return saveCompanionLinks(workspaceRoot, config)
 }
 
 function isExcludedFile(name: string): boolean {

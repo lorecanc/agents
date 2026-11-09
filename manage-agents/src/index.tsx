@@ -7,7 +7,7 @@ import path from "node:path"
 import readline from "node:readline"
 import { App } from "./App.js"
 import { fetchModels, loadModelCatalog, getModelVariants } from "./utils/models.js"
-import { exportAgents, getExportDestination, analyzeAgentName, renameAgent, auditSecurityPermissions, importAgents, previewImport, updateAgentParams, sanitizeFilename, KNOWN_MODEL_VARIANTS, resolveSourceSubdir, resolveCategoriesSubdir } from "./utils/agents.js"
+import { exportAgents, getExportDestination, analyzeAgentName, renameAgent, auditSecurityPermissions, importAgents, previewImport, updateAgentParams, sanitizeFilename, KNOWN_MODEL_VARIANTS, resolveSourceSubdir, resolveCategoriesSubdir, checkPipelineResources, findAgentFiles } from "./utils/agents.js"
 import {
   DEFAULT_TRANSLATION_CONFIG,
   loadTranslationConfig,
@@ -19,11 +19,9 @@ import {
   type TranslationTarget
 } from "./utils/translationConfig.js"
 import { AUTO_COMMIT_MESSAGES, isRepositoryLocalPath, repositoryTransaction, parseAutoCommitArgs } from "./utils/repositoryTransaction.js"
-import { buildCategoryDistribution, buildAllCategoryDistributions, recoverBuildAllCategoryDistributions, checkCategoryDistribution, loadCategoryManifest, packageCategoryDistributions, parseCategoryArgs, listBundleFiles, pruneGeneratedBundle, extraGeneratedBundleFiles } from "./utils/categoryDistribution.js"
+import { buildCategoryDistribution, buildAllCategoryDistributions, recoverBuildAllCategoryDistributions, checkCategoryDistribution, loadCategoryManifest, packageCategoryDistributions, parseCategoryArgs } from "./utils/categoryDistribution.js"
 import { loadUiConfig } from "./utils/uiConfig.js"
-import { loadPipelineProfiles, applyPipelineProfile, syncPipelineProfile, deleteStampedPipeline, resolveProfileRoleSpec, PIPELINE_ROLES, loadStampedPipelineAgents, refreshStampedPipelinesFromSource, checkPipelineBundles, type RefreshStampedPipelinesResult } from "./utils/pipelineProfiles.js"
 import { agentRoutingConfigPath, agentRoutingOutputPath, buildAgentRouting, checkAgentRouting, describeAgentRouting, isRoutableArchetype, ROUTABLE_ARCHETYPES, setArchetypeConfig } from "./utils/agentRouting.js"
-import { getCompanionLinksConfigPath } from "./utils/companionLinks.js"
 import { BASH_PROFILES_FILE, checkBashProfiles, syncBashProfiles } from "./utils/bashProfiles.js"
 import { claudeNextSteps } from "./utils/claudeNextSteps.js"
 import { registerPlugin, validatePlugin } from "./utils/claudePluginCli.js"
@@ -398,7 +396,7 @@ Subcommands:
   check                   Verify committed bridges match a fresh regeneration
 
 Options:
-  --category, -c <name>   Category to bridge (e.g. go-pipeline)
+  --category, -c <name>   Category to bridge (e.g. pipeline)
   --target, -t <name>     Translation target: claude (default) or codex
   --output, -o <path>     Output directory (default: export/bridges/<target>/<name>, or bridges/<target>/<name> without export/)
   --name, -n <name>       Plugin name (default: decent-pipeline)
@@ -458,8 +456,7 @@ automation flags are persisted the same way.
 
   const allAgents = findAgentFiles(workspaceRoot, sourceDir)
   if (allAgents.warnings) allAgents.warnings.forEach(warning => console.log(`   ⚠ ${warning}`))
-  let categoryAgents = allAgents.filter(a => a.category === category)
-  if (categoryAgents.length === 0) categoryAgents = loadStampedPipelineAgents(workspaceRoot, category)?.agents ?? []
+  const categoryAgents = allAgents.filter(a => a.category === category)
 
   if (categoryAgents.length === 0) {
     console.error(`Error: No agents found for category '${category}'.`)
@@ -550,7 +547,6 @@ async function runExport(workspaceRoot: string) {
   let exportAll = false
   let assumeYes = false
   let category = ""
-  let profile = ""
   let stackDirectory: string | undefined
 
   for (let i = 0; i < args.length; i++) {
@@ -560,8 +556,6 @@ async function runExport(workspaceRoot: string) {
       assumeYes = true
     } else if ((args[i] === "--category" || args[i] === "-c") && args[i + 1]) {
       category = args[++i]
-    } else if ((args[i] === "--profile" || args[i] === "-p") && args[i + 1]) {
-      profile = args[++i]
     } else if ((args[i] === "--stack" || args[i] === "-s") && args[i + 1]) {
       stackDirectory = args[++i]
     } else if (args[i].startsWith("--stack=")) {
@@ -585,7 +579,6 @@ Options:
   --all, -a               Export all agents
   --yes, -y                  Skip confirmation prompt
   --category, -c <name>   Export only agents from a specific category
-  --profile, -p <name>    Apply a pipeline profile before exporting
                           (agent routing is rebuilt first: see manage-agents routing show)
   --stack, -s <path>      Optional ontology-stack directory to persist in ontology-stack.json
   --help, -h              Show this help
@@ -594,7 +587,6 @@ Options:
     }
   }
 
-  try { refreshStampedPipelinesFromSource(workspaceRoot, category || undefined) } catch {}
   try {
     repositoryMutation(workspaceRoot, [agentRoutingOutputPath(workspaceRoot)], AUTO_COMMIT_MESSAGES.routing, () => buildAgentRouting(workspaceRoot))
   } catch (error: any) {
@@ -602,46 +594,13 @@ Options:
   }
 
   const sourceSubdir = resolveSourceSubdir(workspaceRoot)
-  let agentsToExport: ReturnType<typeof findAgentFiles>
-  let resourceSourceRoot = path.join(workspaceRoot, sourceSubdir)
-  if (profile && category === "pipeline") {
-    repositoryMutation(workspaceRoot, [path.join(workspaceRoot, sourceSubdir, "agents")], "pipeline", () =>
-      applyPipelineProfile(workspaceRoot, profile, "pipeline")
-    )
-    agentsToExport = findAgentFiles(workspaceRoot, sourceSubdir).filter(agent => agent.category === "pipeline")
-  } else if (profile) {
-    const synced = repositoryMutation(workspaceRoot, [path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot)), getCompanionLinksConfigPath(workspaceRoot)], "pipeline", () =>
-      syncPipelineProfile(workspaceRoot, profile, category || undefined)
-    )
-    const stamped = loadStampedPipelineAgents(workspaceRoot, synced.targetCategory)
-    if (!stamped) throw new Error(`No stamped agents found for category '${synced.targetCategory}'.`)
-    agentsToExport = stamped.agents
-    resourceSourceRoot = stamped.resourceRoot
-  } else {
-    const allAgents = findAgentFiles(workspaceRoot, sourceSubdir)
-    agentsToExport = category ? allAgents.filter(agent => agent.category === category) : allAgents
-    if (!category) {
-      const categoriesRoot = path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot))
-      if (fs.existsSync(categoriesRoot)) {
-        for (const entry of fs.readdirSync(categoriesRoot, { withFileTypes: true })) {
-          if (!entry.isDirectory() || !entry.name.endsWith("-pipeline")) continue
-          const stamped = loadStampedPipelineAgents(workspaceRoot, entry.name)
-          if (stamped) agentsToExport.push(...stamped.agents)
-        }
-      }
-    }
-    if (category && agentsToExport.length === 0) {
-      const stamped = loadStampedPipelineAgents(workspaceRoot, category)
-      if (stamped) {
-        agentsToExport = stamped.agents
-        resourceSourceRoot = stamped.resourceRoot
-      }
-    }
-    if (category && agentsToExport.length === 0) {
-      console.error(`Error: No agents found for category '${category}'.`)
-      console.error(`Available categories: ${[...new Set(allAgents.map(a => a.category))].join(", ")}`)
-      process.exit(1)
-    }
+  const resourceSourceRoot = path.join(workspaceRoot, sourceSubdir)
+  const allAgents = findAgentFiles(workspaceRoot, sourceSubdir)
+  const agentsToExport = category ? allAgents.filter(agent => agent.category === category) : allAgents
+  if (category && agentsToExport.length === 0) {
+    console.error(`Error: No agents found for category '${category}'.`)
+    console.error(`Available categories: ${[...new Set(allAgents.map(a => a.category))].join(", ")}`)
+    process.exit(1)
   }
 
   const destination = shortenHome(getExportDestination())
@@ -659,7 +618,7 @@ Options:
     process.exit(0)
   }
 
-  const result = exportAgents(agentsToExport, undefined, resourceSourceRoot, { stackDirectory, completeExport: !category && !profile })
+  const result = exportAgents(agentsToExport, undefined, resourceSourceRoot, { stackDirectory, completeExport: !category })
 
   if (result.pluginProvisioning?.ontologyStackWarning) {
     console.warn(`   ⚠  ${result.pluginProvisioning.ontologyStackWarning}`)
@@ -984,89 +943,19 @@ async function runTuneCLI(workspaceRoot: string) {
 }
 
 async function runPipelineCLI(workspaceRoot: string) {
-  const [action, profileName, ...options] = process.argv.slice(3)
+  const [action] = process.argv.slice(3)
   if (!action || action === "--help" || action === "-h") {
-    console.log("Usage: manage-agents pipeline list|show <profile>|apply <profile> [--category <cat>]|sync <profile> [--target <target-pipeline>]|sync --all|refresh [--target <target-pipeline>]|sync-bash [--dry-run]|delete <name> [--also-installed]")
+    console.log("Usage: manage-agents pipeline sync-bash [--dry-run]\nModel configurations for the pipeline archetype: manage-agents routing (see ARCHETIPI.md).")
     return
   }
+  if (action !== "sync-bash") throw new Error(`Unknown pipeline action '${action}'. Pipeline profiles were removed: use \`manage-agents routing\` for models.`)
 
-  if (action === "sync-bash") {
-    const dryRun = process.argv.slice(4).includes("--dry-run")
-    const run = () => syncBashProfiles(workspaceRoot, { dryRun })
-    const result = dryRun ? run() : repositoryMutation(workspaceRoot, [path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot), "agents")], AUTO_COMMIT_MESSAGES.pipeline, run)
-    console.log(`${dryRun ? "Would rewrite" : "Rewrote"} ${result.changed.length} bash block(s) from ${BASH_PROFILES_FILE}; ${result.unchanged.length} already match; ${result.skipped.length} agent(s) without a bash profile left untouched.`)
-    result.changed.forEach(file => console.log(`  ${dryRun ? "~" : "*"} ${file}`))
-    if (result.changed.length > 0) console.log("Run `category build --all` to refresh stamped pipelines.")
-    return
-  }
-
-  if (action === "list") {
-    const config = loadPipelineProfiles(workspaceRoot)
-    console.log(`Base category: ${config.baseCategory}`)
-    for (const [name, profile] of Object.entries(config.profiles)) console.log(`${name}: ${profile.description}`)
-    return
-  }
-
-  const refreshAll = action === "refresh" || (action === "sync" && (profileName === "--all" || options.includes("--all")))
-  if (refreshAll) {
-    const refreshArgs = process.argv.slice(3)
-    let target = ""
-    for (let i = 0; i < refreshArgs.length; i++) {
-      if ((refreshArgs[i] === "--target" || refreshArgs[i] === "-t") && refreshArgs[i + 1]) target = refreshArgs[++i]
-    }
-    const result = repositoryMutation(workspaceRoot, [path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot)), getCompanionLinksConfigPath(workspaceRoot)], AUTO_COMMIT_MESSAGES.pipeline, () =>
-      refreshStampedPipelinesFromSource(workspaceRoot, target || undefined)
-    )
-    console.log(`Refreshed ${result.refreshedCategories.length} stamped pipeline(s): ${result.updatedAgents.length} agent file(s), ${result.updatedCompanions.length} companion file(s) updated.`)
-    return
-  }
-
-  if (action !== "show" && action !== "apply" && action !== "sync" && action !== "delete") throw new Error(`Unknown pipeline action '${action}'`)
-  if (!profileName || profileName.startsWith("-")) throw new Error(`pipeline ${action} requires a profile name`)
-
-  if (action === "delete") {
-    const alsoInstalled = options.includes("--also-installed")
-    const resolvedTarget = profileName === "pipeline" || profileName.endsWith("-pipeline") ? profileName : `${profileName}-pipeline`
-    const result = repositoryMutation(workspaceRoot, [path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot), resolvedTarget), getCompanionLinksConfigPath(workspaceRoot)], AUTO_COMMIT_MESSAGES.pipeline, () =>
-      deleteStampedPipeline(workspaceRoot, profileName, { alsoInstalled })
-    )
-    console.log(`Deleted category '${result.deletedCategory}': removed ${result.removedAgentsCount} agents from ${result.outputDir}.`)
-    if (alsoInstalled) {
-      console.log(`Removed ${result.removedInstalledAgents.length} installed agents and ${result.removedInstalledCommands.length} installed commands.`)
-    }
-    return
-  }
-
-  const config = loadPipelineProfiles(workspaceRoot)
-  const profile = config.profiles[profileName]
-  if (!profile) throw new Error(`Unknown pipeline profile '${profileName}'`)
-
-  if (action === "show") {
-    console.log(`${profileName}: ${profile.description}`)
-    for (const role of PIPELINE_ROLES) {
-      const spec = resolveProfileRoleSpec(profile, role)
-      console.log(`  ${role}: ${spec ? `${spec.model}${spec.variant ? `#${spec.variant}` : ""}` : "(not configured)"}`)
-    }
-    return
-  }
-
-  let category = ""
-  for (let i = 0; i < options.length; i++) {
-    if ((options[i] === "--category" && options[i + 1]) || (options[i] === "--target" && options[i + 1])) category = options[++i]
-  }
-
-  if (action === "apply") {
-    const result = repositoryMutation(workspaceRoot, [path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot), "agents"), path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot))], "pipeline", () =>
-      applyPipelineProfile(workspaceRoot, profileName, category || undefined)
-    )
-    console.log(`Applied profile '${profileName}' to category '${result.targetCategory}': updated ${result.updated.length} agent files.`)
-    return
-  }
-
-  const result = repositoryMutation(workspaceRoot, [path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot), "agents"), path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot)), getCompanionLinksConfigPath(workspaceRoot)], "pipeline", () =>
-    syncPipelineProfile(workspaceRoot, profileName, category || undefined)
-  )
-  console.log(`Synced profile '${profileName}' to category '${result.targetCategory}': ${result.synced.length} agents at ${result.outputDir}.`)
+  const dryRun = process.argv.slice(4).includes("--dry-run")
+  const run = () => syncBashProfiles(workspaceRoot, { dryRun })
+  const result = dryRun ? run() : repositoryMutation(workspaceRoot, [path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot), "agents")], AUTO_COMMIT_MESSAGES.pipeline, run)
+  console.log(`${dryRun ? "Would rewrite" : "Rewrote"} ${result.changed.length} bash block(s) from ${BASH_PROFILES_FILE}; ${result.unchanged.length} already match; ${result.skipped.length} agent(s) without a bash profile left untouched.`)
+  result.changed.forEach(file => console.log(`  ${dryRun ? "~" : "*"} ${file}`))
+  if (result.changed.length > 0) console.log("Run `category build --all` to rebuild the pipeline category.")
 }
 
 // Model configurations for archetypes (see ARCHETIPI.md): when a primary of the archetype (flow-build
@@ -1289,8 +1178,7 @@ async function runSharedSyncCLI(workspaceRoot: string) {
       const added = result.updated.filter(file => before.missingInTarget.includes(file)).length
       const updated = result.updated.length - added
       const refreshRequested = components.includes("pipelineCore") && args.refreshPipelines !== false
-      const stampedPipelinesRefreshed = refreshRequested && !result.dryRun
-      const bashProfilesRefreshed = stampedPipelinesRefreshed && fs.existsSync(path.join(targetRoot, ".agent-manager", "bash-profiles.json"))
+      const bashProfilesRefreshed = refreshRequested && !result.dryRun && fs.existsSync(path.join(targetRoot, ".agent-manager", "bash-profiles.json"))
       const report = {
         dryRun: result.dryRun,
         source: sourceRoot,
@@ -1300,7 +1188,7 @@ async function runSharedSyncCLI(workspaceRoot: string) {
         added,
         updated,
         filesToWrite: result.updated,
-        refreshed: { stampedPipelines: stampedPipelinesRefreshed, bashProfiles: bashProfilesRefreshed },
+        refreshed: { bashProfiles: bashProfilesRefreshed },
         noAutomaticGitCommit: true
       }
       if (args.json) console.log(JSON.stringify(report, null, 2))
@@ -1308,8 +1196,7 @@ async function runSharedSyncCLI(workspaceRoot: string) {
         console.log(`${result.dryRun ? "Anteprima sincronizzazione" : "Sincronizzazione applicata"}: ${sourceRoot} → ${targetRoot}`)
         for (const component of components) console.log(`  ${component} ${sourceVersions[component] ?? "versione n/d"}`)
         console.log(`File: ${added} da aggiungere, ${updated} da aggiornare (${result.updated.length} scritture previste/eseguite)`)
-        console.log(`Refresh pipeline stamped: ${stampedPipelinesRefreshed ? "eseguito" : refreshRequested ? "non eseguito (dry-run)" : "non richiesto"}`)
-        console.log(`Refresh profili Bash: ${bashProfilesRefreshed ? "eseguito" : stampedPipelinesRefreshed ? "non presente" : "non eseguito"}`)
+        console.log(`Refresh profili Bash: ${bashProfilesRefreshed ? "eseguito" : !refreshRequested ? "non richiesto" : result.dryRun ? "non eseguito (dry-run)" : "non presente"}`)
         console.log("Nessun commit Git automatico creato: controlla `git diff` e `git status` nella destinazione.")
       }
       return
@@ -1338,122 +1225,33 @@ async function runCategory(workspaceRoot: string) {
   const ids = parsed.ids?.length ? parsed.ids : parsed.id ? [parsed.id] : fs.existsSync(categoryConfigDir) ? fs.readdirSync(categoryConfigDir).filter(file => file.endsWith(".json")).map(file => file.slice(0, -5)).sort() : []
   if (parsed.action === "explain") { const result = ids.map(id => loadCategoryManifest(repoRoot, id)); console.log(parsed.json ? JSON.stringify(result) : result.map(value => JSON.stringify(value, null, 2)).join("\n")); return }
   if (parsed.action === "package") { const result = packageCategoryDistributions(repoRoot, parsed.ids || ids, parsed.output || "", parsed.dryRun); console.log(parsed.json ? JSON.stringify(result) : `${parsed.dryRun ? "Would package" : "Packaged"} ${result.categories.join(", ")} to ${parsed.output}`); return }
-  // Stamped `*-pipeline` bundles have no category manifest: `build` refreshes
-  // them from the canonical pipeline and `check` verifies their OpenCode
-  // tools/plugin. `--all` covers every stamped bundle as well as the manifests.
-  const isPipelineId = (id: string) => id === "pipeline" || id.endsWith("-pipeline")
   const all = !parsed.id
-  const categoriesRoot = path.join(repoRoot, resolveCategoriesSubdir(repoRoot))
-  // `--all` also covers stamped bundles: manifest ids never include them.
-  const pipelineIds = all
-    ? fs.existsSync(categoriesRoot)
-      ? fs.readdirSync(categoriesRoot, { withFileTypes: true }).filter(entry => entry.isDirectory() && entry.name.endsWith("-pipeline")).map(entry => entry.name)
-      : []
-    : ids.filter(isPipelineId)
-  const manifestIds = ids.filter(id => !isPipelineId(id))
-  // `check`/`status` are read-only: run the refresh renderer against a throwaway
-  // copy of the bundle so drift can be reported without persisting it.
-  const previewStampedPipelines = (category?: string): RefreshStampedPipelinesResult => {
-    const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "manage-agents-category-check-"))
-    const categoriesSubdir = resolveCategoriesSubdir(repoRoot)
-    try {
-      for (const relative of [".agent-manager", resolveSourceSubdir(repoRoot)]) {
-        const source = path.join(repoRoot, relative)
-        if (fs.existsSync(source)) fs.cpSync(source, path.join(temporary, relative), { recursive: true })
-      }
-      const categoriesRootPath = path.join(temporary, categoriesSubdir)
-      const names = category ? [category] : fs.existsSync(categoriesRoot)
-        ? fs.readdirSync(categoriesRoot, { withFileTypes: true }).filter(entry => entry.isDirectory() && entry.name.endsWith("-pipeline")).map(entry => entry.name)
-        : []
-      for (const name of names) {
-        const source = path.join(categoriesRoot, name)
-        if (fs.existsSync(source)) fs.cpSync(source, path.join(categoriesRootPath, name), { recursive: true })
-      }
-      const result = refreshStampedPipelinesFromSource(temporary, category)
-      const rebase = (file: string) => path.join(repoRoot, path.relative(temporary, file))
-      return { ...result, updatedAgents: result.updatedAgents.map(rebase), updatedCompanions: result.updatedCompanions.map(rebase) }
-    } finally {
-      fs.rmSync(temporary, { recursive: true, force: true })
-    }
-  }
-  // Stamped bundles have no manifest: render one into a throwaway tree to learn
-  // the exact file set a refresh produces without touching the real bundle.
-  const renderedPipelineFiles = (categories: string[]): Map<string, string[]> => {
-    const result = new Map<string, string[]>(), temporary = fs.mkdtempSync(path.join(os.tmpdir(), "manage-agents-category-expected-"))
-    try {
-      for (const relative of [".agent-manager", resolveSourceSubdir(repoRoot)]) {
-        const source = path.join(repoRoot, relative)
-        if (fs.existsSync(source)) fs.cpSync(source, path.join(temporary, relative), { recursive: true })
-      }
-      const categoriesRootPath = path.join(temporary, resolveCategoriesSubdir(repoRoot))
-      for (const category of categories) {
-        const bundle = path.join(categoriesRootPath, category)
-        fs.mkdirSync(path.join(bundle, "agents"), { recursive: true })
-        const rendered = refreshStampedPipelinesFromSource(temporary, category)
-        if (rendered.refreshedCategories.length > 0) result.set(category, listBundleFiles(bundle))
-      }
-      return result
-    } finally {
-      fs.rmSync(temporary, { recursive: true, force: true })
-    }
-  }
-  const refreshPipelines = (category?: string, options: { dryRun?: boolean } = {}) =>
-    options.dryRun === true
-      ? previewStampedPipelines(category)
-      : repositoryMutation(repoRoot, [path.join(repoRoot, resolveCategoriesSubdir(repoRoot)), getCompanionLinksConfigPath(repoRoot)], AUTO_COMMIT_MESSAGES.pipeline, () => {
-        const result = refreshStampedPipelinesFromSource(repoRoot, category)
-        for (const [id, files] of renderedPipelineFiles(result.refreshedCategories)) pruneGeneratedBundle(path.join(categoriesRoot, id), files)
-        return result
-      })
-  const pipelineDrifts: Array<{ category: string; updatedAgents: string[]; updatedCompanions: string[] }> = []
-  const pipelineExtras: Array<{ category: string; files: string[] }> = []
-  if (parsed.action === "build") {
-    if (all) refreshPipelines()
-    else for (const id of pipelineIds) if (id !== "pipeline") refreshPipelines(id)
-  } else if (parsed.action === "check" || parsed.action === "status") {
-    for (const id of pipelineIds) if (id !== "pipeline") {
-      const drift = refreshPipelines(id, { dryRun: true })
-      pipelineDrifts.push({ category: id, updatedAgents: drift.updatedAgents, updatedCompanions: drift.updatedCompanions })
-    }
-    for (const [id, files] of renderedPipelineFiles(pipelineIds.filter(id => id !== "pipeline"))) {
-      const extras = extraGeneratedBundleFiles(path.join(categoriesRoot, id), files)
-      if (extras.length > 0) pipelineExtras.push({ category: id, files: extras })
-    }
-  }
   // routing.json lives in the canonical plugin directory, so it is rebuilt before the manifests copy it.
   const routingInScope = all || ids.some(isRoutableArchetype)
   if (routingInScope && parsed.action === "build") repositoryMutation(repoRoot, [agentRoutingOutputPath(repoRoot)], AUTO_COMMIT_MESSAGES.routing, () => buildAgentRouting(repoRoot))
   const routingCheck = routingInScope && (parsed.action === "check" || parsed.action === "status") ? checkAgentRouting(repoRoot) : { problems: [], warnings: [] }
   const results = parsed.action === "build" && all
     ? buildAllCategoryDistributions(repoRoot)
-    : manifestIds.map(id => parsed.action === "check" || parsed.action === "status" ? checkCategoryDistribution(repoRoot, id) : repositoryMutation(repoRoot, [path.join(repoRoot, resolveCategoriesSubdir(repoRoot), id)], `chore(agent-manager): build ${id} category`, () => buildCategoryDistribution(repoRoot, id)))
-  const resultIds = parsed.action === "build" && all ? ids : manifestIds
-  const pipelineChecks = all || pipelineIds.length > 0 ? checkPipelineBundles(repoRoot, all ? undefined : pipelineIds) : []
-  const pipelineDriftFiles = pipelineDrifts.flatMap(drift => [...drift.updatedAgents, ...drift.updatedCompanions]).sort()
-  if (parsed.json) console.log(JSON.stringify(pipelineChecks.length || pipelineDriftFiles.length || pipelineExtras.length || routingCheck.problems.length ? { categories: results, pipelines: pipelineChecks, ...(pipelineDriftFiles.length ? { pipelineDrift: pipelineDrifts } : {}), ...(pipelineExtras.length ? { pipelineExtras } : {}), ...(routingCheck.problems.length ? { routing: routingCheck } : {}) } : results))
+    : ids.map(id => parsed.action === "check" || parsed.action === "status" ? checkCategoryDistribution(repoRoot, id) : repositoryMutation(repoRoot, [path.join(repoRoot, resolveCategoriesSubdir(repoRoot), id)], `chore(agent-manager): build ${id} category`, () => buildCategoryDistribution(repoRoot, id)))
+  const pipelineInScope = all || ids.includes("pipeline")
+  // The bash allowlists of the canonical pipeline agents come from .agent-manager/bash-profiles.json.
+  const bashDrifts = pipelineInScope ? checkBashProfiles(repoRoot) : []
+  // The built pipeline bundle must ship every tool its agents permit and every helper those tools import.
+  const pipelineBundleSubdir = path.join(resolveCategoriesSubdir(repoRoot), "pipeline")
+  const pipelineProblems = pipelineInScope && fs.existsSync(path.join(repoRoot, pipelineBundleSubdir, "agents"))
+    ? checkPipelineResources(path.join(repoRoot, pipelineBundleSubdir), findAgentFiles(repoRoot, pipelineBundleSubdir))
+    : []
+  if (parsed.json) console.log(JSON.stringify(bashDrifts.length || pipelineProblems.length || routingCheck.problems.length ? { categories: results, ...(bashDrifts.length ? { bashDrifts } : {}), ...(pipelineProblems.length ? { pipelineProblems } : {}), ...(routingCheck.problems.length ? { routing: routingCheck } : {}) } : results))
   else {
-    results.forEach((result, index) => console.log(result.status === "current" ? `Category ${resultIds[index]} is current.` : `Category ${resultIds[index]} is stale.\nMissing: ${result.missing.join(", ") || "none"}\nChanged: ${result.changed.join(", ") || "none"}\nExtra: ${result.extra.join(", ") || "none"}`))
-    for (const check of pipelineChecks) {
-      if (check.orphan) console.log(`Pipeline ${check.category}: warning, companions without agents (not installable; refresh or delete it).`)
-      else if (check.problems.length === 0) console.log(`Pipeline ${check.category} ships its OpenCode tools and plugin.`)
-      else console.log(`Pipeline ${check.category} is incomplete:\n${check.problems.map(problem => `  - [${problem.kind}] ${problem.detail}`).join("\n")}`)
-    }
+    results.forEach((result, index) => console.log(result.status === "current" ? `Category ${ids[index]} is current.` : `Category ${ids[index]} is stale.\nMissing: ${result.missing.join(", ") || "none"}\nChanged: ${result.changed.join(", ") || "none"}\nExtra: ${result.extra.join(", ") || "none"}`))
     for (const problem of routingCheck.problems) console.log(`Agent routing: ${problem}`)
     for (const warning of routingCheck.warnings) console.log(`Agent routing warning: ${warning}`)
-    for (const extra of pipelineExtras) console.log(`Pipeline ${extra.category} has extra generated files (run \`category build --all\` to remove them):\n${extra.files.map(file => `  - ${file}`).join("\n")}`)
-    for (const drift of pipelineDrifts) {
-      const outOfDate = drift.updatedAgents.length + drift.updatedCompanions.length
-      if (outOfDate > 0) console.log(`Pipeline ${drift.category} needs a refresh (${drift.updatedAgents.length} agent(s), ${drift.updatedCompanions.length} companion(s) out of date); run \`category build --all\`.`)
-    }
+    if (pipelineProblems.length) console.log(`Pipeline bundle is incomplete:\n${pipelineProblems.map(problem => `  - [${problem.kind}] ${problem.detail}`).join("\n")}`)
+    for (const drift of bashDrifts) console.log(`Bash allowlist drift in ${drift.file} (role ${drift.role}, ${drift.problem}); fix with \`pipeline sync-bash\` then \`category build --all\`:\n${drift.diff.map(line => `    ${line}`).join("\n")}`)
   }
-  const bashDrifts = all || pipelineIds.length > 0
-    ? checkBashProfiles(repoRoot).filter(drift => all || pipelineIds.some(id => id === "pipeline" ? drift.file.startsWith(`${resolveSourceSubdir(repoRoot)}/`) : drift.file.includes(`/${id}/`)))
-    : []
-  if (!parsed.json) for (const drift of bashDrifts) console.log(`Bash allowlist drift in ${drift.file} (role ${drift.role}, ${drift.problem}); fix with \`pipeline sync-bash\` then \`category build --all\`:\n${drift.diff.map(line => `    ${line}`).join("\n")}`)
-  else if (bashDrifts.length) console.log(JSON.stringify({ bashDrifts }))
-  const pipelineFailed = pipelineChecks.some(check => check.problems.length > 0) || pipelineDriftFiles.length > 0 || pipelineExtras.length > 0 || bashDrifts.length > 0 || routingCheck.problems.length > 0
-  if ((parsed.action === "check" || parsed.action === "status") && (results.some(result => result.status !== "current") || pipelineFailed)) process.exitCode = 1
-  if (parsed.action === "build" && pipelineFailed) process.exitCode = 1
+  const failed = bashDrifts.length > 0 || pipelineProblems.length > 0 || routingCheck.problems.length > 0
+  if ((parsed.action === "check" || parsed.action === "status") && (results.some(result => result.status !== "current") || failed)) process.exitCode = 1
+  if (parsed.action === "build" && failed) process.exitCode = 1
 }
 function runTopicExport(workspaceRoot: string) {
   console.error("Warning: topic-export is deprecated; use category build/check wiki.")

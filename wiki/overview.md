@@ -7,7 +7,8 @@ source_files:
   - ".agent-manager/categories/wiki.json"
   - ".agent-manager/categories/docs.json"
   - ".agent-manager/categories/slides.json"
-  - ".agent-manager/pipeline-profiles.json"
+  - ".agent-manager/categories/pipeline.json"
+  - ".agent-manager/agent-routing.json"
   - ".agent-manager/companion-links.json"
   - ".agent-manager/translation-config.json"
   - ".agent-manager/shared-sync.json"
@@ -19,7 +20,7 @@ source_files:
   - "manage-agents/README.md"
   - "manage-agents/package.json"
 created: "2026-10-16"
-last_updated: "2026-11-02"
+last_updated: "2026-11-09"
 ---
 
 # OpenCode Agents Monorepo
@@ -30,7 +31,7 @@ This repository provides a reusable OpenCode workspace: canonical agent prompts 
 
 - Agent prompt families for general pipeline work, documentation, slides, and wiki authoring, alongside commands, skills, tools, plugins, and an OpenCode configuration blueprint. The [agent catalog](./modules/agent-catalog.md) and [workflow resources](./modules/workflow-resources.md) describe these authored inputs.
 - Manifest-driven category builds and checks, with generated category bundles kept separate from canonical input.
-- Pipeline model profiles and bridge generation for Claude Code and Codex. Both bridges emit a `decent-pipeline` plugin package under `export/bridges/{claude-code,codex}/decent-pipeline/` (plugin manifest, agents or skills, MCP config, and a README); TypeScript runtime plugins are not transpiled into the bridges. See [Agent Manager](./modules/agent-manager.md) for the generation commands.
+- Archetype model configurations for the `flow` and `pipeline` families (`.agent-manager/agent-routing.json`, applied at runtime by the `agent-router` plugin; see `ARCHETIPI.md`) and bridge generation for Claude Code and Codex. Both bridges emit a `decent-pipeline` plugin package under `export/bridges/{claude-code,codex}/decent-pipeline/` (plugin manifest, agents or skills, MCP config, and a README); TypeScript runtime plugins are not transpiled into the bridges. See [Agent Manager](./modules/agent-manager.md) for the generation commands.
 - Shared pipeline components are versioned and synced to other repositories with `.agent-manager/shared-sync.json`, which declares component SemVer requirements and protected local overlays.
 - Deterministic pipeline support in `src/plugins/`: `dev-tools` registers the `dev_*` tools shared with `flow` (`dev_env`, `dev_verify`, `dev_smoke`, `dev_serve`), `pipeline-tools` registers the pipeline-only `pipeline_state` and `pipeline_commit`, and `pipeline-guard` enforces write and git guards, rejects a third consecutive identical tool call (doom-loop guard), and appends a JSONL activity log per root session. See [Tools and plugins](./modules/tools-and-plugins.md).
 - A Node.js/Bun terminal CLI and interactive TUI for catalog maintenance and export workflows, documented in [Agent Manager](./modules/agent-manager.md).
@@ -66,9 +67,9 @@ src/                         Canonical agent prompts and supporting resources
   commands/ skills/ tools/   Reusable workflow instructions and tools
   plugins/                   OpenCode plugins
   opencode.json              OpenCode configuration blueprint
-.agent-manager/              Category manifests, pipeline profiles, and bridge settings
+.agent-manager/              Category manifests, model configurations, and bridge settings
 export/                      Generated category distributions and bridges
-  categories/                docs, general, slides, wiki, and stamped free-, go-, hybrid-, mistral-pipeline bundles
+  categories/                docs, flow, general, pipeline, slides, and wiki bundles
   bridges/                   Claude Code and Codex packages (decent-pipeline)
 manage-agents/               TypeScript CLI and interactive terminal UI
 ```
@@ -77,14 +78,14 @@ The `.agent-manager/` directory holds declarative configuration:
 
 | File | Role |
 |------|------|
-| `categories/{docs,slides,wiki}.json` | Manifest V2 allowlists of resources per category, with SHA-256 provenance |
-| `companion-links.json` | Companion plugin, command, skill, and tool links for category and `*-pipeline` exports |
-| `pipeline-profiles.json` | Pipeline profile definitions used to stamp `*-pipeline` bundles |
+| `categories/{docs,flow,pipeline,slides,wiki}.json` | Manifest V2 allowlists of resources per category, with SHA-256 provenance |
+| `companion-links.json` | Companion plugin, command, skill, and tool links for category exports |
+| `agent-routing.json` | Model configurations of the `flow` and `pipeline` archetypes, resolved into `src/plugins/agent-router/routing.json` |
 | `translation-config.json` | Bridge settings: target, plugin name (`decent-pipeline`), prefix, model tiers, and role-to-tier mapping |
 | `bash-profiles.json` | Bash permission profiles, synced with `pipeline sync-bash` |
 | `shared-sync.json` | Shared component versions, include and exclude globs, and protected local overlays |
 
-The `export/categories/` directory currently contains `docs`, `general`, `slides`, `wiki`, `free-pipeline`, `go-pipeline`, `hybrid-pipeline`, and `mistral-pipeline`; the earlier `collector-`, `copilot-`, `cp_nightly-`, and `kimi-pipeline` bundles are no longer present.
+The `export/categories/` directory currently contains `docs`, `flow`, `general`, `pipeline`, `slides`, and `wiki`. The per-provider `*-pipeline` bundles were replaced by the single `pipeline` bundle plus model configurations.
 
 The repository's [workspace and distribution configuration](./config/workspace-and-distribution.md) defines settings and bundle manifests, while the [custom tools and plugins](./modules/tools-and-plugins.md) provide document, slide, and pipeline capabilities. Edit source resources in `src/` and declarative configuration in `.agent-manager/`; generated outputs belong in `export/` and should be regenerated rather than edited directly.
 

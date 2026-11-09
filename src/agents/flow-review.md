@@ -3,7 +3,6 @@ description: Read-only code reviewer for the flow family. Reviews the current ch
 mode: subagent
 color: "#EB5757"
 steps: 60
-hidden: true
 permissions:
   - action: "*"
     resource: "*"

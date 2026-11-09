@@ -44,7 +44,8 @@ test("the archetype view: reference, related subagents, pinned subagents, config
   assert.deepEqual(view.related.map(agent => agent.role), ["explore", "review"], "primaries are callers, not related")
   assert.deepEqual(view.pinned.map(agent => agent.name), ["flow-eye"])
   assert.deepEqual(Object.keys(view.configs), ["mistral"])
-  assert.equal(describeArchetype(root, "pipeline"), null, "not routable yet")
+  assert.equal(describeArchetype(root, "pipeline"), null, "routable, but this workspace has no pipeline-orchestrator")
+  assert.equal(describeArchetype(root, "docs"), null, "not an archetype")
 })
 
 test("build writes the plugin file; idempotent; drift fails the check", () => {
@@ -72,7 +73,7 @@ test("setArchetypeConfig saves, renames, deletes and rebuilds; invalid input is 
 
   assert.throws(() => setArchetypeConfig(root, "flow", "bad key", {}), /provider\/model/)
   assert.throws(() => setArchetypeConfig(root, "flow", "mistral", { review: "flash" }), /not "inherit"/)
-  assert.throws(() => setArchetypeConfig(root, "pipeline", "mistral", {}), /not a routable archetype/)
+  assert.throws(() => setArchetypeConfig(root, "docs", "mistral", {}), /not a routable archetype/)
   assert.deepEqual(Object.keys(read(root).archetypes.flow.routes), ["mistral"], "rejected changes never reach the files")
 })
 
@@ -96,6 +97,24 @@ test("stampedModels: what a bridge writes for one reference model", () => {
   assert.equal(stampedModels(root, "flow", "mistral/glm")["flow-review"], "mistral/large", "the exact model wins")
   assert.equal(stampedModels(root, "flow", "mistral/glm")["flow-explore"], "mistral/glm", "a missing role inherits")
   assert.throws(() => stampedModels(root, "flow", "anthropic/x"), /no configuration/)
+})
+
+test("pipeline: the orchestrator is the reference and roles may contain underscores", () => {
+  const root = workspace()
+  const agent = (role: string, mode: string, extra: Record<string, any> = {}) =>
+    saveAgentFile(path.join(root, "src", "agents", `pipeline-${role}.md`), { description: role, mode, ...extra }, `${role}.`)
+  agent("orchestrator", "primary", { model: "mistral/large" })
+  agent("code_reviewer", "subagent")
+  agent("planner", "subagent")
+  const view = describeArchetype(root, "pipeline")!
+  assert.equal(view.reference.name, "pipeline-orchestrator")
+  assert.deepEqual(view.callers.map(a => a.name), ["pipeline-orchestrator"])
+  assert.deepEqual(view.related.map(a => a.role), ["code_reviewer", "planner"])
+  setArchetypeConfig(root, "pipeline", "mistral", { code_reviewer: FLASH })
+  const pipeline = read(root).archetypes.pipeline
+  assert.deepEqual(pipeline.roles, ["code_reviewer", "orchestrator", "planner"])
+  assert.deepEqual(pipeline.routes, { mistral: { roles: { code_reviewer: FLASH } } })
+  assert.deepEqual(read(root).archetypes.flow.routes, { mistral: { roles: { explore: FLASH, review: FLASH } } }, "flow is untouched")
 })
 
 test("without configurations nothing is written", () => {

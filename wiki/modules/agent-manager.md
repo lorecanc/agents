@@ -11,7 +11,7 @@ source_files:
   - "manage-agents/src/App.tsx"
   - "manage-agents/src/utils/agents.ts"
   - "manage-agents/src/utils/categoryDistribution.ts"
-  - "manage-agents/src/utils/pipelineProfiles.ts"
+  - "manage-agents/src/utils/agentRouting.ts"
   - "manage-agents/src/utils/bashProfiles.ts"
   - "manage-agents/src/utils/bridge.ts"
   - "manage-agents/src/utils/bridgeCheck.ts"
@@ -31,14 +31,14 @@ source_files:
   - "manage-agents/src/utils/terminalText.ts"
   - "manage-agents/src/utils/models.ts"
 created: "2026-10-16"
-last_updated: "2026-11-02"
+last_updated: "2026-11-09"
 ---
 
 # Agent Manager
 
 ## Purpose
 
-The manager is a standalone Node.js/Bun CLI and interactive terminal application (OpenTUI/React) for working with the repository's agent catalog. It covers agent maintenance and naming, category distribution build/check/package, pipeline profiles and the Bash allowlist sync, Claude Code and Codex bridge generation (see [Bridges](bridges.md)), shared-component releases between repositories (`sync`), and installation of agents and companion resources into the OpenCode configuration (`export`).
+The manager is a standalone Node.js/Bun CLI and interactive terminal application (OpenTUI/React) for working with the repository's agent catalog. It covers agent maintenance and naming, category distribution build/check/package, archetype model configurations and the Bash allowlist sync, Claude Code and Codex bridge generation (see [Bridges](bridges.md)), shared-component releases between repositories (`sync`), and installation of agents and companion resources into the OpenCode configuration (`export`).
 
 Repository mutations go through a transaction layer that can auto-commit when enabled; see [Auto-commit and safety](#auto-commit-and-safety).
 
@@ -51,7 +51,7 @@ Repository mutations go through a transaction layer that can auto-commit when en
 | `manage-agents/src/App.tsx` | Implements the interactive TUI, loading agent data and coordinating user actions, including the Resource Manager. |
 | `manage-agents/src/utils/agents.ts` | Parses and updates agent files; resource discovery, permission handling, OpenCode export (with resource manifest and MCP normalization), and import. |
 | `manage-agents/src/utils/categoryDistribution.ts` | Loads and validates category manifests; builds, checks, and packages category distributions. |
-| `manage-agents/src/utils/pipelineProfiles.ts` | Loads pipeline profiles and applies, syncs, refreshes, or deletes stamped pipeline categories. |
+| `manage-agents/src/utils/agentRouting.ts` | `ARCHETYPES` (`flow`, `pipeline`), the model configurations in `.agent-manager/agent-routing.json`, and the generated `src/plugins/agent-router/routing.json` (`routing` CLI, `M` on an archetype folder). |
 | `manage-agents/src/utils/bashProfiles.ts` | Loads `.agent-manager/bash-profiles.json`, expands per-role `permission.bash` blocks, reports drift, and rewrites agent bash blocks (`pipeline sync-bash`). |
 | `manage-agents/src/utils/bridge.ts` | Claude Code bridge: converts selected agents into a plugin under `export/bridges/claude-code/`. |
 | `manage-agents/src/utils/codexBridge.ts` | Codex bridge: converts selected agents into a plugin under `export/bridges/codex/`. |
@@ -84,20 +84,22 @@ Repository mutations go through a transaction layer that can auto-commit when en
 
 ### Commands
 
-- `category`: `list`, `explain`, `build`, `check` / `status`, `package`, and `recover`. `build` and `check` accept an id or `--all`. `--all` also covers stamped `*-pipeline` bundles. `topic-export` is a deprecated alias that forwards to `category build|check wiki`.
-- `pipeline`: `list`, `show <profile>`, `apply <profile>`, `sync <profile>` / `sync --all`, `refresh`, `sync-bash [--dry-run]`, and `delete <name> [--also-installed]`. `sync-bash` rewrites only the `permission.bash` blocks of `src/agents/pipeline-*.md` from `.agent-manager/bash-profiles.json`; it prints a reminder to run `category build --all` when files changed.
-- `routing`: `show`, `build`, `check`, `set <archetype> <provider|provider/model> [<role>=<provider/model#variant|inherit> ...]`, and `unset <archetype> <trigger>`. It edits the model configurations of an archetype (today `flow`) in `.agent-manager/agent-routing.json` and generates `src/plugins/agent-router/routing.json`; it is the scriptable twin of `M` on the archetype folder in the TUI. See `ARCHETIPI.md`.
+- `category`: `list`, `explain`, `build`, `check` / `status`, `package`, and `recover`. `build` and `check` accept an id or `--all`. `pipeline` is a manifest category built into `export/categories/pipeline`; when it is in scope, `check` also verifies that the bundle ships every tool its agents permit and reports bash-profile drift. `topic-export` is a deprecated alias that forwards to `category build|check wiki`.
+- `pipeline`: only `sync-bash [--dry-run]`. Pipeline profiles were replaced by model configurations (`routing`). `sync-bash` rewrites only the `permission.bash` blocks of `src/agents/pipeline-*.md` from `.agent-manager/bash-profiles.json`; it prints a reminder to run `category build --all` when files changed.
+- `routing`: `show`, `build`, `check`, `set <archetype> <provider|provider/model> [<role>=<provider/model#variant|inherit> ...]`, and `unset <archetype> <trigger>`. It edits the model configurations of an archetype (`flow` or `pipeline`) in `.agent-manager/agent-routing.json` and generates `src/plugins/agent-router/routing.json`; it is the scriptable twin of `M` on the archetype folder in the TUI. See `ARCHETIPI.md`.
 - `bridge [--category <name>] [--target claude|codex]`: generates a Claude Code or Codex translation layer. The default plugin name is `decent-pipeline`; the default output is `export/bridges/<claude-code|codex>/<plugin-name>/`. Options (`--name`, `--prefix`, `--source-dir`, `--config`, `--model`, `--map-all`, `--no-validate`, `--no-register`, `--marketplace-name`, `--wizard`) are described in [Bridges](bridges.md).
 - `bridge check [--category <name>] [--target claude|codex]`: regenerates every committed bridge in a temporary workspace and compares it byte-exact with `export/bridges/`. It exits with code 1 on drift and never persists the translation config.
-- `export [--all|-a] [--yes|-y] [--category|-c <name>] [--profile|-p <name>] [--stack|-s <path>]`: installs agents and companion resources into the OpenCode configuration directory (`$XDG_CONFIG_HOME/opencode/`, or `~/.config/opencode/`); details in the paragraphs below.
-- `sync` (alias `shared-sync`): `status` (alias `diff`), `release`, and `apply` (alias `import`) for the `agentManager` and `pipelineCore` components, driven by `.agent-manager/shared-sync.json`. `apply` never creates a Git commit and refreshes stamped pipelines and Bash profiles unless `--no-refresh` is given.
+- `export [--all|-a] [--yes|-y] [--category|-c <name>] [--stack|-s <path>]`: installs agents and companion resources into the OpenCode configuration directory (`$XDG_CONFIG_HOME/opencode/`, or `~/.config/opencode/`); details in the paragraphs below.
+- `sync` (alias `shared-sync`): `status` (alias `diff`), `release`, and `apply` (alias `import`) for the `agentManager` and `pipelineCore` components, driven by `.agent-manager/shared-sync.json`. `apply` never creates a Git commit; with `pipelineCore` it runs `pipeline sync-bash` on the target unless `--no-refresh` is given, and reports it as `refreshed: { bashProfiles }`.
 - `create`, `lint`, `fix-names [--dry-run]`, `audit`, `import [--dry-run]`, and `tune`: create and maintain agents, naming and permission audits, OpenCode import, and model parameters (`steps`, `temp`, `variant`).
 
-`export --all --yes` is the non-interactive full install. For a complete export (`--all` without `--category` or `--profile`) the manager also:
+`export --all --yes` is the non-interactive full install. For a complete export (`--all` without `--category`) the manager also:
 
 - writes the MCP block of the OpenCode `opencode.json` to V2 shape (`mcp.servers`, `disabled`), preserving other top-level keys and server fields;
 - merges plugin directories into the OpenCode configuration;
-- deletes previously installed managed resources that are no longer delivered, as tracked in `.resource-export-manifest.json`. Partial exports (`--category` or `--profile`) only add to that manifest.
+- deletes previously installed managed resources that are no longer delivered, as tracked in `.resource-export-manifest.json`. Partial exports (`--category`) only add to that manifest.
+
+Any export rebuilds `src/plugins/agent-router/routing.json` first. The pipeline is installed once: when a pipeline agent is exported, the retired installed files `{free,go,hybrid,mistral}-pipeline-<role>.md` (exact names only) are removed from `agents/`.
 
 Identical resource files are skipped, so re-running the command writes only what changed.
 
@@ -122,7 +124,7 @@ The full keymap is in `manage-agents/README.md` (English) and `manage-agents/GUI
 - **Folders start closed.** The agent list groups agents in one folder per category, and every folder is closed at startup. `→`/`l` opens the focused folder and `←`/`h` closes it. Provider folders in the model selector and color groups in the color selector also start closed and toggle with `→`/`←` or `Enter`.
 - **Model selector.** It opens with the provider of the current model expanded: the focused agent's model for `M`, or the edited row's model in the archetype model configurations. Printable keys type into its search (only the arrows navigate); while the search has text, every provider with a matching model is expanded. `Ctrl-R` reloads the catalog.
 - **Agent search.** `/` filters by file name; folders without matches disappear, counts reflect the matches and the remaining folders are shown expanded; clearing the filter restores each folder's open or closed state.
-- **`M` on a folder.** On an archetype folder (`flow`) with no selection, `M` opens its model configurations instead of the model selector. `T` and `E` act on every agent of a focused folder, `U` opens the category's companion links, and `D` deletes a focused stamped `*-pipeline` bundle after confirmation.
+- **`M` on a folder.** On an archetype folder (`flow`, `pipeline`) with no selection, `M` opens its model configurations instead of the model selector. `T` and `E` act on every agent of a focused folder, and `U` opens the category's companion links. `F` (fork) refuses archetype folders; for other categories it is the plain find/replace fork.
 
 ## Resource Manager and companion links
 
@@ -139,7 +141,7 @@ On save, `App.tsx` runs one repository mutation over `.agent-manager/companion-l
 - Category ids must match `^[a-z0-9][a-z0-9_-]*$`; traversal ids such as `../../outside` never touch a manifest.
 - Symlinked `.agent-manager`, `.agent-manager/categories`, or manifest paths are rejected. A symlinked `.agent-manager` makes the save fail with "Companion links path must not be a symlink"; a symlinked categories directory or manifest causes the manifest sync to be skipped.
 
-After the manifest sync, the TUI refreshes stamped pipelines when the target is `pipeline` or `*-pipeline`, and calls `buildCategoryDistribution` when the manifest exists, which rebuilds `export/categories/<id>`.
+After the manifest sync, the TUI calls `buildCategoryDistribution` when the manifest exists, which rebuilds `export/categories/<id>`.
 
 ## Bridges
 
@@ -163,7 +165,7 @@ graph LR
     Index --> Tx["repositoryTransaction.ts"]
     App --> Agents["agents.ts"]
     App --> Links["companionLinks.ts"]
-    App --> Profiles["pipelineProfiles.ts, bashProfiles.ts"]
+    App --> Profiles["agentRouting.ts, bashProfiles.ts"]
     Agents --> Compat["v2Compat.ts, opencodeMcp.ts"]
     Index --> OpenTUI["@opentui/core"]
     App --> React["@opentui/react, react"]

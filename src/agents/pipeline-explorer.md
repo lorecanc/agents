@@ -1,10 +1,8 @@
 ---
 description: Fast read-only codebase explorer. Locates relevant files, patterns, tests, configs, and implementation context before planning or coding.
 mode: subagent
-model: opencode-go/deepseek-v4.1-flash
 color: "#E67E22"
 steps: 75
-hidden: true
 permissions:
   - action: "*"
     resource: "*"

@@ -15,7 +15,7 @@ function fixture(filename: string, body = ""): AgentInfo {
     filename,
     currentPath: `/tmp/${filename}`,
     targetPath: `/tmp/${filename}`,
-    category: "go-pipeline",
+    category: "pipeline",
     description: filename,
     model: primary ? "github-copilot/claude-opus-5" : "github-copilot/gpt-5.6-luna-max",
     rawContent: body,

@@ -1,0 +1,702 @@
+{
+  "schemaVersion": 2,
+  "distributionVersion": "1.0.0",
+  "category": "pipeline",
+  "manifestHash": "43b5d2a0d946732ba77cd49297b93af2520a7219b6d0a84f57e6d16772c6de4e",
+  "generatorVersion": "2.0.0",
+  "bundleDigest": "53cc80b602db5c9c1a05e70d611524682a07721b938ebe499006b38140e7783d",
+  "entries": [
+    {
+      "target": "AGENTS.md",
+      "hash": "7403a7b1c9af4f92940627ba8be99ba2782892019dc22b4e62c2b5bba222ea0e"
+    },
+    {
+      "target": "LICENSE",
+      "hash": "4648484047eae043e7aa936decb4b0886b084ae32a9eb35d4187f614ebf4f393"
+    },
+    {
+      "target": "README.md",
+      "hash": "f0da8fee49f1c49b85ca80c35c0e9aed717b6ee4c568288e5e04faeabe611d07"
+    },
+    {
+      "target": "agents/pipeline-chrome_devtools.md",
+      "hash": "c61b4b9e925461baf9847c7f30411124cc1f1e52a6691afdeb11bb65b95e8615"
+    },
+    {
+      "target": "agents/pipeline-code_reviewer.md",
+      "hash": "ea64ce7317486a3349b8c14795434dce077f877286d3ded4219285231f5cdd05"
+    },
+    {
+      "target": "agents/pipeline-critic.md",
+      "hash": "833997d560430d3ea945215357329a7aec51c90b41aa5a7c7d4d239559b884bb"
+    },
+    {
+      "target": "agents/pipeline-docs_grounding.md",
+      "hash": "08dc8f09ad736566a0e798d03d4fd6dd6d540cee0f1ed849bc7f7fa91551c1c3"
+    },
+    {
+      "target": "agents/pipeline-executor.md",
+      "hash": "d0fc827cb8e575327dc641f246d65c7cf153c3dd41cabc1f47059f62fbe17868"
+    },
+    {
+      "target": "agents/pipeline-explorer.md",
+      "hash": "0e405b1aee9ea53ed399f39c8a62d31ff9593c8778144b7e80b45d2e25967f5c"
+    },
+    {
+      "target": "agents/pipeline-fast_lane.md",
+      "hash": "15c23bf8e301e81d973292a07d567787986086897bc22b220f26e329cea5864b"
+    },
+    {
+      "target": "agents/pipeline-frontend_specialist.md",
+      "hash": "b696e9fa2c87ce3edcb9d261335e28766129816abc3b453c01366c8d97688020"
+    },
+    {
+      "target": "agents/pipeline-hitl.md",
+      "hash": "6654d82bd5f3fc8d213a1f22f96d08a842b9dd926f679f53d3da30a211f878c4"
+    },
+    {
+      "target": "agents/pipeline-kotlin_specialist.md",
+      "hash": "420de3ec1ca4e72d6c9bd5fe114739e0e16ce9063ebbc9159191dba24f0589a8"
+    },
+    {
+      "target": "agents/pipeline-multimodal.md",
+      "hash": "224a96c56f71f8494e9f348e76477ee753bff6390709434468cbf731494abfc2"
+    },
+    {
+      "target": "agents/pipeline-ops.md",
+      "hash": "39aa9f1a0541583cfb0ad886c6f655fd5e1944e8c5bf670319fbc6b11b091087"
+    },
+    {
+      "target": "agents/pipeline-orchestrator.md",
+      "hash": "8625d50a875d5cd42717fcdf8edb09990009e9b91f295f5ba14d8236febcf0f3"
+    },
+    {
+      "target": "agents/pipeline-planner.md",
+      "hash": "3e758f726cdbf9ebb96d0a016d46fbdffa44935711cf8bccc3f4bdd3bfc8ffb8"
+    },
+    {
+      "target": "agents/pipeline-post_session.md",
+      "hash": "43622bbd7195df42423dbafc1555acdb23730be6b58fdc43fa07155822a5ded2"
+    },
+    {
+      "target": "agents/pipeline-reasoner.md",
+      "hash": "431d3718ca3764f5f682b0f61b142dccc443673f810b765071bba1f75ce79f3c"
+    },
+    {
+      "target": "agents/pipeline-refactorer.md",
+      "hash": "59c11cbe4ae04a4c6e216626d870246b08ad2cd477ed2f6c99d52ff8325133c4"
+    },
+    {
+      "target": "agents/pipeline-researcher.md",
+      "hash": "e046bdb7ed3d4225a829d812f75ea847cb96fea462dd1314f035bf3df9f06eaf"
+    },
+    {
+      "target": "agents/pipeline-security_auditor.md",
+      "hash": "337dc9553cda2c30ba84e5ee376e6e4266a82c2ee3866fc887712c40cb961028"
+    },
+    {
+      "target": "agents/pipeline-swift_specialist.md",
+      "hash": "b23ad8e3d613029213b962223a29a8a19855969c7fc472dd974254ddd94f8e73"
+    },
+    {
+      "target": "agents/pipeline-tester.md",
+      "hash": "c3567064376104b539d82da73a0a49a7c4a6cba5ceb939e7bba8a6d0525414f2"
+    },
+    {
+      "target": "commands/pipeline-bug.md",
+      "hash": "60e02c1dd245deb8f0266905d51ca36fde3131d38c6513f5f416b6559124fc9c"
+    },
+    {
+      "target": "commands/pipeline-feature.md",
+      "hash": "984f255bfc958f69440f5e848897642e5cd58cf934abf27bcca36c04bf7746ca"
+    },
+    {
+      "target": "commands/pipeline-init.md",
+      "hash": "0424fde4b5cd62de6b621c19c4b752e567a802d1b78176abe808e8215947aea7"
+    },
+    {
+      "target": "commands/pipeline-ops.md",
+      "hash": "d921bd1f8764d1fa087ca81aa007e16d6b4550a16d890182f347d41a724293cc"
+    },
+    {
+      "target": "commands/pipeline-refactor.md",
+      "hash": "4b5a1c90c54c397b4e24ade68a554b71061ddc894e3d41ab9cd96b4e3824c26d"
+    },
+    {
+      "target": "commands/pipeline-research.md",
+      "hash": "7c7209492ad8bc4304ec35d6aca55415d55958b86884bb05f2bd64a7e7f8e6e8"
+    },
+    {
+      "target": "opencode.json",
+      "hash": "ae4e76a8bf9b6162221942aed8fca8665b2655bac6dc44287b0c7e3f2a4b2de4"
+    },
+    {
+      "target": "plugins/agent-router/index.ts",
+      "hash": "e47413948a5c0c4e66bdc22c689dfe86aecd21149f1d984f29d48f30baa0231e"
+    },
+    {
+      "target": "plugins/agent-router/routing.json",
+      "hash": "c42900da04cd5c0058db1c411da0e2a3389734a54143e3ab651816a3c89f8884"
+    },
+    {
+      "target": "plugins/dev-tools/index.ts",
+      "hash": "bc0a4bc6adedaf1446f18feebfc96a39dbb2810cbe7f1145f61ca7494e47d1af"
+    },
+    {
+      "target": "plugins/doc-tools/index.ts",
+      "hash": "2485a8f59757435bde6c40e58d9799ec8b8413255ff9e2b5c57fefeba514f4ae"
+    },
+    {
+      "target": "plugins/pipeline-guard/index.ts",
+      "hash": "60305d644c9de0da2799d4216f75a213e9a6217d2bef205d660639deadf4db29"
+    },
+    {
+      "target": "plugins/pipeline-tools/index.ts",
+      "hash": "dec56e77f362c5021227f324836d2bc01933fd159be899030c6defc732f8ece6"
+    },
+    {
+      "target": "plugins/slide-tools/index.ts",
+      "hash": "5b55b62386c79c3196753dd1a15e89cd1455852b2b953ff4f1c74222d77ed076"
+    },
+    {
+      "target": "requirements.txt",
+      "hash": "414acb018fd989c751ba19db84d6eff335bfe6b948531bc630433a376b6319d9"
+    },
+    {
+      "target": "skills/code-review-antipatterns/SKILL.md",
+      "hash": "ece5f9c381a1bf20f83663ad788c82a485927c439acaef3d580804311d817a49"
+    },
+    {
+      "target": "skills/code-review-antipatterns/references/accidental-complexity.md",
+      "hash": "467a723a5cd4331a5fc94df7f1ea60ebf9bb9a9fa36247cd5d3a918bc3c570b4"
+    },
+    {
+      "target": "skills/code-review-antipatterns/references/arrow-anti-pattern.md",
+      "hash": "d388d45e8adb662d42b9fc00d468295e2f89059f5820797d050d0ddf887980bc"
+    },
+    {
+      "target": "skills/code-review-antipatterns/references/band-aid-fix.md",
+      "hash": "a6e022a0771499127d812f1d2165c53f75fbd0ad2fed34e2a0f6475a7ce726a0"
+    },
+    {
+      "target": "skills/code-review-antipatterns/references/big-ball-of-mud.md",
+      "hash": "254273894ab9269fefd056e81d83ceabbc1585d922e0b0332ad5925e89ee8934"
+    },
+    {
+      "target": "skills/code-review-antipatterns/references/boolean-parameter-trap.md",
+      "hash": "7b7c5683b624c23af5844baa38aeea8fe39cc97da9259af597d2c79d9dc45254"
+    },
+    {
+      "target": "skills/code-review-antipatterns/references/configuration-theater.md",
+      "hash": "321c494e08d57b7abf5cdf4eb02a2c31842c90b0a7a24219c0ff0213aff46618"
+    },
+    {
+      "target": "skills/code-review-antipatterns/references/environment-pollution.md",
+      "hash": "33750e420218962bfbd695040e254632f2ac9b8f6e8ed5dfaa703cc1903f350d"
+    },
+    {
+      "target": "skills/code-review-antipatterns/references/gas-factory.md",
+      "hash": "d3a3965b2916420a4bac257b7a7c743206c032662099c47cf92613bff33c79b8"
+    },
+    {
+      "target": "skills/code-review-antipatterns/references/god-class.md",
+      "hash": "f27493348f640d4d723bb97b4ece056c54c9604c4126482b4f20d17929385139"
+    },
+    {
+      "target": "skills/code-review-antipatterns/references/interface-for-one-implementation.md",
+      "hash": "4802180e71bb51bcf6e52c676afc15590acb85151136c5662269f01cf8882d12"
+    },
+    {
+      "target": "skills/code-review-antipatterns/references/knowledge-duplication.md",
+      "hash": "6fdc131da9e7d193f63687c6228dcffcb702c367c60b85799fafb07f1f863008"
+    },
+    {
+      "target": "skills/code-review-antipatterns/references/layer-boundary-violation.md",
+      "hash": "ae157b6a41ae0431e86c8ac72ccb18f27d2d2673d57655432996d5c3943ebb67"
+    },
+    {
+      "target": "skills/code-review-antipatterns/references/magic-values-and-hidden-domain-knowledge.md",
+      "hash": "d80fc241b947579fd003ebae53a8c52304cf897ce965bc65eae10948d3b2f300"
+    },
+    {
+      "target": "skills/code-review-antipatterns/references/modularity-violations.md",
+      "hash": "8f37e5e143a38ecf41b6c187bf97c8437969fef6860bcce1d4919fac05ef3e7a"
+    },
+    {
+      "target": "skills/code-review-antipatterns/references/onion-helper-encapsulation.md",
+      "hash": "42e46b62135fd55633eea7a5590a0482afcaa73767c6a463133b051f1c849d7b"
+    },
+    {
+      "target": "skills/code-review-antipatterns/references/reinventing-the-square-wheel.md",
+      "hash": "f2e38d105400f9ef3a4cf9f13e38b3d66d9364513f7a5eea9bec9c6eb3e13728"
+    },
+    {
+      "target": "skills/code-review-antipatterns/references/reinventing-the-wheel.md",
+      "hash": "d799343c856de454620ef18892a69f8b79fe8b1dd34f7f6c0024b769b11a3af4"
+    },
+    {
+      "target": "skills/code-review-antipatterns/references/yagni-violations.md",
+      "hash": "db8793d21982386412ac36d0269df6004671822269f28e159bd90dfc63c88d40"
+    },
+    {
+      "target": "skills/italiano-decente/SKILL.md",
+      "hash": "3f0f0db56acc7cf9366476d3a23916ee9671541fc29ad103298fc14972a06b53"
+    },
+    {
+      "target": "skills/seo-copywriting/SKILL.md",
+      "hash": "00908c6141c4286e3e24fee817d3208adc9c50c5febc5cbd56f0ad690afd0b0f"
+    },
+    {
+      "target": "tools/_agent_router.js",
+      "hash": "8815e9f640a203848178b5a8e6a00fb523a233cc7516d08524b9a39199cbccb1"
+    },
+    {
+      "target": "tools/_bash_guard.js",
+      "hash": "160b4c2c45a15ea05e6c6385b8dbc6d3fcd4ceca95a02a34168de332d4b0baa6"
+    },
+    {
+      "target": "tools/_doc_theme.template.css",
+      "hash": "8b155885811cd44cf51f49ccbd43e9095579e3ca19f3b2e281ad943820bec265"
+    },
+    {
+      "target": "tools/_env.js",
+      "hash": "7ac49fe83c77280ad6da0eb7c554ae931f960cbfbd7643fce290e3dfbe43e8cd"
+    },
+    {
+      "target": "tools/_paths.js",
+      "hash": "03efb87c5c31b2f6f93af3009d43e6635687f1e15630d6f41fa2dc7813780a1a"
+    },
+    {
+      "target": "tools/_pipeline_core.js",
+      "hash": "07ff2c8e6e9121bcf7b61c1e957b8c119ce9703f3c3f7ee87f2e8dd112a75521"
+    },
+    {
+      "target": "tools/_python.js",
+      "hash": "93a21d6b4bf29b0a0efc756a2f74b388937e242eac16607452a7e2bd25c45611"
+    },
+    {
+      "target": "tools/_repo.js",
+      "hash": "2f324bf3344a6a5fccd3614b942f0893d35f776261eb0015e3ce42904e7bfacb"
+    },
+    {
+      "target": "tools/_run.js",
+      "hash": "2e8cc3c33dc36ca24f6eb85857358626fbcb117076472d8b902247d759f392da"
+    },
+    {
+      "target": "tools/_safeName.js",
+      "hash": "525d8704ebaa3ea347d916fa302227bfc07d2ae149196dd4dbefa7b51b4399a6"
+    },
+    {
+      "target": "tools/_serve.js",
+      "hash": "b3e11ee4a7440c17ddb988b2fce3661446068dd6886526c7bd082bc1e4511b7e"
+    },
+    {
+      "target": "tools/_services.js",
+      "hash": "b0958023c1f97b28560e9b12b8a4ce2db191ffd7c917c9b05a490103a9b943e7"
+    },
+    {
+      "target": "tools/_sessions.js",
+      "hash": "636c95648be9d99d6d3cd46f6494245f0801d5fd4dd8d5cff08a508493f5b315"
+    },
+    {
+      "target": "tools/_theme.template.css",
+      "hash": "1270f6f0f78b0c8387b67688cf9930b35a22757cd1a909b3d87c795d5a03cecd"
+    },
+    {
+      "target": "tools/_tool.ts",
+      "hash": "7f896bb01b2b27559e6c693d8393a1372afa60de9b279e13e885b17c02f091f4"
+    },
+    {
+      "target": "tools/dev_env.ts",
+      "hash": "1a1360587c0d958183ea2092717d8e4bf49528a013dba82bad05c0680842464b"
+    },
+    {
+      "target": "tools/dev_serve.ts",
+      "hash": "ceaaa415841bbfbfd587bc3b7d20bac1e10b375031d987d8e946bf9773b4c7ea"
+    },
+    {
+      "target": "tools/dev_smoke.ts",
+      "hash": "ad05d8d42bd328fb980d2f7a09beaa550b78b928eedd7acbb2eec97a4e4bb6bf"
+    },
+    {
+      "target": "tools/dev_verify.ts",
+      "hash": "c4425bf0a667f8550c06f1616d1f2f5fb6bf46c11e2933f34188d878a8434a89"
+    },
+    {
+      "target": "tools/doc_compile_theme.ts",
+      "hash": "e480092b9b53d22f43caed337d5818896d894b79771226a4702055d04044d175"
+    },
+    {
+      "target": "tools/doc_convert.ts",
+      "hash": "a4d5bc04b6e204ae0778c424fb217a49bb250a9014fc7afbb7b7acf78419b792"
+    },
+    {
+      "target": "tools/doc_create.ts",
+      "hash": "4e599e663fcd34c6a9b5fd07bb11bc06392ebbe5a5473cea7044d0e6336bf900"
+    },
+    {
+      "target": "tools/doc_list.ts",
+      "hash": "fc094b2f0dbfe0854d225bd0de6a33549d00477b694f99570d6e2ba04a07d501"
+    },
+    {
+      "target": "tools/doc_modify.ts",
+      "hash": "7a23570422b5fd5128df86706a165b276f651d575750e7c15e5e78afba140fde"
+    },
+    {
+      "target": "tools/doc_restore.ts",
+      "hash": "1f4afe854e5a1000279a26970339461369bc1dd55964c33f426a866ee55c60a1"
+    },
+    {
+      "target": "tools/doc_view.ts",
+      "hash": "1992c72d46ebcd0e3d1c186c6f045012ecff44090203c4e8296b5bc56e05972b"
+    },
+    {
+      "target": "tools/docx/scripts/__init__.py",
+      "hash": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+    },
+    {
+      "target": "tools/docx/scripts/convert_document.py",
+      "hash": "def0baf0933f60aa6c070a6dd823bbfeb87402230008fbb872e8c349f5d79372"
+    },
+    {
+      "target": "tools/docx/scripts/create_document.py",
+      "hash": "4d785e0a6abca2d147092e8ed69a3e91a30600d4de30b136721e92b8e516aa2e"
+    },
+    {
+      "target": "tools/docx/scripts/doc_file_utils.py",
+      "hash": "2e9f4d536737a440886e10cd758fdb5039c98bcd6fc05942b68821556ced128e"
+    },
+    {
+      "target": "tools/docx/scripts/html_docx_blocks.py",
+      "hash": "184904ee71f530b2c9e6bb4d45de6e2f720eb4467b3e25de9287bb667819a745"
+    },
+    {
+      "target": "tools/docx/scripts/html_docx_constants.py",
+      "hash": "101dccbb09ab53ea9a870e385e65b56b6f2f53b5867de2ec47c0e2e702bac24c"
+    },
+    {
+      "target": "tools/docx/scripts/html_docx_core.py",
+      "hash": "4d5ee9adfedfebf50edc65c71b6772a4441df5560ccbf435b27c1300cd275912"
+    },
+    {
+      "target": "tools/docx/scripts/html_docx_css.py",
+      "hash": "ee0e00a2270dcbff380b72e8e3b579801e743fb5730f8fa4dda782fff20b507b"
+    },
+    {
+      "target": "tools/docx/scripts/html_docx_fonts.py",
+      "hash": "001db5a8fc016fb4009fa5a36314f3219ff362ed1285dfdf2cbb9d5668682078"
+    },
+    {
+      "target": "tools/docx/scripts/html_docx_images.py",
+      "hash": "5f073972eee73a181feeb7a3890a3dd7a27695fd9eb754da234cb6a913151a4d"
+    },
+    {
+      "target": "tools/docx/scripts/html_docx_page.py",
+      "hash": "8ff8f5af25f91f74ed641cd73e17458b94e335be4a4a3ab78f58d13bcbada30d"
+    },
+    {
+      "target": "tools/docx/scripts/html_docx_paragraphs.py",
+      "hash": "c7789cac8a410574ec5a82188ddbb964597e0ee02b028d1df7b8185743be8600"
+    },
+    {
+      "target": "tools/docx/scripts/html_docx_playwright.py",
+      "hash": "387652f3e7e8c5b54b07347c5c9ce3f2d668419b153d44a5dcb4e92863afa0d1"
+    },
+    {
+      "target": "tools/docx/scripts/html_docx_selectors.py",
+      "hash": "65dfa818c417410c50ff7b5e6e02aec3536b4b3fe07e171bd982792aa78aeb3e"
+    },
+    {
+      "target": "tools/docx/scripts/html_docx_shared.py",
+      "hash": "a286fe55905b23c196ab7eee062d10aa20390b1add6a31c0c6a3b6c0a5127fa6"
+    },
+    {
+      "target": "tools/docx/scripts/html_docx_tables.py",
+      "hash": "406cf6b454365258119b641c59529802640179ca37b3adf37dc736b13f6362b8"
+    },
+    {
+      "target": "tools/docx/scripts/html_validation.py",
+      "hash": "ff4ba24cf2634d753826701140e32157e7cc53cdda013aa9663408cbe4a54fdf"
+    },
+    {
+      "target": "tools/docx/scripts/list_documents.py",
+      "hash": "05fe63a980ef3dc6f07d1cd7496ca8561f552042c7cbd3356473a1375ff78cce"
+    },
+    {
+      "target": "tools/docx/scripts/modify_document.py",
+      "hash": "1961eb7d846e989019f2d0a658e014a42cefd16e2d719699f0f12fa952d484f1"
+    },
+    {
+      "target": "tools/docx/scripts/restore_document.py",
+      "hash": "5226acb43274037f96234887eb74a92e9591207812d10c12240a70a7994b2bce"
+    },
+    {
+      "target": "tools/docx/scripts/validate_html.py",
+      "hash": "d3bb19ba7520735a887cce4690ffe7b77c4a27cdf5d22979f6b47121ee57d038"
+    },
+    {
+      "target": "tools/docx/scripts/view_document.py",
+      "hash": "51aad83ff75b90968b8e33afa4742a8e971d20c1035b179b6be06bde6858b61c"
+    },
+    {
+      "target": "tools/pipeline_commit.ts",
+      "hash": "1a455140a5cb0617daa372f8eb6cf869a798f77404e7f0259e97be7a88c3d4e7"
+    },
+    {
+      "target": "tools/pipeline_state.ts",
+      "hash": "f46eb3576ec535b6722a84e986712e98c5ef1eb4dfdd408f98c3ae6a9f3948ba"
+    },
+    {
+      "target": "tools/pptx/html2pptx.js",
+      "hash": "5b1712bd1496bf81dff60b17155e79e6fa353e6bbcaca59f716be54958a1eb09"
+    },
+    {
+      "target": "tools/pptx/html2pptx_runner.js",
+      "hash": "8437c03b4fccd2503aeca72e21bdc4325902e1e9c57b805ee7b60379aaa00899"
+    },
+    {
+      "target": "tools/pptx/inventory.py",
+      "hash": "1ca388db209578a6e98768a2ecefc6d7aa84f851fed78bc36985370606788208"
+    },
+    {
+      "target": "tools/pptx/ooxml/schemas/ISO-IEC29500-4_2016/dml-chart.xsd",
+      "hash": "41b93bd8857cc68b1e43be2806a872d736a9bdd6566900062d8fdb57d7bbb354"
+    },
+    {
+      "target": "tools/pptx/ooxml/schemas/ISO-IEC29500-4_2016/dml-chartDrawing.xsd",
+      "hash": "3fd0586f2637b98bb9886f0e0b67d89e1cc987c2d158cc7deb5f5b9890ced412"
+    },
+    {
+      "target": "tools/pptx/ooxml/schemas/ISO-IEC29500-4_2016/dml-diagram.xsd",
+      "hash": "29b254ee0d10414a8504b5a08149c7baec35a60d5ff607d6b3f492aa36815f40"
+    },
+    {
+      "target": "tools/pptx/ooxml/schemas/ISO-IEC29500-4_2016/dml-lockedCanvas.xsd",
+      "hash": "5cb76dabd8b97d1e9308a1700b90c20139be4d50792d21a7f09789f5cccd6026"
+    },
+    {
+      "target": "tools/pptx/ooxml/schemas/ISO-IEC29500-4_2016/dml-main.xsd",
+      "hash": "5375417f0f5394b8dd1a7035b9679151f19a6b65df309dec10cfb4a420cb00e9"
+    },
+    {
+      "target": "tools/pptx/ooxml/schemas/ISO-IEC29500-4_2016/dml-picture.xsd",
+      "hash": "5d389d42befbebd91945d620242347caecd3367f9a3a7cf8d97949507ae1f53c"
+    },
+    {
+      "target": "tools/pptx/ooxml/schemas/ISO-IEC29500-4_2016/dml-spreadsheetDrawing.xsd",
+      "hash": "b4532b6d258832953fbb3ee4c711f4fe25d3faf46a10644b2505f17010d01e88"
+    },
+    {
+      "target": "tools/pptx/ooxml/schemas/ISO-IEC29500-4_2016/dml-wordprocessingDrawing.xsd",
+      "hash": "bdad416b096b61d37b71603b2c949484f9070c830bdaeba93bf35e15c8900614"
+    },
+    {
+      "target": "tools/pptx/ooxml/schemas/ISO-IEC29500-4_2016/pml.xsd",
+      "hash": "d173c3e5d61e42e2e3a97226c632fd2ab7cc481fc4e492365b87024ab546daff"
+    },
+    {
+      "target": "tools/pptx/ooxml/schemas/ISO-IEC29500-4_2016/shared-additionalCharacteristics.xsd",
+      "hash": "3c6709101c6aaa82888df5d8795c33f9e857196790eb320d9194e64be2b6bdd8"
+    },
+    {
+      "target": "tools/pptx/ooxml/schemas/ISO-IEC29500-4_2016/shared-bibliography.xsd",
+      "hash": "0b364451dc36a48dd6dae0f3b6ada05fd9b71e5208211f8ee5537d7e51a587e2"
+    },
+    {
+      "target": "tools/pptx/ooxml/schemas/ISO-IEC29500-4_2016/shared-commonSimpleTypes.xsd",
+      "hash": "e2abacbb9a55ce1365f8961bc1b1395bbc811e512b111000d8c333f98458dece"
+    },
+    {
+      "target": "tools/pptx/ooxml/schemas/ISO-IEC29500-4_2016/shared-customXmlDataProperties.xsd",
+      "hash": "0ef4bb354ff44b923564c4ddbdda5987919d220225129ec94614a618ceafc281"
+    },
+    {
+      "target": "tools/pptx/ooxml/schemas/ISO-IEC29500-4_2016/shared-customXmlSchemaProperties.xsd",
+      "hash": "0d103b99a4a8652f8871552a69d42d2a3760ac6a5e3ef02d979c4273257ff6a4"
+    },
+    {
+      "target": "tools/pptx/ooxml/schemas/ISO-IEC29500-4_2016/shared-documentPropertiesCustom.xsd",
+      "hash": "9c085407751b9061c1f996f6c39ce58451be22a8d334f09175f0e89e42736285"
+    },
+    {
+      "target": "tools/pptx/ooxml/schemas/ISO-IEC29500-4_2016/shared-documentPropertiesExtended.xsd",
+      "hash": "bc92e36ccd233722d4c5869bec71ddc7b12e2df56059942cce5a39065cc9c368"
+    },
+    {
+      "target": "tools/pptx/ooxml/schemas/ISO-IEC29500-4_2016/shared-documentPropertiesVariantTypes.xsd",
+      "hash": "7b5b7413e2c895b1e148e82e292a117d53c7ec65b0696c992edca57b61b4a74b"
+    },
+    {
+      "target": "tools/pptx/ooxml/schemas/ISO-IEC29500-4_2016/shared-math.xsd",
+      "hash": "3213ef1631606250f5010b42cad7ef716f7c59426367798e33c374c0ec391d3a"
+    },
+    {
+      "target": "tools/pptx/ooxml/schemas/ISO-IEC29500-4_2016/shared-relationshipReference.xsd",
+      "hash": "12264f3c03d738311cd9237d212f1c07479e70f0cbe1ae725d29b36539aef637"
+    },
+    {
+      "target": "tools/pptx/ooxml/schemas/ISO-IEC29500-4_2016/sml.xsd",
+      "hash": "beffeed56945c22a77440122c8bdc426f3fcbe7f3b12ea0976c770d1f8d54578"
+    },
+    {
+      "target": "tools/pptx/ooxml/schemas/ISO-IEC29500-4_2016/vml-main.xsd",
+      "hash": "f5ee623b08b6a66935e5aced2f5d8ad0fc71bf9e8e833cd490150c0fa94b8763"
+    },
+    {
+      "target": "tools/pptx/ooxml/schemas/ISO-IEC29500-4_2016/vml-officeDrawing.xsd",
+      "hash": "585bedc1313b40888dcc544cb74cd939a105ee674f3b1d3aa1cc6d34f70ff155"
+    },
+    {
+      "target": "tools/pptx/ooxml/schemas/ISO-IEC29500-4_2016/vml-presentationDrawing.xsd",
+      "hash": "133c9f64a5c5d573b78d0a474122b22506d8eadb5e063f67cdbbb8fa2f161d0e"
+    },
+    {
+      "target": "tools/pptx/ooxml/schemas/ISO-IEC29500-4_2016/vml-spreadsheetDrawing.xsd",
+      "hash": "6bdeb169c3717eb01108853bd9fc5a3750fb1fa5b82abbdd854d49855a40f519"
+    },
+    {
+      "target": "tools/pptx/ooxml/schemas/ISO-IEC29500-4_2016/vml-wordprocessingDrawing.xsd",
+      "hash": "475dcae1e7d1ea46232db6f8481040c15e53a52a3c256831d3df204212b0e831"
+    },
+    {
+      "target": "tools/pptx/ooxml/schemas/ISO-IEC29500-4_2016/wml.xsd",
+      "hash": "c2dd9f61f892deae6acd8d20771ea79b12018af25f3bf8d06639c8542d218cfd"
+    },
+    {
+      "target": "tools/pptx/ooxml/schemas/ISO-IEC29500-4_2016/xml.xsd",
+      "hash": "a539aa2fb154fa50e0f5cc97e6ad7cbc66f8ec3e3746f61ec6a8b0d5d15ecdf2"
+    },
+    {
+      "target": "tools/pptx/ooxml/schemas/ecma/fouth-edition/opc-contentTypes.xsd",
+      "hash": "5083a39fd5ade6790c291513d5b2a0447087424b04ae02d5f320edce2c5db158"
+    },
+    {
+      "target": "tools/pptx/ooxml/schemas/ecma/fouth-edition/opc-coreProperties.xsd",
+      "hash": "71d4844b6e31d108d1324708f1897843ef54deebe78869e7e15edac8b5495780"
+    },
+    {
+      "target": "tools/pptx/ooxml/schemas/ecma/fouth-edition/opc-digSig.xsd",
+      "hash": "6de111e11403f7cd49027400755bae0ea1cabef2815f09bd40a24f0017613b24"
+    },
+    {
+      "target": "tools/pptx/ooxml/schemas/ecma/fouth-edition/opc-relationships.xsd",
+      "hash": "ef23284866e5e1dd69eddc4f42b4efa58a9c4c4f7d94b21949887c02534c1ab4"
+    },
+    {
+      "target": "tools/pptx/ooxml/schemas/mce/mc.xsd",
+      "hash": "3a37e461ecf5a8670fdec34029703401f8728ab9c96ec1739a6ae58d55212413"
+    },
+    {
+      "target": "tools/pptx/ooxml/schemas/microsoft/wml-2010.xsd",
+      "hash": "568b26ee156cb9549aa439ca2158965f77b7c1602b7e0316f40ac6cf586e35f2"
+    },
+    {
+      "target": "tools/pptx/ooxml/schemas/microsoft/wml-2012.xsd",
+      "hash": "0fa75578a000439a7988ba0c59fdc69f774bbd416cbacc14d07125b3f686cb74"
+    },
+    {
+      "target": "tools/pptx/ooxml/schemas/microsoft/wml-2018.xsd",
+      "hash": "be0ff793a22dd31384650c3a4da14c2fa8062751c2e97b0e5ee852bda13c60ad"
+    },
+    {
+      "target": "tools/pptx/ooxml/schemas/microsoft/wml-cex-2018.xsd",
+      "hash": "fddc2b880cabb9005aebbc7e783e53c19fec1c03df7d0e2f2076a33a0fdfd081"
+    },
+    {
+      "target": "tools/pptx/ooxml/schemas/microsoft/wml-cid-2016.xsd",
+      "hash": "127ca209fa73d7cb708449cb355c871867948a96e4a74f7bf5811ef62d17991d"
+    },
+    {
+      "target": "tools/pptx/ooxml/schemas/microsoft/wml-sdtdatahash-2020.xsd",
+      "hash": "842e7163409c8d74f4d7088a8bc99500d80bc75332681a0980055b08f374a604"
+    },
+    {
+      "target": "tools/pptx/ooxml/schemas/microsoft/wml-symex-2015.xsd",
+      "hash": "16f6f8072249f431370723c2cd8974672e0d9c897e00e97dd918079df934871b"
+    },
+    {
+      "target": "tools/pptx/ooxml/scripts/pack.py",
+      "hash": "986343ebb111c454a369e5870b03c6b3b380d351bc1cc46a3805ef730a7e2451"
+    },
+    {
+      "target": "tools/pptx/ooxml/scripts/unpack.py",
+      "hash": "f09d72421490910093c08455b636076d3612388c622d2dbb64ce2beafe5c3fba"
+    },
+    {
+      "target": "tools/pptx/ooxml/scripts/validate.py",
+      "hash": "b444a72885f46275d3f46defe0279b53cfd9cc4241e58334c3fd91180fd58664"
+    },
+    {
+      "target": "tools/pptx/ooxml/scripts/validation/__init__.py",
+      "hash": "83e0f035c5abea238d3f2c3968afbd511ed022b527b7c9cb60a9434cc34ff987"
+    },
+    {
+      "target": "tools/pptx/ooxml/scripts/validation/base.py",
+      "hash": "f2c70d481613456e32b43869d1604b05c236c8da34b5b3967677a661cac7ba63"
+    },
+    {
+      "target": "tools/pptx/ooxml/scripts/validation/docx.py",
+      "hash": "e65d6cda0525866a24cc847b2e883bd2416ae6f87b3f5b9e2784dfbb0ec13093"
+    },
+    {
+      "target": "tools/pptx/ooxml/scripts/validation/pptx.py",
+      "hash": "00bf2623da1177b3948143a4ade2f1cda7cb389dee31960861913fa42ef1b00f"
+    },
+    {
+      "target": "tools/pptx/ooxml/scripts/validation/redlining.py",
+      "hash": "97abfdff4f08f43f9a4bb5c8a2f8fd483398b5b339592724e8635153b5507967"
+    },
+    {
+      "target": "tools/pptx/rearrange.py",
+      "hash": "8b04550b589bb86efcf3ea240e1162e176a62bcdd21499af0c4d9863cfab04d6"
+    },
+    {
+      "target": "tools/pptx/render_comp_assets.py",
+      "hash": "c95b7f930eba3e91fda06cce9c8d45ee006201ee1849543ce3690a99a65750b1"
+    },
+    {
+      "target": "tools/pptx/replace.py",
+      "hash": "d057a8aee3e5c5058396404a40903c6807e61026e6fa7df82544eca7d4d36b75"
+    },
+    {
+      "target": "tools/pptx/thumbnail.py",
+      "hash": "685f743fc9817986fb0f7fc2ea95ca48003073b50c883779b301556c99e48b2f"
+    },
+    {
+      "target": "tools/slide_analyze_template.ts",
+      "hash": "11c22cd0ce328eacf2699f2f67e04486446219cb67eca19101ca8081e6067baa"
+    },
+    {
+      "target": "tools/slide_assemble_pptx.ts",
+      "hash": "d330801d245c7dbbc138964f5acefed37b99b692e236d93cb827a434e704cdf3"
+    },
+    {
+      "target": "tools/slide_build_pptx.ts",
+      "hash": "0feed991268e1dfb68e8dad1146e1d5c64cdb296930a5ed6928bd7cbeeaceacd"
+    },
+    {
+      "target": "tools/slide_compile_composition.ts",
+      "hash": "ea0b64746c4a6a2eebdbf1a61c0051fa8fb776787d80a61927d582bf77a8a2e7"
+    },
+    {
+      "target": "tools/slide_compile_theme.ts",
+      "hash": "ec9f80f21b60bdbaf6a6521d2251f4b778effa37eb5f680accb32fb96f96ce08"
+    },
+    {
+      "target": "tools/slide_create_thumbnails.ts",
+      "hash": "9f486d5a049c420bfae7e08607a9d8dd40b922cf610c906d646035daafc9ba1c"
+    },
+    {
+      "target": "tools/slide_download_image.ts",
+      "hash": "b297fd63742523995d2d6f349ba2d2f0627d2ae1bb6f7e37bce6f0011044f1a5"
+    },
+    {
+      "target": "tools/slide_generate_image.ts",
+      "hash": "810dda40aaad5ef24e5e55ab90f410a039421282565d7aa9ba81097393d1d809"
+    },
+    {
+      "target": "tools/slide_screenshot.ts",
+      "hash": "227fdddfafeb47da8869873da0ef61a9c74eb7b5f90eaf070b29c8f732043aa4"
+    }
+  ]
+}

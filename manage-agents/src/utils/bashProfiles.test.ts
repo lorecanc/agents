@@ -11,7 +11,6 @@ import {
   loadBashProfiles, matchBashRule, rewriteBashRules, splitCompoundCommand, syncBashProfiles, validateBashProfiles,
   type BashAction, type BashProfilesConfig, type BashRule
 } from "./bashProfiles.js"
-import { refreshStampedPipelinesFromSource } from "./pipelineProfiles.js"
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..")
 const AGENTS_DIR = path.join(REPO, "src", "agents")
@@ -215,17 +214,6 @@ test("syncBashProfiles rewrites drifted agents, skips unprofiled ones, and is th
   assert.equal(rewritten.temperature, undefined)
   assert.equal(rewritten.request, undefined)
   assert.deepEqual(syncBashProfiles(root), { changed: [], unchanged: ["src/agents/pipeline-executor.md"], skipped: ["src/agents/pipeline-planner.md"] })
-})
-
-test("refresh replaces a stamped bash block instead of merging stale rules into it", () => {
-  const root = syncWorkspace()
-  syncBashProfiles(root)
-  const stamped = path.join(root, "export", "categories", "go-pipeline", "agents", "go-pipeline-executor.md")
-  fs.mkdirSync(path.dirname(stamped), { recursive: true })
-  fs.writeFileSync(stamped, SAMPLE.replace("description: Sample", "model: go/model\ndescription: Sample"))
-  refreshStampedPipelinesFromSource(root, "go-pipeline")
-  const parsed = YAML.parse(extractFrontmatter(fs.readFileSync(stamped, "utf8")).yamlText!)
-  assert.deepEqual(bashRulesOf(parsed), expandBashRole(loadBashProfiles(root)!, "executor"))
 })
 
 // --- Fixtures: exact expected actions against the current agent files ---

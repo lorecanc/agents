@@ -11,7 +11,7 @@ source_files:
   - "manage-agents/src/utils/agents.ts"
   - "manage-agents/src/utils/repositoryTransaction.ts"
 created: "2026-10-16"
-last_updated: "2026-11-02"
+last_updated: "2026-11-09"
 ---
 
 # Getting Started
@@ -74,7 +74,8 @@ node manage-agents/manage-agents.mjs export --all --yes
 - Agent files go to `agents/`. Companion resources from `tools/`, `commands/`, `skills/`, and `plugins/` are installed under the same relative paths.
 - The export is idempotent: agent files whose content and mode already match are not rewritten, and identical resource files are skipped. A backup is created only when an existing file would be replaced (`agents_backup/` for agents, `resource_export_backup_*` for resources).
 - The export reconciles `experimental.todo` in the configuration's `opencode.json`, backing up the previous file to `opencode.json.bak`.
-- Before exporting, the command refreshes the stamped `*-pipeline` bundles under `export/categories/` from `src/`, so it can modify files in the repository.
+- Before exporting, the command rebuilds `src/plugins/agent-router/routing.json` from `.agent-manager/agent-routing.json`, so it can modify that file in the repository.
+- The pipeline is installed once. When a pipeline agent is exported, the retired installed files `{free,go,hybrid,mistral}-pipeline-<role>.md` (exact names only) are removed from `agents/`.
 
 `src/opencode.json` remains the configuration blueprint, see [Workspace and Distribution Configuration](./config/workspace-and-distribution.md). The export command does not copy it; the keys it reconciles are listed above.
 

@@ -7,13 +7,14 @@ source_files:
   - ".agent-manager/categories/wiki.json"
   - ".agent-manager/categories/docs.json"
   - ".agent-manager/categories/slides.json"
-  - ".agent-manager/pipeline-profiles.json"
+  - ".agent-manager/categories/pipeline.json"
+  - ".agent-manager/agent-routing.json"
   - ".agent-manager/companion-links.json"
   - ".agent-manager/translation-config.json"
   - "manage-agents/README.md"
   - "manage-agents/src/index.tsx"
   - "manage-agents/src/utils/categoryDistribution.ts"
-  - "manage-agents/src/utils/pipelineProfiles.ts"
+  - "manage-agents/src/utils/agentRouting.ts"
   - ".agent-manager/shared-sync.json"
   - ".agent-manager/bash-profiles.json"
   - "manage-agents/src/utils/sharedSync.ts"
@@ -21,15 +22,16 @@ source_files:
   - "manage-agents/src/utils/bridgeCheck.ts"
   - "src/plugins/README.md"
   - "AGENTS.md"
+  - "ARCHETIPI.md"
 created: "2026-10-16"
-last_updated: "2026-11-02"
+last_updated: "2026-11-09"
 ---
 
 # Architecture
 
 ## Overview
 
-The repository separates authored material from configuration and generated output. `src/` holds the canonical catalog and OpenCode blueprint; `.agent-manager/` declares category allowlists, pipeline model profiles, bash permission profiles, companion-resource links, shared-sync components, and translation settings, as detailed in [Workspace and Distribution Configuration](./config/workspace-and-distribution.md). The [Agent Manager](./modules/agent-manager.md) reads these inputs and maintains generated distributions and bridges in `export/`.
+The repository separates authored material from configuration and generated output. `src/` holds the canonical catalog and OpenCode blueprint; `.agent-manager/` declares category allowlists, archetype model configurations, bash permission profiles, companion-resource links, shared-sync components, and translation settings, as detailed in [Workspace and Distribution Configuration](./config/workspace-and-distribution.md). The [Agent Manager](./modules/agent-manager.md) reads these inputs and maintains generated distributions and bridges in `export/`.
 
 ## Component Diagram
 
@@ -42,30 +44,29 @@ graph TD
     end
     subgraph "Declarations"
         Manifests[".agent-manager/categories/*.json"]
-        Profiles["pipeline-profiles.json"]
+        Routing["agent-routing.json"]
         BashProfiles["bash-profiles.json"]
         BridgeConfig["translation-config.json"]
     end
     Manager["manage-agents CLI and TUI"]
     CategoryBuilder["Category distribution generator"]
-    PipelineTools["Pipeline profiles, stamping, sync-bash"]
+    PipelineTools["Model configurations (routing), sync-bash"]
     BridgeTools["Claude Code and Codex bridges, bridge check"]
     Outputs["export/categories/ and export/bridges/"]
     Sources --> Manager
     Manifests --> CategoryBuilder
-    Profiles --> PipelineTools
+    Routing --> PipelineTools
     BashProfiles --> PipelineTools
     BridgeConfig --> BridgeTools
     Manager --> CategoryBuilder
     Manager --> PipelineTools
     Manager --> BridgeTools
     CategoryBuilder --> Outputs
-    PipelineTools -->|"stamped pipelines"| Outputs
-    PipelineTools -->|"sync-bash rewrites permission.bash"| Sources
+    PipelineTools -->|"routing.json for the agent-router plugin, sync-bash rewrites permission.bash"| Sources
     BridgeTools --> Outputs
 ```
 
-The manager is the entry point for interactive and command-line operations; focused utilities interpret the relevant declarations and write the corresponding generated output. `pipeline sync-bash` rewrites the `permission.bash` block of canonical pipeline agents from `bash-profiles.json`, and `bridge check` regenerates a bridge in a temporary workspace and compares it byte-for-byte with the committed `export/bridges/` output. The [custom tools and plugins](./modules/tools-and-plugins.md) provide additional document, slide, and pipeline operations alongside these generation flows.
+The manager is the entry point for interactive and command-line operations; focused utilities interpret the relevant declarations and write the corresponding generated output. `pipeline sync-bash` rewrites the `permission.bash` block of canonical pipeline agents from `bash-profiles.json`; `routing build` (also run by `category build` and `export`) resolves `agent-routing.json` into `src/plugins/agent-router/routing.json`, which the category build then copies into the `flow` and `pipeline` bundles; and `bridge check` regenerates a bridge in a temporary workspace and compares it byte-for-byte with the committed `export/bridges/` output. The [custom tools and plugins](./modules/tools-and-plugins.md) provide additional document, slide, and pipeline operations alongside these generation flows.
 
 Distribution flows: shared components move between repositories, and agents are installed into the OpenCode configuration directory.
 
@@ -81,7 +82,7 @@ graph TD
     OpenCode["~/.config/opencode"]
     Manager --> SharedSync
     SharedManifest --> SharedSync
-    SharedSync -->|"apply, runs pipeline refresh and sync-bash"| TargetRepo
+    SharedSync -->|"apply, runs sync-bash"| TargetRepo
     Manager --> Export
     Sources --> Export
     Export --> OpenCodeMcp
@@ -130,7 +131,7 @@ sequenceDiagram
 
 ### Canonical inputs are separate from generated distributions
 
-- **Context**: Category distributions are projections of selected canonical resources, and provider pipelines are stamped from the base pipeline.
+- **Context**: Category distributions are projections of selected canonical resources. The `flow` and `pipeline` archetypes ship one set of canonical agents; per-provider models come from model configurations applied at runtime, not from per-provider copies.
 - **Decision**: Author and configure in `src/` and `.agent-manager/`; generate distributions and bridges into `export/`.
 - **Consequences**: Generated folders are reproducible outputs; changes should be made in their declared sources and regenerated.
 

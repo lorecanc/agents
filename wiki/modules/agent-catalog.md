@@ -19,9 +19,10 @@ source_files:
   - "src/agents/slides-orchestrator.md"
   - "src/agents/storybook-docs_format.md"
   - ".agent-manager/categories/wiki.json"
+  - ".agent-manager/categories/pipeline.json"
   - "src/bench/README.md"
 created: "2026-10-16"
-last_updated: "2026-11-02"
+last_updated: "2026-11-09"
 ---
 
 # Agent Catalog
@@ -54,7 +55,7 @@ The catalog contains 37 agent files in `src/agents/`. Besides the key files abov
 
 ### Pipeline Roles
 
-The `pipeline-*` files are the shared base roles. The README describes four pipeline families (free, Go, hybrid, and Mistral) that are stamped from these sources as `*-pipeline` profiles.
+The 21 `pipeline-*` files are the canonical agents of the `pipeline` archetype, installed once for every provider. `pipeline-orchestrator` is `mode: primary` and is the only one with a `model` (its starting model); the other 20 are subagents with no `model` and no `hidden`, so their models come from the archetype model configurations in `.agent-manager/agent-routing.json` (see `ARCHETIPI.md`).
 
 | Role | Responsibility (from agent description) |
 |------|-----------------------------------------|
@@ -98,12 +99,13 @@ Category manifests in `.agent-manager/categories/` select which agents ship in e
 | `wiki` | `wiki-analyzer`, `wiki-indexer`, `wiki-orchestrator`, `wiki-updater`, `wiki-writer` (plus the wiki command, three wiki skills, and `src/AGENTS.md`) |
 | `docs` | `docs-orchestrator`, `docs-planner`, `docs-html_writer` |
 | `slides` | `slides-orchestrator`, `slides-planner`, `slides-html_writer`, `slides-template_planner`, `slides-template_writer`, `slides-composition_resolver` |
+| `pipeline` | the 21 `pipeline-*` agents |
 
-Pipeline roles are not in these manifests. They are distributed through the stamped `*-pipeline` profiles. `storybook-docs_format` is in `src/agents/` but not in any category manifest.
+`storybook-docs_format` is in `src/agents/` but not in any category manifest.
 
 ### Benchmark Harness
 
-`src/bench/` contains an offline harness that measures a `*-pipeline-*` agent family on small local tasks built from `fixtures/`. It runs `opencode run --agent <family>-pipeline-orchestrator` in a throwaway git repository and compares results across runs. See `src/bench/README.md` for usage and the task list.
+`src/bench/` contains an offline harness that measures the pipeline (or another primary agent such as `flow-build`) on small local tasks built from `fixtures/`. It runs `opencode run --agent pipeline-orchestrator` in a throwaway git repository and compares results across runs. See `src/bench/README.md` for usage and the task list.
 
 ## Dependencies
 

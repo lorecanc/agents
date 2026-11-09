@@ -1,4 +1,4 @@
-// Read-only environment probe for the *-pipeline-* agents (tool: dev_env).
+// Read-only environment probe for the pipeline-* agents (tool: dev_env).
 //
 // Called once at session start so the planner writes a verification plan that matches what this
 // machine can actually run (Docker, database binaries, declared services, pipeline tools, MCP
@@ -377,7 +377,7 @@ function probePipeline(info, sessionId, toolsDir) {
     out.guard_registered = Boolean(root)
     out.baseline = Boolean(root && root.baseline)
     out.root_session = root ? root.sessionId : null
-    if (!root) out.reason = "no pipeline session record: normal outside *-pipeline-* agents; for a pipeline agent the pipeline-guard plugin is not loaded"
+    if (!root) out.reason = "no pipeline session record: normal outside pipeline-* agents; for a pipeline agent the pipeline-guard plugin is not loaded"
   } else if (!info) out.reason = "not a git repository"
   else out.reason = "no session id in the tool context"
   if (toolsDir) {

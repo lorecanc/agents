@@ -29,8 +29,8 @@ test("parseExport tolerates the leading log line and rejects wrong shapes", () =
 })
 
 test("summarizeSession: steps, tokens, cost, tool outcomes, guard and permission errors", () => {
-  const exp = mkExport("ses_a", "hybrid-pipeline-executor", [
-    asst("m1", "hybrid-pipeline-executor", [
+  const exp = mkExport("ses_a", "pipeline-executor", [
+    asst("m1", "pipeline-executor", [
       ...steps("m1", 2),
       tool("m1", "edit", { filePath: "a.js" }),
       tool("m1", "bash", { command: "git checkout -b x" }, { status: "error", error: "[pipeline-guard] Blocked: git checkout is not allowed" }),
@@ -53,12 +53,12 @@ test("summarizeSession: steps, tokens, cost, tool outcomes, guard and permission
 })
 
 test("delegations and parallelism: two task calls in one message count as a parallel batch; children are discovered", () => {
-  const exp = mkExport("ses_root", "hybrid-pipeline-orchestrator", [
-    asst("m1", "hybrid-pipeline-orchestrator", [...steps("m1"), taskCall("m1", "hybrid-pipeline-explorer", "ses_c1"), taskCall("m1", "hybrid-pipeline-researcher", "ses_c2")]),
-    asst("m2", "hybrid-pipeline-orchestrator", [...steps("m2"), taskCall("m2", "hybrid-pipeline-planner", "ses_c3")]),
+  const exp = mkExport("ses_root", "pipeline-orchestrator", [
+    asst("m1", "pipeline-orchestrator", [...steps("m1"), taskCall("m1", "pipeline-explorer", "ses_c1"), taskCall("m1", "pipeline-researcher", "ses_c2")]),
+    asst("m2", "pipeline-orchestrator", [...steps("m2"), taskCall("m2", "pipeline-planner", "ses_c3")]),
   ])
   const s = summarizeSession(exp)
-  assert.deepEqual(s.delegations, { "hybrid-pipeline-explorer": 1, "hybrid-pipeline-researcher": 1, "hybrid-pipeline-planner": 1 })
+  assert.deepEqual(s.delegations, { "pipeline-explorer": 1, "pipeline-researcher": 1, "pipeline-planner": 1 })
   assert.equal(s.parallel_batches, 1)
   assert.equal(s.max_parallel, 2)
   assert.deepEqual(childSessionIds(exp).sort(), ["ses_c1", "ses_c2", "ses_c3"])
@@ -85,8 +85,8 @@ test("post-hoc safety scan: writes outside the repo and forbidden git are flagge
   initRepo(dir)
   const info = repoInfo(dir)
   const repo = { info, scratch: scratchDir(info) }
-  const exp = mkExport("ses_a", "hybrid-pipeline-executor", [
-    asst("m1", "hybrid-pipeline-executor", [
+  const exp = mkExport("ses_a", "pipeline-executor", [
+    asst("m1", "pipeline-executor", [
       ...steps("m1"),
       tool("m1", "bash", { command: "echo x > ~/leak.txt" }), // executed
       tool("m1", "bash", { command: "git worktree add ../w" }, { status: "error", error: "[pipeline-guard] Blocked: ..." }), // attempted only
@@ -225,16 +225,16 @@ function withFake(spec, exports) {
 }
 
 const goodExports = (finalAnswer) => ({
-  ses_root: mkExport("ses_root", "hybrid-pipeline-orchestrator", [
-    asst("m1", "hybrid-pipeline-orchestrator", [...steps("m1"), taskCall("m1", "hybrid-pipeline-explorer", "ses_c1"), taskCall("m1", "hybrid-pipeline-researcher", "ses_c2")]),
-    asst("m2", "hybrid-pipeline-orchestrator", [...steps("m2"), taskCall("m2", "hybrid-pipeline-tester", "ses_c3"), text(finalAnswer)]),
+  ses_root: mkExport("ses_root", "pipeline-orchestrator", [
+    asst("m1", "pipeline-orchestrator", [...steps("m1"), taskCall("m1", "pipeline-explorer", "ses_c1"), taskCall("m1", "pipeline-researcher", "ses_c2")]),
+    asst("m2", "pipeline-orchestrator", [...steps("m2"), taskCall("m2", "pipeline-tester", "ses_c3"), text(finalAnswer)]),
   ]),
-  ses_c1: mkExport("ses_c1", "hybrid-pipeline-explorer", [asst("c1", "hybrid-pipeline-explorer", [...steps("c1", 3)])]),
-  ses_c2: mkExport("ses_c2", "hybrid-pipeline-researcher", [asst("c2", "hybrid-pipeline-researcher", [...steps("c2", 2)])]),
-  ses_c3: mkExport("ses_c3", "hybrid-pipeline-tester", [asst("c3", "hybrid-pipeline-tester", [...steps("c3", 4)])]),
+  ses_c1: mkExport("ses_c1", "pipeline-explorer", [asst("c1", "pipeline-explorer", [...steps("c1", 3)])]),
+  ses_c2: mkExport("ses_c2", "pipeline-researcher", [asst("c2", "pipeline-researcher", [...steps("c2", 2)])]),
+  ses_c3: mkExport("ses_c3", "pipeline-tester", [asst("c3", "pipeline-tester", [...steps("c3", 4)])]),
 })
 
-const opts = (bin, extra = {}) => ({ bin, family: "hybrid", timeoutMs: 30000, workRoot: mkTmp("bench-work-"), keep: false, dryRun: false, ...extra })
+const opts = (bin, extra = {}) => ({ bin, timeoutMs: 30000, workRoot: mkTmp("bench-work-"), keep: false, dryRun: false, ...extra })
 const task = (id) => loadTasks().find((t) => t.id === id)
 
 test("runTask end to end: a correct run passes, metrics merge across child sessions", { skip: process.platform === "win32" }, async () => {
@@ -245,7 +245,7 @@ test("runTask end to end: a correct run passes, metrics merge across child sessi
   assert.equal(r.metrics.sessions, 4)
   assert.equal(r.metrics.steps, 1 + 1 + 3 + 2 + 4)
   assert.equal(r.metrics.max_parallel, 2)
-  assert.equal(r.metrics.delegations["hybrid-pipeline-tester"], 1)
+  assert.equal(r.metrics.delegations["pipeline-tester"], 1)
   assert.equal(r.git.ok, true)
   assert.equal(r.commits_made, 0)
   assert.match(r.final_text_excerpt, /Done/)
@@ -312,7 +312,7 @@ test("runTask: a hung run is killed at the timeout and reported, never left runn
 })
 
 test("runTask: a degenerate run (only empty steps) is reported as such", { skip: process.platform === "win32" }, async () => {
-  const empty = mkExport("ses_root", "hybrid-pipeline-orchestrator", Array.from({ length: 40 }, (_, i) => asst(`m${i}`, "hybrid-pipeline-orchestrator", [{ type: "step-start" }, { type: "step-finish", cost: 0, tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } } }])))
+  const empty = mkExport("ses_root", "pipeline-orchestrator", Array.from({ length: 40 }, (_, i) => asst(`m${i}`, "pipeline-orchestrator", [{ type: "step-start" }, { type: "step-finish", cost: 0, tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } } }])))
   const fake = withFake({}, { ses_root: empty })
   const r = await runTask(task("bug-average-empty"), opts(fake.bin))
   assert.equal(r.degenerate, true)
@@ -324,7 +324,7 @@ test("runTask: dry run builds the command without calling the model and leaves n
   const work = mkTmp("bench-dry-")
   const r = await runTask(task("feature-median"), opts(fake.bin, { dryRun: true, workRoot: work, model: "p/m" }))
   assert.equal(r.dry_run, true)
-  assert.deepEqual(r.command.slice(0, 6), [fake.bin, "run", "--agent", "hybrid-pipeline-orchestrator", "--auto", "--format"])
+  assert.deepEqual(r.command.slice(0, 6), [fake.bin, "run", "--agent", "pipeline-orchestrator", "--auto", "--format"])
   assert.ok(r.command.includes("-m"))
   assert.deepEqual(fs.readdirSync(work), [])
 })
@@ -344,7 +344,7 @@ test("evaluateChecks: pipeline_only checks are n/a for other agents and still ap
   const flow = await evaluateChecks(checks, { ...ctx, agent: "flow-build" })
   assert.equal(flow[0].pass, true)
   assert.match(flow[0].detail, /n\/a for flow-build/)
-  const pipeline = await evaluateChecks(checks, { ...ctx, agent: "hybrid-pipeline-orchestrator" })
+  const pipeline = await evaluateChecks(checks, { ...ctx, agent: "pipeline-orchestrator" })
   assert.equal(pipeline[0].pass, false)
 })
 

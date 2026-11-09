@@ -31,9 +31,10 @@ source_files:
   - "src/plugins/pipeline-tools/index.ts"
   - "src/plugins/doc-tools/index.ts"
   - "src/plugins/slide-tools/index.ts"
+  - "src/plugins/agent-router/index.ts"
   - "src/opencode.json"
 created: "2026-10-16"
-last_updated: "2026-11-02"
+last_updated: "2026-11-09"
 ---
 
 # OpenCode Tools and Plugin Hooks
@@ -57,7 +58,7 @@ Arguments are tool-specific. For example, `dev_verify` accepts an ordered `check
 
 `src/plugins/pipeline-guard/index.ts` exports `setupPipelineGuard(ctx, options)`, the V2 setup function, and a default plugin descriptor `Plugin.define({ id: "pipeline-guard", setup: setupPipelineGuard })` with ID `pipeline-guard`. It limits its behavior to sessions whose agent name matches `pipeline-*` or `*-pipeline-*`; other sessions are left untouched. Set `OPENCODE_PIPELINE_GUARD=off` to disable it.
 
-The guard is one of the five V2 plugin directories shipped with the pipeline: `plugins/dev-tools`, `plugins/pipeline-guard`, `plugins/pipeline-tools`, `plugins/doc-tools`, and `plugins/slide-tools`. Its bash parser and write/git checks live in `src/tools/_bash_guard.js`, which `flow-guard` reuses; the session registry is `src/tools/_sessions.js`, and the pipeline-only parts (role matching, activity log, file claims) stay in `src/tools/_pipeline_core.js`. It registers V2 lifecycle hooks to maintain pipeline session state and enforce workspace constraints:
+The guard is one of the six V2 plugin directories shipped with the pipeline: `plugins/agent-router`, `plugins/dev-tools`, `plugins/pipeline-guard`, `plugins/pipeline-tools`, `plugins/doc-tools`, and `plugins/slide-tools`. `agent-router` is hook-only: on `subagent` calls from `pipeline-orchestrator` (and from `flow-build` or `flow-plan`) it sets the subagent model from the archetype model configuration in its generated `routing.json` (see `src/plugins/README.md` and `ARCHETIPI.md`). Its bash parser and write/git checks live in `src/tools/_bash_guard.js`, which `flow-guard` reuses; the session registry is `src/tools/_sessions.js`, and the pipeline-only parts (role matching, activity log, file claims) stay in `src/tools/_pipeline_core.js`. It registers V2 lifecycle hooks to maintain pipeline session state and enforce workspace constraints:
 
 - `session.hook("model.request")` and `session.hook("prompt")` register sessions, resolve root sessions, and mark work busy.
 - `shell.hook("create.before")` redirects temporary-file variables to a repository-local scratch directory and sets pipeline-specific Git/session environment values.

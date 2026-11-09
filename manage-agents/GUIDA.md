@@ -131,11 +131,11 @@ Per il tuning, `--steps <n>`, `--temp <n>` e `--variant <nome>` (alias `--effort
 
 ```bash
 node manage-agents/manage-agents.mjs tune --category wiki --steps 40 --variant high
-./manage-agents.sh tune --effort high --category go-pipeline
-node manage-agents/manage-agents.mjs tune --clear-variant --category go-pipeline
+./manage-agents.sh tune --effort high --category pipeline
+node manage-agents/manage-agents.mjs tune --clear-variant --category pipeline
 ```
 
-Il `variant` seleziona una configurazione definita sul modello: non è un parametro libero del frontmatter. In `pipeline-profiles.json` un profilo assegna `model` e `variant`, e l’agente usa il riferimento `provider/model#variant`. I variant standard documentati dipendono da provider e modello: Anthropic include `high` e `max`; OpenAI `none`, `minimal`, `low`, `medium`, `high` e `xhigh`; Google `low` e `high`. Sono possibili anche variant personalizzati definiti nella configurazione del modello. Consulta la documentazione ufficiale OpenCode su [agenti](https://opencode.ai/docs/agents/#additional) e [variant dei modelli](https://opencode.ai/docs/models/#variants).
+Il `variant` seleziona una configurazione definita sul modello: non è un parametro libero del frontmatter. Nel frontmatter e nelle configurazioni modelli degli archetipi il modello si scrive come `provider/model#variant`. I variant standard documentati dipendono da provider e modello: Anthropic include `high` e `max`; OpenAI `none`, `minimal`, `low`, `medium`, `high` e `xhigh`; Google `low` e `high`. Sono possibili anche variant personalizzati definiti nella configurazione del modello. Consulta la documentazione ufficiale OpenCode su [agenti](https://opencode.ai/docs/agents/#additional) e [variant dei modelli](https://opencode.ai/docs/models/#variants).
 
 ### Sincronizzare con OpenCode
 
@@ -149,7 +149,7 @@ node manage-agents/manage-agents.mjs export --category wiki
 - `export --all` o `export -a` esplicita l’esportazione completa. `export --category <nome>` o `export -c <nome>` limita l’operazione alla categoria; se specifichi entrambi, **la categoria prevale** e viene esportata solo quella categoria.
 - `export --help` o `export -h` mostra l’help del comando; non esegue l’esportazione.
 
-Per ogni agente copiato con successo, l’export individua le risorse companion in `general/tools/`, `general/commands/`, `general/skills/` e `general/plugins/` combinando il manifest `.agent-manager/categories/<dominio>.json` (se presente), le directory con nome `<dominio>` o prefisso `<dominio>-` e i file al livello superiore con nome `<dominio>` o prefisso `<dominio>-`. Il dominio è il primo segmento del nome file dell’agente prima del trattino, per esempio `slides` per `slides-orchestrator.md`. Sono inoltre gestiti mapping supplementari di wrapper/skill: per `slides`, `slide_*.ts`, `pptx` e gli helper runtime; per `docs`, `doc_*.ts`, `docx` e gli helper runtime; per `hybrid`, gli strumenti `dev_*.ts` e `pipeline_*.ts` con i loro helper (`_repo.js`, `_sessions.js`, `_bash_guard.js`, `_run.js`, `_pipeline_core.js`, ...), `skills/code-review-antipatterns` e le cinque directory plugin (`plugins/dev-tools`, `plugins/pipeline-guard`, `plugins/pipeline-tools`, `plugins/doc-tools`, `plugins/slide-tools`). Vengono esportate solo le risorse dei domini degli agenti copiati con successo; risorse e file degli altri domini già presenti nella configurazione OpenCode vengono preservati. Gli script degli strumenti si trovano in `tools/<dominio>/`: gli agenti devono risolvere il percorso dello script in un percorso assoluto prima di invocarlo.
+Per ogni agente copiato con successo, l’export individua le risorse companion in `general/tools/`, `general/commands/`, `general/skills/` e `general/plugins/` combinando il manifest `.agent-manager/categories/<dominio>.json` (se presente), le directory con nome `<dominio>` o prefisso `<dominio>-` e i file al livello superiore con nome `<dominio>` o prefisso `<dominio>-`. Il dominio è il primo segmento del nome file dell’agente prima del trattino, per esempio `slides` per `slides-orchestrator.md`. Sono inoltre gestiti mapping supplementari di wrapper/skill: per `slides`, `slide_*.ts`, `pptx` e gli helper runtime; per `docs`, `doc_*.ts`, `docx` e gli helper runtime; per `pipeline`, gli strumenti `dev_*.ts` e `pipeline_*.ts` con i loro helper (`_repo.js`, `_sessions.js`, `_bash_guard.js`, `_run.js`, `_pipeline_core.js`, ...), `skills/code-review-antipatterns` e le sei directory plugin (`plugins/agent-router`, `plugins/dev-tools`, `plugins/pipeline-guard`, `plugins/pipeline-tools`, `plugins/doc-tools`, `plugins/slide-tools`). La pipeline si installa una volta sola: quando l’export copia un agente `pipeline`, elimina da `agents/` i vecchi file installati `{free,go,hybrid,mistral}-pipeline-<ruolo>.md` (solo con quei nomi esatti). Vengono esportate solo le risorse dei domini degli agenti copiati con successo; risorse e file degli altri domini già presenti nella configurazione OpenCode vengono preservati. Gli script degli strumenti si trovano in `tools/<dominio>/`: gli agenti devono risolvere il percorso dello script in un percorso assoluto prima di invocarlo.
 
 I file di risorsa identici per contenuto e permessi vengono saltati, senza scritture o backup inutili. Prima di sostituire risorse modificate, vengono salvati in un backup separato `resource_export_backup_<timestamp>_<suffix>/` solo i file che saranno sostituiti, nella radice della configurazione OpenCode; vengono conservate automaticamente le 5 directory di backup più recenti. Se l’installazione delle risorse fallisce, vengono ripristinati automaticamente sia le risorse companion sia gli agenti esportati nella stessa operazione.
 
@@ -168,9 +168,9 @@ La sync trasferisce solo i componenti condivisi dichiarati in `.agent-manager/sh
 
 1. **`agentManager`: condiviso e versionato.** Comprende la CLI/TUI `manage-agents/**`, `manage-agents.sh`, `.agent-manager/bash-profiles.json` e `.agent-manager/translation-config.json`. La lista precisa dei file inclusi/esclusi è nel manifest.
 2. **`pipelineCore`: condiviso e versionato.** Comprende gli agenti canonici `src/agents/pipeline-*.md`, i comandi `src/commands/pipeline-*`, gli alberi interi `src/plugins/**`, `src/tools/**`, `src/skills/**` e `src/resources/**` (quindi anche i plugin e gli helper condivisi con `flow`) e `src/docs/mcp-configuration.md`.
-3. **`localOverlay`: locale a ciascuna repository e mai sovrascritto dalla sync.** Comprende lo stack Ontology (`src/agents/ontology-*.md`, `src/tools/ontology/**`, `src/skills/ontology-*/**`, `src/resources/ontology/**`, `src/ontology-pipeline.md`), i profili modello locali (`.agent-manager/pipeline-profiles.json`, per esempio `spark`), `.agent-manager/companion-links.json`, `.agent-manager/categories/**` e `src/opencode.json`. Anche gli output generati `export/categories/**` e `export/bridges/**` restano locali: la sync non li copia dalla fonte. Dopo l’applicazione di `pipelineCore`, i bundle stamped `*-pipeline` vengono aggiornati dal profilo locale; distribuzioni di categoria non stamped e bridge si rigenerano con i rispettivi comandi (`category build` e `bridge`).
+3. **`localOverlay`: locale a ciascuna repository e mai sovrascritto dalla sync.** Comprende lo stack Ontology (`src/agents/ontology-*.md`, `src/tools/ontology/**`, `src/skills/ontology-*/**`, `src/resources/ontology/**`, `src/ontology-pipeline.md`), le configurazioni modelli locali (`.agent-manager/agent-routing.json` e il file generato `src/plugins/agent-router/routing.json`), `.agent-manager/companion-links.json`, `.agent-manager/categories/**` e `src/opencode.json`. Anche gli output generati `export/categories/**` e `export/bridges/**` restano locali: la sync non li copia dalla fonte. Dopo l’applicazione di `pipelineCore`, distribuzioni di categoria e bridge si rigenerano con i rispettivi comandi (`category build` e `bridge`).
 
-**Regole pratiche:** modifica il manager e il core pipeline nella repository fonte; conserva profili, overlay e configurazioni specifiche nella repository di destinazione. Non spostare file da una categoria all’altra senza aggiornare `.agent-manager/shared-sync.json`: è il manifest che definisce cosa è condiviso, cosa è protetto e quali versioni sono compatibili.
+**Regole pratiche:** modifica il manager e il core pipeline nella repository fonte; conserva configurazioni modelli, overlay e configurazioni specifiche nella repository di destinazione. Non spostare file da una categoria all’altra senza aggiornare `.agent-manager/shared-sync.json`: è il manifest che definisce cosa è condiviso, cosa è protetto e quali versioni sono compatibili.
 
 ### Versioni, compatibilità e modifiche locali
 
@@ -206,7 +206,7 @@ Esegui gli esempi dalla radice della repository fonte (`~/dev/agents`):
    ./manage-agents.sh sync apply --target ~/altro/agents
    ```
 
-   Il comando aggiorna anche i bundle stamped dei profili locali (per esempio `go-pipeline` e `hybrid-pipeline`) e sincronizza i profili Bash quando presenti. Per saltare questi refresh usa `--no-refresh`. Prima dell’applicazione controlla e risolvi eventuali modifiche locali; non viene creato alcun commit automatico. Al termine verifica la destinazione con `git diff` e `git status`.
+   Con `pipelineCore`, il comando esegue anche `pipeline sync-bash` sulla destinazione se questa ha `.agent-manager/bash-profiles.json`; nel report JSON l’esito è in `refreshed.bashProfiles`. Per saltarlo usa `--no-refresh`. Prima dell’applicazione controlla e risolvi eventuali modifiche locali; non viene creato alcun commit automatico. Al termine verifica la destinazione con `git diff` e `git status`.
 
 4. In alternativa, crea un bundle versionato con `release-index.json` e hash SHA-256, quindi applicalo:
 
@@ -222,13 +222,13 @@ Esegui gli esempi dalla radice della repository fonte (`~/dev/agents`):
 Un bridge traduce una categoria del catalogo in un livello per Claude Code o Codex senza modificare il prompt sorgente. Esempio Claude:
 
 ```bash
-node manage-agents/manage-agents.mjs bridge --category go-pipeline --target claude
+node manage-agents/manage-agents.mjs bridge --category pipeline --target claude
 ```
 
 Esempio Codex:
 
 ```bash
-node manage-agents/manage-agents.mjs bridge --category go-pipeline --target codex
+node manage-agents/manage-agents.mjs bridge --category pipeline --target codex
 ```
 
 Opzioni disponibili:
@@ -255,12 +255,12 @@ Le opzioni esplicite `--no-validate`, `--no-register` e `--marketplace-name` ven
 Altri esempi:
 
 ```bash
-node manage-agents/manage-agents.mjs bridge -c go-pipeline -t codex -n mio-layer -p go-pipeline- -s general
+node manage-agents/manage-agents.mjs bridge -c pipeline -t codex -n mio-layer -p pipeline- -s general
 node manage-agents/manage-agents.mjs bridge --category wiki --output artifacts/wiki-claude --target claude
-node manage-agents/manage-agents.mjs bridge -c go-pipeline -t claude --model "zai-glm-5-3=opus" --model "glm-5-3=haiku"
-node manage-agents/manage-agents.mjs bridge -c go-pipeline -t claude --marketplace-name acme-tools
-node manage-agents/manage-agents.mjs bridge -c go-pipeline -t codex --map-all gpt-5.6-luna
-node manage-agents/manage-agents.mjs bridge --category go-pipeline --wizard
+node manage-agents/manage-agents.mjs bridge -c pipeline -t claude --model "zai-glm-5-3=opus" --model "glm-5-3=haiku"
+node manage-agents/manage-agents.mjs bridge -c pipeline -t claude --marketplace-name acme-tools
+node manage-agents/manage-agents.mjs bridge -c pipeline -t codex --map-all gpt-5.6-luna
+node manage-agents/manage-agents.mjs bridge --category pipeline --wizard
 ```
 
 Un output personalizzato deve restare dentro il workspace: il bridge verifica il percorso e rifiuta quelli esterni. Scegli un percorso deliberatamente e controlla prima se esiste già. Il wizard salva le impostazioni, ma il bridge scrive anche gli artefatti. Controlla in output la lista dei file, gli avvisi di traduzione e l’esito di validazione e registrazione. Per Claude il manager esegue `claude plugin validate <percorso> --strict` e, se la validazione passa e il marketplace è emesso, registra il plugin in Claude Code; entrambi i passaggi sono attivi per impostazione predefinita. Per Codex indica gli agenti scoped e il manifest del plugin.
@@ -370,7 +370,6 @@ Avvia la TUI con `npm start` da `manage-agents/`, con `npm start --prefix manage
 | `1`–`5` | Cambiano scheda inspector: Info/Overview, Name, Sec, Graph e `Res` (Skills & Tools). La scheda `1` mostra anche il `variant` configurato e l’eventuale `reasoningEffort` passato direttamente al provider. |
 | `PageUp` / `PageDown` | Scorrono le schede sicurezza/deleghe/risorse e i risultati lunghi. |
 | `Esc` | Chiude o annulla la finestra attiva; in ricerca cancella il filtro. |
-| `d` | Con il cursore sulla cartella di un bundle timbrato `*-pipeline` in `export/categories/`, chiede conferma ed elimina il bundle e la sua voce in `.agent-manager/companion-links.json`; nella conferma `Tab`, `x` o `Space` attivano anche la rimozione di agenti e comandi installati. La pipeline canonica e le categorie in `src/agents/` non si possono eliminare. |
 | `Ctrl-C` | Esce dalla TUI. |
 
 ### Modificare agenti e impostazioni
@@ -387,11 +386,11 @@ Avvia la TUI con `npm start` da `manage-agents/`, con `npm start --prefix manage
 | `u` | Apre il manager interattivo di Skills, Tools & MCP per l’agente attivo; su una cartella apre solo i link companion della categoria. |
 | `r` | Rinomina l’agente attivo, modificando famiglia (facoltativa), categoria e ruolo. L’operazione aggiorna i riferimenti riconosciuti e crea un backup. |
 | `o` | Avvia l’organizzazione degli agenti nelle categorie dopo conferma. Le categorie gestite da manifest non vengono organizzate da questa azione: per quelle usa `category build`. |
-| `f` | Apre la creazione di una fork della categoria, o degli agenti selezionati. Inserisci testo da trovare e sostituzioni; la sostituzione può essere una lista separata da virgole. |
+| `f` | Apre la creazione di una fork della categoria, o degli agenti selezionati. Inserisci testo da trovare e sostituzioni; la sostituzione può essere una lista separata da virgole. Le cartelle di archetipo (`flow`, `pipeline`) non si copiano: si installano una volta e i modelli arrivano dalle configurazioni. |
 | `F` (`Shift-F`) | Nella scheda sicurezza corregge l’ordine delle regole dei permessi quando l’ispettore segnala un errore. `*` deve precedere le regole specifiche. |
 | `Shift-L` | Apre la regolazione della proporzione lista/inspector. Frecce o `h`/`l` cambiano la proporzione; `Home`/`End` impostano i limiti, `R` ripristina il default, `Enter` salva e `Esc` annulla. |
 
-La fork può ricevere, ad esempio, `go-, kimi-, hybrid-, free-` oppure la forma compatibile `[go-, kimi-, hybrid-, free-]`. I componenti devono essere non vuoti e univoci. Prima di applicare azioni distruttive, leggi sempre la finestra di conferma e il risultato mostrato a schermo.
+La fork può ricevere, ad esempio, `go-, kimi-, free-` oppure la forma compatibile `[go-, kimi-, free-]`. I componenti devono essere non vuoti e univoci. Prima di applicare azioni distruttive, leggi sempre la finestra di conferma e il risultato mostrato a schermo.
 
 ### Inspector risorse e manager Skills, Tools & MCP
 
@@ -448,7 +447,7 @@ Rispondi `Y` o premi Invio solo dopo aver letto percorso, numero di agenti e bac
 **Directory corrente: radice del repository.** Per prima cosa prova un output di destinazione esplicito e non condiviso; il bridge non riscrive gli agenti canonici, ma crea artefatti:
 
 ```bash
-node manage-agents/manage-agents.mjs bridge --category go-pipeline --target claude --output artifacts/go-claude
+node manage-agents/manage-agents.mjs bridge --category pipeline --target claude --output artifacts/pipeline-claude
 ```
 
 Esamina l’elenco di file, preview e warning. Se devi cambiare il modello di alcuni agenti, usa `--model <sorgente>=<destinazione>`; per usarne uno solo per tutti, `--map-all <destinazione>`. Entrambe le opzioni salvano il mapping, quindi le esecuzioni successive lo riusano anche senza flag. Per tier, ruoli e altri override, ripeti con `--wizard` dopo aver verificato che la configurazione salvata sia quella voluta.
@@ -495,7 +494,7 @@ Sono validi valori tra `0.60` e `0.75`. In alternativa, `AGENT_MANAGER_UI_CONFIG
 
 ### Backup e dati
 
-- L’export in OpenCode scrive in `$XDG_CONFIG_HOME/opencode/` se `XDG_CONFIG_HOME` è impostata, altrimenti in `~/.config/opencode/`. I file Markdown degli agenti hanno il backup di recupero `agents_backup/` nella stessa directory di configurazione effettiva; il backup è sostituito a ogni export successivo. Le risorse companion identiche (contenuto e permessi) sono saltate senza scrittura o backup. Le risorse modificate hanno un backup separato `resource_export_backup_<timestamp>_<suffix>/`, che contiene solo i file sovrascritti; se non ci sono sostituzioni non viene creato. Nella radice della configurazione OpenCode vengono mantenute automaticamente le 5 directory `resource_export_backup_*` più recenti. Se l’installazione delle risorse fallisce, il manager ripristina automaticamente sia le risorse companion sia gli agenti esportati in quella operazione. L’export/import delle risorse companion copre `tools/`, `commands/`, `skills/` e `plugins/`, inclusi per `hybrid` `dev_*.ts`, `pipeline_*.ts` e i loro helper, `skills/code-review-antipatterns` e le cinque directory plugin (`plugins/dev-tools`, `plugins/pipeline-guard`, `plugins/pipeline-tools`, `plugins/doc-tools`, `plugins/slide-tools`).
+- L’export in OpenCode scrive in `$XDG_CONFIG_HOME/opencode/` se `XDG_CONFIG_HOME` è impostata, altrimenti in `~/.config/opencode/`. I file Markdown degli agenti hanno il backup di recupero `agents_backup/` nella stessa directory di configurazione effettiva; il backup è sostituito a ogni export successivo. Le risorse companion identiche (contenuto e permessi) sono saltate senza scrittura o backup. Le risorse modificate hanno un backup separato `resource_export_backup_<timestamp>_<suffix>/`, che contiene solo i file sovrascritti; se non ci sono sostituzioni non viene creato. Nella radice della configurazione OpenCode vengono mantenute automaticamente le 5 directory `resource_export_backup_*` più recenti. Se l’installazione delle risorse fallisce, il manager ripristina automaticamente sia le risorse companion sia gli agenti esportati in quella operazione. L’export/import delle risorse companion copre `tools/`, `commands/`, `skills/` e `plugins/`, inclusi per `pipeline` `dev_*.ts`, `pipeline_*.ts` e i loro helper, `skills/code-review-antipatterns` e le sei directory plugin (`plugins/agent-router`, `plugins/dev-tools`, `plugins/pipeline-guard`, `plugins/pipeline-tools`, `plugins/doc-tools`, `plugins/slide-tools`).
 - Import, rinomina, organizzazione e fork creano backup del catalogo locale, dove applicabile, sotto `agents/backups/` (directory ignorata da Git). L’import effettivo applica soltanto le differenze: agenti nuovi/modificati e risorse companion modificate (`tools/`, `commands/`, `skills/`, `plugins/`) vengono importati in `agents/general/`; i file identici vengono saltati e non viene creato un backup quando non ci sono differenze. `import --dry-run` mostra le differenze senza modificare file o creare backup.
 - Bridge e pacchetti di categoria scrivono output; leggi sempre il percorso prima di confermare o scegliere `--output`. Il packaging richiede distribuzioni correnti e una directory di artefatti sicura.
 - Il build delle categorie sostituisce gli output generati: tieni le modifiche nella sorgente e nei manifest, non nell’output. Le build di tutte le categorie hanno un journal recuperabile se interrotte.
@@ -522,15 +521,16 @@ Questa sezione è il riferimento operativo per passare il lavoro sulla pipeline 
 ### Sorgenti, configurazione e output
 
 - `src/` contiene le sorgenti canoniche della pipeline e dei relativi plugin, strumenti e comandi. `.agent-manager/` contiene configurazione e metadati di distribuzione; `export/` contiene gli output generati. Modifica le sorgenti e la configurazione necessaria, non correggere a mano gli output.
-- La categoria canonica `pipeline` vive **solo** in `src/agents/pipeline-*.md`. Non deve mai esistere `export/categories/pipeline/`: i bundle pipeline sono i profili timbrati `export/categories/*-pipeline` (per esempio `go-pipeline` o `hybrid-pipeline`).
+- Gli agenti canonici della pipeline sono i 21 file `src/agents/pipeline-*.md`: `pipeline-orchestrator` è `mode: primary`, gli altri 20 sono subagent. `category build --all` li distribuisce in `export/categories/pipeline/` secondo il manifest `.agent-manager/categories/pipeline.json`.
 
 ### Configurazioni modelli degli archetipi (Flow)
 
-Flow si installa una volta sola con i suoi agenti canonici `flow-*`. Il plugin `agent-router` decide i modelli dei subagent in base al modello su cui gira l'agente di riferimento (`flow-build`). La guida completa, comprese le regole per gli agenti, è in [`ARCHETIPI.md`](../ARCHETIPI.md).
+Flow e pipeline sono archetipi: si installano una volta sola con i loro agenti canonici (`flow-*`, `pipeline-*`). Il plugin `agent-router` decide i modelli dei subagent in base al modello su cui gira l'agente di riferimento: `flow-build` per flow, `pipeline-orchestrator` per la pipeline. I profili `*-pipeline` di una volta sono stati sostituiti da queste configurazioni. La guida completa, comprese le regole per gli agenti, è in [`ARCHETIPI.md`](../ARCHETIPI.md).
 
-- **Nel TUI**: cursore sulla cartella `flow`, poi `M`, apre le configurazioni. Ognuna dice: se `flow-build` o `flow-plan` (conta il modello di chi chiama) gira su un provider (qualsiasi modello) o su un modello esatto (vince sul provider), questi subagent usano questi modelli. Gli agenti non impostati ereditano. L'editor funziona come la lista agenti (`Space`/`a` selezionano, `m` o `Enter` sceglie il modello per la selezione, `Tab` o `←`/`→` la variante, `Backspace` torna a "eredita", `Esc` toglie la selezione e poi torna all'elenco) e ogni modifica si salva subito; il selettore si apre con la cartella del provider del modello attuale già aperta. Nell'elenco, `d` premuto due volte elimina la configurazione sotto il cursore. Poi `E` sulla cartella installa.
+- **Nel TUI**: cursore sulla cartella `flow` (o `pipeline`), poi `M`, apre le configurazioni. Ognuna dice: se `flow-build` o `flow-plan` (conta il modello di chi chiama) gira su un provider (qualsiasi modello) o su un modello esatto (vince sul provider), questi subagent usano questi modelli. Gli agenti non impostati ereditano. L'editor funziona come la lista agenti (`Space`/`a` selezionano, `m` o `Enter` sceglie il modello per la selezione, `Tab` o `←`/`→` la variante, `Backspace` torna a "eredita", `Esc` toglie la selezione e poi torna all'elenco) e ogni modifica si salva subito; il selettore si apre con la cartella del provider del modello attuale già aperta. Nell'elenco, `d` premuto due volte elimina la configurazione sotto il cursore. Poi `E` sulla cartella installa.
 - **Piano**: `flow-plan` è la plan mode di `flow-build`, nella stessa conversazione. Ci si entra con Shift+Tab, con `/flow-plan <richiesta>` oppure quando build la propone (`flow_plan_enter`, con conferma). Il piano finisce con la richiesta di approvazione (`flow_plan_exit`): se approvi, la conversazione torna su `flow-build`, che lo esegue.
-- **Agenti fissi**: `M` su un singolo subagent gli dà un modello fisso, che le configurazioni saltano (per esempio `flow-eye` sul modello vision). `M` su `flow-build` imposta il modello con cui parte.
+- **Agenti fissi**: `M` su un singolo subagent gli dà un modello fisso, che le configurazioni saltano (per esempio `flow-eye` sul modello vision). `M` su `flow-build` o su `pipeline-orchestrator` imposta il modello con cui parte. I subagent `pipeline-*` non hanno `model`, quindi valgono le configurazioni.
+- **Subagent visibili**: i subagent dei due archetipi non sono più `hidden: true`. OpenCode 2.1.3 toglie gli agenti nascosti dall’elenco «Available subagents» del tool `subagent`, e chi chiamava vedeva solo `general`. Per questo ora compaiono anche nei suggerimenti della menzione `@` nel TUI di OpenCode.
 - **File**: `.agent-manager/agent-routing.json` è l'archivio scritto dal TUI. `src/plugins/agent-router/routing.json` è generato: non va modificato a mano, e `category check --all` segnala se è vecchio.
 
 | Obiettivo | Comando |
@@ -540,16 +540,16 @@ Flow si installa una volta sola con i suoi agenti canonici `flow-*`. Il plugin `
 | Eliminarla | `… routing unset flow mistral` |
 | Rigenerare o verificare | `routing build` / `routing check` |
 
-### Manifest V2 e profili `*-pipeline`
+### Manifest V2
 
-Le categorie `docs`, `slides` e `wiki` usano manifest V2 distinti, uno per categoria in `.agent-manager/categories/<id>.json`, con `schemaVersion: 2`. `.agent-manager/companion-links.json` descrive i collegamenti alle risorse companion; `.agent-manager/pipeline-profiles.json` definisce i profili timbrati `*-pipeline`. I profili non sono categorie V2 e non vanno aggiunti come manifest duplicati.
+Le categorie `docs`, `slides`, `wiki`, `flow` e `pipeline` usano manifest V2 distinti, uno per categoria in `.agent-manager/categories/<id>.json`, con `schemaVersion: 2`. `.agent-manager/companion-links.json` descrive i collegamenti alle risorse companion. Per `pipeline`, `category check` controlla anche che il bundle contenga ogni tool permesso dai suoi agenti, con gli helper importati, e che i blocchi bash degli agenti corrispondano ai profili.
 
 Quando aggiorni i plugin nel Resource Manager (`U` nella TUI), `updateCategoryCompanionLinks` mantiene la policy delle risorse plugin già presenti nei manifest V2 interessati (per esempio `"text"`) e assegna `policy: "runtime"` alle nuove voci plugin aggiunte, poi ricostruisce il bundle. Per rigenerazioni esplicite usa `category build`; i file invariati conservano la propria `mtime`.
 
 ### Plugin OpenCode V2 e bridge Claude Code / Codex
 
 - I plugin OpenCode V2 sono directory in `src/plugins/<name>/` con entrypoint `index.ts` o `index.js` ed esportano `Plugin.define` da `@opencode/plugin`. I plugin che registrano tool (`dev-tools`, `pipeline-tools`, `doc-tools` e `slide-tools`) usano `ctx.tool.transform` con import statici; `pipeline-guard` è hook-only e non registra tool. Non usare il formato legacy V1 a file singolo `plugins/*.js`.
-- I bridge Claude Code e Codex supportano i profili timbrati `*-pipeline`: generali dalla TUI con `B` (Claude) o `Shift+B` (Codex), oppure dalla CLI con `manage-agents bridge --category <profilo>-pipeline --target claude|codex`. La generazione si blocca se il profilo non contiene agenti.
+- I bridge Claude Code e Codex della pipeline (`decent-pipeline`) partono sempre dagli agenti canonici `src/agents/pipeline-*.md`: generali dalla TUI con `B` (Claude) o `Shift+B` (Codex), oppure dalla CLI con `manage-agents bridge --category pipeline --target claude|codex`. Non usano le configurazioni modelli: traducono i modelli con `.agent-manager/translation-config.json`.
 - I README generati documentano gli endpoint MCP remoti configurati con `url`. I bridge non eseguono la transpilazione dei plugin runtime TypeScript di OpenCode: non aspettarti che il codice di `src/plugins/` diventi un plugin Claude o Codex.
 
 ### Checklist per aggiornare la pipeline
@@ -557,15 +557,13 @@ Quando aggiorni i plugin nel Resource Manager (`U` nella TUI), `updateCategoryCo
 Esegui i passaggi dalla radice della repository:
 
 1. Modifica le sorgenti canoniche in `src/`. Se cambiano i profili Bash in `.agent-manager/bash-profiles.json`, sincronizzali con `node manage-agents/manage-agents.mjs --no-auto-commit pipeline sync-bash`.
-2. Rigenera categorie e bundle con `node manage-agents/manage-agents.mjs --no-auto-commit category build --all`.
+2. Rigenera le categorie (compresa `export/categories/pipeline`) e `src/plugins/agent-router/routing.json` con `node manage-agents/manage-agents.mjs --no-auto-commit category build --all`.
 3. Rigenera i bridge standard committati della categoria `pipeline`, verificati da `bridge check` e destinati a `export/bridges/{claude-code,codex}/decent-pipeline`:
 
    ```bash
    node manage-agents/manage-agents.mjs --no-auto-commit bridge --category pipeline --target claude
    node manage-agents/manage-agents.mjs --no-auto-commit bridge --category pipeline --target codex
    ```
-
-   Se generi dalla CLI un bridge per un profilo timbrato specifico (per esempio `go-pipeline`), passa `--name decent-go-pipeline` (oppure `--output <percorso-distinto>`) per scriverlo in una directory distinta, senza sovrascrivere `decent-pipeline`.
 
 4. Valida la repository con `npm --prefix manage-agents run validate`.
 5. Per aggiornare la configurazione locale OpenCode, esegui `node manage-agents/manage-agents.mjs export --all --yes`. La destinazione predefinita è `~/.config/opencode/` (oppure `$XDG_CONFIG_HOME/opencode/` se la variabile è impostata).

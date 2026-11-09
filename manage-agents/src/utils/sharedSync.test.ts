@@ -88,7 +88,8 @@ function manifest(overrides: { managerVersion?: string; pipelineVersion?: string
         "src/skills/ontology-*/**",
         "src/resources/ontology/**",
         "src/ontology-pipeline.md",
-        ".agent-manager/pipeline-profiles.json",
+        ".agent-manager/agent-routing.json",
+        "src/plugins/agent-router/routing.json",
         ".agent-manager/companion-links.json",
         ".agent-manager/categories/**",
         "src/opencode.json",
@@ -201,7 +202,7 @@ test("manifest validation, semver ranges, and overlay exclusions", () => {
   broad.components.agentManager.exclude = ["manage-agents/node_modules/**", "manage-agents/dist/**"]
   writeFile(root, ".agent-manager/shared-sync.json", `${JSON.stringify(broad, null, 2)}\n`)
   const overlayFiles = [
-    ".agent-manager/pipeline-profiles.json",
+    ".agent-manager/agent-routing.json",
     ".agent-manager/companion-links.json",
     "manage-agents/package.json",
     "manage-agents/package-lock.json",
@@ -465,30 +466,26 @@ test("apply protects Git-dirty and locally drifted shared files unless forced", 
   assert.equal(fs.readFileSync(path.join(target, sharedFile), "utf8"), "export const pipelineCore = true\n")
 })
 
-test("apply preserves overlay configuration and refreshes the target's stamped pipeline profile", () => {
+test("apply preserves the target's overlay configuration and local model routing", () => {
   const source = createRepo(makeTempRoot())
   const target = createRepo(makeTempRoot())
   writePipelineSource(source, "New pipeline body\n@pipeline-tester\n")
-  writeFile(source, "src/agents/pipeline-tester.md", "---\ndescription: Pipeline tester\nmodel: fixture/model\n---\n\nTester role\n")
   writeFile(source, "src/plugins/pipeline-guard/index.ts", "export const guardVersion = 2\n")
+  writeFile(source, "src/plugins/agent-router/routing.json", "{ \"source\": true }\n")
   writeFile(target, "src/agents/pipeline-orchestrator.md", "old canonical pipeline\n")
   writeFile(target, "src/agents/ontology-orchestrator.md", "local ontology agent\n")
-  writeFile(target, ".agent-manager/pipeline-profiles.json", `${JSON.stringify({
-    version: 1,
-    baseCategory: "pipeline",
-    profiles: { spark: { description: "Local Spark profile", defaults: { all: { model: "local/spark" } } } }
-  }, null, 2)}\n`)
+  const routing = "{ \"target\": true }\n"
+  writeFile(target, ".agent-manager/agent-routing.json", routing)
+  writeFile(target, "src/plugins/agent-router/routing.json", routing)
   const companionLinks = `${JSON.stringify({ version: 1, categories: {} }, null, 2)}\n`
   writeFile(target, ".agent-manager/companion-links.json", companionLinks)
   writeFile(target, "export/categories/local-note.txt", "keep local export\n")
-  writeFile(target, "export/categories/spark-pipeline/agents/spark-pipeline-orchestrator.md", "---\ndescription: Local stamped agent\nmodel: local/spark\n---\n\nOld stamped body\n")
 
   applySharedSync({ sourceRoot: source, targetRoot: target, components: ["pipelineCore"] })
-  const stamped = fs.readFileSync(path.join(target, "export/categories/spark-pipeline/agents/spark-pipeline-orchestrator.md"), "utf8")
-  assert.match(stamped, /New pipeline body/)
-  assert.match(stamped, /model: local\/spark/)
+  assert.match(fs.readFileSync(path.join(target, "src/agents/pipeline-orchestrator.md"), "utf8"), /New pipeline body/)
   assert.equal(fs.readFileSync(path.join(target, "src/agents/ontology-orchestrator.md"), "utf8"), "local ontology agent\n")
-  assert.equal(fs.readFileSync(path.join(target, ".agent-manager/pipeline-profiles.json"), "utf8").includes("Local Spark profile"), true)
+  assert.equal(fs.readFileSync(path.join(target, ".agent-manager/agent-routing.json"), "utf8"), routing)
+  assert.equal(fs.readFileSync(path.join(target, "src/plugins/agent-router/routing.json"), "utf8"), routing)
   assert.equal(fs.readFileSync(path.join(target, ".agent-manager/companion-links.json"), "utf8"), companionLinks)
   assert.equal(fs.readFileSync(path.join(target, "export/categories/local-note.txt"), "utf8"), "keep local export\n")
 })
