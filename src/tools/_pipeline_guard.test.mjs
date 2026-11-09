@@ -4,7 +4,7 @@ import { registerHooks } from "node:module"
 import fs from "node:fs"
 import path from "node:path"
 import { execFileSync } from "node:child_process"
-import { mkTmp } from "./_pipeline_testutil.mjs"
+import { mkTmp } from "./_testutil.mjs"
 
 // @opencode/plugin is not installed in this repo: stub it before the dynamic import below.
 // Plugin.define is an identity function in V2; the stub marks the result so the test can prove
@@ -28,7 +28,9 @@ registerHooks({
   },
 })
 
-import { activityLogPath, readActivity, readSession, repoInfo, scratchDir, summarizeActivity } from "./_pipeline_core.js"
+import { repoInfo, scratchDir } from "./_repo.js"
+import { readSession } from "./_sessions.js"
+import { activityLogPath, readActivity, summarizeActivity } from "./_pipeline_core.js"
 
 const plugin = (await import("../plugins/pipeline-guard/index.ts")).default
 

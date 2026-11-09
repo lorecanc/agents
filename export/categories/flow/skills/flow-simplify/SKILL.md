@@ -22,11 +22,12 @@ whole codebase unless the user asked for it.
 5. **Dead code.** Remove unused imports, variables, parameters and branches, commented-out code, and leftover debug output.
 6. **Naming and shape.** Names say what a thing is, using the codebase's vocabulary. Prefer early returns over nested conditionals, and keep functions small enough to read in one screen.
 7. **Comments.** Keep the ones that explain *why*. Delete the ones that restate *what* the code does. Match the file's comment density.
-8. **Efficiency, only when it is obvious.** Fix N+1 queries, repeated work inside loops, and sync I/O in hot paths. Do not micro-optimize.
+8. **Efficiency, only when it is obvious.** Fix N+1 queries, repeated work inside loops, sync I/O in hot paths, independent operations run one after another, and long-lived objects built from closures that keep a large enclosing scope alive. Do not micro-optimize.
+9. **Altitude.** Check that each change fixes the cause at the right depth. Special cases layered onto shared infrastructure usually mean the fix is too shallow: prefer the simpler, more general change to the underlying mechanism, when it stays inside the diff.
 
 ## Rules
 
 - Make one logical cleanup at a time and re-run the targeted tests after a meaningful batch.
 - Do not change public APIs, file layout or formatting style unless the cleanup requires it.
-- If a cleanup would need a behavior change, list it as a suggestion instead.
+- Skip a cleanup that would change intended behavior, reach well outside the diff, or that you judge a false positive. Note the skip in one line instead of arguing with it; list behavior changes as suggestions.
 - In the summary, say what you removed or reused and how many lines changed in each direction.

@@ -20,13 +20,14 @@ source_files:
   - "src/tools/slide_generate_image.ts"
   - "src/tools/slide_screenshot.ts"
   - "src/tools/pipeline_commit.ts"
-  - "src/tools/pipeline_env.ts"
-  - "src/tools/_pipeline_env.js"
-  - "src/tools/pipeline_serve.ts"
-  - "src/tools/pipeline_smoke.ts"
+  - "src/tools/dev_env.ts"
+  - "src/tools/_env.js"
+  - "src/tools/dev_serve.ts"
+  - "src/tools/dev_smoke.ts"
   - "src/tools/pipeline_state.ts"
-  - "src/tools/pipeline_verify.ts"
+  - "src/tools/dev_verify.ts"
   - "src/plugins/pipeline-guard/index.ts"
+  - "src/plugins/dev-tools/index.ts"
   - "src/plugins/pipeline-tools/index.ts"
   - "src/plugins/doc-tools/index.ts"
   - "src/plugins/slide-tools/index.ts"
@@ -39,7 +40,7 @@ last_updated: "2026-11-02"
 
 This repository primarily extends OpenCode through custom tools and plugins that participate in session and tool-execution lifecycle hooks. It does not expose a conventional HTTP API with repository-defined routes and request/response endpoints. OpenCode tools declare validated arguments with `tool.schema` and implement an `execute(args, context)` function.
 
-In OpenCode V2, `tools/*.ts` is not discovered automatically: every tool is registered by a plugin through `ctx.tool.transform`. The `pipeline-tools`, `doc-tools`, and `slide-tools` plugin directories (`src/plugins/*/index.ts`) are the tool registries; each imports its tool definitions statically from `src/tools/*.ts` and adds them in `ctx.tool.transform`. The `pipeline-guard` plugin is hook-only and registers no tools.
+In OpenCode V2, `tools/*.ts` is not discovered automatically: every tool is registered by a plugin through `ctx.tool.transform`. The `dev-tools`, `pipeline-tools`, `doc-tools`, and `slide-tools` plugin directories (`src/plugins/*/index.ts`) are the tool registries; each imports its tool definitions statically from `src/tools/*.ts` and adds them in `ctx.tool.transform`. The `pipeline-guard` plugin is hook-only and registers no tools.
 
 ## Custom tool groups
 
@@ -47,15 +48,16 @@ In OpenCode V2, `tools/*.ts` is not discovered automatically: every tool is regi
 |---|---|---|
 | Documents | `doc_create`, `doc_list`, `doc_view`, `doc_modify`, `doc_restore`, `doc_convert`, `doc_compile_theme` | Create and edit canonical document sources, inspect project outputs, restore a DOCX snapshot, convert formats, and compile document CSS themes. |
 | Slides | `slide_analyze_template`, `slide_assemble_pptx`, `slide_build_pptx`, `slide_compile_composition`, `slide_compile_theme`, `slide_create_thumbnails`, `slide_download_image`, `slide_generate_image`, `slide_screenshot` | Analyze templates, generate and assemble presentations, prepare themes/assets, and capture slide or deck previews. |
-| Pipeline | `pipeline_state`, `pipeline_env`, `pipeline_verify`, `pipeline_smoke`, `pipeline_serve`, `pipeline_commit` | Inspect session changes, probe the machine's verification capabilities (read-only), run configured validation and smoke checks, manage a bounded local service, and create a scoped local commit. |
+| Development (`dev-tools`, shared by `pipeline` and `flow`) | `dev_env`, `dev_verify`, `dev_smoke`, `dev_serve` | Probe the machine's verification capabilities (read-only), run configured validation and smoke checks, and manage a bounded local service. |
+| Pipeline (`pipeline-tools`, pipeline only) | `pipeline_state`, `pipeline_commit` | Inspect session changes and create a scoped local commit. |
 
-Arguments are tool-specific. For example, `pipeline_verify` accepts an ordered `checks` array, optional `files` for targeted tests, and `continue_on_fail`; `pipeline_serve` accepts `action` (`start`, `status`, or `stop`) and an optional `ttl_s`. `pipeline_env` takes no arguments beyond an optional `workspace` (a repo-relative sub-project directory). Tools commonly return human-readable text or JSON-encoded results rather than HTTP response objects.
+Arguments are tool-specific. For example, `dev_verify` accepts an ordered `checks` array, optional `files` for targeted tests, and `continue_on_fail`; `dev_serve` accepts `action` (`start`, `status`, or `stop`) and an optional `ttl_s`. `dev_env` takes no arguments beyond an optional `workspace` (a repo-relative sub-project directory). Tools commonly return human-readable text or JSON-encoded results rather than HTTP response objects.
 
 ## Pipeline guard plugin
 
 `src/plugins/pipeline-guard/index.ts` exports `setupPipelineGuard(ctx, options)`, the V2 setup function, and a default plugin descriptor `Plugin.define({ id: "pipeline-guard", setup: setupPipelineGuard })` with ID `pipeline-guard`. It limits its behavior to sessions whose agent name matches `pipeline-*` or `*-pipeline-*`; other sessions are left untouched. Set `OPENCODE_PIPELINE_GUARD=off` to disable it.
 
-The guard is one of four V2 plugin directories: `plugins/pipeline-guard`, `plugins/pipeline-tools`, `plugins/doc-tools`, and `plugins/slide-tools`. It registers V2 lifecycle hooks to maintain pipeline session state and enforce workspace constraints:
+The guard is one of the five V2 plugin directories shipped with the pipeline: `plugins/dev-tools`, `plugins/pipeline-guard`, `plugins/pipeline-tools`, `plugins/doc-tools`, and `plugins/slide-tools`. Its bash parser and write/git checks live in `src/tools/_bash_guard.js`, which `flow-guard` reuses; the session registry is `src/tools/_sessions.js`, and the pipeline-only parts (role matching, activity log, file claims) stay in `src/tools/_pipeline_core.js`. It registers V2 lifecycle hooks to maintain pipeline session state and enforce workspace constraints:
 
 - `session.hook("model.request")` and `session.hook("prompt")` register sessions, resolve root sessions, and mark work busy.
 - `shell.hook("create.before")` redirects temporary-file variables to a repository-local scratch directory and sets pipeline-specific Git/session environment values.
@@ -75,7 +77,7 @@ On idle, the guard compares the session baseline with a fresh Git snapshot (`git
 
 ### Service cleanup
 
-On idle, `stopServicesOwnedBy` stops any service that the session started with `pipeline_serve`, so a service does not outlive its work.
+On idle, `stopServicesOwnedBy` stops any service that the session started with `dev_serve`, so a service does not outlive its work.
 
 ### Activity log
 
@@ -96,4 +98,4 @@ The guard is defense in depth and intentionally fails open on unexpected inspect
 
 `src/opencode.json` configures local MCP servers and language servers; it does not define HTTP routes for the tools. MCP entries include enabled `chrome-devtools`, `codebase-memory-mcp`, `shadcn`, `magic`, `axiom`, and `cwe-search`, while `XcodeBuildMCP` and `cupertino` are disabled in this configuration. The seven remote MCP entries (`bigquery`, `cloud-run`, `cloud-logging`, `cloud-monitoring`, `cloud-sql`, `cloud-storage`, `cloud-cli`) are all `disabled`. The `magic` entry reads its `API_KEY` from `TWENTYFIRST_API_KEY`.
 
-The `plugins` array lists `./plugins/pipeline-guard`, `./plugins/pipeline-tools`, `./plugins/doc-tools`, and `./plugins/slide-tools`. The LSP map configures language servers for Python (`basedpyright`, `ruff`), HTML and Vue (`html`), CSS, SCSS, and Less (`css`), SQL (`sqls`), and Markdown (`marksman`).
+The `plugins` array lists `./plugins/dev-tools`, `./plugins/pipeline-guard`, `./plugins/pipeline-tools`, `./plugins/doc-tools`, and `./plugins/slide-tools`. The LSP map configures language servers for Python (`basedpyright`, `ruff`), HTML and Vue (`html`), CSS, SCSS, and Less (`css`), SQL (`sqls`), and Markdown (`marksman`).

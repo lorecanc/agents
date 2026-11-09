@@ -11,7 +11,7 @@
 //                          rejects the third consecutive identical tool call (V2 has no doom_loop action)
 //   tool.execute.after     records which files the session edited (used by pipeline_state/commit)
 //   event subscription     tracks busy/idle; when idle: stops the service the session started with
-//                          pipeline_serve, compares git state with the baseline and warns if
+//                          dev_serve, compares git state with the baseline and warns if
 //                          branches, worktrees or stashes appeared
 //   permission.evaluate    records permission asks in the activity log
 //   session.compaction     keeps the session baseline and touched files in the compacted context
@@ -28,11 +28,19 @@ import path from "node:path"
 import { Plugin } from "@opencode/plugin"
 
 import {
-  FILE_WRITE_TOOLS, appendActivity, bashWriteTargets, clipText, isDenialText, checkBash, checkWritePath,
-  conflictingClaims, editTargets, ensureScratch, gitAnomalies, isInside, isLive, isPipelineAgent, isShellTool,
-  readSession, realpathLoose, removeStaleSessions, repoInfo, roleOf, scratchDir, snapshot, toRel, writeSession,
-} from "../../tools/_pipeline_core.js"
-import { stopServicesOwnedBy } from "../../tools/_pipeline_serve.js"
+  ensureScratch,
+  gitAnomalies,
+  isInside,
+  realpathLoose,
+  repoInfo,
+  scratchDir,
+  snapshot,
+  toRel,
+} from "../../tools/_repo.js"
+import { isLive, readSession, writeSession } from "../../tools/_sessions.js"
+import { FILE_WRITE_TOOLS, bashWriteTargets, checkBash, checkWritePath, editTargets, isShellTool } from "../../tools/_bash_guard.js"
+import { appendActivity, clipText, isDenialText, conflictingClaims, isPipelineAgent, removeStaleSessions, roleOf } from "../../tools/_pipeline_core.js"
+import { stopServicesOwnedBy } from "../../tools/_serve.js"
 
 const HEARTBEAT_MS = 30_000
 const INTERNAL_AGENTS = new Set(["title", "summary", "compaction"])
@@ -414,7 +422,7 @@ export async function setupPipelineGuard(ctx, options = {}) {
     rec.busy = false
     try {
       const info = infoFor(rec.cwd)
-      // A service started for this session (pipeline_serve) must not outlive its work.
+      // A service started for this session (dev_serve) must not outlive its work.
       if (info) await stopServicesOwnedBy(info, rec.sessionId)
     } catch (e) {
       log("warn", `stopping the session's service failed: ${e.message}`)

@@ -1,5 +1,7 @@
 import { tool } from "./_tool.js"
-import { activityLogPath, changedFiles, gitAnomalies, isLive, listSessions, readActivity, repoInfo, rootRecordFor, scratchDir, snapshot, summarizeActivity } from "./_pipeline_core.js"
+import { changedFiles, gitAnomalies, repoInfo, scratchDir, snapshot } from "./_repo.js"
+import { isLive, listSessions, rootRecordFor } from "./_sessions.js"
+import { activityLogPath, readActivity, summarizeActivity } from "./_pipeline_core.js"
 
 const statusOf = (i: any) => (i.untracked ? "new" : i.deleted ? "deleted" : i.orig ? "renamed" : "modified")
 

@@ -4,8 +4,8 @@ import fs from "node:fs"
 import path from "node:path"
 import { execFileSync } from "node:child_process"
 
-import { mkTmp } from "../tools/_pipeline_testutil.mjs"
-import { repoInfo, scratchDir, snapshot } from "../tools/_pipeline_core.js"
+import { mkTmp } from "../tools/_testutil.mjs"
+import { repoInfo, scratchDir, snapshot } from "../tools/_repo.js"
 import { childSessionIds, finalText, gitSafety, mergeSummaries, parseExport, summarizeSession } from "./metrics.mjs"
 import { compareResults, evaluateChecks, loadTasks, prepareWorkspace, renderTable, rootSessionId, runTask } from "./bench.mjs"
 

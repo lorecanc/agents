@@ -2441,7 +2441,7 @@ export interface PipelineResourceProblem {
   detail: string
 }
 
-const PIPELINE_TOOL_KEY = /^pipeline_[a-z0-9_]+$/i
+const CUSTOM_TOOL_KEY = /^(?:dev|pipeline)_[a-z0-9_]+$/i
 const RELATIVE_IMPORT = /(?:from|import)\s*\(\s*["'](\.[^"']+)["']\s*\)|(?:from|import)\s+["'](\.[^"']+)["']/g
 const OPENCODE_PATH_CALL = /opencodePath\(\s*((?:["'][^"']+["']\s*,\s*)*["'][^"']+["'])\s*\)/g
 
@@ -2490,7 +2490,7 @@ export function checkPipelineResources(
     const permission = agent.frontmatter?.permission
     if (!permission || typeof permission !== "object" || Array.isArray(permission)) continue
     for (const [key, value] of Object.entries(permission)) {
-      if (!PIPELINE_TOOL_KEY.test(key) || value === "deny" || value === false) continue
+      if (!CUSTOM_TOOL_KEY.test(key) || value === "deny" || value === false) continue
       const relative = `tools/${key}.ts`
       if (!safeRelativeStat(resourceRoot, relative)?.isFile()) {
         add({ kind: "missing-tool", path: relative, detail: `${agent.filename} permits '${key}' but ${relative} is not shipped` })

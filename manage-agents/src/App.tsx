@@ -45,7 +45,7 @@ import {
 import { loadModelCatalog, suggestModels, collectInvalidModelGroups, modelDisplayValue, getModelVariants, type ModelCatalog } from "./utils/models.js"
 import { discoverAvailableCategoryCompanionItems, getCompanionLinksConfigPath, type SelectableCompanionItem, updateCategoryCompanionLinks } from "./utils/companionLinks.js"
 import { applyPipelineProfile, loadPipelineProfiles, syncPipelineProfile, loadStampedPipelineAgents, deleteStampedPipeline, refreshStampedPipelinesFromSource, forkStampedPipeline } from "./utils/pipelineProfiles.js"
-import { agentRoutingConfigPath, agentRoutingOutputPath, buildAgentRouting, describeArchetype, INHERIT, isRoutableArchetype, setArchetypeConfig, type ArchetypeAgent, type RoleModels } from "./utils/agentRouting.js"
+import { agentRoutingConfigPath, agentRoutingOutputPath, buildAgentRouting, callersLabel, describeArchetype, INHERIT, isRoutableArchetype, setArchetypeConfig, type ArchetypeAgent, type RoleModels } from "./utils/agentRouting.js"
 import { buildCategoryDistribution } from "./utils/categoryDistribution.js"
 import { bridgeToClaudeCode } from "./utils/bridge.js"
 import { bridgeToCodex } from "./utils/codexBridge.js"
@@ -193,9 +193,8 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
   const [selectedAgentPaths, setSelectedAgentPaths] = useState<Set<string>>(new Set())
 
   // View Settings
-  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(
-    new Set(["wiki", "pipeline", "go-pipeline", "general"])
-  )
+  // Every folder starts closed: the TUI opens on a compact list of categories.
+  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set())
   const [searchQuery, setSearchQuery] = useState("")
   const [isSearching, setIsSearching] = useState(false)
 
@@ -277,9 +276,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
   // Color Selector State
   const [focusedColorIndex, setFocusedColorIndex] = useState(0)
   const [colorScrollOffset, setColorScrollOffset] = useState(0)
-  const [expandedColorGroups, setExpandedColorGroups] = useState<Set<string>>(
-    new Set(COLOR_PALETTE.map(g => g.group))
-  )
+  const [expandedColorGroups, setExpandedColorGroups] = useState<Set<string>>(new Set())
 
   // Rename Assistant State
   const [renameTargetAgent, setRenameTargetAgent] = useState<AgentInfo | null>(null)
@@ -616,17 +613,6 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
     }
   }
 
-  // Automatically expand all providers on startup or models change
-  useEffect(() => {
-    const provs = new Set<string>()
-    models.forEach(model => {
-      const parts = model.split("/")
-      const provider = parts.length > 1 ? parts[0] : "other"
-      provs.add(provider)
-    })
-    setExpandedProviders(provs)
-  }, [models])
-
   // Build color tree items
   const colorTreeItems = useMemo<ColorTreeItem[]>(() => {
     const items: ColorTreeItem[] = []
@@ -685,7 +671,8 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
       const catAgents = filtered.filter((a) => a.category === cat)
       if (catAgents.length === 0) return
 
-      const isExpanded = expandedCategories.has(cat)
+      // A search opens every folder with matches, like the provider folders of the model selector.
+      const isExpanded = searchQuery.trim() !== "" || expandedCategories.has(cat)
       items.push({
         type: "folder",
         id: cat,
@@ -777,7 +764,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
       suggestions.filter(matches).forEach(model => items.push({ type: "model", id: model, label: `★ ${model}`, provider: "suggestions" }))
     }
     if (viewMode === "model-selector" && routingPick?.kind === "roles") {
-      items.push({ type: "model", id: INHERIT, label: "↺ inherit (use the reference agent's model)", provider: "routing" })
+      items.push({ type: "model", id: INHERIT, label: "↺ inherit (use the calling agent's model)", provider: "routing" })
     }
     Object.keys(providers).forEach(prov => {
       const isExpanded = words.length > 0 || expandedProviders.has(prov)
@@ -1081,6 +1068,8 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
            ])
           setViewMode("action-result")
         } else {
+          const current = activeItems[focusedIndex]?.agent?.frontmatter?.model
+          if (typeof current === "string" && current.includes("/")) setExpandedProviders(previous => new Set([...previous, current.split("/")[0]]))
           setFocusedModelIndex(0)
           setModelScrollOffset(0)
           setViewMode("model-selector")
@@ -3557,9 +3546,9 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
              {viewMode === "repair-selector"
                 ? middleEllipsis(`Choose an exact replacement for explicit model ${JSON.stringify(invalidModelGroups[Number(repairGroupKey)]?.value)} (${invalidModelGroups[Number(repairGroupKey)]?.agents.length || 0} agents):`, modelModalInnerWidth)
                : routingPick?.kind === "trigger"
-                 ? middleEllipsis(`When ${routingView?.reference.name ?? "the reference agent"} runs on… (a model, or ★ any model of a provider):`, modelModalInnerWidth)
+                 ? middleEllipsis(`When ${routingView ? callersLabel(routingView) : "the reference agent"} runs on… (a model, or ★ any model of a provider):`, modelModalInnerWidth)
                  : routingPick?.kind === "roles"
-                   ? middleEllipsis(`${routingPick.roles.map(role => `${routingArchetype}-${role}`).join(", ")} use (when ${routingView?.reference.name} runs on ${routingDraft?.trigger || "?"}):`, modelModalInnerWidth)
+                   ? middleEllipsis(`${routingPick.roles.map(role => `${routingArchetype}-${role}`).join(", ")} use (when ${routingView ? callersLabel(routingView) : "?"} runs on ${routingDraft?.trigger || "?"}):`, modelModalInnerWidth)
                    : `Choose model to apply to ${selectedAgentPaths.size > 0 ? selectedAgentPaths.size : 1} selected agents:`}
           </text>
           <text style={{ textColor: modelFilter ? "cyan" : "gray" }} flexShrink={0}>{middleEllipsis(modelFilter ? `Search: ${modelFilter}▏ (${modelTreeItems.filter(item => item.type === "model").length} matches)` : "Search: type to filter models", modelModalInnerWidth)}</text>
@@ -3653,9 +3642,9 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           ) : (
             <>
               <text style={{ textColor: "white" }} flexShrink={0}>{middleEllipsis(viewMode === "routing-configs"
-                ? `When ${routingView.reference.name} runs on a model or provider, its subagents use these models. Anything else: they inherit its model.`
+                ? `When ${callersLabel(routingView)} runs on a model or provider, the subagents it calls use these models. Anything else: they inherit the caller's model.`
                 : `Select one or more subagents (SPACE, A) and press M to set their model, as in the agent list.`, modelModalInnerWidth)}</text>
-              <text style={{ textColor: "gray" }} flexShrink={0}>{middleEllipsis(`Starts on: ${routingView.reference.model || "the model chosen in OpenCode"} (M on ${routingView.reference.name})`, modelModalInnerWidth)}</text>
+              <text style={{ textColor: "gray" }} flexShrink={0}>{middleEllipsis(`Starts on (M on the agent): ${routingView.callers.map(agent => `${agent.name} = ${agent.model || "the model chosen in OpenCode"}`).join(", ")}`, modelModalInnerWidth)}</text>
               {routingView.pinned.length > 0 && <text style={{ textColor: "gray" }} flexShrink={0}>{middleEllipsis(`Fixed, skipped by configurations (M on the agent to change): ${routingView.pinned.map(agent => `${agent.name} = ${agent.model}`).join(", ")}`, modelModalInnerWidth)}</text>}
               <box flexGrow={1} flexDirection="column" marginTop={1} overflow="hidden">
                 {viewMode === "routing-configs"
@@ -3663,13 +3652,13 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
                       const focused = index === routingFocus
                       return (
                         <box key={`routing-${trigger || "new"}`} flexDirection="column" backgroundColor={focused ? "#00AAFF" : "transparent"} paddingLeft={1} flexShrink={0}>
-                          <text style={{ textColor: focused ? "#FFFFFF" : trigger ? "yellow" : "#7EE787" }}>{roles ? `${focused ? "> " : "  "}${routingView.reference.name} on ${trigger}${trigger.includes("/") ? "" : " (any model)"}` : `${focused ? "> " : "  "}+ New configuration`}</text>
+                          <text style={{ textColor: focused ? "#FFFFFF" : trigger ? "yellow" : "#7EE787" }}>{roles ? `${focused ? "> " : "  "}${callersLabel(routingView)} on ${trigger}${trigger.includes("/") ? "" : " (any model)"}` : `${focused ? "> " : "  "}+ New configuration`}</text>
                           {roles && <text style={{ textColor: focused ? "#FFFFFF" : "gray" }}>{middleEllipsis(`    ${summarizeRoutingConfig(roles, routingView.related)}`, modelModalInnerWidth)}</text>}
                         </box>
                       )
                     })
                   : routingDraft && [
-                      { role: "", label: `When ${routingView.reference.name} runs on`, value: `${routingDraft.trigger}${routingDraft.trigger.includes("/") ? "" : " (any model)"}` },
+                      { role: "", label: `When ${routingView.callers.map(agent => agent.role).join("/")} runs on`, value: `${routingDraft.trigger}${routingDraft.trigger.includes("/") ? "" : " (any model)"}` },
                       ...routingView.related.map(agent => ({ role: agent.role, label: agent.name, value: routingDraft.roles[agent.role] && routingDraft.roles[agent.role] !== INHERIT ? routingDraft.roles[agent.role] : INHERIT })),
                     ].map((row, index) => {
                       const focused = index === routingEditorFocus
@@ -3677,7 +3666,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
                       return (
                         <box key={`routing-row-${index}`} flexDirection="row" backgroundColor={focused ? "#00AAFF" : "transparent"} paddingLeft={1} height={1} flexShrink={0} marginBottom={index === 0 ? 1 : 0}>
                           <text style={{ textColor: focused ? "#FFFFFF" : index === 0 ? "yellow" : selected ? "green" : "#E1E4E8" }} width="40%">{index === 0 ? `${focused ? "> " : "  "}${row.label}` : `${selected ? "[x]" : "[ ]"} ${row.label}`}</text>
-                          <text style={{ textColor: focused ? "#FFFFFF" : row.value === INHERIT ? "gray" : "cyan" }}>{middleEllipsis(row.value === INHERIT ? "inherit (same model as the reference)" : row.value, Math.max(1, Math.floor(modelModalInnerWidth * 0.6)))}</text>
+                          <text style={{ textColor: focused ? "#FFFFFF" : row.value === INHERIT ? "gray" : "cyan" }}>{middleEllipsis(row.value === INHERIT ? "inherit (same model as the caller)" : row.value, Math.max(1, Math.floor(modelModalInnerWidth * 0.6)))}</text>
                         </box>
                       )
                     })}

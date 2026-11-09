@@ -26,10 +26,16 @@ registerHooks({
 
 const REGISTRIES = [
   {
+    id: "dev-tools",
+    module: "../plugins/dev-tools/index.ts",
+    namespace: "dev",
+    names: ["dev_env", "dev_verify", "dev_smoke", "dev_serve"],
+  },
+  {
     id: "pipeline-tools",
     module: "../plugins/pipeline-tools/index.ts",
     namespace: "pipeline",
-    names: ["pipeline_state", "pipeline_env", "pipeline_commit", "pipeline_verify", "pipeline_smoke", "pipeline_serve"],
+    names: ["pipeline_state", "pipeline_commit"],
   },
   {
     id: "doc-tools",

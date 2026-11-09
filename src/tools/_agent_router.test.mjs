@@ -3,7 +3,7 @@ import { test } from "node:test"
 import { registerHooks } from "node:module"
 import fs from "node:fs"
 import path from "node:path"
-import { mkTmp } from "./_pipeline_testutil.mjs"
+import { mkTmp } from "./_testutil.mjs"
 
 // @opencode/plugin is not installed in this repo: stub it before the dynamic import below.
 const STUB_SOURCE = `
@@ -133,6 +133,13 @@ test("plugin: injects the routed model into subagent calls and follows model swi
   // the title agent runs on a small model inside the same session: it must not change the route
   await request("s1", "title", { providerID: "opencode-go", id: "small" })
   assert.equal((await call("s1", { agent: "flow-review" })).model, "opencode-go/flash#high")
+
+  // plan mode in the same session, on its own model: the caller's model picks the configuration
+  await request("s1", "flow-plan", { providerID: "mistral", id: "tiny" })
+  assert.equal((await call("s1", { agent: "flow-review" })).model, "mistral/big", "flow-plan on mistral/tiny")
+  assert.equal((await call("s1", { agent: "flow-explore" })).model, undefined, "inherit keeps the caller's model")
+  await request("s1", "flow-build", { providerID: "mistral", id: "glm", variant: "high" })
+  assert.equal((await call("s1", { agent: "flow-review" })).model, "opencode-go/flash#high", "back to flow-build")
 
   // the user switches the primary to another provider mid-session
   await request("s1", "flow-build", { providerID: "anthropic", id: "x" })

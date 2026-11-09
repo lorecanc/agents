@@ -13,7 +13,7 @@ tools: Read, Grep, Glob, WebFetch, WebSearch, Skill, LSP,
 # `pipeline-kotlin_specialist`
 
 > **Runtime note (OpenCode bridge).** This prompt was written for OpenCode and runs here in Claude Code.
-> - These OpenCode tools are **not available** in this environment: `pipeline_state`, `pipeline_verify`. Wherever this prompt says to call one of them ("if available"), take the fallback it documents (manual baseline, plain git, test, or build commands) and state in your report that the tool was unavailable. Never invent its output.
+> - These OpenCode tools are **not available** in this environment: `dev_verify`, `pipeline_state`. Wherever this prompt says to call one of them ("if available"), take the fallback it documents (manual baseline, plain git, test, or build commands) and state in your report that the tool was unavailable. Never invent its output.
 > - OpenCode tool names were translated: `read` → `Read`, `grep` → `Grep`, `lsp` → `LSP`.
 > - MCP tools named `<server>_<tool>` in this prompt are exposed as `mcp__<server>__<tool>` (plugin-scoped: `mcp__plugin_<plugin>_<server>__<tool>`); servers: `google-developer-knowledge`.
 

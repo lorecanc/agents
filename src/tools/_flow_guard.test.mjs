@@ -4,7 +4,7 @@ import { registerHooks } from "node:module"
 import fs from "node:fs"
 import path from "node:path"
 import { execFileSync } from "node:child_process"
-import { mkTmp } from "./_pipeline_testutil.mjs"
+import { mkTmp } from "./_testutil.mjs"
 
 // @opencode/plugin is not installed in this repo: stub it before the dynamic import below.
 const STUB_SOURCE = `
@@ -21,8 +21,9 @@ registerHooks({
   },
 })
 
-import { checkFlowBash, flowGitPolicy, isFlowAgent, isSecretEnvFile, scanAddedCode, addedText } from "./_flow_guard.js"
-import { checkBash, repoInfo, scratchDir } from "./_pipeline_core.js"
+import { checkFlowBash, fileStamp, flowGitPolicy, inPlaceTargets, isFlowAgent, isSecretEnvFile, scanAddedCode, addedText, staleEditReason } from "./_flow_guard.js"
+import { repoInfo, scratchDir } from "./_repo.js"
+import { checkBash } from "./_bash_guard.js"
 
 const plugin = (await import("../plugins/flow-guard/index.ts")).default
 
@@ -207,6 +208,47 @@ test("plugin: blocks only flow sessions and appends scan notes to edit results",
 
   cleanup()
   assert.equal(h.handlers.tool["execute.before"], undefined)
+})
+
+test("read before edit: unread or changed files need a read, new files and deletes do not", () => {
+  const file = path.join(repo, "a.txt")
+  const stamp = fileStamp(file)
+  assert.match(staleEditReason(file, undefined), /has not been read/)
+  assert.equal(staleEditReason(file, stamp), null)
+  assert.match(staleEditReason(file, "0:0"), /changed since you last read/)
+  assert.equal(staleEditReason(path.join(repo, "new.txt"), undefined), null)
+  assert.equal(fileStamp(repo), null)
+  const patch = "*** Begin Patch\n*** Add File: n.txt\n+x\n*** Update File: a.txt\n-a\n+b\n*** Delete File: d.txt\n*** End Patch"
+  assert.deepEqual(inPlaceTargets("apply_patch", { patchText: patch }), ["a.txt"])
+  assert.deepEqual(inPlaceTargets("edit", { filePath: "a.txt" }), ["a.txt"])
+})
+
+test("plugin: an edit needs a fresh read in the same session; its own edits stay fresh", async () => {
+  const dir = mkRepo()
+  const file = path.join(dir, "a.txt")
+  const h = makeContext(dir)
+  const cleanup = await plugin.setup(h.ctx)
+  const before = (sessionID, tool, input) => h.handlers.tool["execute.before"]({ sessionID, tool, input })
+  const after = (sessionID, tool, input) => h.handlers.tool["execute.after"]({ sessionID, tool, input, status: "completed", result: { content: [] } })
+  const edit = { filePath: file, oldString: "a", newString: "b" }
+
+  await h.handlers.session["model.request"]({ sessionID: "s1", agent: "flow-build" })
+  await h.handlers.session["model.request"]({ sessionID: "s2", agent: "flow-build" })
+  await assert.rejects(before("s1", "edit", edit), /has not been read/)
+  await assert.rejects(before("s1", "write", { filePath: file, content: "x" }), /has not been read/)
+  await before("s1", "write", { filePath: path.join(dir, "fresh.txt"), content: "x" })
+
+  await after("s1", "read", { filePath: "a.txt" })
+  await before("s1", "edit", edit)
+  await assert.rejects(before("s2", "edit", edit), /has not been read/)
+
+  fs.writeFileSync(file, "b\n")
+  await after("s1", "edit", edit)
+  await before("s1", "edit", { ...edit, oldString: "b", newString: "c" })
+
+  fs.writeFileSync(file, "changed by a formatter\n")
+  await assert.rejects(before("s1", "edit", edit), /changed since you last read/)
+  cleanup()
 })
 
 test("plugin: OPENCODE_FLOW_GUARD=off disables every hook", async () => {

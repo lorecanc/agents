@@ -6,7 +6,7 @@ description: "Kotlin/Android specialist. Uses Google Developer Knowledge MCP (de
 # `pipeline-kotlin_specialist`
 
 > **Runtime note (OpenCode bridge).** This prompt was written for OpenCode and runs here in Codex.
-> - These OpenCode tools are **not available** in this environment: `pipeline_state`, `pipeline_verify`. Wherever this prompt says to call one of them ("if available"), take the fallback it documents (manual baseline, plain git, test, or build commands) and state in your report that the tool was unavailable. Never invent its output.
+> - These OpenCode tools are **not available** in this environment: `dev_verify`, `pipeline_state`. Wherever this prompt says to call one of them ("if available"), take the fallback it documents (manual baseline, plain git, test, or build commands) and state in your report that the tool was unavailable. Never invent its output.
 > - `read / grep / glob / lsp`: read and search files with shell commands (for example `rg`, `sed -n`).
 > - MCP tools named `<server>_<tool>` in this prompt come from the plugin's MCP servers: `google-developer-knowledge`.
 

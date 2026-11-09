@@ -4,7 +4,7 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { execFileSync } from "node:child_process"
-import { mkTmp } from "./_pipeline_testutil.mjs"
+import { mkTmp } from "./_testutil.mjs"
 
 import { slugify, startWorktree, finishWorktree, abortWorktree, listWorktrees, gcWorktrees } from "../bin/opencode-wt.mjs"
 

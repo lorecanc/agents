@@ -1,5 +1,7 @@
 import { tool } from "./_tool.js"
-import { executeCommit, planCommit, repoInfo, rootRecordFor } from "./_pipeline_core.js"
+import { repoInfo } from "./_repo.js"
+import { rootRecordFor } from "./_sessions.js"
+import { executeCommit, planCommit } from "./_pipeline_core.js"
 
 export default tool({
   description:

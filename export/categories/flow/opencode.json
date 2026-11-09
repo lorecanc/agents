@@ -12,7 +12,9 @@
   },
   "plugins": [
     "./plugins/agent-router",
+    "./plugins/dev-tools",
+    "./plugins/flow-context",
     "./plugins/flow-guard",
-    "./plugins/pipeline-tools"
+    "./plugins/flow-mode"
   ]
 }

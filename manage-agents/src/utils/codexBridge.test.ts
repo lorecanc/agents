@@ -378,12 +378,12 @@ test("writeCodexPlugin refuses a symlinked output pointing outside the workspace
 test("Codex bridge translates OpenCode tool names and flags OpenCode-only tools once", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "codex-bridge-tools-"))
   const output = path.join(workspace, "bridges", "codex")
-  const body = "# Orchestrator\n\nUse `todowrite` to track work. Call `pipeline_state` if it is available; otherwise use the fallback.\nAsk the user (use `question`) and launch two Task calls in one turn.\nRun pipeline_env before smoke tests."
+  const body = "# Orchestrator\n\nUse `todowrite` to track work. Call `pipeline_state` if it is available; otherwise use the fallback.\nAsk the user (use `question`) and launch two Task calls in one turn.\nRun dev_env before smoke tests."
   const orchestrator = agent("pipeline-orchestrator.md", "any", { mode: "primary", permission: { pipeline_state: "allow", pipeline_commit: "deny", todowrite: "allow", bash: { "*": "deny", "git status*": "allow", "rm *": "ask" } } }, body)
   const result = bridgeToCodex([orchestrator], "decent-pipeline", "pipeline-", output, workspace)
   const instructions = result.plugin.agents[0].developerInstructions
   assert.match(instructions, /^# Orchestrator\n\n> \*\*Runtime note \(OpenCode bridge\)\.\*\*/)
-  assert.match(instructions, /not available\*\* in this environment: `pipeline_env`, `pipeline_state`\./)
+  assert.match(instructions, /not available\*\* in this environment: `dev_env`, `pipeline_state`\./)
   assert.doesNotMatch(instructions, /pipeline_commit/)
   assert.match(instructions, /Use `update_plan` to track work/)
   assert.match(instructions, /`question`: ask the user directly/)
@@ -409,7 +409,7 @@ test("Codex bridge never treats pipeline tool or built-in permission keys as MCP
   } }))
   const output = path.join(workspace, "bridges", "codex")
   const auditor = agent("pipeline-security_auditor.md", "any", { permission: {
-    pipeline_env: "allow", apply_patch: "allow", patch: "allow", multiedit: "allow", list: "allow",
+    dev_env: "allow", apply_patch: "allow", patch: "allow", multiedit: "allow", list: "allow",
     external_directory: { "*": "deny" }, "cwe-search_*": "allow"
   } }, "Tools are prefixed: `cwe-search_get_cwe_weakness`.")
   bridgeToCodex([auditor], "decent-pipeline", "pipeline-", output, workspace)

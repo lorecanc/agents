@@ -1,6 +1,6 @@
 ---
 name: flow-visual-loop
-description: Render-and-iterate loop for UI changes. Start the project's dev server with pipeline_serve, capture screenshots at mobile/tablet/desktop with chrome-devtools (or delegate to flow-eye when your model cannot see images), compare with the design brief and rubric, fix, repeat (max 3 rounds), then check console and accessibility. Load after the first UI implementation pass.
+description: Render-and-iterate loop for UI changes. Start the project's dev server with dev_serve, capture screenshots at mobile/tablet/desktop with chrome-devtools (or delegate to flow-eye when your model cannot see images), compare with the design brief and rubric, fix, repeat (max 3 rounds), then check console and accessibility. Load after the first UI implementation pass.
 ---
 
 # Visual loop
@@ -9,7 +9,7 @@ Writing UI without rendering it is guessing. This loop closes the gap between th
 
 ## 0. Get a URL
 
-1. Run `pipeline_serve` with `action: "start"`. It reads the `serve` or `smoke` section of `.opencode/pipeline.json`, or the `dev`/`start` script. It returns a localhost URL and always stops by itself.
+1. Run `dev_serve` with `action: "start"`. It reads the `serve` or `smoke` section of `.opencode/pipeline.json`, or the `dev`/`start` script. It returns a localhost URL and always stops by itself.
 2. If it cannot start (`env` or `harness` class), try once to fix the obvious cause (a missing install, the wrong workspace). Otherwise, for static HTML, open the file with a `file://` URL.
 3. If nothing can render, stop the loop and report `UNVERIFIED: <reason>`. Do not pretend.
 4. Do not start dev servers with raw `npm run dev &`; they outlive the session.
@@ -47,6 +47,7 @@ hierarchy or spacing rather than colors.
 - The console has no errors or warnings caused by the change.
 - Run `lighthouse_audit` (accessibility category) when the page is user-facing and the server is up. Fix contrast and label issues.
 - For keyboard checks, press Tab through the main flow and make sure focus is visible and the order is logical.
-- Run `pipeline_serve` with `action: "stop"` when done.
+- Use the feature, not just the screenshot: click through the golden path, trigger the edge cases (empty input, long text, an error response) and glance at the neighbouring features the change could have broken.
+- Run `dev_serve` with `action: "stop"` when done.
 
 In the final summary, include the viewports checked, the rounds used, what was fixed and what is left.

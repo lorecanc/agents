@@ -119,6 +119,7 @@
         }
     },
     "plugins": [
+        "./plugins/dev-tools",
         "./plugins/pipeline-guard",
         "./plugins/pipeline-tools",
         "./plugins/doc-tools",

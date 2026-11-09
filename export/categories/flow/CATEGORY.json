@@ -2,7 +2,7 @@
   "schemaVersion": 2,
   "distributionVersion": "1.0.0",
   "category": "flow",
-  "manifestHash": "f0e261374bde833d220cbf6bcd5489b52eaeddf983d306e64bd92ebf5ac96de0",
+  "manifestHash": "a03a4daf755856d4fed15721c0281cabdeb97d69fc8803b883a660548bab792e",
   "generatorVersion": "2.0.0",
   "entries": [
     {
@@ -15,11 +15,11 @@
     },
     {
       "target": "README.md",
-      "hash": "693902277a1b72e855b284196f5271f6b98ea14b6b0d0f64e7215857f2224d5d"
+      "hash": "7559f6d83f209db4980cf10b043d46a7c5bf898728197f592510a67c13179077"
     },
     {
       "target": "agents/flow-build.md",
-      "hash": "8804ca6ddd731fa06da231039d08d0a8a1e097e3c0c2536c84cf5f106c19c5fa"
+      "hash": "ef2edaa8e59adc618fd99f031d7a3c0034f7792b895b2a2d18d58740ac5d486f"
     },
     {
       "target": "agents/flow-explore.md",
@@ -27,15 +27,15 @@
     },
     {
       "target": "agents/flow-eye.md",
-      "hash": "2b35e7c1eec410006a827cc1fd08d174f8b91776eac8b266b18f2298e7cfc77e"
+      "hash": "9f5896a83bf81edeb1bde8f1d7f3d6c3eed96ffea9d786cddeb302fad7ae7986"
     },
     {
       "target": "agents/flow-ops.md",
-      "hash": "a47406970eb06924ca1dd2b3e9e30e178d59a0c4c45aa037feaa69c1abbfe20d"
+      "hash": "7db1ae9f02f3a48b581738e00c4b54d8f57fa120f92b082e17fb00805498a032"
     },
     {
       "target": "agents/flow-plan.md",
-      "hash": "35096ab23bf6d5a73435dc8739aac3d7250d7e7ec280432ffe8f70935c1e4f20"
+      "hash": "1fcdb70dc228d1c9fa93426364c5a6f5dba0e98eb3838951225f3d7c15dae383"
     },
     {
       "target": "agents/flow-research.md",
@@ -43,7 +43,7 @@
     },
     {
       "target": "agents/flow-review.md",
-      "hash": "bec30263fd85b6d96872e0bfcac38174254fd47ecb607eb30f499c9d5827bb69"
+      "hash": "0fb32b6926758b7953b043b902251833199e9fd8bde0b53e9aff587cac8c7344"
     },
     {
       "target": "commands/flow-bug.md",
@@ -55,7 +55,7 @@
     },
     {
       "target": "commands/flow-design.md",
-      "hash": "2321b46693d756b83c8a77f54af9a3889fee863e7ff4d8a40f67fca5e08fa917"
+      "hash": "64328a2bdfd203d2e2e6240ad8a5d8e3a4503b759250b72bf92286ff727e657c"
     },
     {
       "target": "commands/flow-explain.md",
@@ -67,7 +67,7 @@
     },
     {
       "target": "commands/flow-plan.md",
-      "hash": "5063f79f79c5b1bb5ae9c4ad8f4a161628ee47e970ea5476fe426ecfebb7b45e"
+      "hash": "be7c9e0f15be62b292f00d800c321d82dffe3c931683e749626803810c718f26"
     },
     {
       "target": "commands/flow-review.md",
@@ -79,7 +79,7 @@
     },
     {
       "target": "opencode.json",
-      "hash": "d3cbf92a7c0fb9a7aafa3c8a5db19be74258653ec96d85627569d93565c00f60"
+      "hash": "09fb12ed02aae1e03ab8efd81f323e7d9123f32c757e5a20c3d2b796a1ac5512"
     },
     {
       "target": "plugins/agent-router/index.ts",
@@ -87,15 +87,23 @@
     },
     {
       "target": "plugins/agent-router/routing.json",
-      "hash": "64b176844a1460936943fd6dff340b080c8e325db1c56c4d7f9545e83967ff52"
+      "hash": "e17cd4e0805ceed0c82812b0a504d651f115824cd8794a71e54bc2246f8e3da3"
+    },
+    {
+      "target": "plugins/dev-tools/index.ts",
+      "hash": "bc0a4bc6adedaf1446f18feebfc96a39dbb2810cbe7f1145f61ca7494e47d1af"
+    },
+    {
+      "target": "plugins/flow-context/index.ts",
+      "hash": "e4df57b38f94c4c860a4fdced08b149fa16da9eb139d02dd626eda9de40fc99f"
     },
     {
       "target": "plugins/flow-guard/index.ts",
-      "hash": "9212b3838dbd7fe6515ce19ff8cd27128930152acc98207b277e3f32b6f2918d"
+      "hash": "7934c825a859d50454889490fe8015204371ac34c86e81cfa07d1a999e276de7"
     },
     {
-      "target": "plugins/pipeline-tools/index.ts",
-      "hash": "3ef0cacc95a2c6372bb86cdf80d9dfe338ef85009dbe4168927dfcd31ea1f0c8"
+      "target": "plugins/flow-mode/index.ts",
+      "hash": "886bccaa2745e3f4be9baca9f636a563f75530d49cc22dd75d1d79585981394e"
     },
     {
       "target": "skills/chrome-devtools-a11y-debugging/SKILL.md",
@@ -231,7 +239,7 @@
     },
     {
       "target": "skills/flow-frontend-design/SKILL.md",
-      "hash": "cd06cf3bdb9534e3eae95cdcc07dc7a1788755f4f6205e8f669a83a24a1da435"
+      "hash": "82b6828b21a33c233c972141f585656b2481abb72dc81909c7b1038eccc5954b"
     },
     {
       "target": "skills/flow-kotlin/SKILL.md",
@@ -243,7 +251,7 @@
     },
     {
       "target": "skills/flow-simplify/SKILL.md",
-      "hash": "5a363495e454d905d95365819375d97f745b1a1d53c7e96ce223c146dfc5037c"
+      "hash": "2e71d41c5a3ab298adf8ed1c091f4442672bd79ffa66533bfacd9690a3c8f8e6"
     },
     {
       "target": "skills/flow-swift/SKILL.md",
@@ -251,67 +259,83 @@
     },
     {
       "target": "skills/flow-testing/SKILL.md",
-      "hash": "56318591d13a6edfa6bc521ba8ec98c2d5915662c5cc17d09e912ce4053b5b86"
+      "hash": "fe74456f29d5efed087a1e3d04731cf19603c924712bd794fb5fa4f1a56a70a3"
     },
     {
       "target": "skills/flow-visual-loop/SKILL.md",
-      "hash": "6885382b02bd2a6d23f2c1f1864e0c2bc76f922d33bbee15fff1a0453991a4f3"
+      "hash": "61cb4ee4d9f83fe03f56d53687caa8f376384a455cfcd67c8c4823e64e4d6651"
+    },
+    {
+      "target": "skills/italiano-decente/SKILL.md",
+      "hash": "3f0f0db56acc7cf9366476d3a23916ee9671541fc29ad103298fc14972a06b53"
+    },
+    {
+      "target": "skills/seo-copywriting/SKILL.md",
+      "hash": "00908c6141c4286e3e24fee817d3208adc9c50c5febc5cbd56f0ad690afd0b0f"
     },
     {
       "target": "tools/_agent_router.js",
       "hash": "8815e9f640a203848178b5a8e6a00fb523a233cc7516d08524b9a39199cbccb1"
     },
     {
+      "target": "tools/_bash_guard.js",
+      "hash": "160b4c2c45a15ea05e6c6385b8dbc6d3fcd4ceca95a02a34168de332d4b0baa6"
+    },
+    {
+      "target": "tools/_env.js",
+      "hash": "121e3d96efb45ab0aa02f524806b02d40926003af2a7f86feb134bdc271991a8"
+    },
+    {
+      "target": "tools/_flow_context.js",
+      "hash": "020c9aab0285c2ced0e43d1ffa54426a8de41a43ee4d599e18b35fabc9d36220"
+    },
+    {
       "target": "tools/_flow_guard.js",
-      "hash": "a395299c5cb600d0384cba9b5ffc98186ded2c546ea2f81ca843913a6d595700"
+      "hash": "b012b8bca9c430f121cb03b15ac554fa69c8e4e45df646fcc969913de0c25b81"
     },
     {
-      "target": "tools/_pipeline_core.js",
-      "hash": "112f6fc3a810f21d4da425de88e8f0dabd35e0cf90e58bba6cc343ce3ff05005"
+      "target": "tools/_flow_mode.js",
+      "hash": "d1f128201cf84e3d81affa95a1f01a6ac0645c478c6885414d0e8b8882fe48fa"
     },
     {
-      "target": "tools/_pipeline_env.js",
-      "hash": "bd73252d7d62cd7ce6b9e4f0aaec7e56d1ba8adbde8c9feb5f9da5ba8bf4ea92"
+      "target": "tools/_repo.js",
+      "hash": "2f324bf3344a6a5fccd3614b942f0893d35f776261eb0015e3ce42904e7bfacb"
     },
     {
-      "target": "tools/_pipeline_run.js",
-      "hash": "27e37b878864709b4907dc34df3084873cca7231ea563e58c93bd546c16bcf35"
+      "target": "tools/_run.js",
+      "hash": "2e8cc3c33dc36ca24f6eb85857358626fbcb117076472d8b902247d759f392da"
     },
     {
-      "target": "tools/_pipeline_serve.js",
-      "hash": "8dec5d7951f720a0c7194208227f8192f7eab8529465ea6cb444a4c6bcfe2ea6"
+      "target": "tools/_serve.js",
+      "hash": "b3e11ee4a7440c17ddb988b2fce3661446068dd6886526c7bd082bc1e4511b7e"
     },
     {
-      "target": "tools/_pipeline_services.js",
-      "hash": "c35978c03f393ec531e25eed61d0101b413a60ad1364ae8f82e8071b88344ce6"
+      "target": "tools/_services.js",
+      "hash": "b0958023c1f97b28560e9b12b8a4ce2db191ffd7c917c9b05a490103a9b943e7"
+    },
+    {
+      "target": "tools/_sessions.js",
+      "hash": "636c95648be9d99d6d3cd46f6494245f0801d5fd4dd8d5cff08a508493f5b315"
     },
     {
       "target": "tools/_tool.ts",
       "hash": "7f896bb01b2b27559e6c693d8393a1372afa60de9b279e13e885b17c02f091f4"
     },
     {
-      "target": "tools/pipeline_commit.ts",
-      "hash": "90c3e836840725559311e8f8f603d360230b27738ed8db693e44a25a4e473e44"
+      "target": "tools/dev_env.ts",
+      "hash": "1a1360587c0d958183ea2092717d8e4bf49528a013dba82bad05c0680842464b"
     },
     {
-      "target": "tools/pipeline_env.ts",
-      "hash": "38cb13506f86f190b305cce8b966a2deef055b2277802ccf1a534037cad68162"
+      "target": "tools/dev_serve.ts",
+      "hash": "ceaaa415841bbfbfd587bc3b7d20bac1e10b375031d987d8e946bf9773b4c7ea"
     },
     {
-      "target": "tools/pipeline_serve.ts",
-      "hash": "a90c3e61631c42835486504c1d93cf350630dfe7f69666fb54104519281196be"
+      "target": "tools/dev_smoke.ts",
+      "hash": "ad05d8d42bd328fb980d2f7a09beaa550b78b928eedd7acbb2eec97a4e4bb6bf"
     },
     {
-      "target": "tools/pipeline_smoke.ts",
-      "hash": "87bbea722dc9fff905cf6ff09d1d4d66a566c81f5d2a507f630a670b8bc31c14"
-    },
-    {
-      "target": "tools/pipeline_state.ts",
-      "hash": "9a5ffdfab7e21a7ce84e050d89a9fb02e57f00ed9d5dafde6398d9839fc7308e"
-    },
-    {
-      "target": "tools/pipeline_verify.ts",
-      "hash": "34a46b6851f4958ceb93b05b73e7f0c41fcbe8c22982566ead41a7e44e82b2aa"
+      "target": "tools/dev_verify.ts",
+      "hash": "c4425bf0a667f8550c06f1616d1f2f5fb6bf46c11e2933f34188d878a8434a89"
     }
   ]
 }

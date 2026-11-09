@@ -138,7 +138,7 @@ Claude models must be aliases (`fable`, `sonnet`, `opus`, `haiku`, `inherit`) or
 
 - **Claude**: `todowrite` → `TodoWrite`, `question` → `AskUserQuestion`, `task` / "Task tool" → `Agent`, and backticked `read`, `grep`, `glob`, `lsp`, `skill`, `webfetch`, `websearch`, `bash`, `edit`, `write` → their Claude names.
 - **Codex**: `todowrite` → `update_plan`. Other tools are explained in the note: questions are asked in the reply, delegation uses the listed subagents, reads and searches use shell commands, and edits use `apply_patch`.
-- **OpenCode-only tools**: any `pipeline_<name>` identifier is reported as not available in the target. The note tells the agent to take the fallback the prompt documents and never to invent the tool's output.
+- **OpenCode-only tools**: any `pipeline_<name>` identifier and the four `dev_*` tools (`dev_env`, `dev_verify`, `dev_smoke`, `dev_serve`) are reported as not available in the target. The note tells the agent to take the fallback the prompt documents and never to invent the tool's output.
 
 Two-sided caveats are recorded as warnings. For example, Claude promotes `ask` to `allow` for several tools (`websearch`, `skill`, `bash`, `edit`, `webfetch`, and others) because Claude plugin agents cannot enforce a per-agent `ask`. `hidden` and `temperature` are dropped.
 
@@ -204,9 +204,9 @@ The TUI opens the bridge prompt for the focused category: `B` for Claude and `Sh
 
 ## Known limitations
 
-- **OpenCode TypeScript plugins are not transpiled.** The bridges do not convert `src/plugins/*` (`pipeline-guard`, `pipeline-tools`, `doc-tools`, `slide-tools`). The Claude bridge lists linked plugin and tool files in the README section "OpenCode plugins and tools" and emits one warning per file, both stating they are not transpiled. The README's hook table (`tool.execute.before` → `PreToolUse`, `tool.execute.after` → `PostToolUse`, `session.idle` → `Stop`, `permission.asked` → `PermissionRequest`) is a reference only and is not generated. The Codex bridge does not mention companion plugins or tools at all. Plugin behavior is documented in `src/plugins/README.md`.
+- **OpenCode TypeScript plugins are not transpiled.** The bridges do not convert `src/plugins/*` (for example `dev-tools`, `pipeline-guard`, `pipeline-tools`, `doc-tools`, `slide-tools`). The Claude bridge lists linked plugin and tool files in the README section "OpenCode plugins and tools" and emits one warning per file, both stating they are not transpiled. The README's hook table (`tool.execute.before` → `PreToolUse`, `tool.execute.after` → `PostToolUse`, `session.idle` → `Stop`, `permission.asked` → `PermissionRequest`) is a reference only and is not generated. The Codex bridge does not mention companion plugins or tools at all. Plugin behavior is documented in `src/plugins/README.md`.
 - **Per-agent bash rules are not enforced.** Claude plugin agents accept only a `tools:` list, so every agent with any allowed `bash` gets `Bash`. Codex sets only `sandbox_mode`. The source rules are listed in each README's "Per-agent bash allowlists (not enforced)" section for review.
-- **OpenCode-only `pipeline_*` tools are unavailable** in both targets. Prompts receive a runtime note instead.
+- **OpenCode-only `dev_*` and `pipeline_*` tools are unavailable** in both targets. Prompts receive a runtime note instead.
 - **Claude only: command skills and companion skills** are generated. Codex does not generate them.
 - **Icon:** the icon file is copied to `.claude-plugin/icon.png`, but `plugin.json` does not reference it.
 

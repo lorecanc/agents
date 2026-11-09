@@ -18,7 +18,7 @@
 | Local overlay (neverOverwrite) | Paths protected from shared sync, such as `pipeline-profiles.json`, `companion-links.json`, category manifests, and generated exports. | [Workspace and Distribution Configuration](./config/workspace-and-distribution.md) |
 | MCP | Model Context Protocol; the configured tool servers and integrations used by the workspace. | [OpenCode Tools and Plugin Hooks](./api/opencode-tools-and-plugin.md) |
 | Pipeline guard | OpenCode plugin safeguarding pipeline tool execution and session operations. | [Tools and Plugins](./modules/tools-and-plugins.md) |
-| pipeline_env | Read-only environment probe tool that reports verification feasibility as `verification_outlook`. | [Tools and Plugins](./modules/tools-and-plugins.md) |
+| dev_env | Read-only environment probe tool that reports verification feasibility as `verification_outlook`. | [Tools and Plugins](./modules/tools-and-plugins.md) |
 | Resource Manager | TUI area (key `u`, shown as `U` in the footer) that discovers and syncs companion plugin, command, skill, and tool links. | [Agent Manager](./modules/agent-manager.md) |
 | Shared sync | Versioned mechanism, declared in `.agent-manager/shared-sync.json`, that distributes components (`agentManager`, `pipelineCore`) with include and exclude globs. | [Workspace and Distribution Configuration](./config/workspace-and-distribution.md) |
 | Stamped pipeline | Provider/profile-specific pipeline generated from shared roles and profile settings. | [Workspace and Distribution Configuration](./config/workspace-and-distribution.md) |

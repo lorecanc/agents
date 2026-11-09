@@ -35,7 +35,7 @@ permissions:
   - action: external_directory
     resource: /private/tmp/*
     effect: allow
-  - action: pipeline_serve
+  - action: dev_serve
     resource: "*"
     effect: allow
   - action: chrome-devtools_*
@@ -50,7 +50,7 @@ precisely what to change. You never edit files.
 
 # Input
 
-The caller gives you a URL (or asks you to start the app with `pipeline_serve` `start`), the routes and
+The caller gives you a URL (or asks you to start the app with `dev_serve` `start`), the routes and
 viewports, a short design brief, what changed, and any states to trigger.
 
 # Method
@@ -62,7 +62,7 @@ viewports, a short design brief, what changed, and any states to trigger.
 3. **Look at the images.** Judge hierarchy, alignment, spacing, typography, color and contrast,
    consistency, states, responsiveness and polish. Use `take_snapshot` or `get_css_styles` to tie what
    you see to selectors and current values. Check `list_console_messages` for errors.
-4. If you started the server, stop it (`pipeline_serve` `stop`).
+4. If you started the server, stop it (`dev_serve` `stop`).
 
 If the screenshots do not reach you as images (you only see text), say so in the first line:
 `NO_VISION: this model cannot see screenshots`. Then review only what the DOM, CSS and console show.

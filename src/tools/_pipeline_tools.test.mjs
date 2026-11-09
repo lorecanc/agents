@@ -5,7 +5,7 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { execFileSync } from "node:child_process"
-import { mkTmp } from "./_pipeline_testutil.mjs"
+import { mkTmp } from "./_testutil.mjs"
 
 // @opencode-ai/plugin is not installed in this repo: stub it exactly as _guards.test.mjs does.
 const STUB_SOURCE = `
@@ -26,7 +26,9 @@ registerHooks({
   },
 })
 
-const { repoInfo, writeSession, snapshot, appendActivity } = await import("./_pipeline_core.js")
+const { repoInfo, snapshot } = await import("./_repo.js")
+const { writeSession } = await import("./_sessions.js")
+const { appendActivity } = await import("./_pipeline_core.js")
 const loadTool = async (name) => (await import(`./${name}.ts`)).default
 
 function mkRepo(contract = null) {
@@ -151,22 +153,22 @@ test("pipeline_commit: without a registered baseline it still protects files the
   assert.equal(safe.warning, undefined)
 })
 
-test("pipeline_verify: runs the contract and returns structured results", async () => {
+test("dev_verify: runs the contract and returns structured results", async () => {
   const dir = mkRepo({ verify: { lint: "echo ok", test_fast: "echo boom >&2; exit 4" } })
-  const res = await call("pipeline_verify", { checks: ["lint", "test_fast"] }, ctx(dir))
+  const res = await call("dev_verify", { checks: ["lint", "test_fast"] }, ctx(dir))
   assert.equal(res.status, "fail")
   assert.deepEqual(res.results.map((r) => r.status), ["pass", "fail"])
   assert.equal(res.contract_source, "file")
 })
 
-test("pipeline_smoke: no contract is inconclusive and suggests nothing it cannot justify", async () => {
-  const res = await call("pipeline_smoke", {}, ctx(mkRepo()))
+test("dev_smoke: no contract is inconclusive and suggests nothing it cannot justify", async () => {
+  const res = await call("dev_smoke", {}, ctx(mkRepo()))
   assert.equal(res.status, "inconclusive")
   assert.match(res.reason, /no smoke contract/)
   assert.equal(res.suggested_smoke, null)
 })
 
-test("pipeline_serve: a child session resolves to the root owner; start, status and stop go through the tool", { skip: process.platform === "win32" }, async () => {
+test("dev_serve: a child session resolves to the root owner; start, status and stop go through the tool", { skip: process.platform === "win32" }, async () => {
   const node = JSON.stringify(process.execPath)
   const dir = mkRepo({ smoke: { start: `${node} server.js`, ready: { url: "http://127.0.0.1:${PORT}/", timeout_s: 15 }, checks: [] } })
   fs.writeFileSync(path.join(dir, "server.js"), 'require("http").createServer((q,r)=>{r.writeHead(200);r.end("tool-ok")}).listen(Number(process.env.PORT),"127.0.0.1")')
@@ -174,28 +176,28 @@ test("pipeline_serve: a child session resolves to the root owner; start, status 
   writeSession(info, { sessionId: "ses_child", rootId: "ses_root", agent: "x-pipeline-chrome_devtools", pid: process.pid, updatedAt: Date.now() })
   const child = ctx(dir, "ses_child")
   try {
-    const started = await call("pipeline_serve", { action: "start", ttl_s: 60 }, child)
+    const started = await call("dev_serve", { action: "start", ttl_s: 60 }, child)
     assert.equal(started.status, "running", JSON.stringify(started))
     assert.equal(started.owner_session, "ses_root", "owner must be the root session, not the child")
     assert.equal(await (await fetch(started.url)).text(), "tool-ok")
-    assert.equal((await call("pipeline_serve", { action: "status" }, child)).status, "running")
+    assert.equal((await call("dev_serve", { action: "status" }, child)).status, "running")
     // a different root session is refused
     writeSession(info, { sessionId: "ses_other", rootId: "ses_other", agent: "x-pipeline-orchestrator", pid: process.pid, busy: true, updatedAt: Date.now(), files: {} })
-    assert.equal((await call("pipeline_serve", { action: "stop" }, ctx(dir, "ses_other"))).status, "refused")
-    const stopped = await call("pipeline_serve", { action: "stop" }, child)
+    assert.equal((await call("dev_serve", { action: "stop" }, ctx(dir, "ses_other"))).status, "refused")
+    const stopped = await call("dev_serve", { action: "stop" }, child)
     assert.equal(stopped.status, "stopped")
     assert.equal(stopped.port_free, true)
-    assert.equal((await call("pipeline_serve", { action: "status" }, child)).status, "stopped")
+    assert.equal((await call("dev_serve", { action: "status" }, child)).status, "stopped")
   } finally {
-    await call("pipeline_serve", { action: "stop" }, child)
+    await call("dev_serve", { action: "stop" }, child)
   }
 })
 
-test("pipeline_serve: no contract is inconclusive; not a repository is an error", async () => {
-  const res = await call("pipeline_serve", { action: "start" }, ctx(mkRepo()))
+test("dev_serve: no contract is inconclusive; not a repository is an error", async () => {
+  const res = await call("dev_serve", { action: "start" }, ctx(mkRepo()))
   assert.equal(res.status, "inconclusive")
   const notRepo = mkTmp("pipe-none-")
-  assert.equal((await call("pipeline_serve", { action: "start" }, ctx(notRepo))).error, "not a git repository")
+  assert.equal((await call("dev_serve", { action: "start" }, ctx(notRepo))).error, "not a git repository")
 })
 
 test("pipeline_state exposes recorded activity next to the unchanged fields", async () => {
@@ -224,13 +226,13 @@ test("pipeline_state exposes recorded activity next to the unchanged fields", as
   assert.deepEqual(a.subagents.find((s) => s.session === "ses_a"), { session: "ses_a", agent: "x-pipeline-executor", tool_calls: 2, llm_calls: 3 })
 })
 
-test("pipeline_env tool returns the environment report as JSON", async () => {
+test("dev_env tool returns the environment report as JSON", async () => {
   const dir = mkRepo({ verify: { test_fast: "npm test" } })
-  const out = await call("pipeline_env", {}, ctx(dir))
+  const out = await call("dev_env", {}, ctx(dir))
   assert.equal(out.contract.exists, true)
   assert.deepEqual(out.contract.verify_defined, ["test_fast"])
   assert.ok(out.binaries && out.docker && out.pipeline && out.verification_outlook)
-  assert.ok(out.pipeline.tools_present.includes("pipeline_env"))
-  const sub = await call("pipeline_env", { workspace: "missing-dir" }, ctx(dir))
+  assert.ok(out.pipeline.tools_present.includes("dev_env"))
+  const sub = await call("dev_env", { workspace: "missing-dir" }, ctx(dir))
   assert.match(sub.workspace.error, /does not exist/)
 })

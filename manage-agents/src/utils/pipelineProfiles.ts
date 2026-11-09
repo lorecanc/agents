@@ -216,6 +216,9 @@ function renderPipelineAgent(frontmatter: Record<string, any>, body: string): st
 
 /** Permission keys whose canonical value always replaces a stamped copy on refresh. */
 const BASE_OWNED_PERMISSION_KEYS = new Set(["bash", "shell"])
+// Repository custom tools (dev_*, pipeline_*) are shipped from src/: their permissions follow the
+// canonical agent, so a renamed or removed tool cannot linger in a stamped copy.
+const BASE_OWNED_PERMISSION_ACTION = /^(?:dev|pipeline)_[a-z][a-z0-9_]*$/
 
 function keepWildcardFirst(value: Record<string, any>): Record<string, any> {
   const normalized = Object.fromEntries(Object.entries(value).map(([key, child]) => [
@@ -238,6 +241,7 @@ const GROUP_SEPARATOR = "\u0000"
  * way the V2 runtime evaluates them.
  *
  * - `shell` rules are fully base-owned: target shell rules never survive.
+ * - Repository custom tool rules (`dev_*`, `pipeline_*`) are base-owned too.
  * - Base rules come first and win duplicate `(action, resource)` pairs.
  * - Target-only rules are appended in authored order; target duplicates keep
  *   their first position but the last value wins.
@@ -266,7 +270,7 @@ export function mergePermission(base: PermissionMap, target: PermissionMap = {})
 
   for (const rule of translatePermissionsV1ToV2(baseRules)) add(rule, true)
   for (const rule of translatePermissionsV1ToV2(targetRules)) {
-    if (BASE_OWNED_PERMISSION_KEYS.has(rule.action) || baseKeys.has(`${rule.action}${GROUP_SEPARATOR}${rule.resource}`)) continue
+    if (BASE_OWNED_PERMISSION_KEYS.has(rule.action) || BASE_OWNED_PERMISSION_ACTION.test(rule.action) || baseKeys.has(`${rule.action}${GROUP_SEPARATOR}${rule.resource}`)) continue
     add(rule, false)
   }
 

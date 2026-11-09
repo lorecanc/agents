@@ -486,7 +486,7 @@ test("never fabricates MCP servers from built-in permission keys", () => {
     patch: "allow",
     multiedit: "allow",
     list: "allow",
-    pipeline_env: "allow",
+    dev_env: "allow",
     pipeline_state: "allow",
     external_directory: { "*": "deny", "~/.local/*": "allow" },
     read_mcp_resource: "allow",
@@ -513,7 +513,7 @@ test("never fabricates MCP servers from built-in permission keys", () => {
   }
   assert.ok(tools.split(", ").includes("Write"), `file-manipulation permissions should enable Write; got ${tools}`)
   assert.ok(tools.split(", ").includes("Edit"), `file-manipulation permissions should enable Edit; got ${tools}`)
-  for (const key of ["pipeline_env", "pipeline_state", "external_directory", "doom_loop"]) {
+  for (const key of ["dev_env", "pipeline_state", "external_directory", "doom_loop"]) {
     assert.ok(result.warnings.some(warning => warning.includes(`'${key}'`)), `missing dropped-key warning for ${key}`)
   }
 })
@@ -598,8 +598,8 @@ test("never fabricates MCP tools from custom pipeline tool permissions", () => {
   const agent = fixture("pipeline-executor.md")
   agent.frontmatter.permission = {
     pipeline_commit: "allow",
-    pipeline_serve: "allow",
-    pipeline_smoke: "allow",
+    dev_serve: "allow",
+    dev_smoke: "allow",
     pipeline_state: "allow",
     bash: { "*": "deny", "git status*": "allow" },
     read: "allow"
@@ -612,7 +612,7 @@ test("never fabricates MCP tools from custom pipeline tool permissions", () => {
   const tools = generated.match(/^tools: (.*)$/m)?.[1] || ""
   assert.equal(tools.includes("mcp__pipeline"), false, `mcp__pipeline tools must not be emitted; got ${tools}`)
   assert.doesNotMatch(generated, /## MCP Tools/)
-  for (const key of ["pipeline_commit", "pipeline_serve", "pipeline_smoke", "pipeline_state"]) {
+  for (const key of ["pipeline_commit", "dev_serve", "dev_smoke", "pipeline_state"]) {
     assert.ok(
       result.warnings.some(warning => warning.includes(`permission '${key}' is not representable`)),
       `missing dropped-key warning for ${key}`

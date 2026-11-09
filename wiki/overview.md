@@ -14,6 +14,7 @@ source_files:
   - ".agent-manager/bash-profiles.json"
   - "src/plugins/README.md"
   - "src/plugins/pipeline-guard/index.ts"
+  - "src/plugins/dev-tools/index.ts"
   - "src/plugins/pipeline-tools/index.ts"
   - "manage-agents/README.md"
   - "manage-agents/package.json"
@@ -31,7 +32,7 @@ This repository provides a reusable OpenCode workspace: canonical agent prompts 
 - Manifest-driven category builds and checks, with generated category bundles kept separate from canonical input.
 - Pipeline model profiles and bridge generation for Claude Code and Codex. Both bridges emit a `decent-pipeline` plugin package under `export/bridges/{claude-code,codex}/decent-pipeline/` (plugin manifest, agents or skills, MCP config, and a README); TypeScript runtime plugins are not transpiled into the bridges. See [Agent Manager](./modules/agent-manager.md) for the generation commands.
 - Shared pipeline components are versioned and synced to other repositories with `.agent-manager/shared-sync.json`, which declares component SemVer requirements and protected local overlays.
-- Deterministic pipeline support in `src/plugins/`: `pipeline-tools` registers the `pipeline_*` tools, and `pipeline-guard` enforces write and git guards, rejects a third consecutive identical tool call (doom-loop guard), and appends a JSONL activity log per root session. See [Tools and plugins](./modules/tools-and-plugins.md).
+- Deterministic pipeline support in `src/plugins/`: `dev-tools` registers the `dev_*` tools shared with `flow` (`dev_env`, `dev_verify`, `dev_smoke`, `dev_serve`), `pipeline-tools` registers the pipeline-only `pipeline_state` and `pipeline_commit`, and `pipeline-guard` enforces write and git guards, rejects a third consecutive identical tool call (doom-loop guard), and appends a JSONL activity log per root session. See [Tools and plugins](./modules/tools-and-plugins.md).
 - A Node.js/Bun terminal CLI and interactive TUI for catalog maintenance and export workflows, documented in [Agent Manager](./modules/agent-manager.md).
 
 ## Tech Stack

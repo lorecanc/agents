@@ -11,6 +11,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../
 
 test("default companion links ship V2 plugin directories, not plugin files", () => {
   assert.deepEqual(DEFAULT_COMPANION_LINKS.categories.pipeline.plugins, [
+    "plugins/dev-tools",
     "plugins/doc-tools",
     "plugins/pipeline-guard",
     "plugins/pipeline-tools",
@@ -25,10 +26,10 @@ test("repository companion links reference the four V2 plugin directories and sh
   for (const plugin of ["plugins/pipeline-guard", "plugins/pipeline-tools", "plugins/doc-tools", "plugins/slide-tools"]) {
     assert.ok(pipeline.plugins.includes(plugin), `${plugin} should be linked`)
   }
-  assert.ok(pipeline.tools.includes("tools/pipeline_env.ts"))
+  assert.ok(pipeline.tools.includes("tools/dev_env.ts"))
   assert.ok(pipeline.commands.includes("commands/pipeline-init.md"))
   assert.deepEqual(config.categories.wiki.commands, ["commands/wiki.md"])
-  assert.ok(fs.existsSync(path.join(repoRoot, "src", "tools", "pipeline_env.ts")))
+  assert.ok(fs.existsSync(path.join(repoRoot, "src", "tools", "dev_env.ts")))
   assert.ok(fs.existsSync(path.join(repoRoot, "src", "commands", "pipeline-init.md")))
 })
 

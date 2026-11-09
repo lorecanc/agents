@@ -39,7 +39,7 @@ permissions:
   - action: pipeline_state
     resource: "*"
     effect: allow
-  - action: pipeline_verify
+  - action: dev_verify
     resource: "*"
     effect: allow
   - action: skill
@@ -163,6 +163,7 @@ Write the checks `@pipeline-chrome_devtools` will run after implementation: URL 
 ### Guidance for the planner and executor
 - Files likely to change or be created, and the structure to follow.
 - Conventions that must not be broken.
+- Copy and SEO: when the change adds user-facing text, tell the executor to load `italiano-decente` (Italian text) and, for public web pages, `seo-copywriting`, and list the title, meta description and heading changes the page needs.
 - Defaults applied (only where the repo had none).
 
 ### Visual acceptance checklist (for chrome_devtools)

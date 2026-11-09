@@ -868,7 +868,7 @@ test("forkCategory on pipeline preserves pipeline_* tools, pipeline.json, and pi
     description: "Pipeline orchestrator",
     permission: {
       pipeline_state: "allow",
-      pipeline_verify: "allow",
+      dev_verify: "allow",
       task: { "pipeline-executor": "allow" }
     }
   }, "Use @pipeline-executor with .opencode/pipeline.json, PIPELINE_SCRATCH, and plugins/pipeline-guard/index.ts.")
@@ -882,7 +882,7 @@ test("forkCategory on pipeline preserves pipeline_* tools, pipeline.json, and pi
   assert.match(forked.body, /@custom-pipeline-executor/)
   assert.equal(permission.task["custom-pipeline-executor"], "allow")
   assert.equal(permission.pipeline_state, "allow")
-  assert.equal(permission.pipeline_verify, "allow")
+  assert.equal(permission.dev_verify, "allow")
   assert.match(forked.body, /\.opencode\/pipeline\.json/)
   assert.match(forked.body, /PIPELINE_SCRATCH/)
   assert.match(forked.body, /plugins\/pipeline-guard\/index\.ts/)
@@ -2651,16 +2651,16 @@ test("hybrid companion resources are discovered and exported except for tests", 
   const resources = [
     "tools/pipeline_state.ts",
     "tools/_pipeline_core.js",
-    "tools/_pipeline_run.js",
-    "tools/_pipeline_serve.js",
+    "tools/_run.js",
+    "tools/_serve.js",
     "skills/code-review-antipatterns/SKILL.md",
     "plugins/pipeline-guard/index.ts"
   ]
   const contents: Record<string, string> = {
     "tools/pipeline_state.ts": 'import "./_pipeline_core.js"\n',
-    "tools/_pipeline_core.js": 'import "./_pipeline_run.js"\n',
-    "tools/_pipeline_run.js": 'import "./_pipeline_serve.js"\n',
-    "tools/_pipeline_serve.js": "pipeline serve dependency\n",
+    "tools/_pipeline_core.js": 'import "./_run.js"\n',
+    "tools/_run.js": 'import "./_serve.js"\n',
+    "tools/_serve.js": "pipeline serve dependency\n",
     "skills/code-review-antipatterns/SKILL.md": "review skill\n",
     "plugins/pipeline-guard/index.ts": "pipeline plugin\n"
   }

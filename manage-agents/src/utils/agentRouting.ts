@@ -5,9 +5,11 @@ import { parseAgentFile, resolveSourceSubdir } from "./agents.js"
 // Model configurations for archetypes (see ARCHETIPI.md and src/plugins/agent-router).
 //
 // An archetype (flow, later pipeline) is one set of canonical agents in src/agents/<id>-*.md with a
-// reference agent (flow-build). A configuration says: when the reference runs on <trigger> (a
-// provider "mistral" or an exact model "mistral/zai-glm-5-3"; the exact model wins), each related
-// subagent runs on this model, or inherits the reference's one.
+// reference agent (flow-build) and possibly other primaries (flow-plan, its plan mode). The primaries
+// are the callers: a configuration says, when the calling primary runs on <trigger> (a provider
+// "mistral" or an exact model "mistral/zai-glm-5-3"; the exact model wins), each related subagent
+// runs on this model, or inherits the caller's one. Build and plan may run on different models; the
+// plugin always looks at the one that is calling.
 //
 // Authored:  .agent-manager/agent-routing.json, written by the TUI (M on the archetype folder) or
 //            `manage-agents routing set`. Plain storage: it can be edited, but the TUI owns it.
@@ -16,15 +18,15 @@ import { parseAgentFile, resolveSourceSubdir } from "./agents.js"
 // Bridges (Claude Code, Codex) have no plugin: they stamp the models of one configuration instead.
 //
 // Pinned agents are not configured here: a canonical subagent with a `model` in its frontmatter (set
-// with M on the agent) keeps it, and the configurations skip it. The reference agent's own model in
-// frontmatter is just its starting model in OpenCode.
+// with M on the agent) keeps it, and the configurations skip it. A primary's own model in frontmatter
+// is just its starting model in OpenCode.
 
 export const AGENT_ROUTING_VERSION = 2
 const ROUTING_OUTPUT_VERSION = 1
 export const INHERIT = "inherit"
 const MODEL_RE = /^[^\s/#]+\/[^\s#]+(?:#[^\s#]+)?$/
 const TRIGGER_RE = /^[^\s/#]+(?:\/[^\s#]+)?$/
-const AUTHORED_COMMENT = "Model configurations per archetype, owned by manage-agents (TUI: M on the archetype folder; CLI: `manage-agents routing`). configs.<trigger>: trigger = the provider (\"mistral\") or exact model (\"mistral/zai-glm-5-3\") the reference agent runs on, the exact model wins; value = { <role>: \"provider/model#variant\" | \"inherit\" }, a missing role inherits. See ARCHETIPI.md."
+const AUTHORED_COMMENT = "Model configurations per archetype, owned by manage-agents (TUI: M on the archetype folder; CLI: `manage-agents routing`). configs.<trigger>: trigger = the provider (\"mistral\") or exact model (\"mistral/zai-glm-5-3\") the calling primary (build or plan) runs on, the exact model wins; value = { <role>: \"provider/model#variant\" | \"inherit\" }, a missing role inherits. See ARCHETIPI.md."
 
 /** role -> "provider/model#variant" | "inherit" */
 export type RoleModels = Record<string, string>
@@ -41,6 +43,8 @@ export interface ArchetypeAgent { role: string; name: string; subagent: boolean;
 export interface ArchetypeView {
   id: string
   reference: ArchetypeAgent
+  /** Primaries whose model picks the configuration: the reference first, then the others (plan). */
+  callers: ArchetypeAgent[]
   /** Subagents a configuration can set: canonical subagents without a fixed model. */
   related: ArchetypeAgent[]
   /** Canonical subagents with a fixed model: configurations skip them. */
@@ -114,10 +118,17 @@ export function describeArchetype(workspaceRoot: string, id: string, config = lo
   return {
     id,
     reference,
+    callers: [reference, ...agents.filter(agent => !agent.subagent && agent !== reference)],
     related: subagents.filter(agent => !agent.model),
     pinned: subagents.filter(agent => agent.model),
     configs: config?.archetypes[id]?.configs ?? {},
   }
+}
+
+/** "flow-build or flow-plan": the primaries a configuration's trigger refers to. */
+export function callersLabel(view: ArchetypeView): string {
+  const names = view.callers.map(agent => agent.name)
+  return names.length > 1 ? `${names.slice(0, -1).join(", ")} or ${names[names.length - 1]}` : names[0]
 }
 
 /** Problems with one configuration; `view` decides which roles exist and which are pinned. */
@@ -256,15 +267,15 @@ export function describeAgentRouting(workspaceRoot: string): string[] {
   for (const id of ROUTABLE_ARCHETYPES) {
     const view = describeArchetype(workspaceRoot, id)
     if (!view) continue
-    lines.push(`${id}: reference ${view.reference.name}${view.reference.model ? ` (starts on ${view.reference.model})` : ""}`)
+    lines.push(`${id}: reference ${view.reference.name}${view.reference.model ? ` (starts on ${view.reference.model})` : ""}; callers ${callersLabel(view)}`)
     lines.push(`  pinned: ${view.pinned.length ? view.pinned.map(agent => `${agent.name} = ${agent.model}`).join(", ") : "none"}`)
     const configs = Object.entries(view.configs)
-    if (configs.length === 0) lines.push("  configurations: none (every subagent inherits the reference's model)")
+    if (configs.length === 0) lines.push("  configurations: none (every subagent inherits the caller's model)")
     for (const [trigger, roles] of configs) {
-      lines.push(`  ${view.reference.name} on ${trigger}:`)
+      lines.push(`  ${callersLabel(view)} on ${trigger}:`)
       for (const agent of view.related) lines.push(`    ${agent.name}: ${roles[agent.role] ?? INHERIT}`)
     }
-    lines.push("  any other model: every subagent inherits the reference's model")
+    lines.push("  any other model: every subagent inherits the caller's model")
   }
   return [...lines, ...warnings.map(warning => `warning: ${warning}`)]
 }

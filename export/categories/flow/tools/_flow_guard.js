@@ -3,11 +3,13 @@
 // Philosophy: block only what is destructive, escapes the repository, leaks secrets or hangs on an
 // interactive editor. Everything else is governed by the agent permissions (allow / ask), so the
 // model is not pushed into retry loops by style policies. Shell parsing and path checks are reused
-// from `_pipeline_core.js`; only the git policy and the post-edit scan are specific to flow.
+// from `_bash_guard.js`; only the git policy and the post-edit scan are specific to flow.
 
+import fs from "node:fs"
 import path from "node:path"
 
-import { bashWriteTargets, checkBash, checkGitCommand, checkWritePath, isInside, realpathLoose } from "./_pipeline_core.js"
+import { isInside, realpathLoose } from "./_repo.js"
+import { WORKSPACE_MANAGED_HINT, bashWriteTargets, checkBash, checkGitCommand, checkWritePath, editTargets } from "./_bash_guard.js"
 
 // `flow-build`, or a stamped multi-provider copy such as `hybrid-flow-build`.
 export const FLOW_AGENT_RE = /^(?:[A-Za-z0-9_-]+-)?flow-([A-Za-z0-9_]+)$/
@@ -25,9 +27,6 @@ export function flowRole(agent) {
 
 const ASK_USER = "Ask the user to run it, or use a non-destructive alternative."
 const NON_INTERACTIVE = "Interactive git commands hang the session; use the non-interactive form."
-// The v1 role check says "managed by the pipeline" for workspace-management denials (branch, stash,
-// switch, ...). Flow allows those: its permissions ask the user instead.
-const V1_MANAGEMENT_HINT = "managed by the pipeline"
 const DANGEROUS_GIT_CONFIG = /^(?:alias\.|core\.(?:hookspath|sshcommand|editor|pager|fsmonitor|gitproxy)|credential\.|url\.|http\.|protocol\.|include\.|includeif\.|filter\.|diff\.[^.]+\.textconv|merge\.[^.]+\.driver)/i
 
 function gitSubcommand(args) {
@@ -52,8 +51,9 @@ const shortFlag = (rest, letter) => rest.some((r) => /^-[A-Za-z]+$/.test(r) && r
 
 /** Git policy for flow agents. Returns null when allowed, else a reason. */
 export function flowGitPolicy(args, ctx) {
+  // Workspace-management denials (branch, stash, switch, ...) are relaxed: flow permissions ask the user instead.
   const v1 = checkGitCommand(args, "executor", ctx)
-  if (v1 && !v1.includes(V1_MANAGEMENT_HINT)) return v1
+  if (v1 && !v1.includes(WORKSPACE_MANAGED_HINT)) return v1
   const { sub, rest } = gitSubcommand(args)
   const destructive = (what) => `git ${what} is destructive and blocked for flow agents. ${ASK_USER}`
   // Kept from the v1 check even though v1 words them as management denials: they run arbitrary
@@ -138,6 +138,36 @@ export function isSecretEnvFile(filePath) {
   if (typeof filePath !== "string" || !filePath) return false
   const base = path.basename(filePath)
   return ENV_FILE_RE.test(base) && !ENV_TEMPLATE_RE.test(base)
+}
+
+// ---------------------------------------------------------------- read before edit
+
+/** Files an edit-style call changes in place: they must have been read first. New files and deletes are exempt. */
+export function inPlaceTargets(tool, args) {
+  if (tool === "apply_patch" || tool === "patch") {
+    const text = typeof args?.patchText === "string" ? args.patchText : typeof args?.patch === "string" ? args.patch : ""
+    return [...text.matchAll(/^\*\*\* Update File:\s*(.+)$/gm)].map((m) => m[1].trim())
+  }
+  return editTargets(tool, args)
+}
+
+/** Identity of a file's current content (mtime and size), or null when it is not an existing file. */
+export function fileStamp(file) {
+  try {
+    const st = fs.statSync(file)
+    return st.isFile() ? `${st.mtimeMs}:${st.size}` : null
+  } catch {
+    return null
+  }
+}
+
+/** Why an edit of `file` must wait for a (fresh) read, or null. `seen` is the stamp recorded at the last read. */
+export function staleEditReason(file, seen, now = fileStamp(file)) {
+  if (now === null) return null
+  const name = path.basename(file)
+  if (seen === undefined) return `${name} has not been read in this session. Read it first, then retry the edit.`
+  if (seen !== now) return `${name} changed since you last read it (a formatter, a script or the user). Read it again, then retry the edit.`
+  return null
 }
 
 // ---------------------------------------------------------------- post-edit scan

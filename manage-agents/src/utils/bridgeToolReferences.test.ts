@@ -22,13 +22,13 @@ const ORCHESTRATOR_BODY = [
 ].join("\n")
 
 test("custom tool keys are recognized generically, MCP keys are not", () => {
-  for (const key of ["pipeline_state", "pipeline_env", "pipeline_new_tool"]) assert.equal(isOpenCodeCustomToolKey(key), true, key)
+  for (const key of ["pipeline_state", "dev_env", "pipeline_new_tool"]) assert.equal(isOpenCodeCustomToolKey(key), true, key)
   for (const key of ["cwe-search_*", "codebase-memory-mcp_*", "todowrite", "external_directory"]) assert.equal(isOpenCodeCustomToolKey(key), false, key)
 })
 
 test("Claude rewrite maps OpenCode tool names and inserts one note after the H1", () => {
-  const result = adaptToolReferences(ORCHESTRATOR_BODY, "claude", { permission: { pipeline_state: "allow", pipeline_verify: "allow", pipeline_commit: "deny" } })
-  assert.deepEqual(result.unavailable, ["pipeline_state", "pipeline_verify"])
+  const result = adaptToolReferences(ORCHESTRATOR_BODY, "claude", { permission: { pipeline_state: "allow", dev_verify: "allow", pipeline_commit: "deny" } })
+  assert.deepEqual(result.unavailable, ["dev_verify", "pipeline_state"])
   assert.match(result.body, /^# Orchestrator\n\n> \*\*Runtime note \(OpenCode bridge\)\.\*\* This prompt was written for OpenCode and runs here in Claude Code\./)
   assert.match(result.body, /## Progress tracking \(TodoWrite\)/)
   assert.match(result.body, /Use `TodoWrite` in the same turn as the Agent call\(s\)\. Launch multiple Agent tool calls\./)
@@ -63,16 +63,16 @@ test("bash allowlists are collected per decision and documented as not enforced"
 test("Claude bridge output carries the runtime note, translated names, and allowlist README section", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "claude-bridge-tools-"))
   const output = path.join(workspace, "export", "bridges", "claude-code", "decent-pipeline")
-  const orchestrator = agent("pipeline-orchestrator.md", { mode: "primary", permission: { pipeline_state: "allow", pipeline_env: "allow", todowrite: "allow", question: "allow" } }, ORCHESTRATOR_BODY)
+  const orchestrator = agent("pipeline-orchestrator.md", { mode: "primary", permission: { pipeline_state: "allow", dev_env: "allow", todowrite: "allow", question: "allow" } }, ORCHESTRATOR_BODY)
   const executor = agent("pipeline-executor.md", { mode: "subagent", permission: { edit: "allow", bash: { "*": "deny", "git status*": "allow" } } }, "Implement the plan.")
   const result = bridgeToClaudeCode([orchestrator, executor], "decent-pipeline", "pipeline-", output, workspace, DEFAULT_TRANSLATION_CONFIG, { category: "pipeline" })
   const generated = fs.readFileSync(path.join(output, "agents", "orchestrator.md"), "utf8")
   assert.match(generated, /tools: .*TodoWrite/)
   assert.doesNotMatch(generated, /mcp__pipeline__/)
-  assert.match(generated, /not available\*\* in this environment: `pipeline_env`, `pipeline_state`\./)
+  assert.match(generated, /not available\*\* in this environment: `dev_env`, `pipeline_state`\./)
   assert.match(generated, /Use `TodoWrite`/)
   assert.equal(fs.readFileSync(path.join(output, "agents", "executor.md"), "utf8").includes(RUNTIME_NOTE_MARKER), false)
   const readme = fs.readFileSync(path.join(output, "README.md"), "utf8")
   assert.match(readme, /<summary>executor \(1 rule\)<\/summary>/)
-  assert.ok(result.warnings.some(warning => /permission 'pipeline_env' is not representable/.test(warning)))
+  assert.ok(result.warnings.some(warning => /permission 'dev_env' is not representable/.test(warning)))
 })

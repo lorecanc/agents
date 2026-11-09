@@ -13,7 +13,9 @@
       "skills": [
         "skills/docs-design",
         "skills/docs-html",
-        "skills/docx"
+        "skills/docx",
+        "skills/italiano-decente",
+        "skills/seo-copywriting"
       ],
       "tools": [
         "tools/doc_compile_theme.ts",
@@ -29,8 +31,10 @@
     "flow": {
       "plugins": [
         "plugins/agent-router",
+        "plugins/flow-context",
         "plugins/flow-guard",
-        "plugins/pipeline-tools"
+        "plugins/dev-tools",
+        "plugins/flow-mode"
       ],
       "commands": [
         "commands/flow-bug.md",
@@ -56,15 +60,15 @@
         "skills/flow-simplify",
         "skills/flow-swift",
         "skills/flow-testing",
-        "skills/flow-visual-loop"
+        "skills/flow-visual-loop",
+        "skills/italiano-decente",
+        "skills/seo-copywriting"
       ],
       "tools": [
-        "tools/pipeline_commit.ts",
-        "tools/pipeline_env.ts",
-        "tools/pipeline_serve.ts",
-        "tools/pipeline_smoke.ts",
-        "tools/pipeline_state.ts",
-        "tools/pipeline_verify.ts"
+        "tools/dev_env.ts",
+        "tools/dev_serve.ts",
+        "tools/dev_smoke.ts",
+        "tools/dev_verify.ts"
       ]
     },
     "ontology": {
@@ -141,6 +145,7 @@
     },
     "pipeline": {
       "plugins": [
+        "plugins/dev-tools",
         "plugins/doc-tools",
         "plugins/pipeline-guard",
         "plugins/pipeline-tools",
@@ -155,15 +160,17 @@
         "commands/pipeline-research.md"
       ],
       "skills": [
-        "skills/code-review-antipatterns"
+        "skills/code-review-antipatterns",
+        "skills/italiano-decente",
+        "skills/seo-copywriting"
       ],
       "tools": [
+        "tools/dev_env.ts",
+        "tools/dev_serve.ts",
+        "tools/dev_smoke.ts",
+        "tools/dev_verify.ts",
         "tools/pipeline_commit.ts",
-        "tools/pipeline_env.ts",
-        "tools/pipeline_serve.ts",
-        "tools/pipeline_smoke.ts",
-        "tools/pipeline_state.ts",
-        "tools/pipeline_verify.ts"
+        "tools/pipeline_state.ts"
       ]
     },
     "slides": {
@@ -176,7 +183,9 @@
         "commands/polish-slides.md"
       ],
       "skills": [
+        "skills/italiano-decente",
         "skills/pptx",
+        "skills/seo-copywriting",
         "skills/slides-composition",
         "skills/slides-design",
         "skills/slides-html",
@@ -202,6 +211,8 @@
         "commands/wiki.md"
       ],
       "skills": [
+        "skills/italiano-decente",
+        "skills/seo-copywriting",
         "skills/wiki-conventions",
         "skills/wiki-navigate",
         "skills/wiki-templates"

@@ -15,18 +15,21 @@ files, and V2 does not discover `tools/*.ts`: every tool is registered by a plug
 | Path | Purpose |
 |------|---------|
 | `plugins/pipeline-guard/index.ts` | Hooks: scratch env, write/git guards, session registry, activity log, git-state check, compaction context |
-| `plugins/pipeline-tools/index.ts` | Registers the six `pipeline_*` tools |
+| `plugins/dev-tools/index.ts` | Registers the four `dev_*` tools, shared by the pipeline and flow families |
+| `plugins/pipeline-tools/index.ts` | Registers the two pipeline-only tools, `pipeline_state` and `pipeline_commit` |
 | `plugins/doc-tools/index.ts` | Registers the seven `doc_*` tools |
 | `plugins/slide-tools/index.ts` | Registers the nine `slide_*` tools |
 | `tools/_tool.ts` | Adapter from the legacy tool definition shape to a V2 definition (`toV2Tool`) and JSON Schema builder |
 | `tools/pipeline_state.ts` | Read-only: baseline, changed files (session / pre-existing / unattributed), anomalies, recorded `activity` |
-| `tools/pipeline_env.ts` | Read-only Phase 0 probe: Docker, binaries, contract, workspaces, guard/tools, MCP, env var presence, verification outlook |
+| `tools/dev_env.ts` | Read-only Phase 0 probe: Docker, binaries, contract, workspaces, guard/tools, MCP, env var presence, verification outlook |
 | `tools/pipeline_commit.ts` | Commit only the session's files; never push, amend, branch or stash |
-| `tools/pipeline_verify.ts` | lint / typecheck / tests / build with timeouts and a failure-class hint |
-| `tools/pipeline_smoke.ts` | Start service, check, always stop it and free the port |
-| `tools/pipeline_serve.ts` | Keep the service running for a browser (`start` / `status` / `stop`), always bounded |
+| `tools/dev_verify.ts` | lint / typecheck / tests / build with timeouts and a failure-class hint |
+| `tools/dev_smoke.ts` | Start service, check, always stop it and free the port |
+| `tools/dev_serve.ts` | Keep the service running for a browser (`start` / `status` / `stop`), always bounded |
 | `tools/doc_*.ts`, `tools/slide_*.ts` | Document and presentation tools |
-| `tools/_pipeline_*.js` | Shared logic: git, session registry, activity log, guards, commit planning, runners, service lifecycle, env probe |
+| `tools/_repo.js`, `tools/_sessions.js`, `tools/_bash_guard.js` | Shared logic: paths, git, repo info, scratch, snapshots and locks; session registry; bash parser and write/git checks (also used by flow-guard) |
+| `tools/_run.js`, `tools/_services.js`, `tools/_serve.js`, `tools/_env.js` | Shared logic of the `dev_*` tools: runners, dependent services, service lifecycle, env probe |
+| `tools/_pipeline_core.js` | Pipeline-only logic: agent/role matching, activity log, stale-session cleanup, file claims, commit planning |
 | `bin/opencode-wt.mjs` | Opt-in isolated worktree: `start`, `finish`, `abort`, `list`, `gc` |
 | `tools/_*.test.mjs` | Tests, run by `manage-agents` (`npm test`) |
 
@@ -64,7 +67,8 @@ Effective tool names are `namespace_name`, derived from the stem without the dom
 
 | Registry | Namespace | Effective names |
 |----------|-----------|-----------------|
-| `pipeline-tools` | `pipeline` | `pipeline_state`, `pipeline_env`, `pipeline_commit`, `pipeline_verify`, `pipeline_smoke`, `pipeline_serve` |
+| `dev-tools` | `dev` | `dev_env`, `dev_verify`, `dev_smoke`, `dev_serve` |
+| `pipeline-tools` | `pipeline` | `pipeline_state`, `pipeline_commit` |
 | `doc-tools` | `doc` | `doc_compile_theme`, `doc_convert`, `doc_create`, `doc_list`, `doc_modify`, `doc_restore`, `doc_view` |
 | `slide-tools` | `slide` | `slide_analyze_template`, `slide_assemble_pptx`, `slide_build_pptx`, `slide_compile_composition`, `slide_compile_theme`, `slide_create_thumbnails`, `slide_download_image`, `slide_generate_image`, `slide_screenshot` |
 
@@ -78,14 +82,14 @@ carries `options.permission` set to its full effective name, alongside `namespac
 Sources live in `src/plugins` and `src/tools` (never edit the generated `export/`).
 `manage-agents export` installs the plugin directories and the helper modules their registries
 import, together with the pipeline agents, and `category check` fails when an agent permits a
-`pipeline_*` tool that is not shipped.
+`dev_*` or `pipeline_*` tool that is not shipped.
 
 To install by hand, mirror the layout into the OpenCode config directory; `plugins/` and `tools/`
 must stay siblings because every registry imports `../../tools/*.js`:
 
 ```bash
-cp -R src/plugins/pipeline-guard src/plugins/pipeline-tools src/plugins/doc-tools src/plugins/slide-tools ~/.config/opencode/plugins/
-cp src/tools/_tool.ts src/tools/_pipeline_*.js src/tools/pipeline_*.ts src/tools/doc_*.ts src/tools/slide_*.ts ~/.config/opencode/tools/
+cp -R src/plugins/dev-tools src/plugins/pipeline-guard src/plugins/pipeline-tools src/plugins/doc-tools src/plugins/slide-tools ~/.config/opencode/plugins/
+cp src/tools/_*.js src/tools/_tool.ts src/tools/dev_*.ts src/tools/pipeline_*.ts src/tools/doc_*.ts src/tools/slide_*.ts ~/.config/opencode/tools/
 rm -f ~/.config/opencode/tools/_*.test.mjs   # tests are not needed at runtime
 # optional launcher
 ln -s "$PWD/src/bin/opencode-wt.mjs" ~/.local/bin/opencode-wt
@@ -102,7 +106,7 @@ Emergency switch for the guard: `OPENCODE_PIPELINE_GUARD=off`.
 on sessions whose agent matches `flow-*` and keeps nothing on disk: no session registry, git snapshots,
 activity log, doom-loop rule or cross-session locks. Allow/ask decisions belong to the agent permissions;
 the guard only stops what must never run. The logic lives in `tools/_flow_guard.js` and reuses the bash
-parser and path checks of `_pipeline_core.js` (`checkBash` with a `gitPolicy` override).
+parser and path checks of `_bash_guard.js` (`checkBash` with a `gitPolicy` override), shared with pipeline-guard.
 
 - Blocks writes outside the repository or into `.git`, `sudo`, dangerous env overrides, reading real
   `.env` files (templates are fine), and any repository write from the read-only agents (all but
@@ -117,16 +121,50 @@ parser and path checks of `_pipeline_core.js` (`checkBash` with a `gitPolicy` ov
 - After an edit it scans the added text (hardcoded secrets, injection sinks, SQL built by interpolation,
   TLS verification off, debug leftovers, new TODOs) and appends one short `[flow-guard] Check …` note to
   the tool result. The scan is advisory and fail-open.
-- Stops the service a session started with `pipeline_serve` when that session goes idle.
+- Stops the service a session started with `dev_serve` when that session goes idle.
+- Read before edit, as in Claude Code: an `edit`, a `write` over an existing file or a patch `Update
+  File` needs a `read` of that file in the same session, and the file must not have changed since (a
+  formatter, a script or the user). The session's own edits keep the file fresh. New files and deletes
+  are exempt. The record lives in memory only.
 
 Emergency switch: `OPENCODE_FLOW_GUARD=off`.
+
+## flow-context (session context, Claude Code style)
+
+`plugins/flow-context/index.ts` adds per-request system text to `flow-*` sessions through the `context`
+session hook. Nothing is persisted: the text is rebuilt for every model call. The logic lives in
+`tools/_flow_context.js`.
+
+- `flow-build` and `flow-plan` get the git snapshot taken at the session's first model call: current
+  branch, main branch, `git status --short` (truncated at 2000 characters) and the last 5 commits,
+  labelled as a snapshot that does not update.
+- `flow-build` gets a todo reminder when its latest `todowrite` list has open items and 10 tool calls
+  passed without an update. The reminder then waits for another 10 calls.
+
+Switch: `OPENCODE_FLOW_CONTEXT=off`.
+
+## flow-mode (plan mode, Claude Code style)
+
+`plugins/flow-mode/index.ts` makes `flow-plan` a mode of the same conversation, like Claude Code's
+EnterPlanMode / ExitPlanMode. The rules and texts live in `tools/_flow_mode.js`.
+
+- `flow_plan_enter` (only `flow-build`): asks the user, then switches the session to `flow-plan`.
+- `flow_plan_exit` (only `flow-plan`): checks that the plan is a non-empty `.opencode/plans/*.md`, asks
+  the user to approve it (the prompt shows the plan path), then switches back to `flow-build`, which
+  implements it. A rejection keeps plan mode; a rejection with a message returns it to the planner.
+- OpenCode does not run a permission check for plugin tools (a `deny` rule only hides them), so each
+  tool calls `ctx.permission.assert` itself, without `save`: "always" cannot disable the approval.
+  The agents declare `flow_plan_enter` / `flow_plan_exit` as `ask`.
+- `ctx.session.switchAgent` takes effect on the next model step of the same turn (OpenCode re-reads the
+  session agent before every step); the model stays the session's.
+- Users can still switch by hand: Shift+Tab cycles the visible primaries, `/flow-plan` starts planning.
 
 ## agent-router (runtime model routing)
 
 `plugins/agent-router/index.ts` applies the model configurations of an archetype (see `ARCHETIPI.md`):
 the model of each subagent follows the provider or model the calling agent runs on, so one set of
 canonical agents serves every provider. It acts only when a canonical archetype agent listed in
-`routing.json` (today `flow-build` and the `/flow-plan` plan mode) calls the `subagent` tool; other agents (stamped
+`routing.json` (today `flow-build` and `flow-plan`, each judged on the model it runs on) calls the `subagent` tool; other agents (stamped
 `*-pipeline-*` bundles, ...) are untouched. The decision logic lives in `tools/_agent_router.js`.
 
 - `model.request` records the agent and model of each session (title/summary/compaction are ignored).
@@ -174,7 +212,7 @@ Switches: `OPENCODE_AGENT_ROUTER=off` disables it; `OPENCODE_AGENT_ROUTING=<path
   resolved it does not guess and does not block.
 - On idle, compares git state with the session baseline and warns about new branches, worktrees,
   stashes or a changed branch.
-- On idle of the root session, stops the service that session started with `pipeline_serve`.
+- On idle of the root session, stops the service that session started with `dev_serve`.
 - On compaction, keeps baseline, edited files and verification state in the summary.
 
 The guard also rejects the third consecutive identical tool call in the same session: V2 dropped the
@@ -212,7 +250,7 @@ their stale session records (`removeStaleSessions`), orphan logs once older than
 blocks, sessions), `subagents` (tool and LLM calls per child session), `errors`, the last 30
 `denied` commands (agent, command, reason, source) and `guard_blocks`, and `permissions` counts.
 
-## Environment probe: `pipeline_env`
+## Environment probe: `dev_env`
 
 Read-only, called once by the orchestrator at session start (Phase 0) so the planner writes a
 verification plan the machine can actually run. Optional `workspace` argument (repo-relative
@@ -229,7 +267,9 @@ sub-project). It reports:
 - `workspaces_detected`: directories up to depth 2 with `package.json`, `pyproject.toml`, `go.mod`,
   `Cargo.toml`, `pom.xml` or `build.gradle(.kts)` (vendored and build dirs skipped).
 - `pipeline`: whether the guard registered this session (root record, baseline), which
-  `pipeline_*` tools are registered next to it, whether the plugin directory is present.
+  `dev_*` / `pipeline_*` tool modules sit in the tools directory (the `pipeline_*` ones count as
+  missing only for a registered pipeline session), whether the `pipeline-guard` plugin directory
+  is present.
 - `mcp`: MCP server names / type / enabled flag from the opencode config files (never commands,
   URLs or headers).
 - `env_vars`: for each name in `.env.example` / `.env.sample`, whether it is set. Values are never
@@ -242,9 +282,9 @@ It never modifies anything and never throws: a failing probe becomes
 
 ## Project contract: `.opencode/pipeline.json`
 
-Optional, committed in the target repository. Without it, `pipeline_verify` autodetects commands
+Optional, committed in the target repository. Without it, `dev_verify` autodetects commands
 (npm/pnpm/yarn/bun scripts, `tsc`, go, cargo, pytest). If it contains no `smoke`/`serve` section,
-`pipeline_smoke` and `pipeline_serve` automatically fall back to autodetected `package.json`
+`dev_smoke` and `dev_serve` automatically fall back to autodetected `package.json`
 `dev`/`start` scripts when available.
 
 ```json
@@ -282,31 +322,31 @@ Optional, committed in the target repository. Without it, `pipeline_verify` auto
 - `${PORT}` is a free port chosen per run (or set `smoke.port` for a fixed one; if it is taken the
   run is `blocked`, the foreign process is never killed). `ready` can use `url`, `port` or `log`
   (regex).
-- `serve` (optional) is used by `pipeline_serve`, with the same fields as `smoke` plus `url` (the
+- `serve` (optional) is used by `dev_serve`, with the same fields as `smoke` plus `url` (the
   address handed to the browser, default `http://127.0.0.1:${PORT}/`). Without it,
-  `pipeline_serve` uses the `smoke` section.
+  `dev_serve` uses the `smoke` section.
 - Smoke checks only reach `localhost`. `env_file` must be inside the repo and its values are never
   echoed.
 - Runs are serialized per repository (`verify` and `smoke` locks), so concurrent sessions do not
   fight over ports or half-written files.
-- `verify.test_filter` runs tests by name (`pipeline_verify` `filter` argument); it must contain
+- `verify.test_filter` runs tests by name (`dev_verify` `filter` argument); it must contain
   `{filter}` and may contain `{files}`. `{packages}` expands to the Go packages (`./dir`) of the
   given files. Without a contract, `test_targeted` and `test_filter` are autodetected for pytest,
   vitest, jest, go (and cargo for `test_filter`).
-- `services` declares dependencies started for a run and always stopped after it: `pipeline_verify`
+- `services` declares dependencies started for a run and always stopped after it: `dev_verify`
   `with_services: ["db"]`, or `smoke.services: ["db"]`. `{ "kind": "postgres", "version": "16" }`
   is a throwaway cluster (native `initdb`/`postgres` when installed, otherwise Docker if the daemon
   is reachable, otherwise `blocked` / `env`) exporting `DATABASE_URL` (or `env_var`) and
   `PGHOST`/`PGPORT`/`PGUSER`/`PGDATABASE`. A custom service is `{ "start", "ready", "env", "stop"? }`
   with `${PORT}`.
-- `workspaces.<dir>` holds `verify`, `services` and `timeouts` for a sub-project; `pipeline_verify`
+- `workspaces.<dir>` holds `verify`, `services` and `timeouts` for a sub-project; `dev_verify`
   `workspace` runs the checks there (autodetected inside that directory when the entry is missing).
 - The `/pipeline-init` command drafts this file from repository evidence and validates it.
 
-## Serving for the browser: `pipeline_serve`
+## Serving for the browser: `dev_serve`
 
-`pipeline_smoke` starts a service, checks it and always stops it, so nothing is left running for a
-browser. `pipeline_serve` is for the visual validation done by `chrome_devtools`: `start` returns a
+`dev_smoke` starts a service, checks it and always stops it, so nothing is left running for a
+browser. `dev_serve` is for the visual validation done by `chrome_devtools`: `start` returns a
 localhost URL on a free port, `stop` ends it. A start never leaves anything behind: the first of
 these ends the service.
 
@@ -345,7 +385,7 @@ Dependencies are not shared: use `setup` (and `worktree.copy` for untracked file
   example a test runner writing outside the repo); the agents' `external_directory: deny` covers
   the file tools, not child processes.
 - Session ownership relies on the SDK exposing `parentID`; verify it after upgrading opencode.
-- If the `pipeline_serve` supervisor itself is killed with SIGKILL, its service keeps running
+- If the `dev_serve` supervisor itself is killed with SIGKILL, its service keeps running
   until `stop`, the idle of the owning session, or a manual kill: nothing else is watching it.
 - V2 loads the `default` export of a plugin directory; keep helpers out of the plugin's named
   exports.

@@ -42,7 +42,7 @@ permissions:
   - action: pipeline_state
     resource: "*"
     effect: allow
-  - action: pipeline_verify
+  - action: dev_verify
     resource: "*"
     effect: allow
   - action: skill

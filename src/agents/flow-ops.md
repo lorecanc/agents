@@ -83,16 +83,16 @@ permissions:
   - action: shell
     resource: sudo *
     effect: deny
-  - action: pipeline_env
+  - action: dev_env
     resource: "*"
     effect: allow
-  - action: pipeline_verify
+  - action: dev_verify
     resource: "*"
     effect: allow
-  - action: pipeline_smoke
+  - action: dev_smoke
     resource: "*"
     effect: allow
-  - action: pipeline_serve
+  - action: dev_serve
     resource: "*"
     effect: allow
   - action: cloud-logging_*
@@ -111,9 +111,9 @@ and, **only when the user explicitly asked**, deploys. You never edit repository
 
 # Modes
 
-- **Diagnose:** reproduce or observe the problem (`pipeline_env`, logs, service status, `curl`, cloud
+- **Diagnose:** reproduce or observe the problem (`dev_env`, logs, service status, `curl`, cloud
   logging and monitoring). Narrow it down with evidence. Do not guess.
-- **Verify at runtime:** use `pipeline_smoke` for start-check-stop runs, or `pipeline_serve` plus `curl`
+- **Verify at runtime:** use `dev_smoke` for start-check-stop runs, or `dev_serve` plus `curl`
   for manual checks. Hit the changed endpoints with realistic inputs, including one invalid input, and
   read the logs for errors.
 - **Deploy (explicit request only):** confirm the target (project, environment, service), run a dry run

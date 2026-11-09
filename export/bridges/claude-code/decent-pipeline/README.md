@@ -68,16 +68,17 @@ After setup, launch Claude Code and use `/mcp` to verify that every required ser
 
 These OpenCode companions are linked by the category but are not transpiled by the bridge:
 
+- Plugin: `plugins/dev-tools`
 - Plugin: `plugins/doc-tools`
 - Plugin: `plugins/pipeline-guard`
 - Plugin: `plugins/pipeline-tools`
 - Plugin: `plugins/slide-tools`
+- Tool: `tools/dev_env.ts`
+- Tool: `tools/dev_serve.ts`
+- Tool: `tools/dev_smoke.ts`
+- Tool: `tools/dev_verify.ts`
 - Tool: `tools/pipeline_commit.ts`
-- Tool: `tools/pipeline_env.ts`
-- Tool: `tools/pipeline_serve.ts`
-- Tool: `tools/pipeline_smoke.ts`
 - Tool: `tools/pipeline_state.ts`
-- Tool: `tools/pipeline_verify.ts`
 
 | OpenCode plugin hook | Claude Code equivalent |
 |---|---|
@@ -182,6 +183,8 @@ Invoke a generated skill with its plugin-scoped name:
 - `/decent-pipeline:pipeline-refactor`
 - `/decent-pipeline:pipeline-research`
 - `/decent-pipeline:code-review-antipatterns`
+- `/decent-pipeline:italiano-decente`
+- `/decent-pipeline:seo-copywriting`
 
 ## Marketplace and registration
 
@@ -210,7 +213,7 @@ claude --plugin-dir './export/bridges/claude-code/decent-pipeline' --agent decen
 
 ## Agents
 
-- **chrome-devtools**: Frontend debugging and visual validation agent. Uses Chrome DevTools for performance audits, a11y testing, layout verification, and console error detection. Called in the frontend lane before and after code changes. Can start the project's service itself with pipeline_serve.
+- **chrome-devtools**: Frontend debugging and visual validation agent. Uses Chrome DevTools for performance audits, a11y testing, layout verification, and console error detection. Called in the frontend lane before and after code changes. Can start the project's service itself with dev_serve.
 - **code-reviewer**: Reviews code changes for correctness, simplicity, maintainability, regressions, and security. Does not implement by default.
 - **critic**: Final validation agent for complex work. Checks whether the result satisfies the original request without overengineering.
 - **docs-grounding**: Fetches and summarizes external library documentation to ground the planner and executor in real APIs. Does not edit files.

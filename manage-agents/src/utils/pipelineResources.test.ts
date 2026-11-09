@@ -21,20 +21,20 @@ function agentFile(permission: Record<string, string>) {
 function workspace(): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pipeline-resources-"))
   write(path.join(root, "src", "agents", "pipeline-orchestrator.md"), agentFile({ pipeline_state: "allow" }))
-  write(path.join(root, "src", "agents", "pipeline-executor.md"), agentFile({ pipeline_verify: "allow" }))
+  write(path.join(root, "src", "agents", "pipeline-executor.md"), agentFile({ dev_verify: "allow" }))
   write(path.join(root, "src", "tools", "pipeline_state.ts"), `import { a } from "./_pipeline_core.js"\nexport default a\n`)
-  write(path.join(root, "src", "tools", "pipeline_verify.ts"), `import { b } from "./_pipeline_run.js"\nexport default b\n`)
-  write(path.join(root, "src", "tools", "pipeline_env.ts"), `import { c } from "./_pipeline_env.js"\nexport default c\n`)
+  write(path.join(root, "src", "tools", "dev_verify.ts"), `import { b } from "./_run.js"\nexport default b\n`)
+  write(path.join(root, "src", "tools", "dev_env.ts"), `import { c } from "./_env.js"\nexport default c\n`)
   write(path.join(root, "src", "tools", "_pipeline_core.js"), `export const a = 1\n`)
-  write(path.join(root, "src", "tools", "_pipeline_run.js"), `import { a } from "./_pipeline_core.js"\nimport { safe } from "./_safeName.js"\nexport const b = a + safe\n`)
-  write(path.join(root, "src", "tools", "_pipeline_env.js"), `import { a } from "./_pipeline_services.js"\nexport const c = a\n`)
-  write(path.join(root, "src", "tools", "_pipeline_services.js"), `export const a = 2\n`)
+  write(path.join(root, "src", "tools", "_run.js"), `import { a } from "./_pipeline_core.js"\nimport { safe } from "./_safeName.js"\nexport const b = a + safe\n`)
+  write(path.join(root, "src", "tools", "_env.js"), `import { a } from "./_services.js"\nexport const c = a\n`)
+  write(path.join(root, "src", "tools", "_services.js"), `export const a = 2\n`)
   write(path.join(root, "src", "tools", "_safeName.js"), `export const safe = 3\n`)
   write(path.join(root, "src", "tools", "_pipeline_core.test.mjs"), `// test\n`)
-  write(path.join(root, "src", "tools", "_pipeline_testutil.mjs"), `// util\n`)
+  write(path.join(root, "src", "tools", "_testutil.mjs"), `// util\n`)
   write(path.join(root, "src", "tools", "doc_view.ts"), `export default 1\n`)
   write(path.join(root, "src", "plugins", "pipeline-guard", "index.ts"), `import { a } from "../../tools/_pipeline_core.js"\nexport default a\n`)
-  write(path.join(root, "src", "plugins", "pipeline-tools", "index.ts"), `import { c } from "../../tools/pipeline_env.js"\nexport default c\n`)
+  write(path.join(root, "src", "plugins", "pipeline-tools", "index.ts"), `import { c } from "../../tools/dev_env.js"\nexport default c\n`)
   write(path.join(root, "src", "plugins", "doc-tools", "index.ts"), `export default 1\n`)
   write(path.join(root, "src", "plugins", "slide-tools", "index.ts"), `export default 1\n`)
   return root
@@ -45,14 +45,14 @@ const PIPELINE_PAYLOAD = [
   "plugins/pipeline-guard/index.ts",
   "plugins/pipeline-tools/index.ts",
   "plugins/slide-tools/index.ts",
+  "tools/_env.js",
   "tools/_pipeline_core.js",
-  "tools/_pipeline_env.js",
-  "tools/_pipeline_run.js",
-  "tools/_pipeline_services.js",
+  "tools/_run.js",
   "tools/_safeName.js",
-  "tools/pipeline_env.ts",
-  "tools/pipeline_state.ts",
-  "tools/pipeline_verify.ts"
+  "tools/_services.js",
+  "tools/dev_env.ts",
+  "tools/dev_verify.ts",
+  "tools/pipeline_state.ts"
 ]
 
 test("pipeline companions include V2 plugin directory files, tools and traced helpers, never tests", () => {
@@ -168,13 +168,13 @@ test("exportAgents and checkPipelineResources accept index.js V2 plugin director
 
 test("checkPipelineResources reports permitted tools and helper imports that are not shipped", () => {
   const root = workspace()
-  write(path.join(root, "src", "agents", "pipeline-ops.md"), agentFile({ pipeline_smoke: "allow", pipeline_serve: "deny" }))
-  fs.rmSync(path.join(root, "src", "tools", "_pipeline_services.js"))
+  write(path.join(root, "src", "agents", "pipeline-ops.md"), agentFile({ dev_smoke: "allow", dev_serve: "deny" }))
+  fs.rmSync(path.join(root, "src", "tools", "_services.js"))
   const agents = findAgentFiles(root, "src").filter(agent => agent.category === "pipeline")
   const problems = checkPipelineResources(path.join(root, "src"), agents)
   assert.deepEqual(problems.map(problem => `${problem.kind} ${problem.path}`).sort(), [
-    "missing-dependency tools/_pipeline_services.js",
-    "missing-tool tools/pipeline_smoke.ts"
+    "missing-dependency tools/_services.js",
+    "missing-tool tools/dev_smoke.ts"
   ])
 })
 
@@ -247,7 +247,7 @@ test("stamped pipelines are refreshed with new plugin directories and checked ag
   const before = checkPipelineBundles(root)
   const go = before.find(check => check.category === "go-pipeline")!
   assert.ok(go.problems.some(problem => problem.kind === "stale-companion" && problem.path === "tools/pipeline_state.ts"))
-  assert.ok(go.problems.some(problem => problem.kind === "missing-companion" && problem.path === "tools/pipeline_env.ts"))
+  assert.ok(go.problems.some(problem => problem.kind === "missing-companion" && problem.path === "tools/dev_env.ts"))
   assert.ok(go.problems.some(problem => problem.kind === "missing-companion" && problem.path === "plugins/pipeline-guard/index.ts"))
   assert.deepEqual(before.find(check => check.category === "kimi-pipeline"), { category: "kimi-pipeline", resourceRoot: path.join(root, "export", "categories", "kimi-pipeline"), orphan: true, problems: [] })
   assert.deepEqual(before.find(check => check.category === "pipeline")?.problems, [])
@@ -257,7 +257,7 @@ test("stamped pipelines are refreshed with new plugin directories and checked ag
   assert.equal(after.length, 1)
   assert.deepEqual(after[0].problems, [])
   for (const file of PIPELINE_PAYLOAD) assert.ok(fs.existsSync(path.join(stamped, ...file.split("/"))), file)
-  assert.equal(fs.existsSync(path.join(stamped, "tools", "_pipeline_testutil.mjs")), false)
+  assert.equal(fs.existsSync(path.join(stamped, "tools", "_testutil.mjs")), false)
   assert.equal(fs.existsSync(path.join(stamped, "tools", "_pipeline_core.test.mjs")), false)
 })
 

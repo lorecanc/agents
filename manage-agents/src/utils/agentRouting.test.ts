@@ -7,6 +7,7 @@ import { saveAgentFile } from "./agents.js"
 import {
   agentRoutingOutputPath,
   buildAgentRouting,
+  callersLabel,
   checkAgentRouting,
   describeAgentRouting,
   describeArchetype,
@@ -38,6 +39,8 @@ test("the archetype view: reference, related subagents, pinned subagents, config
   const view = describeArchetype(root, "flow")!
   assert.equal(view.reference.name, "flow-build")
   assert.equal(view.reference.model, "mistral/large")
+  assert.deepEqual(view.callers.map(agent => agent.name), ["flow-build", "flow-plan"], "build and plan both pick the configuration")
+  assert.equal(callersLabel(view), "flow-build or flow-plan")
   assert.deepEqual(view.related.map(agent => agent.role), ["explore", "review"], "primaries are callers, not related")
   assert.deepEqual(view.pinned.map(agent => agent.name), ["flow-eye"])
   assert.deepEqual(Object.keys(view.configs), ["mistral"])

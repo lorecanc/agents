@@ -8,7 +8,8 @@
 
 import path from "node:path"
 
-import { checkBash, checkWritePath, editTargets, FILE_WRITE_TOOLS, roleOf } from "../tools/_pipeline_core.js"
+import { checkBash, checkWritePath, editTargets, FILE_WRITE_TOOLS } from "../tools/_bash_guard.js"
+import { roleOf } from "../tools/_pipeline_core.js"
 
 const MESSAGE_PART_KINDS_WITH_CONTENT = new Set(["text", "tool", "reasoning", "subtask", "file"])
 

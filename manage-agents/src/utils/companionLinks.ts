@@ -33,6 +33,7 @@ export const DEFAULT_COMPANION_LINKS: CompanionLinksConfig = {
   categories: {
     pipeline: {
       plugins: [
+        "plugins/dev-tools",
         "plugins/doc-tools",
         "plugins/pipeline-guard",
         "plugins/pipeline-tools",
@@ -48,12 +49,12 @@ export const DEFAULT_COMPANION_LINKS: CompanionLinksConfig = {
       ],
       skills: ["skills/code-review-antipatterns"],
       tools: [
+        "tools/dev_env.ts",
+        "tools/dev_serve.ts",
+        "tools/dev_smoke.ts",
+        "tools/dev_verify.ts",
         "tools/pipeline_commit.ts",
-        "tools/pipeline_env.ts",
-        "tools/pipeline_serve.ts",
-        "tools/pipeline_smoke.ts",
-        "tools/pipeline_state.ts",
-        "tools/pipeline_verify.ts"
+        "tools/pipeline_state.ts"
       ]
     },
     slides: {

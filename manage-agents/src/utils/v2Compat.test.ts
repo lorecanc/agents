@@ -49,14 +49,14 @@ test("translatePermissionsV1ToV2 converts nested object permissions", () => {
 })
 
 test("translatePermissionsV1ToV2 maps file-manipulation and list permissions", () => {
-  const v1 = { apply_patch: "allow", patch: "deny", multiedit: "ask", list: "allow", pipeline_env: "allow" }
+  const v1 = { apply_patch: "allow", patch: "deny", multiedit: "ask", list: "allow", dev_env: "allow" }
   const v2 = translatePermissionsV1ToV2(v1)
   assert.deepEqual(v2, [
     { action: "edit", resource: "*", effect: "allow" },
     { action: "edit", resource: "*", effect: "deny" },
     { action: "edit", resource: "*", effect: "ask" },
     { action: "read", resource: "*", effect: "allow" },
-    { action: "pipeline_env", resource: "*", effect: "allow" },
+    { action: "dev_env", resource: "*", effect: "allow" },
   ])
 })
 
@@ -172,7 +172,7 @@ test("translatePermissionsV2ToV1 passes through only the closed set of V2-only a
     { action: "skill", resource: "*", effect: "allow" as const },
     { action: "mcp-resource", resource: "*", effect: "allow" as const },
     { action: "opencode_session_rename", resource: "*", effect: "allow" as const },
-    { action: "pipeline_env", resource: "*", effect: "allow" as const },
+    { action: "dev_env", resource: "*", effect: "allow" as const },
   ]
   const v1 = translatePermissionsV2ToV1(v2)
   assert.deepEqual(v1, {
@@ -180,7 +180,7 @@ test("translatePermissionsV2ToV1 passes through only the closed set of V2-only a
     skill: "allow",
     "mcp-resource": "allow",
     opencode_session_rename: "allow",
-    pipeline_env: "allow",
+    dev_env: "allow",
   }, "V2-only actions must keep their own key so no permission silently disappears")
 })
 
@@ -216,13 +216,13 @@ test("V1 permission translation drops unknown non-MCP keys but keeps MCP and pip
     constructor: "allow",
     "codebase-memory-mcp_*": "allow",
     "chrome-devtools_click": "deny",
-    pipeline_env: "allow",
+    dev_env: "allow",
   }
 
   assert.deepEqual(translatePermissionsV1ToV2(v1), [
     { action: "codebase-memory-mcp_*", resource: "*", effect: "allow" },
     { action: "chrome-devtools_click", resource: "*", effect: "deny" },
-    { action: "pipeline_env", resource: "*", effect: "allow" },
+    { action: "dev_env", resource: "*", effect: "allow" },
   ])
 })
 
@@ -354,7 +354,7 @@ test("isKnownPermissionKey accepts the built-in V1/V2 tool vocabulary", () => {
     "mcp-resource", "artifact", "file-diff",
     "opencode_session_rename", "opencode_session_move",
     "opencode_worktree_create", "opencode_worktree_list", "opencode_worktree_remove",
-    "pipeline_env",
+    "dev_env",
   ]) {
     assert.equal(isKnownPermissionKey(key), true, `${key} is part of the known vocabulary`)
   }

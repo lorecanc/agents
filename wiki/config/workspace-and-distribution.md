@@ -26,7 +26,7 @@ Workspace behavior is configured across OpenCode's local server definitions, age
 
 ## OpenCode workspace configuration
 
-`src/opencode.json` declares MCP servers, plugin directories, and LSP processes. It sets `experimental.todo` to `true`. MCP entries live under `mcp.servers` with a `type` and a `command` array (remote entries use `url`); local servers carry `codemode: false`, and a server is turned off with `disabled: true` rather than an `enabled` flag. `magic` also maps `API_KEY` to `{env:TWENTYFIRST_API_KEY}`. The file enables Chrome DevTools, codebase-memory, shadcn, Magic, Axiom, and CWE search, and leaves XcodeBuildMCP, Cupertino, BigQuery, and the Cloud MCP endpoints disabled. The `plugins` key lists V2 plugin directories as config-relative paths: `./plugins/pipeline-guard`, `./plugins/pipeline-tools`, `./plugins/doc-tools`, and `./plugins/slide-tools`. Each listed directory exports a default `Plugin.define(...)` object (see `src/plugins/README.md`); the guard is the module `src/plugins/pipeline-guard/index.ts`. LSP entries map server commands to file extensions for Python (`basedpyright`, `ruff`), HTML/Vue, CSS, SQL, and Markdown. The custom tools and plugin hooks are covered in the [OpenCode API reference](../api/opencode-tools-and-plugin.md).
+`src/opencode.json` declares MCP servers, plugin directories, and LSP processes. It sets `experimental.todo` to `true`. MCP entries live under `mcp.servers` with a `type` and a `command` array (remote entries use `url`); local servers carry `codemode: false`, and a server is turned off with `disabled: true` rather than an `enabled` flag. `magic` also maps `API_KEY` to `{env:TWENTYFIRST_API_KEY}`. The file enables Chrome DevTools, codebase-memory, shadcn, Magic, Axiom, and CWE search, and leaves XcodeBuildMCP, Cupertino, BigQuery, and the Cloud MCP endpoints disabled. The `plugins` key lists V2 plugin directories as config-relative paths: `./plugins/dev-tools`, `./plugins/pipeline-guard`, `./plugins/pipeline-tools`, `./plugins/doc-tools`, and `./plugins/slide-tools`. Each listed directory exports a default `Plugin.define(...)` object (see `src/plugins/README.md`); the guard is the module `src/plugins/pipeline-guard/index.ts`. LSP entries map server commands to file extensions for Python (`basedpyright`, `ruff`), HTML/Vue, CSS, SQL, and Markdown. The custom tools and plugin hooks are covered in the [OpenCode API reference](../api/opencode-tools-and-plugin.md).
 
 ## Pipeline model profiles
 
@@ -39,11 +39,13 @@ Workspace behavior is configured across OpenCode's local server definitions, age
 | Category | Plugins | Commands | Skills | Tools |
 |---|---|---|---|---|
 | `docs` | `plugins/doc-tools` | `convert-doc`, `edit-doc`, `new-doc` | `docs-design`, `docs-html`, `docx` | `doc_compile_theme`, `doc_convert`, `doc_create`, `doc_list`, `doc_modify`, `doc_restore`, `doc_view`, `tools/docx` |
-| `pipeline` | `plugins/doc-tools`, `plugins/pipeline-guard`, `plugins/pipeline-tools`, `plugins/slide-tools` | `pipeline-bug`, `pipeline-feature`, `pipeline-init`, `pipeline-ops`, `pipeline-refactor`, `pipeline-research` | `code-review-antipatterns` | `pipeline_commit`, `pipeline_env`, `pipeline_serve`, `pipeline_smoke`, `pipeline_state`, `pipeline_verify` |
+| `flow` | `plugins/agent-router`, `plugins/flow-context`, `plugins/flow-guard`, `plugins/dev-tools`, `plugins/flow-mode` | `flow-bug`, `flow-commit`, `flow-design`, `flow-explain`, `flow-feature`, `flow-plan`, `flow-review`, `flow-simplify` | the five `chrome-devtools*` skills, `code-review-antipatterns`, and the eight `flow-*` skills | `dev_env`, `dev_serve`, `dev_smoke`, `dev_verify` |
+| `ontology` | none | none | the four `ontology-ontogpt-*` skills | `tools/ontology` and the `ontology_*` wrappers |
+| `pipeline` | `plugins/dev-tools`, `plugins/doc-tools`, `plugins/pipeline-guard`, `plugins/pipeline-tools`, `plugins/slide-tools` | `pipeline-bug`, `pipeline-feature`, `pipeline-init`, `pipeline-ops`, `pipeline-refactor`, `pipeline-research` | `code-review-antipatterns` | `dev_env`, `dev_serve`, `dev_smoke`, `dev_verify`, `pipeline_commit`, `pipeline_state` |
 | `slides` | `plugins/slide-tools` | `fix-slide`, `new-slides`, `polish-slides` | `pptx`, `slides-composition`, `slides-design`, `slides-html`, `slides-template-html`, `slides-theming` | `tools/pptx`, `slide_analyze_template`, `slide_assemble_pptx`, `slide_build_pptx`, `slide_compile_composition`, `slide_compile_theme`, `slide_create_thumbnails`, `slide_download_image`, `slide_generate_image`, `slide_screenshot` |
 | `wiki` | none | `wiki` | `wiki-conventions`, `wiki-navigate`, `wiki-templates` | none |
 
-Only the `wiki` entry has empty `plugins` and `tools` lists.
+`wiki` has empty `plugins` and `tools` lists, and `ontology` has no plugins or commands. The shared `dev_*` tools and `plugins/dev-tools` are linked to both `flow` and `pipeline`.
 
 `.agent-manager/translation-config.json` is version `2`, targets `claude`, uses `pluginName` `decent-pipeline`, prefix `pipeline-`, source directory `src`, and enables inference. The default tier is `execution`. The tiers are:
 
@@ -141,10 +143,10 @@ node manage-agents/manage-agents.mjs pipeline sync-bash [--dry-run]
 
 **`pipelineCore`** (version `1.1.0`): "Shared canonical pipeline agents, commands, guard plugin, and pipeline tools". It requires agent manager `>=1.1.0 <2.0.0`.
 
-- Include: `src/agents/pipeline-*.md`, `src/commands/pipeline-*.md`, the `pipeline-guard`, `pipeline-tools`, `doc-tools`, and `slide-tools` plugin directories, `src/plugins/README.md`, `src/tools/*pipeline*`, `src/tools/_guards*`, `src/tools/_paths.js`, `src/tools/_safeName*`, and `src/docs/mcp-configuration.md`.
+- Include: `src/agents/pipeline-*.md`, `src/commands/pipeline-*`, the whole `src/plugins/**`, `src/tools/**`, `src/skills/**`, and `src/resources/**` trees (so the plugins and helpers shared with `flow` travel too), and `src/docs/mcp-configuration.md`.
 - Exclude: none.
 
-`validateSharedSyncManifest` in `manage-agents/src/utils/sharedSync.ts` enforces path prefixes. `agentManager` paths must be `manage-agents.sh`, under `manage-agents/`, or under `.agent-manager/`. `pipelineCore` paths must start with `src/agents/pipeline-`, `src/commands/pipeline-`, `src/plugins/`, `src/tools/`, or `src/docs/`. Every glob must be relative and must not contain `..`, a backslash, or a NUL byte.
+`validateSharedSyncManifest` in `manage-agents/src/utils/sharedSync.ts` enforces path prefixes. `agentManager` paths must be `manage-agents.sh`, under `manage-agents/`, or under `.agent-manager/`. `pipelineCore` paths must start with `src/agents/pipeline-`, `src/commands/pipeline-`, `src/plugins/`, `src/tools/`, `src/skills/`, `src/resources/`, or `src/docs/`. Every glob must be relative and must not contain `..`, a backslash, or a NUL byte.
 
 ### Local overlay
 

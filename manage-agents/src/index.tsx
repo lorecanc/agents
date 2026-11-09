@@ -1069,8 +1069,8 @@ async function runPipelineCLI(workspaceRoot: string) {
   console.log(`Synced profile '${profileName}' to category '${result.targetCategory}': ${result.synced.length} agents at ${result.outputDir}.`)
 }
 
-// Model configurations for archetypes (see ARCHETIPI.md): when the reference agent (flow-build) runs
-// on a provider or model, which models its subagents use. The TUI edits them with M on the archetype
+// Model configurations for archetypes (see ARCHETIPI.md): when a primary of the archetype (flow-build
+// or flow-plan) runs on a provider or model, which models the subagents it calls use. The TUI edits them with M on the archetype
 // folder; this CLI is the scriptable twin. Stored in .agent-manager/agent-routing.json, resolved into
 // <source>/plugins/agent-router/routing.json for the runtime plugin.
 function runRoutingCLI(workspaceRoot: string) {
@@ -1078,7 +1078,7 @@ function runRoutingCLI(workspaceRoot: string) {
   const usage = `Usage: manage-agents routing show|build|check
        manage-agents routing set <archetype> <provider|provider/model> [<role>=<provider/model#variant|inherit> ...]
        manage-agents routing unset <archetype> <provider|provider/model>
-Archetypes: ${ROUTABLE_ARCHETYPES.join(", ")}. Missing roles inherit the reference's model. Stored in ${path.relative(workspaceRoot, agentRoutingConfigPath(workspaceRoot))}.`
+Archetypes: ${ROUTABLE_ARCHETYPES.join(", ")}. The trigger is the model of the calling primary (build or plan); missing roles inherit it. Stored in ${path.relative(workspaceRoot, agentRoutingConfigPath(workspaceRoot))}.`
   if (!action || action === "--help" || action === "-h") { console.log(usage); return }
   const output = agentRoutingOutputPath(workspaceRoot)
   const build = () => {

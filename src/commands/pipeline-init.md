@@ -6,12 +6,12 @@ agent: pipeline-orchestrator
 Task (pipeline setup): draft the repository's verification contract `.opencode/pipeline.json`. $ARGUMENTS
 
 ## Preset
-- Goal: give `pipeline_verify`, `pipeline_smoke` and `pipeline_serve` explicit commands, so tester and ops never improvise starts, ports or test commands through raw bash.
-- Phase 0: call `pipeline_env` and keep its `contract`, `workspaces_detected`, `binaries`, `docker` and `verification_outlook`.
+- Goal: give `dev_verify`, `dev_smoke` and `dev_serve` explicit commands, so tester and ops never improvise starts, ports or test commands through raw bash.
+- Phase 0: call `dev_env` and keep its `contract`, `workspaces_detected`, `binaries`, `docker` and `verification_outlook`.
 - Delegate `@pipeline-explorer` to collect, with file evidence (README, `AGENTS.md`, `package.json`, `pyproject.toml`, `Makefile`, `docker-compose.yml`, CI workflows, `.env.example` variable names only): per sub-project the lint, typecheck, targeted-test, single-test-by-name, fast-test, full-test and build commands; the dev/start command, its port flag and health URL; the services tests need (databases, caches) and the env variable names they read.
 - Draft the contract from that evidence only. If a command is not evidenced, leave it out (a missing check is reported as `skipped`, which is honest; a guessed one is not).
 - Show the draft to the user with `question` (accept / edit / cancel). Only after acceptance, delegate `@pipeline-fast_lane` to write the file exactly as accepted. If the file already exists, show a diff-style summary of changes and never drop existing keys without asking.
-- Then delegate `@pipeline-ops` (empirical-validation mode) to validate it: `pipeline_verify` with `checks: ["lint", "typecheck", "test_fast"]` (per workspace, with `with_services` where declared) and `pipeline_smoke` if a smoke section exists. Report per check: pass / fail / skipped / blocked with the class. A `blocked` (`env`) service is a host limit, not a contract error.
+- Then delegate `@pipeline-ops` (empirical-validation mode) to validate it: `dev_verify` with `checks: ["lint", "typecheck", "test_fast"]` (per workspace, with `with_services` where declared) and `dev_smoke` if a smoke section exists. Report per check: pass / fail / skipped / blocked with the class. A `blocked` (`env`) service is a host limit, not a contract error.
 - Skip HITL. Offer a checkpoint commit of `.opencode/pipeline.json` only.
 
 ## Contract schema (keep only what applies)

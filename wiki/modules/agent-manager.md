@@ -86,6 +86,7 @@ Repository mutations go through a transaction layer that can auto-commit when en
 
 - `category`: `list`, `explain`, `build`, `check` / `status`, `package`, and `recover`. `build` and `check` accept an id or `--all`. `--all` also covers stamped `*-pipeline` bundles. `topic-export` is a deprecated alias that forwards to `category build|check wiki`.
 - `pipeline`: `list`, `show <profile>`, `apply <profile>`, `sync <profile>` / `sync --all`, `refresh`, `sync-bash [--dry-run]`, and `delete <name> [--also-installed]`. `sync-bash` rewrites only the `permission.bash` blocks of `src/agents/pipeline-*.md` from `.agent-manager/bash-profiles.json`; it prints a reminder to run `category build --all` when files changed.
+- `routing`: `show`, `build`, `check`, `set <archetype> <provider|provider/model> [<role>=<provider/model#variant|inherit> ...]`, and `unset <archetype> <trigger>`. It edits the model configurations of an archetype (today `flow`) in `.agent-manager/agent-routing.json` and generates `src/plugins/agent-router/routing.json`; it is the scriptable twin of `M` on the archetype folder in the TUI. See `ARCHETIPI.md`.
 - `bridge [--category <name>] [--target claude|codex]`: generates a Claude Code or Codex translation layer. The default plugin name is `decent-pipeline`; the default output is `export/bridges/<claude-code|codex>/<plugin-name>/`. Options (`--name`, `--prefix`, `--source-dir`, `--config`, `--model`, `--map-all`, `--no-validate`, `--no-register`, `--marketplace-name`, `--wizard`) are described in [Bridges](bridges.md).
 - `bridge check [--category <name>] [--target claude|codex]`: regenerates every committed bridge in a temporary workspace and compares it byte-exact with `export/bridges/`. It exits with code 1 on drift and never persists the translation config.
 - `export [--all|-a] [--yes|-y] [--category|-c <name>] [--profile|-p <name>] [--stack|-s <path>]`: installs agents and companion resources into the OpenCode configuration directory (`$XDG_CONFIG_HOME/opencode/`, or `~/.config/opencode/`); details in the paragraphs below.
@@ -113,6 +114,15 @@ From `manage-agents/package.json`:
 | `validate` | `typecheck`, `test`, `build`, `node manage-agents.mjs --no-auto-commit category build --all`, `category check --all`, and `bridge check`. |
 
 Note: `validate` includes `category build --all`, which rewrites generated bundles under `export/categories/`. The README and GUIDA describe `validate` as read-only; the script is the authoritative description.
+
+## TUI navigation
+
+The full keymap is in `manage-agents/README.md` (English) and `manage-agents/GUIDA.md` (Italian); the footer of the main view lists most of them. The behaviour that matters for orientation, as implemented in `src/App.tsx`:
+
+- **Folders start closed.** The agent list groups agents in one folder per category, and every folder is closed at startup. `→`/`l` opens the focused folder and `←`/`h` closes it. Provider folders in the model selector and color groups in the color selector also start closed and toggle with `→`/`←` or `Enter`.
+- **Model selector.** It opens with the provider of the current model expanded: the focused agent's model for `M`, or the edited row's model in the archetype model configurations. Printable keys type into its search (only the arrows navigate); while the search has text, every provider with a matching model is expanded. `Ctrl-R` reloads the catalog.
+- **Agent search.** `/` filters by file name; folders without matches disappear, counts reflect the matches and the remaining folders are shown expanded; clearing the filter restores each folder's open or closed state.
+- **`M` on a folder.** On an archetype folder (`flow`) with no selection, `M` opens its model configurations instead of the model selector. `T` and `E` act on every agent of a focused folder, `U` opens the category's companion links, and `D` deletes a focused stamped `*-pipeline` bundle after confirmation.
 
 ## Resource Manager and companion links
 

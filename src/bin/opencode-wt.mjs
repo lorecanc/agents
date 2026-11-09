@@ -19,8 +19,8 @@ import path from "node:path"
 import { spawnSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
 
-import { addInfoExclude, git, gitT, realpathLoose, repoInfo } from "../tools/_pipeline_core.js"
-import { runCommand, runtimeEnv } from "../tools/_pipeline_run.js"
+import { addInfoExclude, git, gitT, realpathLoose, repoInfo } from "../tools/_repo.js"
+import { runCommand, runtimeEnv } from "../tools/_run.js"
 
 const BRANCH_PREFIX = "pipeline/"
 

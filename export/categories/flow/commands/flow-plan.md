@@ -1,5 +1,5 @@
 ---
-description: "Flow: plan a change in read-only mode, then switch back to flow-build (Tab) to execute it"
+description: "Flow: plan a change in read-only mode; once you approve the plan, flow-build implements it"
 agent: flow-plan
 ---
 
@@ -14,4 +14,4 @@ Repository state at start:
 Guidance:
 - You are in plan mode: read, explore and ask, but do not modify the codebase.
 - If the conversation already holds context from flow-build, reuse it instead of exploring again.
-- Write the plan to `.opencode/plans/<slug>.md` and end with the path and how to execute it.
+- Write the plan to `.opencode/plans/<slug>.md`, then ask for approval with `flow_plan_exit`.

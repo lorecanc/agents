@@ -25,15 +25,17 @@
         },
         "opencode": {
           "roles": {
-            "explore": "opencode/muse-spark-1.3-contributor-free#high",
-            "ops": "opencode/muse-spark-1.3-contributor-free#high",
-            "research": "opencode/muse-spark-1.3-contributor-free#high",
-            "review": "opencode/muse-spark-1.3-contributor-free#high"
+            "explore": "opencode/deepseek-v4.1-flash-free#high",
+            "eye": "opencode/deepseek-v4.1-flash-free#high",
+            "ops": "opencode/deepseek-v4.1-flash-free#high",
+            "research": "opencode/deepseek-v4.1-flash-free#high",
+            "review": "opencode/deepseek-v4.1-flash-free#high"
           }
         },
         "opencode-go": {
           "roles": {
             "explore": "opencode-go/deepseek-v4.1-flash#high",
+            "eye": "opencode-go/deepseek-v4.1-flash#high",
             "ops": "opencode-go/deepseek-v4.1-flash#high",
             "research": "opencode-go/deepseek-v4.1-flash#high",
             "review": "opencode-go/deepseek-v4.1-flash#high"

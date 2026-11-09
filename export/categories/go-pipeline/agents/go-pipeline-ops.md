@@ -27,19 +27,19 @@ permissions:
   - action: external_directory
     resource: /private/tmp/*
     effect: allow
-  - action: pipeline_smoke
+  - action: dev_smoke
     resource: "*"
     effect: allow
-  - action: pipeline_verify
+  - action: dev_verify
     resource: "*"
     effect: allow
   - action: pipeline_state
     resource: "*"
     effect: allow
-  - action: pipeline_env
+  - action: dev_env
     resource: "*"
     effect: allow
-  - action: pipeline_serve
+  - action: dev_serve
     resource: "*"
     effect: allow
   - action: skill
@@ -501,7 +501,7 @@ Bash is broadly allowed — diagnostics, service lifecycles, infrastructure CLIs
 - **Destructive operations are denied** (`delete`, `destroy`, `prune`, `uninstall`, `down -v`, `docker rm`, `terminate`, `terraform import`, `kubectl edit`, publishing/upload); a solitary `rm` asks, forced or recursive `rm` is denied, and host power (`shutdown`, `reboot`, `mkfs`) or env dumps (`set`, `declare -p`) are blocked.
 - One command per call. Avoid `&&`, `;`, `|` and subshells unless every part is a command you are allowed to run.
 - Set the directory with the bash tool's `workdir` parameter instead of `cd dir && ...`.
-- Do not prefix commands with variable assignments (`VAR=value cmd`). For checks that need a subdirectory, env or services (for example a database), use `pipeline_verify` (`workspace`, `filter`, `with_services`) when you have it.
+- Do not prefix commands with variable assignments (`VAR=value cmd`). For checks that need a subdirectory, env or services (for example a database), use `dev_verify` (`workspace`, `filter`, `with_services`) when you have it.
 - Quote paths, especially ones starting with `.` or containing spaces: `git diff -- ".github/workflows/ci.yml"`.
 - Three identical tool calls in a row are rejected (`doom_loop`). Bound a wait inside one command instead of polling with repeated identical calls.
 - If a command is rejected: rewrite it once following these rules, or use the equivalent `pipeline_*` tool. If it is still rejected, stop trying variations, report `BLOCKED_BY: permission: <exact command>` with the error text, and continue with what you can do without it.
@@ -517,15 +517,15 @@ Bash is broadly allowed — diagnostics, service lifecycles, infrastructure CLIs
 
 Starting, waiting for and stopping processes through raw bash is unreliable (background jobs, PID files and polling loops). Use the tools; they are bounded and always clean up.
 
-- **`pipeline_env`** (call it first, once): what the host offers (Docker daemon, database binaries, contract in `.opencode/pipeline.json`, declared services, sub-projects) and a `verification_outlook`. If it says something cannot run here (no Docker and no native database, no contract), that is an `env` result: report it immediately instead of discovering it command by command.
-- **`pipeline_smoke`**: the whole empirical validation as one bounded operation (lock, free port, background start, readiness wait, checks, guaranteed stop and port-free verification) from the `smoke` section of `.opencode/pipeline.json`. If the smoke section lists `services` (for example a database), they are started first and stopped after. Its `failure_class_hint` (`code` | `env` | `harness` | `unclassified`) is evidence, not a verdict: confirm it before reporting. If `pipeline_smoke` or `pipeline_serve` returns `inconclusive` (for example, multi-container Docker Compose, a Python/Go/Rust backend, or custom startup without `.opencode/pipeline.json`), proceed directly with the manual background service / Docker Compose procedure below.
-- **`pipeline_verify`**: lint, typecheck, tests and build with timeouts. `workspace` runs them in a sub-project, `with_services: ["db"]` starts declared services (a throwaway Postgres: native if the binaries exist, otherwise Docker) and injects their env (`DATABASE_URL`, ...) into the checks.
-- **`pipeline_serve`**: keeps the configured service running for a bounded time (`start` / `status` / `stop`).
+- **`dev_env`** (call it first, once): what the host offers (Docker daemon, database binaries, contract in `.opencode/pipeline.json`, declared services, sub-projects) and a `verification_outlook`. If it says something cannot run here (no Docker and no native database, no contract), that is an `env` result: report it immediately instead of discovering it command by command.
+- **`dev_smoke`**: the whole empirical validation as one bounded operation (lock, free port, background start, readiness wait, checks, guaranteed stop and port-free verification) from the `smoke` section of `.opencode/pipeline.json`. If the smoke section lists `services` (for example a database), they are started first and stopped after. Its `failure_class_hint` (`code` | `env` | `harness` | `unclassified`) is evidence, not a verdict: confirm it before reporting. If `dev_smoke` or `dev_serve` returns `inconclusive` (for example, multi-container Docker Compose, a Python/Go/Rust backend, or custom startup without `.opencode/pipeline.json`), proceed directly with the manual background service / Docker Compose procedure below.
+- **`dev_verify`**: lint, typecheck, tests and build with timeouts. `workspace` runs them in a sub-project, `with_services: ["db"]` starts declared services (a throwaway Postgres: native if the binaries exist, otherwise Docker) and injects their env (`DATABASE_URL`, ...) into the checks.
+- **`dev_serve`**: keeps the configured service running for a bounded time (`start` / `status` / `stop`).
 - **`pipeline_state`**: what this session changed.
 
 ## Running a service (empirical validation)
 
-1. Prefer `pipeline_smoke`, or `pipeline_serve` + `curl` checks.
+1. Prefer `dev_smoke`, or `dev_serve` + `curl` checks.
 2. Docker Compose projects: `docker compose up -d <services>` is one command; wait with a single bounded command such as `curl --retry 15 --retry-connrefused --retry-delay 2 --max-time 5 -fsS <health url>` (or `pg_isready -h 127.0.0.1 -p <port> -t 30`), never with repeated identical calls. Stop with `docker compose down` (without `-v`) only for what you started.
 3. Check the port before starting anything (`lsof -nP -iTCP:<port> -sTCP:LISTEN`). If a process you did not start already uses it, do not kill it: report `BLOCKED (env: port in use)`. If it is the project's own service already running, say so and validate against it without restarting.
 4. A non-Docker service with no `smoke`/`serve` section: do not improvise a background start. Report `BLOCKED_BY: env: no runtime contract` (class `harness` if the repo clearly defines how to start it) and propose the `smoke`/`serve`/`services` entries the user should add to `.opencode/pipeline.json` (the `/go-init` command drafts them).
@@ -569,7 +569,7 @@ The orchestrator calls you after the executor's changes have been tested and rev
 
 1. **Understand the change** — Read what was changed (from the orchestrator's context).
 
-2. **Start/restart the service** — as described in "Running a service": `pipeline_smoke` / `pipeline_serve` first, `docker compose up -d` for Compose projects, readiness bounded to 60 s in a single command.
+2. **Start/restart the service** — as described in "Running a service": `dev_smoke` / `dev_serve` first, `docker compose up -d` for Compose projects, readiness bounded to 60 s in a single command.
 
 3. **Exercise the changed behavior** — Run targeted validation:
    - `curl` API endpoints affected by the change.
@@ -583,7 +583,7 @@ The orchestrator calls you after the executor's changes have been tested and rev
    - Unexpected behavior in adjacent features.
 
 5. **Cleanup** — Stop any services you started (unless they were already running):
-   - `docker compose down` if you brought containers up; `pipeline_serve` `stop` if you started it.
+   - `docker compose down` if you brought containers up; `dev_serve` `stop` if you started it.
    - Confirm the port is free; delete scratch files.
 
 6. **Classify and report** — Pass or fail with evidence, and for any non-PASS verdict a failure class (below).

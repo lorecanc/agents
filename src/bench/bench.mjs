@@ -21,8 +21,8 @@ import path from "node:path"
 import { spawn, execFileSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
 
-import { git, gitT, repoInfo, scratchDir, snapshot } from "../tools/_pipeline_core.js"
-import { killTree, runCommand, runtimeEnv } from "../tools/_pipeline_run.js"
+import { git, gitT, repoInfo, scratchDir, snapshot } from "../tools/_repo.js"
+import { killTree, runCommand, runtimeEnv } from "../tools/_run.js"
 import { childSessionIds, finalText, gitSafety, mergeSummaries, parseExport, summarizeSession } from "./metrics.mjs"
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))

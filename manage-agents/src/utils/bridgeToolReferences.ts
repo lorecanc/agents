@@ -3,7 +3,7 @@
  *
  * Source prompts are written for OpenCode: they name OpenCode tools
  * (`todowrite`, `question`, the Task tool) and repository custom tools
- * (`pipeline_state`, `pipeline_commit`, ...). Bridges rewrite names that have a
+ * (`dev_verify`, `pipeline_state`, ...). Bridges rewrite names that have a
  * target equivalent and insert one runtime note, near the top of the body, that
  * lists the tools the target does not provide. Prompts already document the
  * fallback for those tools, so no prompt text is deleted.
@@ -86,16 +86,16 @@ const CODEX_TABLE: TargetToolTable = {
 const TABLES: Record<BridgeTarget, TargetToolTable> = { claude: CLAUDE_TABLE, codex: CODEX_TABLE }
 
 /**
- * OpenCode custom tools shipped by this repository (`src/tools/pipeline_*.ts`).
- * Any `pipeline_<name>` identifier is treated as one, so new tools are covered
+ * OpenCode custom tools shipped by this repository (`src/tools/{dev,pipeline}_*.ts`).
+ * Any `pipeline_<name>` identifier (and the four `dev_*` tools) is treated as one, so new tools are covered
  * without editing this list; the named ones are always recognized.
  */
-export const OPENCODE_ONLY_TOOLS = ["pipeline_state", "pipeline_commit", "pipeline_verify", "pipeline_smoke", "pipeline_serve", "pipeline_env"] as const
-const OPENCODE_CUSTOM_TOOL = /\bpipeline_[a-z][a-z0-9_]*\b/g
+export const OPENCODE_ONLY_TOOLS = ["pipeline_state", "pipeline_commit", "dev_verify", "dev_smoke", "dev_serve", "dev_env"] as const
+const OPENCODE_CUSTOM_TOOL = /\b(?:pipeline_[a-z][a-z0-9_]*|dev_(?:env|verify|smoke|serve))\b/g
 
 /** True for permission keys that name an OpenCode custom tool rather than an MCP server. */
 export function isOpenCodeCustomToolKey(key: string): boolean {
-  return (OPENCODE_ONLY_TOOLS as readonly string[]).includes(key) || /^pipeline_[a-z][a-z0-9_]*$/.test(key)
+  return (OPENCODE_ONLY_TOOLS as readonly string[]).includes(key) || /^(?:dev|pipeline)_[a-z][a-z0-9_]*$/.test(key)
 }
 
 /** Marker that makes the note idempotent across repeated rewrites. */

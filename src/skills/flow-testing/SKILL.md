@@ -9,7 +9,7 @@ description: How to test changes efficiently - find and follow the project's tes
 
 - Find the test runner and the commands: `package.json` scripts, `pyproject.toml` or `pytest.ini`, `go test`, `cargo test`, the Gradle or Xcode schemes, or `.opencode/pipeline.json` `verify`.
 - Look at 1 or 2 existing tests near the code you are changing, and copy their style: file location, naming, fixtures, assertion library and mocking approach.
-- `pipeline_verify` runs lint, typecheck, targeted tests or the full suite with timeouts. Prefer it over hand-written commands when the project is detected.
+- `dev_verify` runs lint, typecheck, targeted tests or the full suite with timeouts. Prefer it over hand-written commands when the project is detected.
 
 ## Bugs: reproduce first
 
@@ -32,7 +32,7 @@ description: How to test changes efficiently - find and follow the project's tes
 
 ## Before finishing
 
-- Run the broader suite (or `pipeline_verify` with `test_fast`/`full`) **once**. If it fails, decide whether your change caused it: compare with the same failure on the starting commit when in doubt.
+- Run the broader suite (or `dev_verify` with `test_fast`/`full`) **once**. If it fails, decide whether your change caused it: compare with the same failure on the starting commit when in doubt.
 - Never weaken, skip or delete a test to make it pass unless the test is wrong. If you change one, say why.
 
 ## Report verification honestly

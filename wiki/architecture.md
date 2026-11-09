@@ -149,5 +149,5 @@ sequenceDiagram
 ### Plugins are directories exporting Plugin.define; single-file plugins are unsupported
 
 - **Context**: OpenCode V2 loads plugins as directories and does not discover `tools/*.ts`.
-- **Decision**: Each plugin lives in its own directory under `src/plugins/` and exports a default `Plugin.define({ id, setup })`. Tools are registered by domain plugins (`pipeline-tools`, `doc-tools`, `slide-tools`) through `ctx.tool.transform` with static imports.
+- **Decision**: Each plugin lives in its own directory under `src/plugins/` and exports a default `Plugin.define({ id, setup })`. Tools are registered by domain plugins (`dev-tools`, `pipeline-tools`, `doc-tools`, `slide-tools`) through `ctx.tool.transform` with static imports. A plugin or helper used by more than one workflow (`flow` and `pipeline`) carries no workflow prefix: `dev-tools` (`dev_*` tools), `_repo.js`, `_sessions.js`, `_bash_guard.js`, `_run.js`, `_env.js`, `_serve.js`, `_services.js`.
 - **Consequences**: Legacy single-file `plugins/*.js` are not supported by OpenCode V2 and are not discovered by the Resource Manager or export; such files must be migrated to directories or removed manually.
