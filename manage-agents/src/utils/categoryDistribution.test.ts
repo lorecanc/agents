@@ -10,7 +10,7 @@ import { execFileSync } from "node:child_process"
 import crypto from "node:crypto"
 
 const repo = path.resolve(import.meta.dirname, "../../..")
-const sourceFiles = ["src/AGENTS.md", "src/agents/wiki-analyzer.md", "src/agents/wiki-indexer.md", "src/agents/wiki-orchestrator.md", "src/agents/wiki-updater.md", "src/agents/wiki-writer.md", "src/commands/wiki.md", "src/skills/wiki-conventions/SKILL.md", "src/skills/wiki-navigate/SKILL.md", "src/skills/wiki-templates/SKILL.md"]
+const sourceFiles = ["src/AGENTS.md", "src/agents/wiki-analyzer.md", "src/agents/wiki-indexer.md", "src/agents/wiki-orchestrator.md", "src/agents/wiki-updater.md", "src/agents/wiki-writer.md", "src/commands/wiki.md", "src/skills/wiki-conventions/SKILL.md", "src/skills/wiki-navigate/SKILL.md", "src/skills/wiki-templates/SKILL.md", "src/skills/italiano-decente/SKILL.md", "src/skills/seo-copywriting/SKILL.md"]
 
 function fixture(): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "category-distribution-"))
@@ -58,7 +58,7 @@ test("regularFiles fails closed for symlinks without reading their targets", () 
 test("manifest is the source of truth and the Wiki distribution is complete", () => {
   const root = fixture()
   const manifest = loadCategoryManifest(root, "wiki")
-  assert.equal(manifest.resources.length, 10)
+  assert.equal(manifest.resources.length, 12)
   const result = buildCategoryDistribution(root, "wiki")
   assert.equal(result.status, "current")
   const readme = fs.readFileSync(path.join(output(root), "README.md"), "utf8")

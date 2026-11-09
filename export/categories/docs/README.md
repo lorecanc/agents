@@ -19,6 +19,8 @@ This portable package is an inventory-driven projection of the canonical OpenCod
 - `src/skills/docx` → `skills/docx`
 - `src/skills/docs-design` → `skills/docs-design`
 - `src/skills/docs-html` → `skills/docs-html`
+- `src/skills/italiano-decente` → `skills/italiano-decente`
+- `src/skills/seo-copywriting` → `skills/seo-copywriting`
 - `src/plugins/doc-tools` → `plugins/doc-tools`
 - `src/tools/docx` → `tools/docx`
 - `src/tools/_safeName.js` → `tools/_safeName.js`

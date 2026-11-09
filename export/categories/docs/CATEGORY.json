@@ -2,7 +2,7 @@
   "schemaVersion": 2,
   "distributionVersion": "2.0.0",
   "category": "docs",
-  "manifestHash": "fc07729bd6236064beaebf0ce452e99c1baf4c8a31ae6cc45af46f7c47bf9994",
+  "manifestHash": "5e2f7350e9ed7bef5a23a86a5c16ce83185da9ab25128b9a3c67d5765dbe4318",
   "generatorVersion": "2.0.0",
   "entries": [
     {
@@ -15,15 +15,15 @@
     },
     {
       "target": "README.md",
-      "hash": "78e8f5f3f77d5cb8e9c5f1ca10e80ce3f2b846faaf93399e17aa7b49e02a8b41"
+      "hash": "4400c95f5cf9b18348a53003783f8bc97d70a79a88223da77f6f832de9b8657b"
     },
     {
       "target": "agents/docs-html_writer.md",
-      "hash": "cbd6e5f97e6fc217689bb959cc54784272f539210d43f80d0318cbf8e461d61c"
+      "hash": "be0e901b9df4c79b50fb994a4adba673e3971e7ea5548a0fde62459cfcac942a"
     },
     {
       "target": "agents/docs-orchestrator.md",
-      "hash": "76009e2c1b64f737c8c7c7e9a207bd60f7960282fd6343f4582cb6c5ad6549d3"
+      "hash": "f2c81595dadffc3bd2a06a158c4a3c2b48218b6608b788e984531be9bcbbd795"
     },
     {
       "target": "agents/docs-planner.md",
@@ -68,6 +68,14 @@
     {
       "target": "skills/docx/SKILL.md",
       "hash": "69fac555a1866f0bd678c80e6392a2636be698ecc146ff53787676c2b8632383"
+    },
+    {
+      "target": "skills/italiano-decente/SKILL.md",
+      "hash": "3f0f0db56acc7cf9366476d3a23916ee9671541fc29ad103298fc14972a06b53"
+    },
+    {
+      "target": "skills/seo-copywriting/SKILL.md",
+      "hash": "00908c6141c4286e3e24fee817d3208adc9c50c5febc5cbd56f0ad690afd0b0f"
     },
     {
       "target": "tools/_doc_theme.template.css",

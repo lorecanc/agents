@@ -2,9 +2,9 @@
   "schemaVersion": 2,
   "distributionVersion": "2.0.0",
   "category": "slides",
-  "manifestHash": "583dc949945046b158f950f303df90990163d8359cfd70946012dac612f0ac85",
+  "manifestHash": "309338fcdc460cba431bae26e9eda83b52dfd304e1a40fc2628aa8e52f29f2cd",
   "generatorVersion": "2.0.0",
-  "bundleDigest": "29f1dbf7a6edfce910fd58bffa64828a3baadd40f7fc785e7e2a193590f6efb4",
+  "bundleDigest": "a855706ee4c185d94273e21f657016f9cac693597d94eb62cbcb920c87f98a8d",
   "entries": [
     {
       "target": "AGENTS.md",
@@ -16,7 +16,7 @@
     },
     {
       "target": "README.md",
-      "hash": "061a93fc12bbc24b0a33729fe206a27ebc5ba2ef194238c0fe27567815180406"
+      "hash": "43cc340637212306f123a5edecb9e838399f5b0a59fe44f9590985daa4f564d1"
     },
     {
       "target": "THIRD_PARTY_NOTICES.md",
@@ -28,11 +28,11 @@
     },
     {
       "target": "agents/slides-html_writer.md",
-      "hash": "0709d5a9f41327da848e659f4f5190ba258edf05f6797750585f3b644fc3b8b5"
+      "hash": "022a7be86f5b7f31cbb75828559ecd5616a2c6d73a2f0a31c3d8fd8ed538a3e5"
     },
     {
       "target": "agents/slides-orchestrator.md",
-      "hash": "b104c188afffb23f1de4f551449e6aba665f8286b24afd171e20eb29dcc4a269"
+      "hash": "277a8bab2d5263fee1ac2c4cff9d44af91518fa890336445948f5b98f379261c"
     },
     {
       "target": "agents/slides-planner.md",
@@ -71,6 +71,10 @@
       "hash": "414acb018fd989c751ba19db84d6eff335bfe6b948531bc630433a376b6319d9"
     },
     {
+      "target": "skills/italiano-decente/SKILL.md",
+      "hash": "3f0f0db56acc7cf9366476d3a23916ee9671541fc29ad103298fc14972a06b53"
+    },
+    {
       "target": "skills/pptx/SKILL.md",
       "hash": "e3df72f68d08752d7e1d1a46925bccf25a076cff9ea20f224bd6c08ffb14a08e"
     },
@@ -81,6 +85,10 @@
     {
       "target": "skills/pptx/ooxml.md",
       "hash": "253eb3beafc70ff65408eb1ca62a68a3adb3d58cb6ac5ad9ee43e354a2731ae1"
+    },
+    {
+      "target": "skills/seo-copywriting/SKILL.md",
+      "hash": "00908c6141c4286e3e24fee817d3208adc9c50c5febc5cbd56f0ad690afd0b0f"
     },
     {
       "target": "skills/slides-composition/SKILL.md",

@@ -18,6 +18,8 @@
     { "kind": "directory", "source": "src/skills/docx", "target": "skills/docx", "policy": "text" },
     { "kind": "directory", "source": "src/skills/docs-design", "target": "skills/docs-design", "policy": "text" },
     { "kind": "directory", "source": "src/skills/docs-html", "target": "skills/docs-html", "policy": "text" },
+    { "kind": "directory", "source": "src/skills/italiano-decente", "target": "skills/italiano-decente", "policy": "text" },
+    { "kind": "directory", "source": "src/skills/seo-copywriting", "target": "skills/seo-copywriting", "policy": "text" },
     { "kind": "directory", "source": "src/plugins/doc-tools", "target": "plugins/doc-tools", "policy": "text" },
     { "kind": "directory", "source": "src/tools/docx", "target": "tools/docx", "policy": "mixed", "extensions": [".py", ".md", ".js"] },
     { "kind": "file", "source": "src/tools/_safeName.js", "target": "tools/_safeName.js", "policy": "text" },

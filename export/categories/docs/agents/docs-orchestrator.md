@@ -35,6 +35,9 @@ permissions:
   - action: skill
     resource: docs-design
     effect: allow
+  - action: skill
+    resource: italiano-decente
+    effect: allow
   - action: subagent
     resource: docs-planner
     effect: allow
@@ -142,7 +145,7 @@ Think about the best layout for the content:
 Consider sidebar layouts for summary panels (reports, proposals) and single-column for formal documents (contracts, memos).
 
 ### 4. Generate Content
-Write the complete HTML document. Load the `docs-orchestrator-html` skill for full authoring rules.
+Write the complete HTML document. Load the `docs-orchestrator-html` skill for full authoring rules. If the content is in Italian, also load the `italiano-decente` skill and follow it for every sentence you write.
 
 **Template skeleton:**
 ```html

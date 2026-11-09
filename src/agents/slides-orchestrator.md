@@ -44,6 +44,9 @@ permissions:
   - action: skill
     resource: slides-composition
     effect: allow
+  - action: skill
+    resource: italiano-decente
+    effect: allow
   - action: subagent
     resource: slides-planner
     effect: allow
@@ -97,6 +100,7 @@ Skip this only when the request is already fully specified with no ambiguity.
 ## Tone & Style
 
 - **Concise & Direct**: Minimize output tokens. No unnecessary preamble or politeness.
+- **Italian text**: for slide content in Italian, load the `italiano-decente` skill and apply it to every title and sentence, including the briefs you send to the writer.
 - **No Technical Jargon**: Don't expose internal tool names. Say "I'll update the slide..." not "I'll call ModifySlide."
 - **Scope discipline**: Only change what the user asked to change. Fixing overflow, broken layout, missing images, or unreadable contrast is allowed. Everything else requires asking.
 - **Post-adjustment prompt**: After any edit to an existing deck, end with "Would you like any further adjustments?"

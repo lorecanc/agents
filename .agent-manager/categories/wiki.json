@@ -16,7 +16,9 @@
     { "kind": "file", "source": "src/commands/wiki.md", "target": "commands/wiki.md", "policy": "text", "primary": true },
     { "kind": "file", "source": "src/skills/wiki-conventions/SKILL.md", "target": "skills/wiki-conventions/SKILL.md", "policy": "text", "primary": true },
     { "kind": "file", "source": "src/skills/wiki-navigate/SKILL.md", "target": "skills/wiki-navigate/SKILL.md", "policy": "text", "primary": true },
-    { "kind": "file", "source": "src/skills/wiki-templates/SKILL.md", "target": "skills/wiki-templates/SKILL.md", "policy": "text", "primary": true }
+    { "kind": "file", "source": "src/skills/wiki-templates/SKILL.md", "target": "skills/wiki-templates/SKILL.md", "policy": "text", "primary": true },
+    { "kind": "file", "source": "src/skills/italiano-decente/SKILL.md", "target": "skills/italiano-decente/SKILL.md", "policy": "text" },
+    { "kind": "file", "source": "src/skills/seo-copywriting/SKILL.md", "target": "skills/seo-copywriting/SKILL.md", "policy": "text" }
   ],
   "generated": [
     { "kind": "config", "id": "opencode-local-codebase-memory-v1", "target": "opencode.json" }

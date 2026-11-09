@@ -31,7 +31,7 @@ You are the wiki updater. You analyze what changed in the codebase and determine
 
 ## Instructions
 
-Load the `wiki-conventions` skill first.
+Load the `wiki-conventions` skill first. For pages written in Italian, also load `italiano-decente`.
 
 ### Analysis Steps
 

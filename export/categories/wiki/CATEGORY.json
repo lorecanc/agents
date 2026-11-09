@@ -2,7 +2,7 @@
   "schemaVersion": 2,
   "distributionVersion": "2.0.0",
   "category": "wiki",
-  "manifestHash": "352dfd8f311cf53ea4de9384cf2317e7387893ad27833773f714b6c9afee558c",
+  "manifestHash": "8a30f7f96daa3654361cccad375b6376131582f7b44304b572717011c703c6a7",
   "generatorVersion": "2.0.0",
   "entries": [
     {
@@ -15,7 +15,7 @@
     },
     {
       "target": "README.md",
-      "hash": "0042e343520d4291747db48f4f173a0d56338df814be0df1e87cf4017e04e496"
+      "hash": "1d9d24fef42d541600dbca96a00da43834ae412dc5c038311c71896dc32cf1d2"
     },
     {
       "target": "agents/wiki-analyzer.md",
@@ -31,11 +31,11 @@
     },
     {
       "target": "agents/wiki-updater.md",
-      "hash": "68b4a0c3c8c9628fb55a0beaa242bbbebf0dca5d532792e693637a2b7000cbc7"
+      "hash": "b53200a4d81179922d51ed4d869e3481c584500ebbcdd8a2cf0790945742f28d"
     },
     {
       "target": "agents/wiki-writer.md",
-      "hash": "2a2772912919b5324875ccb9a70dc9782b38809f320353c39d680642246d70fd"
+      "hash": "5bb7146bf7f18c5edf562925e6dbbab3897a6c1704a74db496f47c5d0b0402d7"
     },
     {
       "target": "commands/wiki.md",
@@ -44,6 +44,14 @@
     {
       "target": "opencode.json",
       "hash": "335a3f61b7ac14590337ef626f00f1efbd9af4ecfca5d660d389258516f0d0ff"
+    },
+    {
+      "target": "skills/italiano-decente/SKILL.md",
+      "hash": "3f0f0db56acc7cf9366476d3a23916ee9671541fc29ad103298fc14972a06b53"
+    },
+    {
+      "target": "skills/seo-copywriting/SKILL.md",
+      "hash": "00908c6141c4286e3e24fee817d3208adc9c50c5febc5cbd56f0ad690afd0b0f"
     },
     {
       "target": "skills/wiki-conventions/SKILL.md",

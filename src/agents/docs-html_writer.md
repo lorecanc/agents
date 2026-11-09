@@ -21,6 +21,9 @@ permissions:
   - action: skill
     resource: docs-design
     effect: allow
+  - action: skill
+    resource: italiano-decente
+    effect: allow
   - action: webfetch
     resource: "*"
     effect: deny
@@ -28,7 +31,7 @@ permissions:
 
 You generate HTML documents. Return ONLY the complete HTML — no markdown fences, no explanations, no tool calls.
 
-**Before you begin, load the `docs-orchestrator-html` skill** for the full authoring rules, CSS constraints, and layout patterns. You are an isolated sub-agent with no internet access and no tools. Everything you need is in this prompt.
+**Before you begin, load the `docs-orchestrator-html` skill** for the full authoring rules, CSS constraints, and layout patterns. You are an isolated sub-agent with no internet access and no tools. Everything you need is in this prompt. If the content is in Italian, also load the `italiano-decente` skill and follow it for every sentence you write.
 
 ## Core rules
 

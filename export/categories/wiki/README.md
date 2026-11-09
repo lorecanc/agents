@@ -18,6 +18,8 @@ This portable package is an inventory-driven projection of the canonical OpenCod
 - `src/skills/wiki-conventions/SKILL.md` → `skills/wiki-conventions/SKILL.md`
 - `src/skills/wiki-navigate/SKILL.md` → `skills/wiki-navigate/SKILL.md`
 - `src/skills/wiki-templates/SKILL.md` → `skills/wiki-templates/SKILL.md`
+- `src/skills/italiano-decente/SKILL.md` → `skills/italiano-decente/SKILL.md`
+- `src/skills/seo-copywriting/SKILL.md` → `skills/seo-copywriting/SKILL.md`
 - `opencode.json` (generated configuration)
 
 ## Source of truth and workflow

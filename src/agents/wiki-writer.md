@@ -34,7 +34,7 @@ You are the wiki writer. You create and update individual wiki pages based on so
 
 ## Instructions
 
-Load both `wiki-conventions` and `wiki-templates` skills before writing.
+Load both `wiki-conventions` and `wiki-templates` skills before writing. For pages written in Italian, also load `italiano-decente`.
 
 ### When Creating a New Page
 

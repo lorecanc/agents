@@ -24,6 +24,8 @@ This portable package is an inventory-driven projection of the canonical OpenCod
 - `src/skills/slides-html` → `skills/slides-html`
 - `src/skills/slides-template-html` → `skills/slides-template-html`
 - `src/skills/slides-theming` → `skills/slides-theming`
+- `src/skills/italiano-decente` → `skills/italiano-decente`
+- `src/skills/seo-copywriting` → `skills/seo-copywriting`
 - `src/plugins/slide-tools` → `plugins/slide-tools`
 - `src/tools/pptx` → `tools/pptx`
 - `src/tools/_safeName.js` → `tools/_safeName.js`

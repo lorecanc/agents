@@ -23,6 +23,8 @@
     { "kind": "directory", "source": "src/skills/slides-html", "target": "skills/slides-html", "policy": "text" },
     { "kind": "directory", "source": "src/skills/slides-template-html", "target": "skills/slides-template-html", "policy": "text" },
     { "kind": "directory", "source": "src/skills/slides-theming", "target": "skills/slides-theming", "policy": "text" },
+    { "kind": "directory", "source": "src/skills/italiano-decente", "target": "skills/italiano-decente", "policy": "text" },
+    { "kind": "directory", "source": "src/skills/seo-copywriting", "target": "skills/seo-copywriting", "policy": "text" },
     { "kind": "directory", "source": "src/plugins/slide-tools", "target": "plugins/slide-tools", "policy": "text" },
     { "kind": "directory", "source": "src/tools/pptx", "target": "tools/pptx", "policy": "mixed", "extensions": [".py", ".js", ".ts", ".md", ".xsd", ".xml"] },
     { "kind": "file", "source": "src/tools/_safeName.js", "target": "tools/_safeName.js", "policy": "text" },
