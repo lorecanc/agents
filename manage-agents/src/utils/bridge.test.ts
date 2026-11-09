@@ -807,7 +807,7 @@ test("translates V1 and V2 OpenCode MCP declarations to the same Claude .mcp.jso
 
   assert.deepEqual(v1, v2)
   assert.deepEqual(v1.mcpServers["codebase-memory-mcp"], { command: "codebase-memory-mcp" })
-  assert.deepEqual(v1.mcpServers["remote-tool"], { url: "https://example.test/mcp" })
+  assert.deepEqual(v1.mcpServers["remote-tool"], { type: "http", url: "https://example.test/mcp" })
 })
 
 test("keeps MCP permissions declared in V2 permissions arrays", () => {

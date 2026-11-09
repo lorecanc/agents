@@ -592,7 +592,8 @@ function buildClaudeMcpConfig(
       if (commandParts.length === 0 && typeof server.url !== "string") continue
 
       if (typeof server.url === "string") {
-        servers[name] = { url: server.url }
+        // Claude Code parses an entry without "type" as stdio and drops it for lacking "command".
+        servers[name] = { type: "http", url: server.url }
         continue
       }
 

@@ -57,24 +57,31 @@
       ]
     },
     "bigquery": {
+      "type": "http",
       "url": "https://bigquery.googleapis.com/mcp"
     },
     "cloud-run": {
+      "type": "http",
       "url": "https://run.googleapis.com/mcp"
     },
     "cloud-logging": {
+      "type": "http",
       "url": "https://logging.googleapis.com/mcp"
     },
     "cloud-monitoring": {
+      "type": "http",
       "url": "https://monitoring.googleapis.com/mcp"
     },
     "cloud-sql": {
+      "type": "http",
       "url": "https://sqladmin.googleapis.com/mcp"
     },
     "cloud-storage": {
+      "type": "http",
       "url": "https://storage.googleapis.com/storage/mcp"
     },
     "cloud-cli": {
+      "type": "http",
       "url": "https://cloudcli.googleapis.com/mcp"
     }
   }
