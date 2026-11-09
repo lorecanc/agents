@@ -139,17 +139,17 @@ node manage-agents/manage-agents.mjs pipeline sync-bash [--dry-run]
 
 `.agent-manager/shared-sync.json` (schema version `1`) defines two components that can be distributed to other repositories.
 
-**`agentManager`** (version `1.2.0`): "Shared Agent Manager CLI/TUI, validators, bridge translators, and bash permission profiles".
+**`agentManager`** (version `1.3.0`): "Shared Agent Manager CLI/TUI, validators, bridge translators, and bash permission profiles".
 
 - Include: `manage-agents.sh`, `manage-agents/manage-agents.mjs`, `manage-agents/README.md`, `manage-agents/GUIDA.md`, `manage-agents/assets/**`, `manage-agents/src/**`, `.agent-manager/bash-profiles.json`, `.agent-manager/translation-config.json`.
 - Exclude: `manage-agents/node_modules/**`, `manage-agents/dist/**`, `manage-agents/package.json`, `manage-agents/package-lock.json`, `manage-agents/tsconfig.json`, `manage-agents/bun.lock`, `manage-agents/bunfig.toml`, `manage-agents/.npmrc`, `manage-agents/integration/**`.
 
-**`pipelineCore`** (version `1.2.0`): "Shared canonical archetype agents (pipeline, flow), their commands, plugins, tools, skills and the benchmark". It requires agent manager `>=1.2.0 <2.0.0`.
+**`pipelineCore`** (version `1.3.0`): "Shared canonical catalog: every agent and command with the plugins, tools, skills, resources and documents they link, plus the benchmark". It requires agent manager `>=1.3.0 <2.0.0`.
 
-- Include: `src/agents/pipeline-*.md`, `src/agents/flow-*.md`, `src/commands/pipeline-*`, `src/commands/flow-*`, the `src/plugins/**`, `src/tools/**` (tests included), `src/skills/**`, `src/resources/**`, `src/bench/**` and `src/bin/**` trees, and `src/docs/mcp-configuration.md`.
+- Include: `src/AGENTS.md`, `src/requirements.txt`, every `src/agents/*.md` (with `pipeline-*` and `flow-*` as explicit patterns), and the `src/commands/**`, `src/plugins/**`, `src/tools/**` (tests included), `src/skills/**`, `src/resources/**`, `src/docs/**`, `src/office/**`, `src/bench/**` and `src/bin/**` trees. Trees ship whole; ontology material is excluded by the overlay.
 - Exclude: none.
 
-`validateSharedSyncManifest` in `manage-agents/src/utils/sharedSync.ts` enforces path prefixes. `agentManager` paths must be `manage-agents.sh`, under `manage-agents/`, or under `.agent-manager/`. `pipelineCore` paths must start with `src/agents/pipeline-`, `src/agents/flow-`, `src/commands/pipeline-`, `src/commands/flow-`, `src/plugins/`, `src/tools/`, `src/skills/`, `src/resources/`, `src/docs/`, `src/bench/`, or `src/bin/`. Every glob must be relative and must not contain `..`, a backslash, or a NUL byte.
+`validateSharedSyncManifest` in `manage-agents/src/utils/sharedSync.ts` enforces path prefixes. `agentManager` paths must be `manage-agents.sh`, under `manage-agents/`, or under `.agent-manager/`. `pipelineCore` paths must be `src/AGENTS.md`, `src/requirements.txt`, or start with `src/agents/`, `src/commands/`, `src/plugins/`, `src/tools/`, `src/skills/`, `src/resources/`, `src/docs/`, `src/office/`, `src/bench/`, or `src/bin/`. Every glob must be relative and must not contain `..`, a backslash, or a NUL byte.
 
 ### Local overlay
 
@@ -169,8 +169,8 @@ node manage-agents/manage-agents.mjs pipeline sync-bash [--dry-run]
 - Files matching `include` and not matching `exclude` or the overlay are collected. `.git`, `node_modules`, `.DS_Store`, and `manage-agents/dist` are always skipped, and symlinks are refused.
 - `pipelineCore` applies only when the effective `agentManager` version satisfies `requiresAgentManager`. The effective version is the one being applied or the one already installed in the target.
 - Overlay-matching files are preserved. Target files that were changed since the last sync, as recorded by hash in `.agent-manager/shared-sync-state.json`, or that are dirty in git, block the apply unless `--force` is passed.
-- Component files the source no longer ships are deleted: files recorded by an earlier sync, files deleted in the source's git history (`git log --diff-filter=D`, carried by release bundles as `retired`), and target files matching an explicit (non-tree) include pattern. Files the source never had, the target's excludes and its overlay are left alone.
-- Repository alignment (`planAlignment`): missing `.agent-manager/categories/{pipeline,flow}.json` and `agent-routing.json` are seeded; the `pipeline` and `flow` entries of `companion-links.json` follow the source; `manage-agents/package.json` gets the source's `scripts`; `src/opencode.json` gains missing plugin directories; `.agent-manager/pipeline-profiles.json` and `export/categories/*-pipeline/` are removed. Release bundles carry these source files as `alignment` entries with hashes. `status` reports all of it as `obsoleteInTarget` and `alignment`.
+- Component files the source no longer ships are deleted: files recorded by an earlier sync, files deleted in the source's git history (`git log --diff-filter=D`, carried by release bundles as `retired`), and target files matching an explicit include pattern (one with a literal file-name prefix, such as `src/agents/pipeline-*.md`; `src/agents/*.md` is a tree pattern and claims nothing). Files the source never had, the target's excludes and its overlay are left alone.
+- Repository alignment (`planAlignment`): every category manifest and every `companion-links.json` entry the source has follows the source, except categories whose agents are overlay material (ontology); a missing `agent-routing.json` is seeded; `manage-agents/package.json` gets the source's `scripts`; `src/opencode.json` gains missing plugin directories; `.agent-manager/pipeline-profiles.json` and `export/categories/*-pipeline/` are removed. Release bundles carry these source files as `alignment` entries with hashes. `status` reports all of it as `obsoleteInTarget` and `alignment`.
 - Deletions and alignment writes are refused for locally modified files, like ordinary writes, unless `--force` is passed.
 - The apply is transactional: backups are taken first and restored if a step fails.
 - For `pipelineCore`, if the target has `.agent-manager/bash-profiles.json`, the apply runs `pipeline sync-bash` on the target unless `--no-refresh` is passed. The report field is `refreshed: { bashProfiles }`.

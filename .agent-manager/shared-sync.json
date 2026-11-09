@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "components": {
     "agentManager": {
-      "version": "1.2.0",
+      "version": "1.3.0",
       "description": "Shared Agent Manager CLI/TUI, validators, bridge translators, and bash permission profiles",
       "include": [
         "manage-agents.sh",
@@ -27,19 +27,22 @@
       ]
     },
     "pipelineCore": {
-      "version": "1.2.0",
-      "requiresAgentManager": ">=1.2.0 <2.0.0",
-      "description": "Shared canonical archetype agents (pipeline, flow), their commands, plugins, tools, skills and the benchmark",
+      "version": "1.3.0",
+      "requiresAgentManager": ">=1.3.0 <2.0.0",
+      "description": "Shared canonical catalog: every agent and command with the plugins, tools, skills, resources and documents they link, plus the benchmark",
       "include": [
+        "src/AGENTS.md",
+        "src/requirements.txt",
+        "src/agents/*.md",
         "src/agents/pipeline-*.md",
         "src/agents/flow-*.md",
-        "src/commands/pipeline-*",
-        "src/commands/flow-*",
+        "src/commands/**",
         "src/plugins/**",
         "src/tools/**",
         "src/skills/**",
         "src/resources/**",
-        "src/docs/mcp-configuration.md",
+        "src/docs/**",
+        "src/office/**",
         "src/bench/**",
         "src/bin/**"
       ],
@@ -53,6 +56,8 @@
       "src/skills/ontology-*/**",
       "src/resources/ontology/**",
       "src/ontology-pipeline.md",
+      "src/plugins/ontology-*/**",
+      "src/commands/ontology-*",
       ".agent-manager/agent-routing.json",
       "src/plugins/agent-router/routing.json",
       ".agent-manager/companion-links.json",

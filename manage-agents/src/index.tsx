@@ -1217,7 +1217,10 @@ async function runSharedSyncCLI(workspaceRoot: string) {
         if (!result.dryRun) {
           console.log("Poi, nella destinazione:")
           console.log("  npm --prefix manage-agents ci && npm --prefix manage-agents run validate   # rigenera categorie e routing.json e verifica")
+          console.log("  node manage-agents/manage-agents.mjs --no-auto-commit category build --all   # categorie e routing.json")
+          console.log("  node manage-agents/manage-agents.mjs --no-auto-commit bridge --category pipeline --target claude   # e --target codex")
           console.log("  node manage-agents/manage-agents.mjs export --all --yes                    # installa in OpenCode")
+          console.log("  TUI, tasto o: riordina export/categories/general se lo usi")
         }
       }
       return

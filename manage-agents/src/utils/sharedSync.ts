@@ -3,7 +3,6 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { spawnSync } from "node:child_process"
-import { discoverCompanionResourcePaths, findAgentFiles } from "./agents.js"
 import { syncBashProfiles } from "./bashProfiles.js"
 
 export const SHARED_SYNC_MANIFEST_PATH = ".agent-manager/shared-sync.json"
@@ -97,8 +96,6 @@ interface SharedSyncState {
 }
 
 const COMPONENTS: SharedComponentId[] = ["agentManager", "pipelineCore"]
-/** Agent families shipped by pipelineCore: canonical agents, commands and the companions they link. */
-const ARCHETYPE_IDS = ["pipeline", "flow"] as const
 const COMPONENT_ALIASES: Record<string, SharedComponentId | "all"> = {
   all: "all",
   "agent-manager": "agentManager",
@@ -117,8 +114,9 @@ function componentPathAllowed(component: SharedComponentId, value: string): bool
   if (component === "agentManager") {
     return value === "manage-agents.sh" || value.startsWith("manage-agents/") || value.startsWith(".agent-manager/")
   }
-  return [...ARCHETYPE_IDS.flatMap(id => [`src/agents/${id}-`, `src/commands/${id}-`]), "src/plugins/", "src/tools/", "src/skills/", "src/resources/", "src/docs/", "src/bench/", "src/bin/"]
-    .some(prefix => value.startsWith(prefix))
+  return value === "src/AGENTS.md" || value === "src/requirements.txt" ||
+    ["src/agents/", "src/commands/", "src/plugins/", "src/tools/", "src/skills/", "src/resources/", "src/docs/", "src/office/", "src/bench/", "src/bin/"]
+      .some(prefix => value.startsWith(prefix))
 }
 
 function isRecord(value: unknown): value is Record<string, any> {
@@ -350,34 +348,6 @@ export function collectComponentFiles(repoRoot: string, manifest: SharedSyncMani
   const component = manifest.components[componentId]
   const excluded = [...component.exclude, ...manifest.localOverlay.neverOverwrite]
   const files = walkFiles(repoRoot, relative => isGlobExcluded(relative, excluded))
-  if (componentId === "pipelineCore") {
-    const BROAD_COMPANION_TREES = new Set(["src/plugins/**", "src/tools/**", "src/skills/**", "src/resources/**"])
-    const explicitPatterns = component.include.filter(pattern => !BROAD_COMPANION_TREES.has(pattern))
-    const discoveredCompanions = new Set<string>()
-    const sourceRoot = path.join(repoRoot, "src")
-    const sourceStat = fs.lstatSync(sourceRoot, { throwIfNoEntry: false })
-    if (sourceStat?.isDirectory() && !sourceStat.isSymbolicLink()) {
-      const agentsDirectory = path.join(sourceRoot, "agents")
-      const agentsStat = fs.lstatSync(agentsDirectory, { throwIfNoEntry: false })
-      const archetypeAgents = agentsStat?.isDirectory() && !agentsStat.isSymbolicLink()
-        ? findAgentFiles(repoRoot, "src").filter(agent => (ARCHETYPE_IDS as readonly string[]).includes(agent.category))
-        : []
-      for (const relative of discoverCompanionResourcePaths(sourceRoot, [...ARCHETYPE_IDS], undefined, archetypeAgents)) {
-        discoveredCompanions.add(`src/${relative}`)
-      }
-    }
-    return files
-      .filter(relative => {
-        if (!matchesAny(relative, component.include)) return false
-        if (explicitPatterns.length === component.include.length) return true
-        return matchesAny(relative, explicitPatterns) || discoveredCompanions.has(relative) ||
-          relative === "src/plugins/README.md" ||
-          // Tests travel with the helpers they cover: the target's test script runs every src/tools test.
-          (/^src\/tools\/(?:[^/]*pipeline[^/]*|_[a-z0-9_.-]+)$/i.test(relative) && !/\.d\.ts$/i.test(relative))
-      })
-      .sort(compareStrings)
-      .map(relative => fileMetadata(componentId, relative, path.join(repoRoot, ...relative.split("/"))))
-  }
   return files
     .filter(relative => matchesAny(relative, component.include))
     .sort(compareStrings)
@@ -465,7 +435,7 @@ function verifyReleaseBundle(root: string): SharedSyncReleaseIndex {
     }
   }
   for (const entry of index.alignment ?? []) {
-    if (!isRecord(entry) || !ALIGNMENT_SOURCES.includes(entry.path) || !/^[a-f0-9]{64}$/.test(entry.sha256) || !Number.isInteger(entry.size)) {
+    if (!isRecord(entry) || typeof entry.path !== "string" || !isAlignmentSource(entry.path) || !/^[a-f0-9]{64}$/.test(entry.sha256) || !Number.isInteger(entry.size)) {
       throw new Error("Shared sync release contains an unsafe alignment entry.")
     }
     ensureNoSymlinkPath(filesRoot, entry.path)
@@ -533,7 +503,7 @@ function resolveSource(sourceRoot: string, components?: SharedComponentId[], ver
     const retired = (index.retired ?? []).filter(entry => selected.includes(entry.component))
     const alignment = new Map<string, Buffer>()
     for (const entry of index.alignment ?? []) {
-      if (alignmentSourcesFor(selected).includes(entry.path)) alignment.set(entry.path, fs.readFileSync(path.join(sourceRoot, "files", ...entry.path.split("/"))))
+      if (alignmentSourceSelected(entry.path, selected)) alignment.set(entry.path, fs.readFileSync(path.join(sourceRoot, "files", ...entry.path.split("/"))))
     }
     return { isBundle: true, manifest, index, files, sourceCommit: index.sourceCommit ?? null, components: componentMetadata, retired, alignment }
   }
@@ -593,30 +563,41 @@ function retiredFromHistory(repoRoot: string, manifest: SharedSyncManifest, sele
 
 // --- Repository alignment -------------------------------------------------------------------
 //
-// Component files are not enough to bring a target to parity: the archetypes also need their
-// category manifests, the model configurations and the companion links, which are local overlay
-// files, and the manager needs its package scripts. Apply aligns exactly these, and removes the
-// outputs of the retired stamped pipeline profiles.
+// Component files are not enough to bring a target to parity: every category also needs its
+// manifest and its companion links, the archetypes their model configurations, and the manager its
+// package scripts. These live in the local overlay, so apply aligns exactly the entries the source
+// has and leaves the target's own categories (ontology, say) alone. It also removes the outputs of
+// the retired stamped pipeline profiles.
 
 const PACKAGE_JSON = "manage-agents/package.json"
 const OPENCODE_BLUEPRINT = "src/opencode.json"
 const COMPANION_LINKS = ".agent-manager/companion-links.json"
 const AGENT_ROUTING = ".agent-manager/agent-routing.json"
-const ARCHETYPE_MANIFESTS = ARCHETYPE_IDS.map(id => `.agent-manager/categories/${id}.json`)
-const ALIGNMENT_SOURCES = [PACKAGE_JSON, OPENCODE_BLUEPRINT, COMPANION_LINKS, AGENT_ROUTING, ...ARCHETYPE_MANIFESTS]
+const CATEGORY_MANIFEST = /^\.agent-manager\/categories\/([a-z0-9][a-z0-9-]*)\.json$/
+
+function isAlignmentSource(relative: string): boolean {
+  return [PACKAGE_JSON, OPENCODE_BLUEPRINT, COMPANION_LINKS, AGENT_ROUTING].includes(relative) || CATEGORY_MANIFEST.test(relative)
+}
+
+/** A category whose agents are local overlay material (ontology) is the target's own. */
+function localCategory(id: string, overlayPatterns: string[]): boolean {
+  return matchesAny(`src/agents/${id}-x.md`, overlayPatterns)
+}
 const RETIRED_GENERATED_FILES = [".agent-manager/pipeline-profiles.json"]
 const RETIRED_GENERATED_BUNDLE = /^[a-z0-9][a-z0-9_-]*-pipeline$/
 
-function alignmentSourcesFor(selected: SharedComponentId[]): string[] {
-  return [
-    ...(selected.includes("agentManager") ? [PACKAGE_JSON] : []),
-    ...(selected.includes("pipelineCore") ? [OPENCODE_BLUEPRINT, COMPANION_LINKS, AGENT_ROUTING, ...ARCHETYPE_MANIFESTS] : [])
-  ]
+function alignmentSourceSelected(relative: string, selected: SharedComponentId[]): boolean {
+  return relative === PACKAGE_JSON ? selected.includes("agentManager") : selected.includes("pipelineCore")
 }
 
 function readAlignmentSources(repoRoot: string, selected: SharedComponentId[]): Map<string, Buffer> {
   const sources = new Map<string, Buffer>()
-  for (const relative of alignmentSourcesFor(selected)) {
+  const categories = path.join(repoRoot, ".agent-manager", "categories")
+  const manifests = fs.lstatSync(categories, { throwIfNoEntry: false })?.isDirectory()
+    ? fs.readdirSync(categories).map(name => `.agent-manager/categories/${name}`).filter(relative => CATEGORY_MANIFEST.test(relative))
+    : []
+  for (const relative of [PACKAGE_JSON, OPENCODE_BLUEPRINT, COMPANION_LINKS, AGENT_ROUTING, ...manifests.sort(compareStrings)]) {
+    if (!alignmentSourceSelected(relative, selected)) continue
     ensureNoSymlinkPath(repoRoot, relative)
     const file = path.join(repoRoot, ...relative.split("/"))
     if (!fs.lstatSync(file, { throwIfNoEntry: false })) continue
@@ -651,7 +632,7 @@ function targetFilesUnder(targetRoot: string, relativeDirectory: string): string
   return walkFiles(directory, () => false).map(relative => `${relativeDirectory}/${relative}`)
 }
 
-function planAlignment(source: ResolvedSource, targetRoot: string, selected: SharedComponentId[]): AlignmentPlan {
+function planAlignment(source: ResolvedSource, targetRoot: string, selected: SharedComponentId[], overlayPatterns: string[]): AlignmentPlan {
   const plan: AlignmentPlan = { writes: [], deletes: [] }
   const write = (relative: string, bytes: Buffer, reason: string) => {
     const current = readTargetFile(targetRoot, relative)
@@ -668,22 +649,25 @@ function planAlignment(source: ResolvedSource, targetRoot: string, selected: Sha
     }
   }
   if (selected.includes("pipelineCore")) {
-    for (const relative of [AGENT_ROUTING, ...ARCHETYPE_MANIFESTS]) {
-      const bytes = source.alignment.get(relative)
-      if (bytes && !readTargetFile(targetRoot, relative)) write(relative, bytes, "missing archetype configuration")
+    // Model configurations depend on the providers of each machine: only a missing file is seeded.
+    const routing = source.alignment.get(AGENT_ROUTING)
+    if (routing && !readTargetFile(targetRoot, AGENT_ROUTING)) write(AGENT_ROUTING, routing, "missing model configurations")
+    for (const [relative, bytes] of source.alignment) {
+      const id = relative.match(CATEGORY_MANIFEST)?.[1]
+      if (id && !localCategory(id, overlayPatterns)) write(relative, bytes, "category manifest")
     }
     const sourceLinks = source.alignment.get(COMPANION_LINKS)
     if (sourceLinks) {
       const targetLinks = readTargetFile(targetRoot, COMPANION_LINKS)
       if (!targetLinks) write(COMPANION_LINKS, sourceLinks, "missing companion links")
       else {
-        // Only the archetype categories are shared; the target's other categories stay as they are.
+        // Every category the source has follows the source; the target's own categories stay.
         const links = parseJson(sourceLinks, COMPANION_LINKS)
         const target = parseJson(targetLinks.bytes, COMPANION_LINKS)
         if (isRecord(links?.categories) && isRecord(target) && isRecord(target.categories)) {
           const categories = { ...target.categories }
-          for (const id of ARCHETYPE_IDS) if (isRecord(links.categories[id])) categories[id] = links.categories[id]
-          write(COMPANION_LINKS, jsonBytes({ ...target, categories }, targetLinks.bytes), "archetype companion links")
+          for (const [id, entry] of Object.entries(links.categories)) if (isRecord(entry) && !localCategory(id, overlayPatterns)) categories[id] = entry
+          write(COMPANION_LINKS, jsonBytes({ ...target, categories }, targetLinks.bytes), "companion links")
         }
       }
     }
@@ -715,6 +699,15 @@ function planAlignment(source: ResolvedSource, targetRoot: string, selected: Sha
 }
 
 /**
+ * A tree pattern covers whatever a directory holds ("src/tools/**", "src/agents/*.md"): the target
+ * may keep its own files there, so only an explicit pattern ("src/agents/pipeline-*.md") claims
+ * every matching target file.
+ */
+function isTreePattern(pattern: string): boolean {
+  return pattern.endsWith("/**") || path.posix.basename(pattern).startsWith("*")
+}
+
+/**
  * Target files that a selected component owns and the source no longer ships: recorded by an
  * earlier sync, deleted in the source history, or matching an explicit (non-tree) include pattern.
  */
@@ -724,7 +717,7 @@ function obsoleteTargetFiles(source: ResolvedSource, targetRoot: string, state: 
   const live = new Set(source.files.map(file => file.entry.path))
   const candidates = new Set<string>([...Object.keys(state?.files ?? {}), ...source.retired.map(entry => entry.path)])
   for (const id of selected) {
-    for (const pattern of source.manifest.components[id].include.filter(pattern => !pattern.endsWith("/**"))) {
+    for (const pattern of source.manifest.components[id].include.filter(pattern => !isTreePattern(pattern))) {
       const prefix = pattern.split(/[*?]/, 1)[0]
       const directory = prefix.endsWith("/") ? prefix.slice(0, -1) : path.posix.dirname(prefix)
       if (directory === "." || directory === "") continue
@@ -941,7 +934,7 @@ function comparisonFor(source: ResolvedSource, targetRoot: string, components?: 
   }
   for (const relative of Object.keys(state?.files ?? {})) relevantPaths.add(relative)
   result.obsoleteInTarget = obsoleteTargetFiles(source, targetRoot, state, selected, overlayPatterns, targetManifest)
-  const alignment = planAlignment(source, targetRoot, selected)
+  const alignment = planAlignment(source, targetRoot, selected, overlayPatterns)
   result.alignment = describeAlignment(alignment)
   for (const relative of [...result.obsoleteInTarget, ...alignment.writes.map(entry => entry.path), ...alignment.deletes.map(entry => entry.path)]) relevantPaths.add(relative)
   result.dirtyTargetFiles = targetDirtyFiles(targetRoot, relevantPaths, state)
@@ -1235,7 +1228,7 @@ export function applySharedSync(options: {
   }
   const obsolete = obsoleteTargetFiles(source, options.targetRoot, state, selected, overlayPatterns, targetManifest)
   for (const relative of obsolete) operations.push({ action: "delete", path: relative, reason: "no longer shipped by the source" })
-  const alignment = planAlignment(source, options.targetRoot, selected)
+  const alignment = planAlignment(source, options.targetRoot, selected, overlayPatterns)
   for (const entry of alignment.writes) operations.push({ action: "write", path: entry.path, reason: entry.reason })
   for (const entry of alignment.deletes) operations.push({ action: "delete", path: entry.path, reason: entry.reason })
   const deletions = [...obsolete, ...alignment.deletes.map(entry => entry.path)]

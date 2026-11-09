@@ -194,7 +194,7 @@ test("manifest validation, semver ranges, and overlay exclusions", () => {
   }), /allowed component prefixes/)
   assert.throws(() => validateSharedSyncManifest({
     ...loaded,
-    components: { ...loaded.components, pipelineCore: { ...loaded.components.pipelineCore, include: ["src/agents/**"] } }
+    components: { ...loaded.components, pipelineCore: { ...loaded.components.pipelineCore, include: ["src/opencode.json"] } }
   }), /allowed component prefixes/)
 
   const broad = structuredClone(loaded)
@@ -267,7 +267,7 @@ test("pipelineCore ships V2 plugin directory files", () => {
   assert.equal(fs.existsSync(path.join(target, "src/plugins/pipeline-guard" + ".js")), false)
 })
 
-test("pipelineCore structural companion trees collect linked skills and transitive tool dependencies", () => {
+test("pipelineCore structural trees ship whole, linked or not", () => {
   const source = createRepo(makeTempRoot(), structuralPipelineManifest())
   writeCompanionDiscoverySource(source)
 
@@ -278,11 +278,10 @@ test("pipelineCore structural companion trees collect linked skills and transiti
     "src/tools/_tool.ts",
     "src/tools/_python.js",
     "src/tools/_doc_theme.template.css",
-    "src/skills/code-review-antipatterns/SKILL.md"
+    "src/skills/code-review-antipatterns/SKILL.md",
+    "src/skills/wiki-navigate/SKILL.md",
+    "src/tools/docx/scripts/create_document.py"
   ]) assert.ok(collected.includes(relative), `${relative} must be included`)
-  for (const relative of ["src/skills/wiki-navigate/SKILL.md", "src/tools/docx/scripts/create_document.py"]) {
-    assert.equal(collected.includes(relative), false, `${relative} must stay excluded`)
-  }
 })
 
 test("apply accepts discovered tools and skills allowed by structural target trees", () => {
@@ -539,8 +538,10 @@ function writeAlignmentSource(root: string): void {
   writeFile(root, ".agent-manager/agent-routing.json", "{ \"version\": 2, \"archetypes\": {} }\n")
   writeFile(root, ".agent-manager/companion-links.json", `${JSON.stringify({ version: 1, categories: {
     pipeline: { plugins: ["plugins/agent-router"], commands: [], skills: [], tools: [] },
-    flow: { plugins: ["plugins/flow-guard"], commands: [], skills: [], tools: [] }
+    flow: { plugins: ["plugins/flow-guard"], commands: [], skills: [], tools: [] },
+    ontology: { plugins: ["plugins/source-ontology"], commands: [], skills: [], tools: [] }
   } }, null, 2)}\n`)
+  writeFile(root, ".agent-manager/categories/wiki.json", "{ \"id\": \"wiki\", \"skills\": 2 }\n")
   writeFile(root, "manage-agents/package.json", `${JSON.stringify({ name: "manage-agents", scripts: { test: "new test" } }, null, 2)}\n`)
   writeFile(root, "src/opencode.json", `${JSON.stringify({ plugins: ["./plugins/a", "./plugins/b"] }, null, 4)}\n`)
 }
@@ -553,8 +554,11 @@ test("apply aligns archetype configuration, package scripts and the blueprint, a
   writeFile(target, ".agent-manager/categories/flow.json", "{ \"id\": \"flow\", \"local\": true }\n")
   writeFile(target, ".agent-manager/companion-links.json", `${JSON.stringify({ version: 1, categories: {
     pipeline: { plugins: ["plugins/pipeline-guard"], commands: [], skills: [], tools: ["tools/pipeline_verify.ts"] },
-    docs: { plugins: ["plugins/doc-tools"], commands: [], skills: [], tools: [] }
+    docs: { plugins: ["plugins/doc-tools"], commands: [], skills: [], tools: [] },
+    ontology: { plugins: ["plugins/twin-ontology"], commands: [], skills: [], tools: [] }
   } }, null, 2)}\n`)
+  writeFile(target, ".agent-manager/categories/wiki.json", "{ \"id\": \"wiki\", \"skills\": 0 }\n")
+  writeFile(target, ".agent-manager/categories/ontology.json", "{ \"id\": \"ontology\" }\n")
   writeFile(target, "manage-agents/package.json", `${JSON.stringify({ name: "manage-agents", scripts: { test: "old test", local: "keep" }, dependencies: { yaml: "1" } }, null, 4)}\n`)
   writeFile(target, "src/opencode.json", `${JSON.stringify({ theme: "local", plugins: ["./plugins/a", "./plugins/local"] }, null, 4)}\n`)
   writeFile(target, ".agent-manager/pipeline-profiles.json", "{}\n")
@@ -568,12 +572,15 @@ test("apply aligns archetype configuration, package scripts and the blueprint, a
 
   const read = (relative: string) => fs.readFileSync(path.join(target, ...relative.split("/")), "utf8")
   assert.equal(read(".agent-manager/categories/pipeline.json"), "{ \"id\": \"pipeline\" }\n", "a missing archetype manifest is seeded")
-  assert.equal(read(".agent-manager/categories/flow.json"), "{ \"id\": \"flow\", \"local\": true }\n", "an existing one is local")
+  assert.equal(read(".agent-manager/categories/flow.json"), "{ \"id\": \"flow\" }\n", "an existing one follows the source")
+  assert.equal(read(".agent-manager/categories/wiki.json"), "{ \"id\": \"wiki\", \"skills\": 2 }\n", "every category the source has, not only the archetypes")
+  assert.equal(read(".agent-manager/categories/ontology.json"), "{ \"id\": \"ontology\" }\n", "the target's own categories stay")
   assert.equal(read(".agent-manager/agent-routing.json"), "{ \"version\": 2, \"archetypes\": {} }\n")
   const links = JSON.parse(read(".agent-manager/companion-links.json"))
   assert.deepEqual(links.categories.pipeline.plugins, ["plugins/agent-router"], "archetype links follow the source")
   assert.deepEqual(links.categories.flow.plugins, ["plugins/flow-guard"])
-  assert.deepEqual(links.categories.docs.plugins, ["plugins/doc-tools"], "other categories stay local")
+  assert.deepEqual(links.categories.docs.plugins, ["plugins/doc-tools"], "categories the source lacks stay")
+  assert.deepEqual(links.categories.ontology.plugins, ["plugins/twin-ontology"], "overlay categories stay local")
   const pkg = read("manage-agents/package.json")
   assert.deepEqual(JSON.parse(pkg), { name: "manage-agents", scripts: { test: "new test", local: "keep" }, dependencies: { yaml: "1" } })
   assert.match(pkg, /^\{\n {4}"name"/, "the target's indentation is kept")
