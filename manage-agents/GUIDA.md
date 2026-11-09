@@ -162,13 +162,24 @@ Il flusso standard è **dal repository personale/originale alla repository di la
 - Fonte di verità: `~/dev/agents`.
 - Destinazione di lavoro: `~/altro/agents`.
 
-La sync trasferisce solo i componenti condivisi dichiarati in `.agent-manager/shared-sync.json`. Non è una copia completa delle repository e non importa le personalizzazioni locali della destinazione. È possibile confrontare direttamente le due repository oppure creare un bundle di rilascio verificabile e trasferirlo separatamente.
+La sync trasferisce i componenti condivisi dichiarati in `.agent-manager/shared-sync.json` e porta la destinazione alla pari con la fonte: scrive i file nuovi o cambiati, elimina quelli che la fonte non distribuisce più e allinea la configurazione degli archetipi (vedi sotto). Non è una copia completa delle repository e non tocca le personalizzazioni locali della destinazione. È possibile confrontare direttamente le due repository oppure creare un bundle di rilascio verificabile e trasferirlo separatamente.
 
 ### Le tre categorie e le regole d’oro
 
 1. **`agentManager`: condiviso e versionato.** Comprende la CLI/TUI `manage-agents/**`, `manage-agents.sh`, `.agent-manager/bash-profiles.json` e `.agent-manager/translation-config.json`. La lista precisa dei file inclusi/esclusi è nel manifest.
-2. **`pipelineCore`: condiviso e versionato.** Comprende gli agenti canonici `src/agents/pipeline-*.md`, i comandi `src/commands/pipeline-*`, gli alberi interi `src/plugins/**`, `src/tools/**`, `src/skills/**` e `src/resources/**` (quindi anche i plugin e gli helper condivisi con `flow`) e `src/docs/mcp-configuration.md`.
+2. **`pipelineCore`: condiviso e versionato.** Comprende gli agenti canonici dei due archetipi (`src/agents/pipeline-*.md`, `src/agents/flow-*.md`) con i loro comandi, gli alberi `src/plugins/**`, `src/tools/**` (test compresi), `src/skills/**`, `src/resources/**`, `src/bench/**` e `src/bin/**`, e `src/docs/mcp-configuration.md`.
 3. **`localOverlay`: locale a ciascuna repository e mai sovrascritto dalla sync.** Comprende lo stack Ontology (`src/agents/ontology-*.md`, `src/tools/ontology/**`, `src/skills/ontology-*/**`, `src/resources/ontology/**`, `src/ontology-pipeline.md`), le configurazioni modelli locali (`.agent-manager/agent-routing.json` e il file generato `src/plugins/agent-router/routing.json`), `.agent-manager/companion-links.json`, `.agent-manager/categories/**` e `src/opencode.json`. Anche gli output generati `export/categories/**` e `export/bridges/**` restano locali: la sync non li copia dalla fonte. Dopo l’applicazione di `pipelineCore`, distribuzioni di categoria e bridge si rigenerano con i rispettivi comandi (`category build` e `bridge`).
+
+### Cosa porta alla pari oltre ai file condivisi
+
+Copiare i file non basta: gli archetipi hanno bisogno anche di configurazione che vive nell’overlay locale. Per questo `apply` fa alcune operazioni mirate, sempre elencate prima da `status` e da `apply --dry-run`:
+
+- **Elimina i file obsoleti.** Sono i file di un componente che la fonte non distribuisce più: quelli installati da un sync precedente (registrati in `.agent-manager/shared-sync-state.json`), quelli cancellati nella storia git della fonte e quelli che corrispondono a un pattern esplicito, come `src/agents/pipeline-*.md`. Un file che la fonte non ha mai avuto non viene toccato. Anche gli `exclude` e l’overlay della destinazione restano intoccabili.
+- **Crea ciò che manca:** i manifest `.agent-manager/categories/pipeline.json` e `flow.json` e `.agent-manager/agent-routing.json`, solo se la destinazione non li ha. Se esistono, restano locali.
+- **Allinea le voci condivise:** in `companion-links.json` le categorie `pipeline` e `flow` diventano quelle della fonte, mentre le altre categorie restano come sono. In `manage-agents/package.json` si aggiornano solo gli `scripts`, mai le dipendenze. In `src/opencode.json` si aggiungono le directory plugin che mancano. L’indentazione dei file resta quella della destinazione.
+- **Rimuove i resti dei profili timbrati:** `.agent-manager/pipeline-profiles.json` e le cartelle `export/categories/*-pipeline`.
+
+I file modificati localmente bloccano anche le eliminazioni, come le scritture, salvo `--force`. Un pacchetto creato con `release` porta con sé l’elenco dei file ritirati e i file di configurazione da allineare, con i loro hash.
 
 **Regole pratiche:** modifica il manager e il core pipeline nella repository fonte; conserva configurazioni modelli, overlay e configurazioni specifiche nella repository di destinazione. Non spostare file da una categoria all’altra senza aggiornare `.agent-manager/shared-sync.json`: è il manifest che definisce cosa è condiviso, cosa è protetto e quali versioni sono compatibili.
 
@@ -206,7 +217,15 @@ Esegui gli esempi dalla radice della repository fonte (`~/dev/agents`):
    ./manage-agents.sh sync apply --target ~/altro/agents
    ```
 
-   Con `pipelineCore`, il comando esegue anche `pipeline sync-bash` sulla destinazione se questa ha `.agent-manager/bash-profiles.json`; nel report JSON l’esito è in `refreshed.bashProfiles`. Per saltarlo usa `--no-refresh`. Prima dell’applicazione controlla e risolvi eventuali modifiche locali; non viene creato alcun commit automatico. Al termine verifica la destinazione con `git diff` e `git status`.
+   Con `pipelineCore`, il comando esegue anche `pipeline sync-bash` sulla destinazione se questa ha `.agent-manager/bash-profiles.json`; nel report JSON l’esito è in `refreshed.bashProfiles`. Per saltarlo usa `--no-refresh`. Prima dell’applicazione controlla e risolvi eventuali modifiche locali; non viene creato alcun commit automatico. Al termine verifica la destinazione con `git diff` e `git status`, poi rigenera e verifica nella destinazione:
+
+   ```bash
+   node manage-agents/manage-agents.mjs --no-auto-commit category build --all
+   node manage-agents/manage-agents.mjs --no-auto-commit bridge --category pipeline --target claude
+   node manage-agents/manage-agents.mjs --no-auto-commit bridge --category pipeline --target codex
+   npm --prefix manage-agents ci && npm --prefix manage-agents run validate
+   node manage-agents/manage-agents.mjs export --all --yes
+   ```
 
 4. In alternativa, crea un bundle versionato con `release-index.json` e hash SHA-256, quindi applicalo:
 

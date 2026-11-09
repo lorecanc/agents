@@ -1,6 +1,7 @@
 import fs from "node:fs"
 import path from "node:path"
-import { parseAgentFile, resolveSourceSubdir } from "./agents.js"
+import { parseAgentFile, resolveCategoriesSubdir, resolveSourceSubdir } from "./agents.js"
+import { buildCategoryDistribution } from "./categoryDistribution.js"
 
 // Model configurations for archetypes (see ARCHETIPI.md and src/plugins/agent-router).
 //
@@ -61,6 +62,18 @@ const ARCHETYPES: Record<string, { reference: string }> = {
 }
 
 export const ROUTABLE_ARCHETYPES = Object.keys(ARCHETYPES)
+
+/** Archetypes distributed through a category manifest: each bundle ships the shared routing.json. */
+export function archetypeBundles(workspaceRoot: string): Array<{ id: string; output: string }> {
+  return ROUTABLE_ARCHETYPES
+    .filter(id => fs.existsSync(path.join(workspaceRoot, ".agent-manager", "categories", `${id}.json`)))
+    .map(id => ({ id, output: path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot), id) }))
+}
+
+/** routing.json holds every archetype, so a configuration change rebuilds every archetype bundle. */
+export function rebuildArchetypeBundles(workspaceRoot: string): void {
+  for (const { id } of archetypeBundles(workspaceRoot)) buildCategoryDistribution(workspaceRoot, id)
+}
 
 export function isRoutableArchetype(id: string | undefined | null): id is string {
   return typeof id === "string" && Object.prototype.hasOwnProperty.call(ARCHETYPES, id)

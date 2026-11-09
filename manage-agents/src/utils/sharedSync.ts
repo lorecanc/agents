@@ -41,19 +41,38 @@ export interface SharedSyncComparison {
   missingInTarget: string[]
   protectedByOverlay: string[]
   dirtyTargetFiles: string[]
+  /** Target files a selected component installed earlier and the source no longer ships: apply deletes them. */
+  obsoleteInTarget: string[]
+  /** Repository alignment apply performs besides the component files, as "write <path> (<reason>)" or "delete <path> (<reason>)". */
+  alignment: string[]
 }
 
 export interface SharedSyncOperation {
-  action: "write" | "preserve"
+  action: "write" | "preserve" | "delete"
   path: string
   component?: SharedComponentId
+  reason?: string
 }
 
 export interface SharedSyncApplyResult extends SharedSyncComparison {
   dryRun: boolean
   updated: string[]
+  removed: string[]
   operations: SharedSyncOperation[]
   sourceCommit: string | null
+}
+
+/** A file the source once shipped and later deleted: the target may still have it. */
+export interface SharedSyncRetiredEntry {
+  component: SharedComponentId
+  path: string
+}
+
+/** A source configuration file used to align the target (seeded, merged), carried by releases. */
+interface SharedSyncAlignmentEntry {
+  path: string
+  sha256: string
+  size: number
 }
 
 interface SharedSyncReleaseIndex {
@@ -65,6 +84,8 @@ interface SharedSyncReleaseIndex {
   manifest: { path: string; sha256: string; size: number; mode: SharedSyncMode }
   entries: SharedSyncFileEntry[]
   contentDigest: string
+  retired?: SharedSyncRetiredEntry[]
+  alignment?: SharedSyncAlignmentEntry[]
 }
 
 interface SharedSyncState {
@@ -76,6 +97,8 @@ interface SharedSyncState {
 }
 
 const COMPONENTS: SharedComponentId[] = ["agentManager", "pipelineCore"]
+/** Agent families shipped by pipelineCore: canonical agents, commands and the companions they link. */
+const ARCHETYPE_IDS = ["pipeline", "flow"] as const
 const COMPONENT_ALIASES: Record<string, SharedComponentId | "all"> = {
   all: "all",
   "agent-manager": "agentManager",
@@ -94,7 +117,7 @@ function componentPathAllowed(component: SharedComponentId, value: string): bool
   if (component === "agentManager") {
     return value === "manage-agents.sh" || value.startsWith("manage-agents/") || value.startsWith(".agent-manager/")
   }
-  return ["src/agents/pipeline-", "src/commands/pipeline-", "src/plugins/", "src/tools/", "src/skills/", "src/resources/", "src/docs/"]
+  return [...ARCHETYPE_IDS.flatMap(id => [`src/agents/${id}-`, `src/commands/${id}-`]), "src/plugins/", "src/tools/", "src/skills/", "src/resources/", "src/docs/", "src/bench/", "src/bin/"]
     .some(prefix => value.startsWith(prefix))
 }
 
@@ -336,10 +359,10 @@ export function collectComponentFiles(repoRoot: string, manifest: SharedSyncMani
     if (sourceStat?.isDirectory() && !sourceStat.isSymbolicLink()) {
       const agentsDirectory = path.join(sourceRoot, "agents")
       const agentsStat = fs.lstatSync(agentsDirectory, { throwIfNoEntry: false })
-      const pipelineAgents = agentsStat?.isDirectory() && !agentsStat.isSymbolicLink()
-        ? findAgentFiles(repoRoot, "src").filter(agent => agent.category === "pipeline")
+      const archetypeAgents = agentsStat?.isDirectory() && !agentsStat.isSymbolicLink()
+        ? findAgentFiles(repoRoot, "src").filter(agent => (ARCHETYPE_IDS as readonly string[]).includes(agent.category))
         : []
-      for (const relative of discoverCompanionResourcePaths(sourceRoot, ["pipeline"], undefined, pipelineAgents)) {
+      for (const relative of discoverCompanionResourcePaths(sourceRoot, [...ARCHETYPE_IDS], undefined, archetypeAgents)) {
         discoveredCompanions.add(`src/${relative}`)
       }
     }
@@ -349,10 +372,8 @@ export function collectComponentFiles(repoRoot: string, manifest: SharedSyncMani
         if (explicitPatterns.length === component.include.length) return true
         return matchesAny(relative, explicitPatterns) || discoveredCompanions.has(relative) ||
           relative === "src/plugins/README.md" ||
-          (/^src\/tools\/(?:[^/]*pipeline[^/]*|_[a-z0-9_.-]+)$/i.test(relative) &&
-            !/\.(?:test|spec)\.[^/]+$/i.test(relative) &&
-            !/^src\/tools\/.*_testutil\./i.test(relative) &&
-            !/\.d\.ts$/i.test(relative))
+          // Tests travel with the helpers they cover: the target's test script runs every src/tools test.
+          (/^src\/tools\/(?:[^/]*pipeline[^/]*|_[a-z0-9_.-]+)$/i.test(relative) && !/\.d\.ts$/i.test(relative))
       })
       .sort(compareStrings)
       .map(relative => fileMetadata(componentId, relative, path.join(repoRoot, ...relative.split("/"))))
@@ -437,6 +458,22 @@ function verifyReleaseBundle(root: string): SharedSyncReleaseIndex {
   const manifestBytes = fs.readFileSync(manifestFile)
   if (crypto.createHash("sha256").update(manifestBytes).digest("hex") !== index.manifest.sha256 || manifestBytes.length !== index.manifest.size ||
     (manifestStat.mode & 0o111 ? 0o755 : 0o644) !== index.manifest.mode) throw new Error(`Shared sync release hash mismatch: ${index.manifest.path}`)
+  for (const retired of index.retired ?? []) {
+    if (!isRecord(retired) || !COMPONENTS.includes(retired.component) || typeof retired.path !== "string" || !isSafeGlob(retired.path) ||
+      retired.path.includes("*") || retired.path.includes("?") || !componentPathAllowed(retired.component, retired.path)) {
+      throw new Error("Shared sync release contains an unsafe retired entry.")
+    }
+  }
+  for (const entry of index.alignment ?? []) {
+    if (!isRecord(entry) || !ALIGNMENT_SOURCES.includes(entry.path) || !/^[a-f0-9]{64}$/.test(entry.sha256) || !Number.isInteger(entry.size)) {
+      throw new Error("Shared sync release contains an unsafe alignment entry.")
+    }
+    ensureNoSymlinkPath(filesRoot, entry.path)
+    const bytes = fs.readFileSync(path.join(filesRoot, ...entry.path.split("/")))
+    if (crypto.createHash("sha256").update(bytes).digest("hex") !== entry.sha256 || bytes.length !== entry.size) {
+      throw new Error(`Shared sync release hash mismatch: ${entry.path}`)
+    }
+  }
   return index
 }
 
@@ -452,6 +489,9 @@ interface ResolvedSource {
   files: SourceFile[]
   sourceCommit: string | null
   components: Partial<Record<SharedComponentId, SharedSyncComponentManifest>>
+  retired: SharedSyncRetiredEntry[]
+  /** Source configuration files for repository alignment, keyed by repository-relative path. */
+  alignment: Map<string, Buffer>
 }
 
 function loadBundleManifest(root: string): SharedSyncManifest {
@@ -490,7 +530,12 @@ function resolveSource(sourceRoot: string, components?: SharedComponentId[], ver
       if (indexed) componentMetadata[id] = indexed
       else if (manifest.components[id]) componentMetadata[id] = manifest.components[id]
     }
-    return { isBundle: true, manifest, index, files, sourceCommit: index.sourceCommit ?? null, components: componentMetadata }
+    const retired = (index.retired ?? []).filter(entry => selected.includes(entry.component))
+    const alignment = new Map<string, Buffer>()
+    for (const entry of index.alignment ?? []) {
+      if (alignmentSourcesFor(selected).includes(entry.path)) alignment.set(entry.path, fs.readFileSync(path.join(sourceRoot, "files", ...entry.path.split("/"))))
+    }
+    return { isBundle: true, manifest, index, files, sourceCommit: index.sourceCommit ?? null, components: componentMetadata, retired, alignment }
   }
   const manifest = loadSharedSyncManifest(sourceRoot)
   const files: SourceFile[] = []
@@ -505,7 +550,231 @@ function resolveSource(sourceRoot: string, components?: SharedComponentId[], ver
     manifest,
     files,
     sourceCommit: sourceCommitFor(sourceRoot),
-    components: Object.fromEntries(selected.map(id => [id, manifest.components[id]]))
+    components: Object.fromEntries(selected.map(id => [id, manifest.components[id]])),
+    retired: retiredFromHistory(sourceRoot, manifest, selected),
+    alignment: readAlignmentSources(sourceRoot, selected)
+  }
+}
+
+/** Whether a path belongs to a component: allowed prefix, included, and not excluded or local. */
+function ownedByComponent(id: SharedComponentId, relative: string, manifest: SharedSyncManifest, overlayPatterns: string[]): boolean {
+  const component = manifest.components[id]
+  return componentPathAllowed(id, relative) && !isAlwaysExcluded(relative) && matchesAny(relative, component.include) &&
+    !isGlobExcluded(relative, [...component.exclude, ...overlayPatterns])
+}
+
+/**
+ * Files the source repository deleted in its history and no longer has, per component. A target
+ * that never synced before has no state file, so this is how it learns what to remove.
+ */
+function retiredFromHistory(repoRoot: string, manifest: SharedSyncManifest, selected: SharedComponentId[]): SharedSyncRetiredEntry[] {
+  const roots = new Set<string>()
+  for (const id of selected) {
+    for (const pattern of manifest.components[id].include) {
+      const prefix = pattern.split(/[*?]/, 1)[0]
+      const directory = prefix.endsWith("/") ? prefix.slice(0, -1) : path.posix.dirname(prefix)
+      roots.add(directory === "" ? "." : directory)
+    }
+  }
+  const result = spawnSync("git", ["-C", repoRoot, "log", "--no-renames", "--diff-filter=D", "--name-only", "--format=", "HEAD", "--", ...roots], {
+    encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 64 * 1024 * 1024
+  })
+  if (result.status !== 0) return []
+  const retired = new Map<string, SharedComponentId>()
+  for (const line of result.stdout.split("\n")) {
+    const relative = line.trim()
+    if (!relative || retired.has(relative) || !isSafeGlob(relative) || relative.includes("*") || relative.includes("?")) continue
+    if (fs.lstatSync(path.join(repoRoot, ...relative.split("/")), { throwIfNoEntry: false })) continue
+    const component = selected.find(id => ownedByComponent(id, relative, manifest, manifest.localOverlay.neverOverwrite))
+    if (component) retired.set(relative, component)
+  }
+  return [...retired].map(([relative, component]) => ({ component, path: relative })).sort((a, b) => compareStrings(a.path, b.path))
+}
+
+// --- Repository alignment -------------------------------------------------------------------
+//
+// Component files are not enough to bring a target to parity: the archetypes also need their
+// category manifests, the model configurations and the companion links, which are local overlay
+// files, and the manager needs its package scripts. Apply aligns exactly these, and removes the
+// outputs of the retired stamped pipeline profiles.
+
+const PACKAGE_JSON = "manage-agents/package.json"
+const OPENCODE_BLUEPRINT = "src/opencode.json"
+const COMPANION_LINKS = ".agent-manager/companion-links.json"
+const AGENT_ROUTING = ".agent-manager/agent-routing.json"
+const ARCHETYPE_MANIFESTS = ARCHETYPE_IDS.map(id => `.agent-manager/categories/${id}.json`)
+const ALIGNMENT_SOURCES = [PACKAGE_JSON, OPENCODE_BLUEPRINT, COMPANION_LINKS, AGENT_ROUTING, ...ARCHETYPE_MANIFESTS]
+const RETIRED_GENERATED_FILES = [".agent-manager/pipeline-profiles.json"]
+const RETIRED_GENERATED_BUNDLE = /^[a-z0-9][a-z0-9_-]*-pipeline$/
+
+function alignmentSourcesFor(selected: SharedComponentId[]): string[] {
+  return [
+    ...(selected.includes("agentManager") ? [PACKAGE_JSON] : []),
+    ...(selected.includes("pipelineCore") ? [OPENCODE_BLUEPRINT, COMPANION_LINKS, AGENT_ROUTING, ...ARCHETYPE_MANIFESTS] : [])
+  ]
+}
+
+function readAlignmentSources(repoRoot: string, selected: SharedComponentId[]): Map<string, Buffer> {
+  const sources = new Map<string, Buffer>()
+  for (const relative of alignmentSourcesFor(selected)) {
+    ensureNoSymlinkPath(repoRoot, relative)
+    const file = path.join(repoRoot, ...relative.split("/"))
+    if (!fs.lstatSync(file, { throwIfNoEntry: false })) continue
+    lstatRegular(file, "alignment source")
+    sources.set(relative, fs.readFileSync(file))
+  }
+  return sources
+}
+
+interface AlignmentPlan {
+  writes: Array<{ path: string; bytes: Buffer; mode: SharedSyncMode; reason: string }>
+  deletes: Array<{ path: string; reason: string }>
+}
+
+/** Serialize like the file being replaced: same indentation, trailing newline. */
+const jsonBytes = (value: unknown, like?: Buffer) => {
+  const indent = like?.toString("utf8").match(/\n([ \t]+)\S/)?.[1] ?? "  "
+  return Buffer.from(`${JSON.stringify(value, null, indent)}\n`)
+}
+
+function parseJson(bytes: Buffer, label: string): any {
+  try { return JSON.parse(bytes.toString("utf8")) } catch (error) { throw new Error(`Invalid JSON in ${label}: ${(error as Error).message}`) }
+}
+
+/** Regular files under a target directory, repository-relative; refuses symlinks. */
+function targetFilesUnder(targetRoot: string, relativeDirectory: string): string[] {
+  ensureNoSymlinkPath(targetRoot, relativeDirectory)
+  const directory = path.join(targetRoot, ...relativeDirectory.split("/"))
+  const stat = fs.lstatSync(directory, { throwIfNoEntry: false })
+  if (!stat) return []
+  if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error(`Refusing unsafe target directory: ${relativeDirectory}`)
+  return walkFiles(directory, () => false).map(relative => `${relativeDirectory}/${relative}`)
+}
+
+function planAlignment(source: ResolvedSource, targetRoot: string, selected: SharedComponentId[]): AlignmentPlan {
+  const plan: AlignmentPlan = { writes: [], deletes: [] }
+  const write = (relative: string, bytes: Buffer, reason: string) => {
+    const current = readTargetFile(targetRoot, relative)
+    if (!current || !current.bytes.equals(bytes)) plan.writes.push({ path: relative, bytes, mode: 0o644, reason })
+  }
+  if (selected.includes("agentManager")) {
+    const sourcePackage = source.alignment.get(PACKAGE_JSON)
+    const targetPackage = readTargetFile(targetRoot, PACKAGE_JSON)
+    if (sourcePackage && targetPackage) {
+      // Dependencies stay local; the scripts (test list, validation steps) must match the shared code.
+      const target = parseJson(targetPackage.bytes, PACKAGE_JSON)
+      const scripts = parseJson(sourcePackage, PACKAGE_JSON).scripts
+      if (isRecord(target) && isRecord(scripts)) write(PACKAGE_JSON, jsonBytes({ ...target, scripts: { ...(isRecord(target.scripts) ? target.scripts : {}), ...scripts } }, targetPackage.bytes), "package scripts")
+    }
+  }
+  if (selected.includes("pipelineCore")) {
+    for (const relative of [AGENT_ROUTING, ...ARCHETYPE_MANIFESTS]) {
+      const bytes = source.alignment.get(relative)
+      if (bytes && !readTargetFile(targetRoot, relative)) write(relative, bytes, "missing archetype configuration")
+    }
+    const sourceLinks = source.alignment.get(COMPANION_LINKS)
+    if (sourceLinks) {
+      const targetLinks = readTargetFile(targetRoot, COMPANION_LINKS)
+      if (!targetLinks) write(COMPANION_LINKS, sourceLinks, "missing companion links")
+      else {
+        // Only the archetype categories are shared; the target's other categories stay as they are.
+        const links = parseJson(sourceLinks, COMPANION_LINKS)
+        const target = parseJson(targetLinks.bytes, COMPANION_LINKS)
+        if (isRecord(links?.categories) && isRecord(target) && isRecord(target.categories)) {
+          const categories = { ...target.categories }
+          for (const id of ARCHETYPE_IDS) if (isRecord(links.categories[id])) categories[id] = links.categories[id]
+          write(COMPANION_LINKS, jsonBytes({ ...target, categories }, targetLinks.bytes), "archetype companion links")
+        }
+      }
+    }
+    const sourceBlueprint = source.alignment.get(OPENCODE_BLUEPRINT)
+    const targetBlueprint = readTargetFile(targetRoot, OPENCODE_BLUEPRINT)
+    if (sourceBlueprint && targetBlueprint) {
+      // The blueprint is local configuration; only the shared plugin directories are added to it.
+      const plugins = parseJson(sourceBlueprint, OPENCODE_BLUEPRINT).plugins
+      const target = parseJson(targetBlueprint.bytes, OPENCODE_BLUEPRINT)
+      if (Array.isArray(plugins) && isRecord(target)) {
+        const current: unknown[] = Array.isArray(target.plugins) ? target.plugins : []
+        const missing = plugins.filter(plugin => typeof plugin === "string" && !current.includes(plugin))
+        if (missing.length) write(OPENCODE_BLUEPRINT, jsonBytes({ ...target, plugins: [...current, ...missing] }, targetBlueprint.bytes), "shared plugin directories")
+      }
+    }
+    for (const relative of RETIRED_GENERATED_FILES) {
+      if (readTargetFile(targetRoot, relative)) plan.deletes.push({ path: relative, reason: "retired pipeline profiles" })
+    }
+    const categories = path.join(targetRoot, "export", "categories")
+    const categoriesStat = fs.lstatSync(categories, { throwIfNoEntry: false })
+    if (categoriesStat?.isDirectory() && !categoriesStat.isSymbolicLink()) {
+      for (const name of fs.readdirSync(categories).sort(compareStrings)) {
+        if (!RETIRED_GENERATED_BUNDLE.test(name)) continue
+        for (const relative of targetFilesUnder(targetRoot, `export/categories/${name}`)) plan.deletes.push({ path: relative, reason: "retired stamped pipeline bundle" })
+      }
+    }
+  }
+  return plan
+}
+
+/**
+ * Target files that a selected component owns and the source no longer ships: recorded by an
+ * earlier sync, deleted in the source history, or matching an explicit (non-tree) include pattern.
+ */
+function obsoleteTargetFiles(source: ResolvedSource, targetRoot: string, state: SharedSyncState | null, selected: SharedComponentId[], overlayPatterns: string[], targetManifest: SharedSyncManifest | null): string[] {
+  // The target's local exclusions are never ours to delete.
+  const keep = [...overlayPatterns, ...selected.flatMap(id => targetManifest?.components[id]?.exclude ?? [])]
+  const live = new Set(source.files.map(file => file.entry.path))
+  const candidates = new Set<string>([...Object.keys(state?.files ?? {}), ...source.retired.map(entry => entry.path)])
+  for (const id of selected) {
+    for (const pattern of source.manifest.components[id].include.filter(pattern => !pattern.endsWith("/**"))) {
+      const prefix = pattern.split(/[*?]/, 1)[0]
+      const directory = prefix.endsWith("/") ? prefix.slice(0, -1) : path.posix.dirname(prefix)
+      if (directory === "." || directory === "") continue
+      const absolute = path.join(targetRoot, ...directory.split("/"))
+      ensureNoSymlinkPath(targetRoot, directory)
+      const stat = fs.lstatSync(absolute, { throwIfNoEntry: false })
+      if (!stat?.isDirectory()) continue
+      for (const name of fs.readdirSync(absolute)) {
+        const relative = `${directory}/${name}`
+        if (matchesAny(relative, [pattern])) candidates.add(relative)
+      }
+    }
+  }
+  const obsolete: string[] = []
+  for (const relative of candidates) {
+    if (live.has(relative) || relative === SHARED_SYNC_MANIFEST_PATH || relative === SHARED_SYNC_STATE_PATH) continue
+    if (!selected.some(id => ownedByComponent(id, relative, source.manifest, keep))) continue
+    if (readTargetFile(targetRoot, relative)) obsolete.push(relative)
+  }
+  return obsolete.sort(compareStrings)
+}
+
+function describeAlignment(plan: AlignmentPlan): string[] {
+  // Retired bundles hold hundreds of files: report each bundle once.
+  const bundles = new Map<string, { count: number; reason: string }>()
+  const single: string[] = []
+  for (const entry of plan.deletes) {
+    const bundle = entry.path.match(/^(export\/categories\/[^/]+)\//)?.[1]
+    if (!bundle) { single.push(`delete ${entry.path} (${entry.reason})`); continue }
+    const current = bundles.get(bundle) ?? { count: 0, reason: entry.reason }
+    current.count++
+    bundles.set(bundle, current)
+  }
+  return [
+    ...plan.writes.map(write => `write ${write.path} (${write.reason})`),
+    ...single,
+    ...[...bundles].map(([bundle, { count, reason }]) => `delete ${bundle}/ (${count} files, ${reason})`)
+  ]
+}
+
+/** Remove now-empty parent directories of deleted files, up to (never including) the target root. */
+function pruneEmptyParents(targetRoot: string, relativePaths: string[]): void {
+  const root = path.resolve(targetRoot)
+  const directories = new Set<string>()
+  for (const relative of relativePaths) {
+    let current = path.dirname(path.join(root, ...relative.split("/")))
+    while (current.startsWith(`${root}${path.sep}`)) { directories.add(current); current = path.dirname(current) }
+  }
+  for (const directory of [...directories].sort((a, b) => b.length - a.length)) {
+    try { fs.rmdirSync(directory) } catch {}
   }
 }
 
@@ -567,10 +836,24 @@ function overlays(source: SharedSyncManifest, target: SharedSyncManifest | null)
   return [...new Set([...source.localOverlay.neverOverwrite, ...(target?.localOverlay.neverOverwrite ?? [])])]
 }
 
-function assertTargetAllowsEntries(entries: SharedSyncFileEntry[], targetManifest: SharedSyncManifest | null): void {
+/**
+ * The target's own manifest restricts what may be written. Its exclude list and local overlay always
+ * apply; its include list applies unless the source ships a newer version of that component, whose
+ * include may legitimately cover more (for example a newly shared agent family).
+ */
+function assertTargetAllowsEntries(entries: SharedSyncFileEntry[], targetManifest: SharedSyncManifest | null, source?: ResolvedSource): void {
   if (!targetManifest) return
+  const widened = structuredClone(targetManifest)
+  for (const id of COMPONENTS) {
+    const sourceComponent = source?.components[id]
+    const sourceVersion = sourceComponent && parseSemver(sourceComponent.version)
+    const targetVersion = parseSemver(targetManifest.components[id].version)
+    if (sourceComponent && sourceVersion && targetVersion && compareSemver(sourceVersion, targetVersion) > 0) {
+      widened.components[id] = { ...targetManifest.components[id], include: [...new Set([...targetManifest.components[id].include, ...sourceComponent.include])] }
+    }
+  }
   for (const entry of entries) {
-    if (!entryAllowedByManifest(entry, targetManifest)) {
+    if (!entryAllowedByManifest(entry, widened)) {
       throw new Error(`Shared sync entry is not allowed by the target manifest: ${entry.path}`)
     }
   }
@@ -629,10 +912,10 @@ function comparisonFor(source: ResolvedSource, targetRoot: string, components?: 
   const selected = selectedComponents(components)
   const targetManifest = loadTargetManifest(targetRoot)
   const state = loadSyncState(targetRoot)
-  assertTargetAllowsEntries(source.files.map(file => file.entry), targetManifest)
+  assertTargetAllowsEntries(source.files.map(file => file.entry), targetManifest, source)
   ensureCompatible(source, selected, targetManifest, state)
   const overlayPatterns = overlays(source.manifest, targetManifest)
-  const result: SharedSyncComparison = { identical: [], modified: [], missingInTarget: [], protectedByOverlay: [], dirtyTargetFiles: [] }
+  const result: SharedSyncComparison = { identical: [], modified: [], missingInTarget: [], protectedByOverlay: [], dirtyTargetFiles: [], obsoleteInTarget: [], alignment: [] }
   const targetFiles = new Map<string, { bytes: Buffer; mode: SharedSyncMode } | null>()
   const relevantPaths = new Set<string>()
   for (const sourceFile of source.files) {
@@ -657,6 +940,10 @@ function comparisonFor(source: ResolvedSource, targetRoot: string, components?: 
     }
   }
   for (const relative of Object.keys(state?.files ?? {})) relevantPaths.add(relative)
+  result.obsoleteInTarget = obsoleteTargetFiles(source, targetRoot, state, selected, overlayPatterns, targetManifest)
+  const alignment = planAlignment(source, targetRoot, selected)
+  result.alignment = describeAlignment(alignment)
+  for (const relative of [...result.obsoleteInTarget, ...alignment.writes.map(entry => entry.path), ...alignment.deletes.map(entry => entry.path)]) relevantPaths.add(relative)
   result.dirtyTargetFiles = targetDirtyFiles(targetRoot, relevantPaths, state)
   for (const key of ["identical", "modified", "missingInTarget", "protectedByOverlay"] as const) result[key].sort(compareStrings)
   return result
@@ -758,7 +1045,7 @@ function assertReleaseFilesMatchIndex(root: string, index: SharedSyncReleaseInde
     }
   }
   visit(filesRoot, "")
-  const expected = new Set([index.manifest.path, ...index.entries.map(entry => entry.path)])
+  const expected = new Set([index.manifest.path, ...index.entries.map(entry => entry.path), ...(index.alignment ?? []).map(entry => entry.path)])
   if (actual.size !== expected.size || [...actual].some(file => !expected.has(file))) {
     throw new Error("Shared sync release contains files outside its manifest and entries.")
   }
@@ -783,6 +1070,11 @@ export function releaseSharedSync(options: { sourceRoot: string; outputDir: stri
     for (const file of source.files) copyEntryToDirectory(options.sourceRoot, file.entry.path, path.join(temporary, "files"), file.bytes, file.entry.mode)
     const manifestBytes = fs.readFileSync(path.join(options.sourceRoot, ...SHARED_SYNC_MANIFEST_PATH.split("/")))
     copyEntryToDirectory(options.sourceRoot, SHARED_SYNC_MANIFEST_PATH, path.join(temporary, "files"), manifestBytes, 0o644)
+    const alignment: SharedSyncAlignmentEntry[] = []
+    for (const [relative, bytes] of [...source.alignment].sort(([a], [b]) => compareStrings(a, b))) {
+      copyEntryToDirectory(options.sourceRoot, relative, path.join(temporary, "files"), bytes, 0o644)
+      alignment.push({ path: relative, sha256: crypto.createHash("sha256").update(bytes).digest("hex"), size: bytes.length })
+    }
     const entries = canonicalEntries(source.files.map(file => file.entry))
     const index: SharedSyncReleaseIndex = {
       schemaVersion: 1,
@@ -797,7 +1089,9 @@ export function releaseSharedSync(options: { sourceRoot: string; outputDir: stri
         mode: 0o644
       },
       entries,
-      contentDigest: digestEntries(entries)
+      contentDigest: digestEntries(entries),
+      retired: source.retired,
+      alignment
     }
     fs.writeFileSync(path.join(temporary, SHARED_SYNC_RELEASE_INDEX), `${JSON.stringify(index, null, 2)}\n`, "utf8")
     const existing = fs.lstatSync(outputDir, { throwIfNoEntry: false })
@@ -892,10 +1186,11 @@ function mergedTargetManifest(source: ResolvedSource, target: SharedSyncManifest
   return result
 }
 
-function createState(source: ResolvedSource, old: SharedSyncState | null, files: SourceFile[], selected: SharedComponentId[]): SharedSyncState {
+function createState(source: ResolvedSource, old: SharedSyncState | null, files: SourceFile[], selected: SharedComponentId[], removed: string[] = []): SharedSyncState {
   const installedComponents = { ...(old?.installedComponents ?? {}) }
   for (const id of selected) installedComponents[id] = componentManifestForUpdate(source, id).version
   const hashes = { ...(old?.files ?? {}) }
+  for (const relative of removed) delete hashes[relative]
   for (const { entry } of files) hashes[entry.path] = entry.sha256
   return {
     schemaVersion: 1,
@@ -918,7 +1213,8 @@ export function applySharedSync(options: {
   const source = resolveSource(options.sourceRoot, selected, true)
   const targetManifest = loadTargetManifest(options.targetRoot)
   const state = loadSyncState(options.targetRoot)
-  assertTargetAllowsEntries(source.files.map(file => file.entry), targetManifest)
+  const nextManifest = mergedTargetManifest(source, targetManifest, selected)
+  assertTargetAllowsEntries(source.files.map(file => file.entry), targetManifest, source)
   ensureCompatible(source, selected, targetManifest, state)
   const overlayPatterns = overlays(source.manifest, targetManifest)
   const protectedPaths = new Set<string>()
@@ -937,34 +1233,45 @@ export function applySharedSync(options: {
       operations.push({ action: "write", path: relative, component: sourceFile.entry.component })
     }
   }
-  const nextManifest = mergedTargetManifest(source, targetManifest, selected)
+  const obsolete = obsoleteTargetFiles(source, options.targetRoot, state, selected, overlayPatterns, targetManifest)
+  for (const relative of obsolete) operations.push({ action: "delete", path: relative, reason: "no longer shipped by the source" })
+  const alignment = planAlignment(source, options.targetRoot, selected)
+  for (const entry of alignment.writes) operations.push({ action: "write", path: entry.path, reason: entry.reason })
+  for (const entry of alignment.deletes) operations.push({ action: "delete", path: entry.path, reason: entry.reason })
+  const deletions = [...obsolete, ...alignment.deletes.map(entry => entry.path)]
+  const writes = [
+    ...updateFiles.map(file => ({ path: file.entry.path, bytes: file.bytes, mode: file.entry.mode })),
+    ...alignment.writes
+  ]
+
   const manifestRelative = SHARED_SYNC_MANIFEST_PATH
   const manifestBytes = Buffer.from(`${JSON.stringify(nextManifest, null, 2)}\n`)
   const manifestCurrent = readTargetFile(options.targetRoot, manifestRelative)
   const manifestNeedsUpdate = !manifestCurrent || !manifestCurrent.bytes.equals(manifestBytes)
-  const relevantPaths = new Set(source.files.map(file => file.entry.path))
+  const relevantPaths = new Set([...source.files.map(file => file.entry.path), ...writes.map(entry => entry.path), ...deletions])
   if (targetManifest) {
     for (const component of selected) for (const entry of collectComponentFiles(options.targetRoot, targetManifest, component)) relevantPaths.add(entry.path)
   }
   for (const relative of Object.keys(state?.files ?? {})) relevantPaths.add(relative)
   if (manifestNeedsUpdate && manifestCurrent) relevantPaths.add(manifestRelative)
   const dirtyTargetFiles = targetDirtyFiles(options.targetRoot, relevantPaths, state)
-  const dirtyUpdates = dirtyTargetFiles.filter(file => updateFiles.some(entry => entry.entry.path === file) || (manifestNeedsUpdate && file === manifestRelative))
+  const touched = new Set([...writes.map(entry => entry.path), ...deletions, ...(manifestNeedsUpdate ? [manifestRelative] : [])])
+  const dirtyUpdates = dirtyTargetFiles.filter(file => touched.has(file))
   if (dirtyUpdates.length > 0 && !options.force) {
-    throw new Error(`Refusing to overwrite locally modified shared files: ${dirtyUpdates.join(", ")}. Commit or revert them, or pass --force.`)
+    throw new Error(`Refusing to overwrite or delete locally modified shared files: ${dirtyUpdates.join(", ")}. Commit or revert them, or pass --force.`)
   }
 
   if (manifestNeedsUpdate) operations.push({ action: "write", path: manifestRelative })
-  const nextState = createState(source, state, source.files.filter(file => selected.includes(file.entry.component) && !protectedPaths.has(file.entry.path)), selected)
+  const nextState = createState(source, state, source.files.filter(file => selected.includes(file.entry.component) && !protectedPaths.has(file.entry.path)), selected, obsolete)
   const stateRelative = SHARED_SYNC_STATE_PATH
   const stateBytes = Buffer.from(`${JSON.stringify(nextState, null, 2)}\n`)
   operations.push({ action: "write", path: stateRelative })
   if (options.dryRun) {
     const comparison = comparisonFor(source, options.targetRoot, selected)
-    return { ...comparison, dryRun: true, updated: updateFiles.map(file => file.entry.path).sort(), operations, sourceCommit: source.sourceCommit }
+    return { ...comparison, dryRun: true, updated: writes.map(entry => entry.path).sort(compareStrings), removed: [...deletions].sort(compareStrings), operations, sourceCommit: source.sourceCommit }
   }
 
-  const filesToBackup = new Set([...updateFiles.map(file => file.entry.path), manifestRelative, stateRelative])
+  const filesToBackup = new Set([...writes.map(entry => entry.path), ...deletions, manifestRelative, stateRelative])
   const createdDirectories = missingParentDirectories(options.targetRoot, filesToBackup)
   const transactionDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "shared-sync-transaction-"))
   const transactionBackups = new Map<string, { backupPath: string; mode: SharedSyncMode } | null>()
@@ -981,7 +1288,11 @@ export function applySharedSync(options: {
       }
     }
     fs.mkdirSync(options.targetRoot, { recursive: true })
-    for (const file of updateFiles) writeTargetFile(options.targetRoot, file.entry.path, file.bytes, file.entry.mode)
+    for (const entry of writes) writeTargetFile(options.targetRoot, entry.path, entry.bytes, entry.mode)
+    for (const relative of deletions) {
+      ensureNoSymlinkPath(options.targetRoot, relative)
+      fs.rmSync(path.join(options.targetRoot, ...relative.split("/")), { force: true })
+    }
     writeTargetFile(options.targetRoot, manifestRelative, manifestBytes, 0o644)
     writeTargetFile(options.targetRoot, stateRelative, stateBytes, 0o644)
     if (selected.includes("pipelineCore") && options.refreshPipelines !== false && fs.existsSync(path.join(options.targetRoot, ".agent-manager", "bash-profiles.json"))) {
@@ -1003,11 +1314,13 @@ export function applySharedSync(options: {
   } finally {
     fs.rmSync(transactionDirectory, { recursive: true, force: true })
   }
+  pruneEmptyParents(options.targetRoot, deletions)
   const comparison = comparisonFor(source, options.targetRoot, selected)
   return {
     ...comparison,
     dryRun: false,
-    updated: updateFiles.map(file => file.entry.path).sort(),
+    updated: writes.map(entry => entry.path).sort(compareStrings),
+    removed: [...deletions].sort(compareStrings),
     operations,
     sourceCommit: source.sourceCommit
   }

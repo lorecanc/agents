@@ -6,6 +6,7 @@ import { test } from "node:test"
 import { saveAgentFile } from "./agents.js"
 import {
   agentRoutingOutputPath,
+  archetypeBundles,
   buildAgentRouting,
   callersLabel,
   checkAgentRouting,
@@ -115,6 +116,15 @@ test("pipeline: the orchestrator is the reference and roles may contain undersco
   assert.deepEqual(pipeline.roles, ["code_reviewer", "orchestrator", "planner"])
   assert.deepEqual(pipeline.routes, { mistral: { roles: { code_reviewer: FLASH } } })
   assert.deepEqual(read(root).archetypes.flow.routes, { mistral: { roles: { explore: FLASH, review: FLASH } } }, "flow is untouched")
+})
+
+test("archetypeBundles lists the archetypes that ship through a category manifest", () => {
+  const root = workspace()
+  assert.deepEqual(archetypeBundles(root), [])
+  fs.mkdirSync(path.join(root, ".agent-manager", "categories"), { recursive: true })
+  fs.writeFileSync(path.join(root, ".agent-manager", "categories", "flow.json"), "{}\n")
+  fs.writeFileSync(path.join(root, ".agent-manager", "categories", "docs.json"), "{}\n")
+  assert.deepEqual(archetypeBundles(root).map(bundle => bundle.id), ["flow"], "routing.json changes rebuild only archetype bundles")
 })
 
 test("without configurations nothing is written", () => {

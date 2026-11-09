@@ -44,7 +44,7 @@ import {
 } from "./utils/agents.js"
 import { loadModelCatalog, suggestModels, collectInvalidModelGroups, modelDisplayValue, getModelVariants, type ModelCatalog } from "./utils/models.js"
 import { discoverAvailableCategoryCompanionItems, getCompanionLinksConfigPath, type SelectableCompanionItem, updateCategoryCompanionLinks } from "./utils/companionLinks.js"
-import { agentRoutingConfigPath, agentRoutingOutputPath, buildAgentRouting, callersLabel, describeArchetype, INHERIT, isRoutableArchetype, setArchetypeConfig, type ArchetypeAgent, type RoleModels } from "./utils/agentRouting.js"
+import { agentRoutingConfigPath, agentRoutingOutputPath, archetypeBundles, buildAgentRouting, callersLabel, rebuildArchetypeBundles, describeArchetype, INHERIT, isRoutableArchetype, setArchetypeConfig, type ArchetypeAgent, type RoleModels } from "./utils/agentRouting.js"
 import { buildCategoryDistribution } from "./utils/categoryDistribution.js"
 import { bridgeToClaudeCode } from "./utils/bridge.js"
 import { bridgeToCodex } from "./utils/codexBridge.js"
@@ -804,12 +804,11 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
   const saveRoutingConfig = (trigger: string, roles: RoleModels | null, previousTrigger?: string) => {
     if (!routingArchetype) return false
     try {
-      // Like the Resource Manager, keep the archetype's bundle in step so `category check` stays green.
-      const bundle = path.join(workspaceRoot, resolveCategoriesSubdir(workspaceRoot), routingArchetype)
-      const hasManifest = fs.existsSync(path.join(workspaceRoot, ".agent-manager", "categories", `${routingArchetype}.json`))
-      const tx = mutate([agentRoutingConfigPath(workspaceRoot), agentRoutingOutputPath(workspaceRoot), ...(hasManifest ? [bundle] : [])], "routing", () => {
+      // Like the Resource Manager, keep the bundles in step so `category check` stays green: every
+      // archetype bundle ships routing.json, not only the one being edited.
+      const tx = mutate([agentRoutingConfigPath(workspaceRoot), agentRoutingOutputPath(workspaceRoot), ...archetypeBundles(workspaceRoot).map(bundle => bundle.output)], "routing", () => {
         setArchetypeConfig(workspaceRoot, routingArchetype, trigger, roles, { previousTrigger })
-        if (hasManifest) buildCategoryDistribution(workspaceRoot, routingArchetype)
+        rebuildArchetypeBundles(workspaceRoot)
       })
       setRoutingRevision(revision => revision + 1)
       setRoutingStatus(`${roles ? "Saved" : "Deleted"} configuration '${trigger}'. Press E on the folder to install it in OpenCode.${tx.warning ? ` ⚠ auto-commit: ${tx.warning.message}` : ""}`)

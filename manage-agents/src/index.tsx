@@ -21,7 +21,7 @@ import {
 import { AUTO_COMMIT_MESSAGES, isRepositoryLocalPath, repositoryTransaction, parseAutoCommitArgs } from "./utils/repositoryTransaction.js"
 import { buildCategoryDistribution, buildAllCategoryDistributions, recoverBuildAllCategoryDistributions, checkCategoryDistribution, loadCategoryManifest, packageCategoryDistributions, parseCategoryArgs } from "./utils/categoryDistribution.js"
 import { loadUiConfig } from "./utils/uiConfig.js"
-import { agentRoutingConfigPath, agentRoutingOutputPath, buildAgentRouting, checkAgentRouting, describeAgentRouting, isRoutableArchetype, ROUTABLE_ARCHETYPES, setArchetypeConfig } from "./utils/agentRouting.js"
+import { agentRoutingConfigPath, agentRoutingOutputPath, archetypeBundles, buildAgentRouting, checkAgentRouting, describeAgentRouting, isRoutableArchetype, rebuildArchetypeBundles, ROUTABLE_ARCHETYPES, setArchetypeConfig } from "./utils/agentRouting.js"
 import { BASH_PROFILES_FILE, checkBashProfiles, syncBashProfiles } from "./utils/bashProfiles.js"
 import { claudeNextSteps } from "./utils/claudeNextSteps.js"
 import { registerPlugin, validatePlugin } from "./utils/claudePluginCli.js"
@@ -995,8 +995,10 @@ Archetypes: ${ROUTABLE_ARCHETYPES.join(", ")}. The trigger is the model of the c
     if (!role || !model) throw new Error(`Expected <role>=<model>, got '${assignment}'\n${usage}`)
     roles[role] = model
   }
-  repositoryMutation(workspaceRoot, [agentRoutingConfigPath(workspaceRoot), output], AUTO_COMMIT_MESSAGES.routing, () =>
-    setArchetypeConfig(workspaceRoot, archetype, trigger, action === "unset" ? null : roles))
+  repositoryMutation(workspaceRoot, [agentRoutingConfigPath(workspaceRoot), output, ...archetypeBundles(workspaceRoot).map(bundle => bundle.output)], AUTO_COMMIT_MESSAGES.routing, () => {
+    setArchetypeConfig(workspaceRoot, archetype, trigger, action === "unset" ? null : roles)
+    rebuildArchetypeBundles(workspaceRoot)
+  })
   console.log(`${action === "set" ? "Saved" : "Removed"} configuration ${archetype} / ${trigger}.`)
   console.log(describeAgentRouting(workspaceRoot).join("\n"))
 }
@@ -1009,7 +1011,12 @@ Usage: manage-agents sync <status|release|apply> [options]
 Commands:
   status, diff  Compare shared files and report compatibility and local changes
   release       Create a versioned release bundle with SHA-256 hashes
-  apply, import Apply shared files to a target repository (no automatic commit)
+  apply, import Apply shared files to a target repository (no automatic commit). Apply also brings the
+                target to parity: it deletes files the source no longer ships (recorded by an earlier
+                sync, deleted in the source history, or matching an explicit pattern such as
+                src/agents/pipeline-*.md), seeds missing archetype manifests and model configurations,
+                aligns the archetype companion links and the manager's package scripts, and removes
+                the retired stamped *-pipeline bundles. Locally modified files are refused without --force.
 
 Usage examples:
   manage-agents sync status --target <repo-or-dir> [--from <source-or-bundle>] [--component all|agent-manager|pipeline-core] [--json] [--check]
@@ -1057,14 +1064,16 @@ function sharedSyncComponents(args: ReturnType<typeof parseSharedSyncArgs>, sour
 }
 
 function emptySharedSyncComparison(): SharedSyncComparison {
-  return { identical: [], modified: [], missingInTarget: [], protectedByOverlay: [], dirtyTargetFiles: [] }
+  return { identical: [], modified: [], missingInTarget: [], protectedByOverlay: [], dirtyTargetFiles: [], obsoleteInTarget: [], alignment: [] }
 }
 
 function sharedSyncCounts(comparison: SharedSyncComparison) {
   return {
     identical: comparison.identical.length,
     modified: comparison.modified.length,
-    missingInTarget: comparison.missingInTarget.length
+    missingInTarget: comparison.missingInTarget.length,
+    obsoleteInTarget: comparison.obsoleteInTarget.length,
+    alignment: comparison.alignment.length
   }
 }
 
@@ -1102,7 +1111,7 @@ async function runSharedSyncCLI(workspaceRoot: string) {
       const components = sharedSyncComponents(args, sourceVersions)
       const compatibility = components.includes("pipelineCore") ? (incompatible ? "incompatible" : "compatible") : "not-applicable"
       const counts = sharedSyncCounts(comparison)
-      const outOfSync = counts.modified > 0 || counts.missingInTarget > 0
+      const outOfSync = counts.modified > 0 || counts.missingInTarget > 0 || counts.obsoleteInTarget > 0 || counts.alignment > 0
       const report = {
         command: args.command,
         source: sourceRoot,
@@ -1116,6 +1125,8 @@ async function runSharedSyncCLI(workspaceRoot: string) {
         counts,
         modified: comparison.modified,
         missingInTarget: comparison.missingInTarget,
+        obsoleteInTarget: comparison.obsoleteInTarget,
+        alignment: comparison.alignment,
         identical: comparison.identical,
         dirtyTargetFiles: comparison.dirtyTargetFiles,
         protectedByOverlay: comparison.protectedByOverlay,
@@ -1132,6 +1143,8 @@ async function runSharedSyncCLI(workspaceRoot: string) {
         console.log(`File: ${counts.identical} identici, ${counts.modified} modificati, ${counts.missingInTarget} mancanti${comparisonComplete ? "" : " (confronto parziale)"}`)
         if (comparison.modified.length) console.log(`Modificati:\n${comparison.modified.map(file => `  - ${file}`).join("\n")}`)
         if (comparison.missingInTarget.length) console.log(`Mancanti:\n${comparison.missingInTarget.map(file => `  - ${file}`).join("\n")}`)
+        if (comparison.obsoleteInTarget.length) console.log(`Obsoleti (apply li elimina):\n${comparison.obsoleteInTarget.map(file => `  - ${file}`).join("\n")}`)
+        if (comparison.alignment.length) console.log(`Allineamento della repository:\n${comparison.alignment.map(line => `  - ${line}`).join("\n")}`)
         if (comparison.dirtyTargetFiles.length) console.log(`File locali modificati nella destinazione:\n${comparison.dirtyTargetFiles.map(file => `  - ${file}`).join("\n")}`)
         if (comparison.protectedByOverlay.length) console.log(`Protetti dal local overlay: ${comparison.protectedByOverlay.length}`)
       }
@@ -1188,6 +1201,7 @@ async function runSharedSyncCLI(workspaceRoot: string) {
         added,
         updated,
         filesToWrite: result.updated,
+        filesToRemove: result.removed,
         refreshed: { bashProfiles: bashProfilesRefreshed },
         noAutomaticGitCommit: true
       }
@@ -1195,9 +1209,16 @@ async function runSharedSyncCLI(workspaceRoot: string) {
       else {
         console.log(`${result.dryRun ? "Anteprima sincronizzazione" : "Sincronizzazione applicata"}: ${sourceRoot} → ${targetRoot}`)
         for (const component of components) console.log(`  ${component} ${sourceVersions[component] ?? "versione n/d"}`)
-        console.log(`File: ${added} da aggiungere, ${updated} da aggiornare (${result.updated.length} scritture previste/eseguite)`)
+        console.log(`File: ${added} da aggiungere, ${updated} da aggiornare (${result.updated.length} scritture previste/eseguite), ${result.removed.length} da eliminare`)
+        if (before.obsoleteInTarget.length) console.log(`Obsoleti ${result.dryRun ? "da eliminare" : "eliminati"}:\n${before.obsoleteInTarget.map(file => `  - ${file}`).join("\n")}`)
+        if (before.alignment.length) console.log(`Allineamento della repository${result.dryRun ? " previsto" : ""}:\n${before.alignment.map(line => `  - ${line}`).join("\n")}`)
         console.log(`Refresh profili Bash: ${bashProfilesRefreshed ? "eseguito" : !refreshRequested ? "non richiesto" : result.dryRun ? "non eseguito (dry-run)" : "non presente"}`)
         console.log("Nessun commit Git automatico creato: controlla `git diff` e `git status` nella destinazione.")
+        if (!result.dryRun) {
+          console.log("Poi, nella destinazione:")
+          console.log("  npm --prefix manage-agents ci && npm --prefix manage-agents run validate   # rigenera categorie e routing.json e verifica")
+          console.log("  node manage-agents/manage-agents.mjs export --all --yes                    # installa in OpenCode")
+        }
       }
       return
     }

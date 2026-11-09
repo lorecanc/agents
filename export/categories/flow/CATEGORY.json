@@ -87,7 +87,7 @@
     },
     {
       "target": "plugins/agent-router/routing.json",
-      "hash": "3a441604ff0f91b63d5dbf5e34298f4ae34bfb71b8f6e9ee94b934f220a15643"
+      "hash": "c42900da04cd5c0058db1c411da0e2a3389734a54143e3ab651816a3c89f8884"
     },
     {
       "target": "plugins/dev-tools/index.ts",

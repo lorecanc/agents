@@ -490,6 +490,124 @@ test("apply preserves the target's overlay configuration and local model routing
   assert.equal(fs.readFileSync(path.join(target, "export/categories/local-note.txt"), "utf8"), "keep local export\n")
 })
 
+test("apply removes files an earlier sync installed and the source no longer ships, never locally modified ones", () => {
+  const source = createRepo(makeTempRoot())
+  writePipelineSource(source)
+  writeFile(source, "src/tools/_pipeline_old.js", "export const old = true\n")
+  const target = createRepo(makeTempRoot())
+  applySharedSync({ sourceRoot: source, targetRoot: target, components: ["pipelineCore"] })
+  assert.ok(fs.existsSync(path.join(target, "src/tools/_pipeline_old.js")))
+
+  fs.rmSync(path.join(source, "src/tools/_pipeline_old.js"))
+  assert.deepEqual(compareSharedSync({ sourceRoot: source, targetRoot: target, components: ["pipelineCore"] }).obsoleteInTarget, ["src/tools/_pipeline_old.js"])
+  writeFile(target, "src/tools/_pipeline_old.js", "edited locally\n")
+  assert.throws(() => applySharedSync({ sourceRoot: source, targetRoot: target, components: ["pipelineCore"] }), /locally modified/)
+  assert.equal(fs.readFileSync(path.join(target, "src/tools/_pipeline_old.js"), "utf8"), "edited locally\n")
+
+  const result = applySharedSync({ sourceRoot: source, targetRoot: target, components: ["pipelineCore"], force: true })
+  assert.deepEqual(result.removed, ["src/tools/_pipeline_old.js"])
+  assert.equal(fs.existsSync(path.join(target, "src/tools/_pipeline_old.js")), false)
+  const state = JSON.parse(fs.readFileSync(path.join(target, ".agent-manager/shared-sync-state.json"), "utf8"))
+  assert.equal("src/tools/_pipeline_old.js" in state.files, false, "removed files leave the state")
+  assert.ok(fs.existsSync(path.join(target, "src/tools/_pipeline_core.js")), "shipped files stay")
+})
+
+test("a first sync removes files the source deleted in its history and explicit-pattern leftovers", () => {
+  const source = createRepo(makeTempRoot())
+  writePipelineSource(source)
+  writeFile(source, "src/tools/_pipeline_gone.js", "export const gone = true\n")
+  gitCommitAll(source)
+  fs.rmSync(path.join(source, "src/tools/_pipeline_gone.js"))
+  execFileSync("git", ["-C", source, "commit", "-qam", "remove helper"])
+
+  const target = createRepo(makeTempRoot())
+  writeFile(target, "src/tools/_pipeline_gone.js", "export const gone = true\n")
+  writeFile(target, "src/agents/pipeline-retired_role.md", "---\ndescription: retired\n---\n\nOld role.\n")
+  writeFile(target, "src/tools/local_tool.ts", "export default 1\n")
+  gitCommitAll(target)
+
+  const comparison = compareSharedSync({ sourceRoot: source, targetRoot: target, components: ["pipelineCore"] })
+  assert.deepEqual(comparison.obsoleteInTarget, ["src/agents/pipeline-retired_role.md", "src/tools/_pipeline_gone.js"])
+  const result = applySharedSync({ sourceRoot: source, targetRoot: target, components: ["pipelineCore"] })
+  assert.deepEqual(result.removed, ["src/agents/pipeline-retired_role.md", "src/tools/_pipeline_gone.js"])
+  assert.ok(fs.existsSync(path.join(target, "src/tools/local_tool.ts")), "a file the source never had is not ours")
+})
+
+function writeAlignmentSource(root: string): void {
+  writeFile(root, ".agent-manager/categories/pipeline.json", "{ \"id\": \"pipeline\" }\n")
+  writeFile(root, ".agent-manager/categories/flow.json", "{ \"id\": \"flow\" }\n")
+  writeFile(root, ".agent-manager/agent-routing.json", "{ \"version\": 2, \"archetypes\": {} }\n")
+  writeFile(root, ".agent-manager/companion-links.json", `${JSON.stringify({ version: 1, categories: {
+    pipeline: { plugins: ["plugins/agent-router"], commands: [], skills: [], tools: [] },
+    flow: { plugins: ["plugins/flow-guard"], commands: [], skills: [], tools: [] }
+  } }, null, 2)}\n`)
+  writeFile(root, "manage-agents/package.json", `${JSON.stringify({ name: "manage-agents", scripts: { test: "new test" } }, null, 2)}\n`)
+  writeFile(root, "src/opencode.json", `${JSON.stringify({ plugins: ["./plugins/a", "./plugins/b"] }, null, 4)}\n`)
+}
+
+test("apply aligns archetype configuration, package scripts and the blueprint, and removes retired stamped bundles", () => {
+  const source = createRepo(makeTempRoot())
+  writePipelineSource(source)
+  writeAlignmentSource(source)
+  const target = createRepo(makeTempRoot())
+  writeFile(target, ".agent-manager/categories/flow.json", "{ \"id\": \"flow\", \"local\": true }\n")
+  writeFile(target, ".agent-manager/companion-links.json", `${JSON.stringify({ version: 1, categories: {
+    pipeline: { plugins: ["plugins/pipeline-guard"], commands: [], skills: [], tools: ["tools/pipeline_verify.ts"] },
+    docs: { plugins: ["plugins/doc-tools"], commands: [], skills: [], tools: [] }
+  } }, null, 2)}\n`)
+  writeFile(target, "manage-agents/package.json", `${JSON.stringify({ name: "manage-agents", scripts: { test: "old test", local: "keep" }, dependencies: { yaml: "1" } }, null, 4)}\n`)
+  writeFile(target, "src/opencode.json", `${JSON.stringify({ theme: "local", plugins: ["./plugins/a", "./plugins/local"] }, null, 4)}\n`)
+  writeFile(target, ".agent-manager/pipeline-profiles.json", "{}\n")
+  writeFile(target, "export/categories/go-pipeline/agents/go-pipeline-executor.md", "stamped\n")
+  writeFile(target, "export/categories/docs/README.md", "keep\n")
+  gitCommitAll(target)
+
+  const preview = compareSharedSync({ sourceRoot: source, targetRoot: target })
+  assert.ok(preview.alignment.includes("delete export/categories/go-pipeline/ (1 files, retired stamped pipeline bundle)"))
+  applySharedSync({ sourceRoot: source, targetRoot: target })
+
+  const read = (relative: string) => fs.readFileSync(path.join(target, ...relative.split("/")), "utf8")
+  assert.equal(read(".agent-manager/categories/pipeline.json"), "{ \"id\": \"pipeline\" }\n", "a missing archetype manifest is seeded")
+  assert.equal(read(".agent-manager/categories/flow.json"), "{ \"id\": \"flow\", \"local\": true }\n", "an existing one is local")
+  assert.equal(read(".agent-manager/agent-routing.json"), "{ \"version\": 2, \"archetypes\": {} }\n")
+  const links = JSON.parse(read(".agent-manager/companion-links.json"))
+  assert.deepEqual(links.categories.pipeline.plugins, ["plugins/agent-router"], "archetype links follow the source")
+  assert.deepEqual(links.categories.flow.plugins, ["plugins/flow-guard"])
+  assert.deepEqual(links.categories.docs.plugins, ["plugins/doc-tools"], "other categories stay local")
+  const pkg = read("manage-agents/package.json")
+  assert.deepEqual(JSON.parse(pkg), { name: "manage-agents", scripts: { test: "new test", local: "keep" }, dependencies: { yaml: "1" } })
+  assert.match(pkg, /^\{\n {4}"name"/, "the target's indentation is kept")
+  assert.deepEqual(JSON.parse(read("src/opencode.json")), { theme: "local", plugins: ["./plugins/a", "./plugins/local", "./plugins/b"] })
+  assert.equal(fs.existsSync(path.join(target, ".agent-manager/pipeline-profiles.json")), false)
+  assert.equal(fs.existsSync(path.join(target, "export/categories/go-pipeline")), false, "the emptied bundle directory is pruned")
+  assert.equal(read("export/categories/docs/README.md"), "keep\n")
+  assert.deepEqual(compareSharedSync({ sourceRoot: source, targetRoot: target }).alignment, [], "a second sync has nothing to align")
+})
+
+test("a release bundle carries retired files and alignment sources", () => {
+  const source = createRepo(makeTempRoot())
+  writePipelineSource(source)
+  writeAlignmentSource(source)
+  writeFile(source, "src/tools/_pipeline_gone.js", "export const gone = true\n")
+  gitCommitAll(source)
+  fs.rmSync(path.join(source, "src/tools/_pipeline_gone.js"))
+  execFileSync("git", ["-C", source, "commit", "-qam", "remove helper"])
+  const bundle = path.join(makeTempRoot(), "release")
+  const index = releaseSharedSync({ sourceRoot: source, outputDir: bundle })
+  assert.deepEqual(index.retired, [{ component: "pipelineCore", path: "src/tools/_pipeline_gone.js" }])
+  assert.ok(index.alignment.some((entry: any) => entry.path === ".agent-manager/agent-routing.json"))
+
+  const target = createRepo(makeTempRoot())
+  writeFile(target, "src/tools/_pipeline_gone.js", "export const gone = true\n")
+  gitCommitAll(target)
+  const result = applySharedSync({ sourceRoot: bundle, targetRoot: target })
+  assert.deepEqual(result.removed, ["src/tools/_pipeline_gone.js"])
+  assert.ok(fs.existsSync(path.join(target, ".agent-manager/agent-routing.json")))
+
+  fs.writeFileSync(path.join(bundle, "files", ".agent-manager", "agent-routing.json"), "tampered\n")
+  assert.throws(() => compareSharedSync({ sourceRoot: bundle, targetRoot: target }), /hash mismatch/)
+})
+
 test("shared sync argument parser accepts command and component aliases", () => {
   assert.deepEqual(parseSharedSyncArgs(["apply", "--from", "release", "--target", "repo", "--component", "pipeline", "--dry-run", "--force"]), {
     command: "apply",

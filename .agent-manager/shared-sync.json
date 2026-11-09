@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "components": {
     "agentManager": {
-      "version": "1.1.0",
+      "version": "1.2.0",
       "description": "Shared Agent Manager CLI/TUI, validators, bridge translators, and bash permission profiles",
       "include": [
         "manage-agents.sh",
@@ -27,17 +27,21 @@
       ]
     },
     "pipelineCore": {
-      "version": "1.1.0",
-      "requiresAgentManager": ">=1.1.0 <2.0.0",
-      "description": "Shared canonical pipeline agents, commands, guard plugin, and pipeline tools",
+      "version": "1.2.0",
+      "requiresAgentManager": ">=1.2.0 <2.0.0",
+      "description": "Shared canonical archetype agents (pipeline, flow), their commands, plugins, tools, skills and the benchmark",
       "include": [
         "src/agents/pipeline-*.md",
+        "src/agents/flow-*.md",
         "src/commands/pipeline-*",
+        "src/commands/flow-*",
         "src/plugins/**",
         "src/tools/**",
         "src/skills/**",
         "src/resources/**",
-        "src/docs/mcp-configuration.md"
+        "src/docs/mcp-configuration.md",
+        "src/bench/**",
+        "src/bin/**"
       ],
       "exclude": []
     }

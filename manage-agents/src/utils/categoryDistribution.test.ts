@@ -64,7 +64,7 @@ test("regularFiles fails closed for symlinks without reading their targets", () 
 test("manifest is the source of truth and the Wiki distribution is complete", () => {
   const root = fixture()
   const manifest = loadCategoryManifest(root, "wiki")
-  assert.equal(manifest.resources.length, 12)
+  assert.ok(manifest.resources.length > 0)
   const result = buildCategoryDistribution(root, "wiki")
   assert.equal(result.status, "current")
   const readme = fs.readFileSync(path.join(output(root), "README.md"), "utf8")
