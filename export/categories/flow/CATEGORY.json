@@ -19,31 +19,31 @@
     },
     {
       "target": "agents/flow-build.md",
-      "hash": "ef2edaa8e59adc618fd99f031d7a3c0034f7792b895b2a2d18d58740ac5d486f"
+      "hash": "e3fdc6e1714382a626745a7d78f177d517fe30c03cfb0b330244b6c2b363aa94"
     },
     {
       "target": "agents/flow-explore.md",
-      "hash": "a19b8ebe989e9186a64c36ac96bbd3efb9d8b5e639b988b07a8d0fda3f6d2ed4"
+      "hash": "07ee133910c6d2c3f5877a845061b1b59c684a8d5af737dfe9964834d77bb040"
     },
     {
       "target": "agents/flow-eye.md",
-      "hash": "9e2ab3d75342a36c3ac94b76997ada654fcdd577c4b5b6bb60f2f5c6a0e42dfe"
+      "hash": "801927b61a093fa23b01fa1f5f1c64f7dbf4bc4edf956b4a6aeddbe119e398c6"
     },
     {
       "target": "agents/flow-ops.md",
-      "hash": "2d05a206a17b7732d4aa001a6ffc57c8703dfd1daedb174e57a12cb47c39600f"
+      "hash": "a6b24f1a61754e85344f91f84aae541f144bb39cda18e3d833fb4d18f8954afe"
     },
     {
       "target": "agents/flow-plan.md",
-      "hash": "1fcdb70dc228d1c9fa93426364c5a6f5dba0e98eb3838951225f3d7c15dae383"
+      "hash": "ac76b1ce782f9345e8d639dac582002a0d02351cb897a0d6f6e7a1ff6aae65f5"
     },
     {
       "target": "agents/flow-research.md",
-      "hash": "031bcf6cb77022d9343e2e534245efd82211a1eee9ffaed1496c311937ce1360"
+      "hash": "ae8e9c4e2298624b302d1a8c1cfb4c4f6ecb0a97be793fc5a6ff9b7e6fc7c8e0"
     },
     {
       "target": "agents/flow-review.md",
-      "hash": "c5ec3c36c38d1f361c7720c209901eebbee3d4eec70c95783ef2ad634abe8a41"
+      "hash": "0e44dd54d59cff5936d002f04bf2f0b0138bf48d5c0b81f7770010a0d8acb6a0"
     },
     {
       "target": "commands/flow-bug.md",
@@ -283,7 +283,7 @@
     },
     {
       "target": "tools/_env.js",
-      "hash": "7ac49fe83c77280ad6da0eb7c554ae931f960cbfbd7643fce290e3dfbe43e8cd"
+      "hash": "1f5279e4b2928286a0be65200aa7c157c0d320704ba5057fe0883ad2f04bec16"
     },
     {
       "target": "tools/_flow_context.js",

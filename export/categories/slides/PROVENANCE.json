@@ -4,7 +4,7 @@
   "category": "slides",
   "manifestHash": "309338fcdc460cba431bae26e9eda83b52dfd304e1a40fc2628aa8e52f29f2cd",
   "generatorVersion": "2.0.0",
-  "bundleDigest": "a855706ee4c185d94273e21f657016f9cac693597d94eb62cbcb920c87f98a8d",
+  "bundleDigest": "621ad80933b845c6c420f5f1f5a9a1eea2999c29b20633209d617fb2f6cd2906",
   "entries": [
     {
       "target": "AGENTS.md",
@@ -116,11 +116,11 @@
     },
     {
       "target": "tools/_paths.js",
-      "hash": "03efb87c5c31b2f6f93af3009d43e6635687f1e15630d6f41fa2dc7813780a1a"
+      "hash": "e2285b46d25b310cefe314ee30cca22652e6a7d83ba7eacdf27e480d421c863f"
     },
     {
       "target": "tools/_python.js",
-      "hash": "93a21d6b4bf29b0a0efc756a2f74b388937e242eac16607452a7e2bd25c45611"
+      "hash": "079633bbad77acbc71a6fb16a20a18241666cb5c3f9b2b2cc17eec3a0cca5974"
     },
     {
       "target": "tools/_safeName.js",
@@ -352,23 +352,23 @@
     },
     {
       "target": "tools/slide_analyze_template.ts",
-      "hash": "11c22cd0ce328eacf2699f2f67e04486446219cb67eca19101ca8081e6067baa"
+      "hash": "5915f37fb0fa69fe3ccf0df2c8d21807245200c2dcefaed627f7d2b2e0809538"
     },
     {
       "target": "tools/slide_assemble_pptx.ts",
-      "hash": "d330801d245c7dbbc138964f5acefed37b99b692e236d93cb827a434e704cdf3"
+      "hash": "b94805e1a72b4e5cbabe0d92498a287b1ed89381ebd2281420dcd8fcf4f601ff"
     },
     {
       "target": "tools/slide_build_pptx.ts",
-      "hash": "0feed991268e1dfb68e8dad1146e1d5c64cdb296930a5ed6928bd7cbeeaceacd"
+      "hash": "5543fa4f6e58a2881c61092aa0648a8ff97c4b334a5fe6354a9b79d3ff4fb44e"
     },
     {
       "target": "tools/slide_compile_composition.ts",
-      "hash": "ea0b64746c4a6a2eebdbf1a61c0051fa8fb776787d80a61927d582bf77a8a2e7"
+      "hash": "53ba3121b55d0b159c262cedadfe949689df2397e87a7b435a562a96a2570249"
     },
     {
       "target": "tools/slide_compile_theme.ts",
-      "hash": "ec9f80f21b60bdbaf6a6521d2251f4b778effa37eb5f680accb32fb96f96ce08"
+      "hash": "c2d2e1069f549fa089b02ead843e7dd0707d49f602bfb873c6952c4248e89b45"
     },
     {
       "target": "tools/slide_create_thumbnails.ts",
@@ -384,7 +384,7 @@
     },
     {
       "target": "tools/slide_screenshot.ts",
-      "hash": "227fdddfafeb47da8869873da0ef61a9c74eb7b5f90eaf070b29c8f732043aa4"
+      "hash": "8730874e27031d0baa91e053e769df45e84428ef32537946eb7a4d3a31e2cfc6"
     }
   ]
 }

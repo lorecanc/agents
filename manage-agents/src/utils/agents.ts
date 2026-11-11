@@ -9,6 +9,7 @@ import { isPathInsideWorkspace, isWorkspaceRelativePath } from "./pathValidation
 import { detectFrontmatterVersion, translateConfigV1ToV2, translateFrontmatterV1ToV2, translateFrontmatterV2ToV1 } from "./v2Compat.js"
 import { isServerDisabled, normalizeMcpConfig, readMcpServers, setServerDisabled } from "./opencodeMcp.js"
 import { discoverAvailableCategoryCompanionItems, getCategoryCompanionLinks, type SelectableCompanionItem } from "./companionLinks.js"
+import { getExtension, runAfterExport, type ManagerExtension } from "./extensions.js"
 
 function isValidFrontmatter(v: unknown): v is Record<string, any> {
   return typeof v === "object" && v !== null && !Array.isArray(v) && Object.keys(v).length > 0
@@ -2904,6 +2905,10 @@ export interface ExportOptions {
   env?: NodeJS.ProcessEnv
   /** True only when this export covers every installed agent (no category/selection filter). */
   completeExport?: boolean
+  /** Replaces the loaded extension's afterExport hook for this call. */
+  afterExport?: ManagerExtension["afterExport"]
+  /** Opaque data handed to the afterExport hook. */
+  extensionContext?: unknown
 }
 
 export interface ExportResult {
@@ -2916,6 +2921,10 @@ export interface ExportResult {
   removedRetiredAgents?: string[]
   pluginProvisioning?: PluginProvisionResult
   experimentalTodoWarning?: string
+  /** Data returned by the afterExport hook of a manager extension. */
+  extras?: Record<string, unknown>
+  /** Warnings from the afterExport hook of a manager extension. */
+  extensionWarnings?: string[]
 }
 
 export function expandStackDirectoryPath(dirPath: string, homeDirectory = os.homedir()): string {
@@ -3086,7 +3095,7 @@ function openOpenCodeConfig(
   return { configPath, backupPath, rawBytes, config: parsed as Record<string, any> }
 }
 
-function atomicWriteRestrictedFile(filePath: string, bytes: Buffer, mode = 0o600): void {
+export function atomicWriteRestrictedFile(filePath: string, bytes: Buffer, mode = 0o600): void {
   const dir = path.dirname(filePath)
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true })
@@ -3770,6 +3779,13 @@ export function exportAgents(
     experimentalTodoWarning = `Failed to enable experimental.todo in opencode.json: ${error?.message || error}`
   }
 
+  const afterExport = runAfterExport(options.afterExport ?? getExtension()?.afterExport, {
+    destinationPath,
+    exported,
+    agents: successfulAgents,
+    options,
+  })
+
   return {
     exported,
     backupPath: destinationBackedUp ? resolvedBackupPath : null,
@@ -3780,5 +3796,7 @@ export function exportAgents(
     removedRetiredAgents,
     ...(pluginProvisioning ? { pluginProvisioning } : {}),
     ...(experimentalTodoWarning ? { experimentalTodoWarning } : {}),
+    ...(afterExport.extras ? { extras: afterExport.extras } : {}),
+    ...(afterExport.warnings.length > 0 ? { extensionWarnings: afterExport.warnings } : {}),
   }
 }

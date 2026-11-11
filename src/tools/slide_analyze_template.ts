@@ -29,11 +29,11 @@ export default tool({
     const { spawn } = await import("child_process")
     const { getPythonPath } = await import("./_python.js")
 
-    const { opencodePath } = await import("./_paths.js")
+    const { configPath } = await import("./_paths.js")
 
-    const designDir = opencodePath("..", "office", "slides", "design")
+    const designDir = configPath("office", "slides", "design")
 
-    const scriptPy = opencodePath("..", "office", "slides", "scripts", "analyze_slide_master.py")
+    const scriptPy = configPath("office", "slides", "scripts", "analyze_slide_master.py")
 
     if (!fs.existsSync(scriptPy)) {
       return `Error: analyze_slide_master.py not found at ${scriptPy}`

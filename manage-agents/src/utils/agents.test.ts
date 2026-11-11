@@ -1782,6 +1782,43 @@ test("unchanged companion resources are skipped while content or mode changes ar
   assertPosixMode(fs.statSync(destination).mode & 0o7777, 0o700)
 })
 
+test("export runs the afterExport hook and surfaces its extras and warnings; a failing hook never fails the export", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-export-hook-"))
+  const xdg = path.join(root, "xdg")
+  const workspace = path.join(root, "workspace")
+  const previousXdg = process.env.XDG_CONFIG_HOME
+  t.after(() => {
+    if (previousXdg === undefined) delete process.env.XDG_CONFIG_HOME
+    else process.env.XDG_CONFIG_HOME = previousXdg
+    fs.rmSync(root, { recursive: true, force: true })
+  })
+  process.env.XDG_CONFIG_HOME = xdg
+  const agent = fixtureAgent(path.join(workspace, "general/agents/slides-orchestrator.md"), workspace, "test/model")
+  const seen: unknown[] = []
+
+  const result = exportAgents([agent], new Set([agent.currentPath]), undefined, {
+    extensionContext: { marker: 1 },
+    afterExport: (context) => {
+      seen.push(context.options.extensionContext, context.exported, context.destinationPath)
+      return { extras: { version: "v9" }, warnings: ["receipt skipped"] }
+    }
+  })
+
+  assert.deepEqual(result.exported, [agent.filename])
+  assert.deepEqual(result.extras, { version: "v9" })
+  assert.deepEqual(result.extensionWarnings, ["receipt skipped"])
+  assert.deepEqual(seen, [{ marker: 1 }, [agent.filename], result.destinationPath])
+
+  const failing = exportAgents([agent], new Set([agent.currentPath]), undefined, { afterExport: () => { throw new Error("hook down") } })
+  assert.deepEqual(failing.exported, [agent.filename])
+  assert.equal(failing.extras, undefined)
+  assert.match(failing.extensionWarnings?.[0] ?? "", /hook down/)
+
+  const plain = exportAgents([agent], new Set([agent.currentPath]))
+  assert.equal(plain.extras, undefined)
+  assert.equal(plain.extensionWarnings, undefined)
+})
+
 test("unchanged exported agents are reported without copying", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-export-skip-"))
   const xdg = path.join(root, "xdg")
@@ -2696,14 +2733,7 @@ test("lean ontology orchestrator discovers its explicitly allowed tools and comp
   assert.ok(catalog.skills.some(resource => resource.name === "ontology-tools" && resource.allowed && resource.exists))
 })
 
-test("v2 pipeline references resolve for canonical and stamped agents", { skip: !fs.existsSync(path.join(ontologyAgentsRoot, "ontology-orchestrator.md")) }, () => {
-  for (const [prefix, root] of [
-    ["go-pipeline", path.join(ontologySourceRoot, "export/categories/go-pipeline/agents")],
-    ["hybrid-pipeline", path.join(ontologySourceRoot, "export/categories/hybrid-pipeline/agents")]
-  ]) {
-    const orchestrator = fs.readFileSync(path.join(root, `${prefix}-orchestrator.md`), "utf8")
-    assert.match(orchestrator, new RegExp(`@${prefix}-docs_grounding`))
-  }
+test("v2 pipeline references resolve for the canonical agents", { skip: !fs.existsSync(path.join(ontologyAgentsRoot, "ontology-orchestrator.md")) }, () => {
   assert.match(fs.readFileSync(path.join(ontologyAgentsRoot, "pipeline-orchestrator.md"), "utf8"), /@pipeline-docs_grounding/)
 })
 

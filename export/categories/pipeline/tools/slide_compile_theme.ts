@@ -345,9 +345,9 @@ export default tool({
 
     const fs = await import("fs")
     const path = await import("path")
-    const { opencodePath } = await import("./_paths.js")
+    const { opencodePath, configPath } = await import("./_paths.js")
 
-    const designRoot = opencodePath("..", "office", "slides", "design")
+    const designRoot = configPath("office", "slides", "design")
 
     const dsDir = path.join(designRoot, designSystem)
 

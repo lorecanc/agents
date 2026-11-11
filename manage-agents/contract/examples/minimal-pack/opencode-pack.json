@@ -1,0 +1,11 @@
+{
+  "$schema": "../../opencode-pack.schema.json",
+  "contract": "1.0",
+  "name": "minimal-pack",
+  "version": "1.0.0",
+  "description": "Smallest pack that exercises every part of contract 1.0",
+  "archetype": { "callers": ["minimal-lead"], "reference": "minimal-lead" },
+  "routingDefaults": {
+    "opencode": { "minimal-scout": "opencode/example-small-model" }
+  }
+}

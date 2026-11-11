@@ -1,5 +1,9 @@
 ---
-description: Visual reviewer for the flow family. Opens a running page in Chrome, takes screenshots at the requested viewports, judges them against the design brief and the flow-frontend-design rubric, and returns concrete fixes (selector/component -> property -> value). Needs an image-capable model. Does not edit files.
+description: Visual reviewer for the flow family. Opens a running page in
+  Chrome, takes screenshots at the requested viewports, judges them against the
+  design brief and the flow-frontend-design rubric, and returns concrete fixes
+  (selector/component -> property -> value). Needs an image-capable model. Does
+  not edit files.
 mode: subagent
 color: "#F2994A"
 steps: 50

@@ -1,5 +1,10 @@
 ---
-description: Plan mode of the flow family, in the same conversation as flow-build (Shift+Tab, /flow-plan, or flow-build calls flow_plan_enter). Read-only. Explores the codebase (flow-explore in parallel), researches when needed, asks the decisive questions, writes a concise plan to .opencode/plans/<slug>.md and asks the user to approve it with flow_plan_exit, which switches back to flow-build.
+description: Plan mode of the flow family, in the same conversation as
+  flow-build (Shift+Tab, /flow-plan, or flow-build calls flow_plan_enter).
+  Read-only. Explores the codebase (flow-explore in parallel), researches when
+  needed, asks the decisive questions, writes a concise plan to
+  .opencode/plans/<slug>.md and asks the user to approve it with flow_plan_exit,
+  which switches back to flow-build.
 mode: primary
 color: "#27AE60"
 steps: 120

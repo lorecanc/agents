@@ -48,6 +48,8 @@ if (!process.versions.bun) {
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const distPath = join(scriptDir, "dist", "index.js")
 const srcDir = join(scriptDir, "src")
+// Optional repository-local extension sources (built to dist/extensions.js by the repository's own build script).
+const extDir = join(scriptDir, "ext")
 
 function newestSourceMtime(directory) {
   return readdirSync(directory, { withFileTypes: true }).reduce((latest, entry) => {
@@ -57,7 +59,8 @@ function newestSourceMtime(directory) {
   }, 0)
 }
 
-if (!existsSync(distPath) || statSync(distPath).mtimeMs < newestSourceMtime(srcDir)) {
+const newestSource = Math.max(newestSourceMtime(srcDir), existsSync(extDir) ? newestSourceMtime(extDir) : 0)
+if (!existsSync(distPath) || statSync(distPath).mtimeMs < newestSource) {
   const result = spawnSync(process.versions.bun ? "bun run build" : "npm run build", { cwd: scriptDir, shell: true, stdio: "inherit" })
   if (result.status !== 0) process.exit(result.status ?? 1)
 }

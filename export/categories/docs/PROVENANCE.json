@@ -4,7 +4,7 @@
   "category": "docs",
   "manifestHash": "5e2f7350e9ed7bef5a23a86a5c16ce83185da9ab25128b9a3c67d5765dbe4318",
   "generatorVersion": "2.0.0",
-  "bundleDigest": "aa51676b36c7a9d12526bc81730503b544dc5436e50171e460c4e64684300844",
+  "bundleDigest": "035a5e9ee0b72069f97b5d4284d827eb94eff29ca71c08b0b9ade677c4d84120",
   "entries": [
     {
       "target": "AGENTS.md",
@@ -84,11 +84,11 @@
     },
     {
       "target": "tools/_paths.js",
-      "hash": "03efb87c5c31b2f6f93af3009d43e6635687f1e15630d6f41fa2dc7813780a1a"
+      "hash": "e2285b46d25b310cefe314ee30cca22652e6a7d83ba7eacdf27e480d421c863f"
     },
     {
       "target": "tools/_python.js",
-      "hash": "93a21d6b4bf29b0a0efc756a2f74b388937e242eac16607452a7e2bd25c45611"
+      "hash": "079633bbad77acbc71a6fb16a20a18241666cb5c3f9b2b2cc17eec3a0cca5974"
     },
     {
       "target": "tools/_safeName.js",
@@ -100,7 +100,7 @@
     },
     {
       "target": "tools/doc_compile_theme.ts",
-      "hash": "e480092b9b53d22f43caed337d5818896d894b79771226a4702055d04044d175"
+      "hash": "3d278a9705572bda80b0c50c1c8eb60cf9da86fcfde1ab9c15da8196f505c77a"
     },
     {
       "target": "tools/doc_convert.ts",

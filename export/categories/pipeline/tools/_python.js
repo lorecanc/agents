@@ -1,8 +1,8 @@
 import fs from "fs"
 import path from "path"
-import { opencodePath } from "./_paths.js"
+import { configPath } from "./_paths.js"
 
-export function resolvePythonPath({ platform = process.platform, exists = fs.existsSync, venvRoot = opencodePath("..", "venv") } = {}) {
+export function resolvePythonPath({ platform = process.platform, exists = fs.existsSync, venvRoot = configPath("venv") } = {}) {
   const venvPython = platform === "win32"
     ? path.join(venvRoot, "Scripts", "python.exe")
     : path.join(venvRoot, "bin", "python3")

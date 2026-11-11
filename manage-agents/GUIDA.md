@@ -371,6 +371,12 @@ Questi comandi sono destinati a chi modifica il manager. **Directory corrente: `
 
 Con Bun, gli equivalenti documentati sono `bun install`, `bun test` e `bun run build`. La CI copre Node e Bun su macOS, Linux e Windows; ciò non è una prova della resa interattiva della TUI.
 
+### Estensioni locali del manager
+
+Una repository può aggiungere comandi e azioni dopo l’export senza modificare i file condivisi. Se accanto a `dist/index.js` esiste `dist/extensions.js`, il manager lo carica all’avvio: l’export predefinito (oppure `extension`) può fornire `commands` (comandi o flag CLI come `update` o `--version`; i comandi nativi hanno sempre la precedenza e i nomi compaiono in `--help`) e `afterExport` (eseguita al termine di ogni export; `extras` finisce in `ExportResult.extras`, `warnings` viene mostrato con gli altri avvisi e un errore non fa mai fallire l’export). Il tipo è `ManagerExtension` in `src/utils/extensions.ts`. La variabile `MANAGE_AGENTS_EXTENSION=<file>` carica un altro modulo al posto di quello predefinito (utile per eseguire `src/index.tsx` con `tsx` contro `ext/index.ts`). Senza il file non cambia nulla.
+
+I sorgenti dell’estensione appartengono alla repository: mettili in `manage-agents/ext/` (punto d’ingresso `ext/index.ts`; `npm run build` lo compila in `dist/extensions.js`, il launcher ricompila quando cambiano e `npm test` esegue `ext/**/*.test.ts`) ed elenca `manage-agents/ext/**` in `localOverlay.neverOverwrite` di `.agent-manager/shared-sync.json`, così la sync non lo tocca. Aggiungi `ext/**/*.ts` al `tsconfig.json` locale per verificarne i tipi.
+
 ## TUI: navigazione e comandi
 
 Avvia la TUI con `npm start` da `manage-agents/`, con `npm start --prefix manage-agents` dalla radice o con il launcher. La lista e l’inspector sono affiancati; la selezione multipla è indicata nella lista. In generale, le azioni si applicano agli elementi selezionati se ne hai selezionati, altrimenti all’agente attivo o alla categoria attiva come descritto qui sotto.

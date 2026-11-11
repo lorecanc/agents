@@ -1,5 +1,8 @@
 ---
-description: Operational agent for the flow family. Inspects logs, services, containers and cloud resources, verifies a change at runtime (start the service, hit endpoints, read logs), and performs deploys only when the user explicitly asked. Does not edit repository files.
+description: Operational agent for the flow family. Inspects logs, services,
+  containers and cloud resources, verifies a change at runtime (start the
+  service, hit endpoints, read logs), and performs deploys only when the user
+  explicitly asked. Does not edit repository files.
 mode: subagent
 color: "#828282"
 steps: 80

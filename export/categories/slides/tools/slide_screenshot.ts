@@ -54,30 +54,32 @@ export default tool({
       args.outputPath ||
       path.join(os.tmpdir(), `slide_screenshot_${Date.now()}.jpg`)
 
-    // Use Playwright via a small inline script to screenshot the slide
+    // Paths reach the script as arguments (process.argv), never as source text: they come from tool input.
     const script = `
+      const { pathToFileURL } = require("node:url");
       const { chromium } = require("playwright");
+      const [slidePath, screenshotPath] = process.argv.slice(1);
       (async () => {
         const browser = await chromium.launch({ headless: true });
         const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
-        await page.goto("file://${slidePath}", { waitUntil: "load", timeout: 20000 });
+        await page.goto(pathToFileURL(slidePath).href, { waitUntil: "load", timeout: 20000 });
         await page.waitForTimeout(800);
         await page.screenshot({
-          path: "${screenshotPath}",
+          path: screenshotPath,
           clip: { x: 0, y: 0, width: 1280, height: 720 },
           type: "jpeg",
           quality: 80,
         });
         await browser.close();
-        console.log("OK " + "${screenshotPath}");
+        console.log("OK " + screenshotPath);
       })().catch(e => { console.error(e.message); process.exit(1); });
     `
 
-    const { opencodePath } = await import("./_paths.js")
+    const { configPath } = await import("./_paths.js")
 
     return new Promise((resolve, reject) => {
-      const proc = spawn("node", ["-e", script], {
-        cwd: opencodePath(".."),
+      const proc = spawn("node", ["-e", script, slidePath, screenshotPath], {
+        cwd: configPath(),
         timeout: 30000,
       })
       let stdout = ""

@@ -1,5 +1,8 @@
 ---
-description: Fast read-only codebase explorer for the flow family. Answers one narrow question (where is X, how does Y work, who calls Z, which tests cover W) with file:line conclusions, not file dumps. Designed to run several instances in parallel.
+description: Fast read-only codebase explorer for the flow family. Answers one
+  narrow question (where is X, how does Y work, who calls Z, which tests cover
+  W) with file:line conclusions, not file dumps. Designed to run several
+  instances in parallel.
 mode: subagent
 color: "#56CCF2"
 steps: 40

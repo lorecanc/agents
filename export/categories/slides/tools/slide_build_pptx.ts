@@ -86,14 +86,14 @@ export default tool({
       slidePaths.push(sp)
     }
 
-    const { opencodePath } = await import("./_paths.js")
+    const { opencodePath, configPath } = await import("./_paths.js")
 
     const runnerJs = opencodePath("pptx", "html2pptx_runner.js")
 
     const tmpDir = path.join(process.cwd(), "projects", projectName, ".tmp")
     fs.mkdirSync(tmpDir, { recursive: true })
 
-    const nodeModulesPath = opencodePath("..", "node_modules")
+    const nodeModulesPath = configPath("node_modules")
     const nodePaths = [
       fs.existsSync(nodeModulesPath) ? nodeModulesPath : null,
       path.join(process.cwd(), "node_modules"),

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "components": {
     "agentManager": {
-      "version": "1.3.0",
+      "version": "1.4.0",
       "description": "Shared Agent Manager CLI/TUI, validators, bridge translators, and bash permission profiles",
       "include": [
         "manage-agents.sh",

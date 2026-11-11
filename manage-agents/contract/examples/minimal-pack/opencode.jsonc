@@ -1,0 +1,8 @@
+{
+  // JSONC is accepted. Paths are relative to the pack root.
+  "$schema": "https://opencode.ai/config.json",
+  "plugins": [
+    { "package": "./plugins/minimal-greeter", "options": { "greeting": "hello" } }
+  ],
+  "instructions": ["resources/minimal-pack/conventions.md"],
+}

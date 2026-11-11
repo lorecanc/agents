@@ -1,5 +1,8 @@
 ---
-description: External research agent for the flow family. Looks up library documentation, API signatures, versions, migration guides, known issues, advisories and best practices on the web and returns sourced, version-aware findings. Does not edit files.
+description: External research agent for the flow family. Looks up library
+  documentation, API signatures, versions, migration guides, known issues,
+  advisories and best practices on the web and returns sourced, version-aware
+  findings. Does not edit files.
 mode: subagent
 color: "#9B51E0"
 steps: 40

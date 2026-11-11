@@ -381,14 +381,19 @@ function probePipeline(info, sessionId, toolsDir) {
   } else if (!info) out.reason = "not a git repository"
   else out.reason = "no session id in the tool context"
   if (toolsDir) {
+    // Tools may sit in tools/ or in per-pack namespaces tools/<pack>/: list the whole tools tree.
+    let toolsRoot = toolsDir
+    while (path.basename(toolsRoot) !== "tools" && path.dirname(toolsRoot) !== toolsRoot) toolsRoot = path.dirname(toolsRoot)
+    if (path.basename(toolsRoot) !== "tools") toolsRoot = toolsDir
     try {
-      const names = fs.readdirSync(toolsDir)
+      const names = fs.readdirSync(toolsRoot, { withFileTypes: true }).flatMap((entry) =>
+        entry.isDirectory() ? fs.readdirSync(path.join(toolsRoot, entry.name)) : [entry.name])
       out.tools_present = [...new Set(names.filter((n) => /^(dev|pipeline)_[a-z_]+\.(ts|js|mjs)$/.test(n)).map((n) => n.replace(/\.[^.]+$/, "")))].sort()
       out.tools_missing = (out.guard_registered === true ? [...DEV_TOOLS, ...PIPELINE_TOOLS] : DEV_TOOLS).filter((t) => !out.tools_present.includes(t))
     } catch (e) {
       out.tools_reason = `cannot list tools dir: ${e.message}`
     }
-    out.guard_plugin_file = ["index.ts", "index.js"].some((file) => fs.existsSync(path.join(toolsDir, "..", "plugins", "pipeline-guard", file)))
+    out.guard_plugin_file = ["index.ts", "index.js"].some((file) => fs.existsSync(path.join(toolsRoot, "..", "plugins", "pipeline-guard", file)))
   }
   return out
 }

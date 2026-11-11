@@ -189,6 +189,17 @@ test("dev_env reads V1 and V2 MCP configs and detects the pipeline-guard plugin 
   fs.writeFileSync(path.join(legacyTools, "..", "plugins", "pipeline-guard.js"), "export {}\n")
   const legacy = await collectEnv({ directory: dir, toolsDir: legacyTools, env: { PATH: "", XDG_CONFIG_HOME: cfgHome } })
   assert.equal(legacy.pipeline.guard_plugin_file, false)
+
+  const namespaced = path.join(mkTmp("pipe-env-ns-"), "tools")
+  fs.mkdirSync(path.join(namespaced, "dev-tools"), { recursive: true })
+  fs.mkdirSync(path.join(namespaced, "pipeline"), { recursive: true })
+  fs.writeFileSync(path.join(namespaced, "dev-tools", "dev_env.ts"), "")
+  fs.writeFileSync(path.join(namespaced, "pipeline", "pipeline_state.ts"), "")
+  fs.mkdirSync(path.join(namespaced, "..", "plugins", "pipeline-guard"), { recursive: true })
+  fs.writeFileSync(path.join(namespaced, "..", "plugins", "pipeline-guard", "index.ts"), "export {}\n")
+  const packs = await collectEnv({ directory: dir, toolsDir: path.join(namespaced, "dev-tools"), env: { PATH: "", XDG_CONFIG_HOME: cfgHome } })
+  assert.deepEqual(packs.pipeline.tools_present, ["dev_env", "pipeline_state"])
+  assert.equal(packs.pipeline.guard_plugin_file, true)
 })
 
 test("env template parsing keeps names only", () => {

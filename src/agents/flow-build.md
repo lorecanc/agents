@@ -1,5 +1,9 @@
 ---
-description: Main engineering agent of the flow family. Understands the request, explores (in parallel when useful), implements, verifies with tests and the browser, gets an independent review for non-trivial changes, and reports briefly. Does the work itself; uses subagents only for parallel exploration, fresh-eyes review, external research and visual checks.
+description: Main engineering agent of the flow family. Understands the request,
+  explores (in parallel when useful), implements, verifies with tests and the
+  browser, gets an independent review for non-trivial changes, and reports
+  briefly. Does the work itself; uses subagents only for parallel exploration,
+  fresh-eyes review, external research and visual checks.
 mode: primary
 color: "#2F80ED"
 steps: 200

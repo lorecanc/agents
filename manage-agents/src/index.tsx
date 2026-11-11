@@ -21,6 +21,16 @@ import {
 import { AUTO_COMMIT_MESSAGES, isRepositoryLocalPath, repositoryTransaction, parseAutoCommitArgs } from "./utils/repositoryTransaction.js"
 import { buildCategoryDistribution, buildAllCategoryDistributions, recoverBuildAllCategoryDistributions, checkCategoryDistribution, loadCategoryManifest, packageCategoryDistributions, parseCategoryArgs } from "./utils/categoryDistribution.js"
 import { loadUiConfig } from "./utils/uiConfig.js"
+import { loadExtension } from "./utils/extensions.js"
+import { hasErrors, PACK_NAME_RE, validatePack, type PackValidation } from "./utils/packs.js"
+import { addSource, discoverAllPacks, findSource, loadSources, pullSource, removeSource, saveSources, sourceRevision } from "./utils/sources.js"
+import { describeExecutable, parsePackRequest, resolvePacks } from "./utils/resolver.js"
+import { buildLock, confirmationsNeeded, defaultTarget, diffLocks, readLock, type LockChange } from "./utils/lock.js"
+import { changeTarget, installChange, reconcileChange, restoreBackup, targetStatus, uninstallChange, updateChange, type ChangeResult } from "./utils/installer.js"
+import { loadOverrideSettings, loadRoutingSettings, saveOverrideSettings, saveRoutingSettings, scopeOf, setOverride, setRoutes, unsetOverride, unsetRoutes } from "./utils/userSettings.js"
+import YAML from "yaml"
+import { realpathThroughExistingAncestor } from "./utils/pathValidation.js"
+import { terminalSafeText } from "./utils/terminalText.js"
 import { agentRoutingConfigPath, agentRoutingOutputPath, archetypeBundles, buildAgentRouting, checkAgentRouting, describeAgentRouting, isRoutableArchetype, rebuildArchetypeBundles, ROUTABLE_ARCHETYPES, setArchetypeConfig } from "./utils/agentRouting.js"
 import { BASH_PROFILES_FILE, checkBashProfiles, syncBashProfiles } from "./utils/bashProfiles.js"
 import { claudeNextSteps } from "./utils/claudeNextSteps.js"
@@ -626,6 +636,7 @@ Options:
   if (result.experimentalTodoWarning) {
     console.warn(`   ⚠  ${result.experimentalTodoWarning}`)
   }
+  for (const warning of result.extensionWarnings ?? []) console.warn(`   ⚠  ${warning}`)
 
   console.log(`\n✅ Export complete!`)
   console.log(`   Exported ${result.exported.length} agents to:`)
@@ -1277,6 +1288,396 @@ async function runCategory(workspaceRoot: string) {
   if ((parsed.action === "check" || parsed.action === "status") && (results.some(result => result.status !== "current") || failed)) process.exitCode = 1
   if (parsed.action === "build" && failed) process.exitCode = 1
 }
+// Pack content may be hostile: escape C1 controls, which JSON.stringify leaves raw and some terminals interpret.
+const printJson = (value: unknown) => console.log(JSON.stringify(value, null, 2).replace(/[\u007f-\u009f]/g, char => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`))
+
+/** Splits CLI arguments; returns an error message for unknown options or missing option values. */
+function parseCliArgs(args: string[], valued: string[], booleans: string[]): { positional: string[]; values: Record<string, string>; flags: Set<string> } | string {
+  const positional: string[] = []
+  const values: Record<string, string> = {}
+  const flags = new Set<string>()
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]
+    if (!arg.startsWith("--")) positional.push(arg)
+    else if (valued.includes(arg)) {
+      if (args[i + 1] === undefined || args[i + 1].startsWith("--")) return `${arg} needs a value`
+      values[arg] = args[++i]
+    } else if (booleans.includes(arg)) flags.add(arg)
+    else return `unknown option ${terminalSafeText(arg)}`
+  }
+  return { positional, values, flags }
+}
+
+function cliError(message: string, code = 2) {
+  console.error(`Error: ${message.split("\n").map(terminalSafeText).join("\n")}`)
+  process.exitCode = code
+}
+
+function printPackValidation(validation: PackValidation) {
+  const { manifest, ids, unresolved, issues } = validation
+  const safe = terminalSafeText
+  console.log(manifest ? `Pack ${safe(manifest.name)} ${safe(manifest.version)} (contract ${safe(manifest.contract)}): ${safe(validation.root)}` : `Pack at ${safe(validation.root)}`)
+  const counts = Object.entries(ids).filter(([, list]) => list.length).map(([kind, list]) => `${list.length} ${kind}`)
+  if (counts.length) console.log(`  Contents: ${counts.join(", ")}`)
+  const surface = describeExecutable(validation)
+  if (surface.length) console.log(`  Executable surface:\n${surface.map(item => `    - ${safe(item)}`).join("\n")}`)
+  if (unresolved.length) console.log(`  Unresolved (must come from a required pack):\n${unresolved.map(ref => `    - ${safe(ref.from)}: ${ref.kind} ${safe(ref.target)}`).join("\n")}`)
+  for (const issue of issues) console.log(`  ${issue.level === "error" ? "ERROR" : "warning"} [${issue.code}]${issue.path ? ` ${safe(issue.path)}` : ""}: ${safe(issue.message)}`)
+  const errors = issues.filter(issue => issue.level === "error").length
+  console.log(errors ? `  ${errors} error(s): the pack does not satisfy the contract.` : "  The pack satisfies the contract.")
+}
+
+function runPackCLI() {
+  const [action, ...rest] = process.argv.slice(3)
+  if ((action !== "validate" && action !== "list") || rest.includes("--help") || rest.includes("-h")) {
+    console.log("Usage: manage-agents pack validate <pack-dir>... [--json] [--git]")
+    console.log("       manage-agents pack list [--json]")
+    console.log("validate checks directories against the OpenCode pack contract (manage-agents/contract/CONTRACT.md); --git applies the rules for git sources. list shows the packs offered by the registered sources.")
+    if (action !== "validate" && action !== "list" && action !== "--help" && action !== "-h") process.exitCode = 2
+    return
+  }
+  const parsed = parseCliArgs(rest, [], action === "validate" ? ["--json", "--git"] : ["--json"])
+  if (typeof parsed === "string") return cliError(parsed)
+  if (action === "list") {
+    const { candidates, problems } = discoverAllPacks(loadSources())
+    if (parsed.flags.has("--json")) return printJson({ packs: candidates.map(({ manifest, ...candidate }) => ({ ...candidate, name: manifest.name, version: manifest.version, description: manifest.description, requires: manifest.requires })), problems })
+    if (!candidates.length && !problems.length) console.log("No packs. Register a source with `manage-agents source add <name> <dir|git-url>`.")
+    for (const candidate of candidates) console.log(`${terminalSafeText(candidate.source)}/${terminalSafeText(candidate.manifest.name)}@${terminalSafeText(candidate.manifest.version)}  ${terminalSafeText(candidate.relativeDir)}  ${terminalSafeText(candidate.manifest.description)}`)
+    for (const problem of problems) console.log(`warning: ${terminalSafeText(problem)}`)
+    return
+  }
+  if (!parsed.positional.length) return cliError("pack validate needs at least one pack directory.")
+  const results = parsed.positional.map(dir => validatePack(dir, { sourceKind: parsed.flags.has("--git") ? "git" : "local" }))
+  if (parsed.flags.has("--json")) printJson(results.length === 1 ? results[0] : results)
+  else results.forEach(printPackValidation)
+  if (results.some(hasErrors)) process.exitCode = 1
+}
+
+const SOURCE_USAGE = `Usage: manage-agents source <command>
+  list [--json]                                   registered sources
+  add <name> <dir|git-url> [--ref <ref>] [--trust]  register a local directory or a git repository (https:, ssh:, git@host:path)
+  remove <name>
+  pull [<name>...]                                clone or fetch git sources into the cache (default: all)
+  trust <name> | untrust <name>                   allow installing executable content from the source without asking
+  prefer <pack> <source> | prefer <pack> --clear  which source to use when several offer the same pack
+Sources live in $XDG_CONFIG_HOME/manage-agents/sources.json; git checkouts in $XDG_CACHE_HOME/manage-agents/sources/.`
+
+function runSourceCLI() {
+  const [action, ...rest] = process.argv.slice(3)
+  if (!action || action === "--help" || action === "-h" || rest.includes("--help")) {
+    console.log(SOURCE_USAGE)
+    if (!action) process.exitCode = 2
+    return
+  }
+  const parsed = parseCliArgs(rest, action === "add" ? ["--ref"] : [], action === "add" ? ["--trust"] : action === "list" ? ["--json"] : action === "prefer" ? ["--clear"] : [])
+  if (typeof parsed === "string") return cliError(parsed)
+  const [first, second] = parsed.positional
+  try {
+    const registry = loadSources()
+    const safe = terminalSafeText
+    if (action === "list") {
+      if (parsed.flags.has("--json")) return printJson(registry)
+      if (!registry.sources.length) console.log("No sources. Add one with `manage-agents source add <name> <dir|git-url>`.")
+      for (const source of registry.sources) {
+        const location = source.kind === "local" ? source.path : `${source.url}${source.ref ? `#${source.ref}` : ""} (${sourceRevision(source)?.slice(0, 12) ?? "not pulled"})`
+        console.log(`${safe(source.name)}  ${source.kind}  ${source.trusted ? "trusted" : "untrusted"}  ${safe(location)}`)
+      }
+      for (const [pack, source] of Object.entries(registry.prefer)) console.log(`prefer ${safe(pack)} from ${safe(source)}`)
+      return
+    }
+    if (action === "add") {
+      if (!first || !second || parsed.positional.length > 2) return cliError("usage: source add <name> <dir|git-url> [--ref <ref>] [--trust]")
+      const source = addSource(registry, first, second, { ref: parsed.values["--ref"], trusted: parsed.flags.has("--trust") })
+      saveSources(registry)
+      console.log(`Added ${source.kind} source ${safe(source.name)}${source.trusted ? " (trusted)" : ""}.${source.kind === "git" ? ` Fetch it with \`manage-agents source pull ${source.name}\`.` : ""}`)
+      return
+    }
+    if (action === "remove") {
+      if (!first || parsed.positional.length > 1) return cliError("usage: source remove <name>")
+      removeSource(registry, first)
+      saveSources(registry)
+      console.log(`Removed source ${safe(first)}. Its cached checkout, if any, stays in the cache directory.`)
+      return
+    }
+    if (action === "pull") {
+      const sources = parsed.positional.length ? parsed.positional.map(name => findSource(registry, name)) : registry.sources.filter(source => source.kind === "git")
+      for (const source of sources) {
+        const commit = pullSource(source)
+        console.log(commit ? `${safe(source.name)}: ${commit.slice(0, 12)}` : `${safe(source.name)}: local source, nothing to pull`)
+      }
+      return
+    }
+    if (action === "trust" || action === "untrust") {
+      if (!first || parsed.positional.length > 1) return cliError(`usage: source ${action} <name>`)
+      findSource(registry, first).trusted = action === "trust"
+      saveSources(registry)
+      console.log(`Source ${safe(first)} is now ${action === "trust" ? "trusted" : "untrusted"}.`)
+      return
+    }
+    if (action === "prefer") {
+      if (!first || !PACK_NAME_RE.test(first) || (parsed.flags.has("--clear") ? second !== undefined : !second)) return cliError("usage: source prefer <pack> <source> | source prefer <pack> --clear")
+      if (parsed.flags.has("--clear")) delete registry.prefer[first]
+      else registry.prefer[first] = findSource(registry, second).name
+      saveSources(registry)
+      console.log(parsed.flags.has("--clear") ? `Cleared the source preference for ${safe(first)}.` : `Pack ${safe(first)} now comes from ${safe(second)}.`)
+      return
+    }
+    cliError(`unknown source command ${safe(action)}\n${SOURCE_USAGE}`)
+  } catch (error) {
+    cliError(error instanceof Error ? error.message : String(error), 1)
+  }
+}
+
+const formatLockChange = (change: LockChange) => `  ${change.kind} ${terminalSafeText(change.name)}${change.from ? ` ${terminalSafeText(change.from)}` : ""}${change.to ? ` -> ${terminalSafeText(change.to)}` : ""}`
+
+function runResolveCLI() {
+  const args = process.argv.slice(3)
+  if (!args.length || args.includes("--help") || args.includes("-h")) {
+    console.log("Usage: manage-agents resolve <[source/]pack[@range]>... [--target <opencode-config-dir>] [--json]")
+    console.log("Resolves packs and their dependencies across the registered sources and prints the result, the changes against the target's lock and the executable surface. Writes nothing.")
+    if (!args.length) process.exitCode = 2
+    return
+  }
+  const parsed = parseCliArgs(args, ["--target"], ["--json"])
+  if (typeof parsed === "string") return cliError(parsed)
+  try {
+    const requests = parsed.positional.map(parsePackRequest)
+    const registry = loadSources()
+    const { candidates, problems: discoveryProblems } = discoverAllPacks(registry)
+    const resolution = resolvePacks(requests, candidates, { prefer: registry.prefer, revisionOf: name => sourceRevision(findSource(registry, name)) })
+    const target = path.resolve(parsed.values["--target"] ?? defaultTarget())
+    const lock = resolution.problems.length ? null : buildLock(resolution)
+    const previousLock = readLock(target)
+    const diff = lock ? diffLocks(previousLock, lock) : { changes: [], executable: [] }
+    const confirmations = lock ? confirmationsNeeded(lock, previousLock) : []
+    const warnings = [...discoveryProblems, ...resolution.warnings]
+    if (parsed.flags.has("--json")) printJson({ target, packs: resolution.packs.map(({ validation, ...pack }) => pack), ...(lock ? { lock } : {}), changes: diff.changes, executableChanges: diff.executable, confirmations, problems: resolution.problems, warnings })
+    else {
+      const safe = terminalSafeText
+      console.log(`Resolution for ${safe(target)}:`)
+      for (const pack of resolution.packs) {
+        console.log(`  ${safe(pack.name)}@${safe(pack.version)} from ${safe(pack.source)}${pack.revision ? `@${pack.revision.slice(0, 12)}` : ""}${pack.root ? "" : `  (required by ${pack.requiredBy.map(safe).join(", ")})`}${pack.trusted ? "" : "  [untrusted]"}`)
+        for (const item of pack.executable) console.log(`      runs: ${safe(item)}`)
+      }
+      if (diff.changes.length) console.log(`Changes against the lock:\n${diff.changes.map(formatLockChange).join("\n")}`)
+      for (const reason of confirmations) console.log(`needs confirmation: ${safe(reason)}`)
+      for (const warning of warnings) console.log(`warning: ${safe(warning)}`)
+      for (const problem of resolution.problems) console.log(`ERROR: ${safe(problem)}`)
+      console.log(resolution.problems.length ? "Resolution failed." : "Resolution succeeded. Nothing was written.")
+    }
+    if (resolution.problems.length) process.exitCode = 1
+  } catch (error) {
+    cliError(error instanceof Error ? error.message : String(error), 1)
+  }
+}
+
+const TARGET_USAGE = `Usage: manage-agents <command> [--target <opencode-config-dir>]
+  install <[source/]pack[@range]>... [--adopt] [--yes] [--dry-run] [--json]
+                     add root packs; packs already installed keep their locked version
+  uninstall <pack>... [--dry-run] [--json]
+                     remove root packs; dependencies still required stay
+  update [<pack>...] [--adopt] [--yes] [--dry-run] [--json]
+                     pull the git sources of the named packs (all packs when none is named) and re-resolve within the ranges
+  reconcile [--adopt] [--dry-run] [--json]
+                     rebuild the target from its desired state and lock (repairs missing or deleted files)
+  status [--json]    read-only drift report; exit 1 when something differs
+  restore <backup-id>
+                     put back what --adopt replaced; the restored content becomes unmanaged
+--adopt backs up and replaces files and config entries that are not managed or were changed locally.
+--yes accepts executable content that needs confirmation (required without a terminal).
+Default target: $XDG_CONFIG_HOME/opencode (~/.config/opencode). State lives in <target>/.manage-agents/.`
+
+async function confirmInTerminal(reasons: string[], yes: boolean): Promise<boolean> {
+  for (const reason of reasons) console.log(`needs confirmation: ${terminalSafeText(reason)}`)
+  if (yes) return true
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    console.error("Error: this change needs confirmation; review the lines above and rerun with --yes.")
+    return false
+  }
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
+  const answer = await new Promise<string>(resolve => rl.question("Proceed? [y/N] ", resolve))
+  rl.close()
+  return /^y(es)?$/i.test(answer.trim())
+}
+
+function printChangeResult(command: string, target: string, result: ChangeResult, json: boolean) {
+  const plan = result.plan
+  const problems = [...(result.change?.problems ?? []), ...(plan?.conflicts ?? [])]
+  const warnings = [...(result.change?.warnings ?? []), ...(plan?.warnings ?? [])]
+  if (json) {
+    printJson({
+      command, target, status: result.status, recovered: result.recovered, changes: result.changes, confirmations: result.confirmations, problems, warnings,
+      writes: plan?.writes.map(({ rel, kind }) => ({ path: rel, kind })) ?? [], deletes: plan?.deletes ?? [], released: plan?.released ?? [],
+      configChanged: plan ? plan.configText !== null : false, backupId: result.backupId,
+    })
+    return
+  }
+  const safe = terminalSafeText
+  if (result.recovered) console.log("Rolled back an interrupted transaction first.")
+  if (result.changes.length) console.log(`Packs:\n${result.changes.map(formatLockChange).join("\n")}`)
+  if (plan && !problems.length) {
+    const count = (kind: string) => plan.writes.filter(write => write.kind === kind).length
+    console.log(`Files: ${count("create")} new, ${count("update")} updated, ${count("adopt")} adopted, ${plan.deletes.length} removed${plan.configText !== null ? `; ${plan.configFile} updated` : ""}.`)
+    if (result.status === "dry-run") {
+      for (const write of plan.writes) console.log(`  ${write.kind} ${safe(write.rel)}`)
+      for (const rel of plan.deletes) console.log(`  remove ${safe(rel)}`)
+    }
+  }
+  for (const warning of warnings) console.log(`warning: ${safe(warning)}`)
+  for (const problem of problems) console.log(`ERROR: ${safe(problem)}`)
+  const outcome: Record<ChangeResult["status"], string> = {
+    applied: `Done: ${safe(target)} is up to date.${result.backupId ? ` Replaced content was saved; undo with \`manage-agents restore ${result.backupId}\`.` : ""}`,
+    unchanged: `Nothing to do: ${safe(target)} is already up to date.`,
+    "dry-run": "Dry run: nothing was written.",
+    failed: "Nothing was written.",
+    declined: "Not confirmed: nothing was written.",
+  }
+  console.log(outcome[result.status])
+  if (result.status === "failed" || result.status === "declined") process.exitCode = 1
+}
+
+async function runTargetCLI(command: "install" | "uninstall" | "update" | "reconcile" | "status" | "restore") {
+  const args = process.argv.slice(3)
+  if (args.includes("--help") || args.includes("-h")) return console.log(TARGET_USAGE)
+  const booleans = { install: ["--adopt", "--yes", "--dry-run", "--json"], update: ["--adopt", "--yes", "--dry-run", "--json"], reconcile: ["--adopt", "--dry-run", "--json"], uninstall: ["--dry-run", "--json"], status: ["--json"], restore: [] }[command]
+  const parsed = parseCliArgs(args, ["--target"], booleans)
+  if (typeof parsed === "string") return cliError(`${parsed}\n${TARGET_USAGE}`)
+  const names = parsed.positional
+  if ((command === "install" || command === "uninstall" || command === "restore") && !names.length) return cliError(`${command} needs at least one argument\n${TARGET_USAGE}`)
+  if ((command === "reconcile" || command === "status") && names.length) return cliError(`${command} takes no pack names\n${TARGET_USAGE}`)
+  try {
+    const target = realpathThroughExistingAncestor(path.resolve(parsed.values["--target"] ?? defaultTarget()))
+    const registry = loadSources()
+    const json = parsed.flags.has("--json")
+    if (command === "status") {
+      const status = targetStatus(target, registry)
+      if (json) printJson({ target, roots: status.desired.roots, packs: Object.fromEntries(Object.entries(status.lock?.packs ?? {}).map(([name, pack]) => [name, { source: pack.source, version: pack.version, revision: pack.revision }])), drift: status.drift })
+      else {
+        console.log(`Target ${terminalSafeText(target)}`)
+        console.log(status.lock && Object.keys(status.lock.packs).length ? `Packs:\n${Object.entries(status.lock.packs).map(([name, pack]) => `  ${terminalSafeText(name)}@${terminalSafeText(pack.version)} from ${terminalSafeText(pack.source)}${pack.revision ? `@${pack.revision.slice(0, 12)}` : ""}${status.desired.roots.some(root => parsePackRequest(root).name === name) ? "" : " (dependency)"}`).join("\n")}` : "No packs installed.")
+        for (const line of status.drift) console.log(`drift: ${terminalSafeText(line)}`)
+        if (!status.drift.length) console.log("In sync.")
+      }
+      if (status.drift.length) process.exitCode = 1
+      return
+    }
+    if (command === "restore") {
+      const restored = await restoreBackup(target, names[0])
+      console.log(`Restored ${restored.files.length} file(s) and ${restored.config.length} config entr${restored.config.length === 1 ? "y" : "ies"}; they are no longer managed. \`manage-agents status\` shows what now differs from the packs.`)
+      return
+    }
+    const options = { adopt: parsed.flags.has("--adopt"), dryRun: parsed.flags.has("--dry-run"), confirm: (reasons: string[]) => confirmInTerminal(reasons, parsed.flags.has("--yes")) }
+    const compute = command === "install" ? installChange(registry, names)
+      : command === "uninstall" ? uninstallChange(names)
+        : command === "update" ? updateChange(registry, names)
+          : reconcileChange
+    const result = await changeTarget(target, command, registry, compute, options)
+    printChangeResult(command, target, result, json)
+  } catch (error) {
+    cliError(error instanceof Error ? error.message : String(error), 1)
+  }
+}
+
+const SETTINGS_USAGE = `Usage (user settings applied at reconcile; never written into packs):
+  models show [--json]
+  models set <pack> <trigger> <agent>=<provider/model[#variant]|inherit>...
+                     when a caller of archetype <pack> runs on <trigger> (a provider, or provider/model), route its subagents
+  models unset <pack> <trigger> [<agent>...]
+  models pin <pack>/<agent> <provider/model[#variant]>
+                     give a subagent a fixed model: routing skips it (writes the override "model")
+  models unpin <pack>/<agent>
+                     drop any fixed model, including the pack's own, so the subagent follows routing
+  override show [--json]
+  override set <pack>/<id> <field>=<value>... [--command]
+                     patch frontmatter of an installed agent (or command with --command); value is YAML, null removes the field
+  override unset <pack>/<id> [<field>...] [--command]
+Common options: --target <opencode-config-dir> (default $XDG_CONFIG_HOME/opencode), --global (applies to every target;
+default: only this target), --no-reconcile, --yes. Settings live in $XDG_CONFIG_HOME/manage-agents/{routing,overrides}.json.`
+
+function splitPackId(spec: string): [string, string] {
+  const slash = spec.indexOf("/")
+  if (slash <= 0 || slash === spec.length - 1) throw new Error(`"${spec}" must be <pack>/<id>`)
+  return [spec.slice(0, slash), spec.slice(slash + 1)]
+}
+
+function parseAssignments(items: string[], parseValue: (raw: string) => unknown): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const item of items) {
+    const equals = item.indexOf("=")
+    if (equals <= 0) throw new Error(`"${item}" must be <name>=<value>`)
+    Object.defineProperty(out, item.slice(0, equals), { value: parseValue(item.slice(equals + 1)), enumerable: true, writable: true, configurable: true })
+  }
+  return out
+}
+
+async function runSettingsCLI(command: "models" | "override") {
+  const [action, ...rest] = process.argv.slice(3)
+  if (!action || action === "--help" || action === "-h" || rest.includes("--help")) {
+    console.log(SETTINGS_USAGE)
+    if (!action) process.exitCode = 2
+    return
+  }
+  const parsed = parseCliArgs(rest, ["--target"], ["--global", "--no-reconcile", "--yes", "--json", ...(command === "override" ? ["--command"] : [])])
+  if (typeof parsed === "string") return cliError(`${parsed}\n${SETTINGS_USAGE}`)
+  try {
+    const target = realpathThroughExistingAncestor(path.resolve(parsed.values["--target"] ?? defaultTarget()))
+    const scopeTarget = parsed.flags.has("--global") ? null : target
+    const scopeLabel = scopeTarget === null ? "every target" : terminalSafeText(target)
+    const [first, ...others] = parsed.positional
+    if (action === "show") {
+      const settings = command === "models" ? loadRoutingSettings() : loadOverrideSettings()
+      const view = { default: settings.default, target: settings.targets[target] ?? {} }
+      const routingFile = path.join(target, "plugins", "manage-agents-router", "routing.json")
+      const installed = command === "models" && fs.existsSync(routingFile) ? JSON.parse(fs.readFileSync(routingFile, "utf8")) : null
+      if (parsed.flags.has("--json")) return printJson(command === "models" ? { ...view, installed } : view)
+      console.log(`Settings for every target:\n${JSON.stringify(view.default, null, 2)}`)
+      console.log(`Settings for ${terminalSafeText(target)} (win over the above):\n${JSON.stringify(view.target, null, 2)}`)
+      if (command === "models") console.log(installed ? `Installed routing (packs' defaults + settings):\n${JSON.stringify(installed.archetypes, null, 2)}` : "No archetype pack is installed in this target.")
+      return
+    }
+    let message: string
+    if (command === "models") {
+      if (action === "set" || action === "unset") {
+        if (!first || !others.length && action === "set") return cliError(`usage: models ${action} <pack> <trigger> ...\n${SETTINGS_USAGE}`)
+        const [trigger, ...assignments] = others
+        const settings = loadRoutingSettings()
+        const scope = scopeOf(settings, scopeTarget)
+        if (action === "set") setRoutes(scope, first, trigger, parseAssignments(assignments, raw => raw) as Record<string, string>)
+        else if (!unsetRoutes(scope, first, trigger ?? "", assignments)) return cliError(`no routing for ${first} ${trigger ?? ""} in ${scopeLabel}`, 1)
+        saveRoutingSettings(settings)
+        message = `Routing of ${terminalSafeText(first)} for ${terminalSafeText(trigger)} updated for ${scopeLabel}.`
+      } else if (action === "pin" || action === "unpin") {
+        if (!first || (action === "pin" ? others.length !== 1 : others.length)) return cliError(`usage: models ${action} <pack>/<agent>${action === "pin" ? " <provider/model[#variant]>" : ""}`)
+        const [pack, agent] = splitPackId(first)
+        const settings = loadOverrideSettings()
+        setOverride(scopeOf(settings, scopeTarget), pack, "agents", agent, { model: action === "pin" ? others[0] : null })
+        saveOverrideSettings(settings)
+        message = action === "pin" ? `${terminalSafeText(first)} is pinned to ${terminalSafeText(others[0])} for ${scopeLabel}.` : `${terminalSafeText(first)} has no fixed model for ${scopeLabel}: it follows routing.`
+      } else return cliError(`unknown models command ${terminalSafeText(action)}\n${SETTINGS_USAGE}`)
+    } else {
+      if (action !== "set" && action !== "unset") return cliError(`unknown override command ${terminalSafeText(action)}\n${SETTINGS_USAGE}`)
+      if (!first || (action === "set" && !others.length)) return cliError(`usage: override ${action} <pack>/<id> ...\n${SETTINGS_USAGE}`)
+      const [pack, id] = splitPackId(first)
+      const kind = parsed.flags.has("--command") ? "commands" : "agents"
+      const settings = loadOverrideSettings()
+      const scope = scopeOf(settings, scopeTarget)
+      if (action === "set") setOverride(scope, pack, kind, id, parseAssignments(others, raw => YAML.parse(raw)))
+      else if (!unsetOverride(scope, pack, kind, id, others)) return cliError(`no override for ${first} in ${scopeLabel}`, 1)
+      saveOverrideSettings(settings)
+      message = `Override of ${terminalSafeText(first)} updated for ${scopeLabel}.`
+    }
+    console.log(message)
+    if (parsed.flags.has("--no-reconcile")) return console.log("Not reconciled: run `manage-agents reconcile` to apply it.")
+    if (!readLock(target)) return console.log(`Nothing is installed in ${terminalSafeText(target)}; the setting applies at the next install.`)
+    const registry = loadSources()
+    const result = await changeTarget(target, command, registry, reconcileChange, { confirm: (reasons: string[]) => confirmInTerminal(reasons, parsed.flags.has("--yes")) })
+    printChangeResult("reconcile", target, result, false)
+    if (scopeTarget === null) console.log("Other targets pick the change up at their next `manage-agents reconcile --target <dir>`.")
+  } catch (error) {
+    cliError(error instanceof Error ? error.message : String(error), 1)
+  }
+}
+
 function runTopicExport(workspaceRoot: string) {
   console.error("Warning: topic-export is deprecated; use category build/check wiki.")
   const legacy = process.argv.slice(3); const check = legacy.includes("--check")
@@ -1298,10 +1699,13 @@ async function run() {
     fs.existsSync(path.join(candidate, "src", "agents")) || fs.existsSync(path.join(candidate, "general", "agents"))
   ) || workingDirectory
 
+  const extension = await loadExtension(process.env.MANAGE_AGENTS_EXTENSION || new URL("./extensions.js", import.meta.url))
+  const extensionCommands = Object.keys(extension?.commands ?? {}).filter(name => !name.startsWith("-"))
+
   // Intercept CLI commands
   if (process.argv[2] === "--help" || process.argv[2] === "-h") {
     console.log("Usage: manage-agents <command> [options]")
-    console.log("Commands: create, bridge, export, lint, fix-names, audit, import, tune, pipeline, routing, category, sync")
+    console.log(`Commands: ${["create", "bridge", "export", "lint", "fix-names", "audit", "import", "tune", "pipeline", "routing", "pack", "source", "resolve", "install", "uninstall", "update", "reconcile", "status", "restore", "models", "override", "category", "sync", ...extensionCommands].join(", ")}`)
     return
   }
 
@@ -1366,8 +1770,40 @@ async function run() {
     return
   }
 
+  if (process.argv[2] === "pack") {
+    runPackCLI()
+    return
+  }
+
+  if (process.argv[2] === "source") {
+    runSourceCLI()
+    return
+  }
+
+  if (process.argv[2] === "resolve") {
+    runResolveCLI()
+    return
+  }
+
+  const targetCommand = process.argv[2]
+  if (targetCommand === "models" || targetCommand === "override") {
+    await runSettingsCLI(targetCommand)
+    return
+  }
+
+  if (targetCommand === "install" || targetCommand === "uninstall" || targetCommand === "update" || targetCommand === "reconcile" || targetCommand === "status" || targetCommand === "restore") {
+    await runTargetCLI(targetCommand)
+    return
+  }
+
   if (process.argv[2] === "category") {
     await runCategory(workspaceRoot)
+    return
+  }
+
+  const extensionCommand = process.argv[2] ? extension?.commands?.[process.argv[2]] : undefined
+  if (extensionCommand) {
+    await extensionCommand({ argv: process.argv.slice(3), workspaceRoot })
     return
   }
 

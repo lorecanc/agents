@@ -40,7 +40,7 @@ export default tool({
     const { spawn } = await import("child_process")
     const { getPythonPath } = await import("./_python.js")
 
-    const { opencodePath } = await import("./_paths.js")
+    const { configPath } = await import("./_paths.js")
 
     let outputStem
     try {
@@ -92,7 +92,7 @@ export default tool({
       layoutMap[filename] = layoutName
     }
 
-    const scriptPy = opencodePath("..", "office", "slides", "scripts", "assemble_from_template.py")
+    const scriptPy = configPath("office", "slides", "scripts", "assemble_from_template.py")
 
     if (!fs.existsSync(scriptPy)) {
       return `Error: assemble_from_template.py not found at ${scriptPy}`

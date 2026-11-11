@@ -2,6 +2,7 @@ import fs from "node:fs"
 import path from "node:path"
 import { parseAgentFile, resolveCategoriesSubdir, resolveSourceSubdir } from "./agents.js"
 import { buildCategoryDistribution } from "./categoryDistribution.js"
+import { isModelRef, isTrigger } from "./values.js"
 
 // Model configurations for archetypes (see ARCHETIPI.md and src/plugins/agent-router).
 //
@@ -27,8 +28,6 @@ import { buildCategoryDistribution } from "./categoryDistribution.js"
 export const AGENT_ROUTING_VERSION = 2
 const ROUTING_OUTPUT_VERSION = 1
 export const INHERIT = "inherit"
-const MODEL_RE = /^[^\s/#]+\/[^\s#]+(?:#[^\s#]+)?$/
-const TRIGGER_RE = /^[^\s/#]+(?:\/[^\s#]+)?$/
 const AUTHORED_COMMENT = "Model configurations per archetype, owned by manage-agents (TUI: M on the archetype folder; CLI: `manage-agents routing`). configs.<trigger>: trigger = the provider (\"mistral\") or exact model (\"mistral/zai-glm-5-3\") the calling primary (build or plan) runs on, the exact model wins; value = { <role>: \"provider/model#variant\" | \"inherit\" }, a missing role inherits. See ARCHETIPI.md."
 
 /** role -> "provider/model#variant" | "inherit" */
@@ -79,8 +78,6 @@ export function isRoutableArchetype(id: string | undefined | null): id is string
   return typeof id === "string" && Object.prototype.hasOwnProperty.call(ARCHETYPES, id)
 }
 
-export const isModelRef = (value: unknown): value is string => typeof value === "string" && MODEL_RE.test(value)
-export const isTrigger = (value: unknown): value is string => typeof value === "string" && TRIGGER_RE.test(value)
 
 export function agentRoutingConfigPath(workspaceRoot: string): string {
   return path.join(workspaceRoot, ".agent-manager", "agent-routing.json")

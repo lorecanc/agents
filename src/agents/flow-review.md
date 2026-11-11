@@ -1,5 +1,8 @@
 ---
-description: Read-only code reviewer for the flow family. Reviews the current change set with a given focus (correctness+security, or quality - reuse, duplication, complexity, consistency) and returns verified, ranked findings with file:line, a concrete failure scenario and a fix. Does not edit files.
+description: Read-only code reviewer for the flow family. Reviews the current
+  change set with a given focus (correctness+security, or quality - reuse,
+  duplication, complexity, consistency) and returns verified, ranked findings
+  with file:line, a concrete failure scenario and a fix. Does not edit files.
 mode: subagent
 color: "#EB5757"
 steps: 60

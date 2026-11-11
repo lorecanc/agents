@@ -1603,6 +1603,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
             const configPath = path.join(path.dirname(result.destinationPath), "opencode.json")
             lines.push(``, `✔ experimental.todo enabled in ${configPath.replace(/\/Users\/[^\/]+/, "~")}`)
           }
+          for (const warning of result.extensionWarnings ?? []) lines.push(``, `⚠ ${warning}`)
           setActionResultLines(lines)
         } catch (error: any) {
           setActionResultTitle("Error During Export")
