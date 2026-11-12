@@ -1,16 +1,16 @@
-# Guida alla Configurazione MCP e LSP (`opencode.json`)
+# Guida alla configurazione MCP e LSP (`opencode.json`)
 
-> **Nota:** i documenti vendorizzati sotto `src/docs/docs-opencode/` sono ritagli di riferimento V1, non il contratto corrente.
+> **Nota:** i documenti vendorizzati sotto `docs/docs-opencode/` sono ritagli di riferimento V1, non il contratto corrente.
 
-Questo documento illustra la struttura del blueprint di configurazione `src/opencode.json` per **OpenCode**, progettato per essere **portabile e multipiattaforma** (macOS, Linux, Windows / WSL).
+Ecco la mappa dei file. I sorgenti vivono in `packs/common/opencode.json` per `codebase-memory-mcp` e in `packs/integrations/opencode.json` per tutti gli altri server MCP e per i server LSP, scritti con comandi portabili su macOS, Linux, Windows e WSL così da fondersi senza ritocchi dentro `~/.config/opencode/opencode.json`.
 
 ---
 
-## 🚀 Panoramica e Blueprint
+## Panoramica e struttura nei pack
 
-Il file `src/opencode.json` serve da configurazione di riferimento per attivare server **MCP** (Model Context Protocol) e **LSP** (Language Server Protocol) all'interno di OpenCode.
+L'unione avviene durante l'installazione. Siccome `flow`, `pipeline` e `general` dichiarano `integrations` tra le proprie dipendenze (mentre `flow`, `pipeline`, `docs`, `slides` e `wiki` dichiarano `common`), lanciare `manage-agents install` registra automaticamente le voci MCP e LSP lasciando intatte le tue chiavi personali in `opencode.json`.
 
-### Principi del Blueprint
+### Principi di configurazione
 1. **Comandi portabili**: Utilizzo dei binari registrati nel `PATH` di sistema o esecuzione tramite `npx -y` anziché percorsi assoluti specifici per un utente o un OS (`/Users/...`, `/opt/homebrew/...`).
 2. **Gestione Variabili d'Ambiente**: Sintassi standard OpenCode (`{env:NOME_VAR}`) per iniettare chiavi API senza esporle nel file di configurazione.
 3. **Attivazione Selettiva**: I server specifici per un determinato OS o toolchain (es. Xcode su macOS) sono disabilitati di default (`"disabled": true` nella voce sotto `mcp.servers`) per evitare errori all'avvio su altri ambienti (es. Linux o Windows).
@@ -41,7 +41,7 @@ Il file `src/opencode.json` serve da configurazione di riferimento per attivare 
 
 ## Server MCP Remoti Google Cloud (GCP)
 
-I sette server remoti sono già descritti nel blueprint `src/opencode.json`; non richiedono l'installazione di un pacchetto locale. Prima di usarli, abilita le API necessarie, assegna i ruoli IAM e configura l'autenticazione. Nel blueprint sono disabilitati di default con `"disabled": true`.
+I sette server remoti sono già descritti in `packs/integrations/opencode.json`; non richiedono l'installazione di un pacchetto locale. Prima di usarli, abilita le API necessarie, assegna i ruoli IAM e configura l'autenticazione. Nel pack partono disabilitati con `"disabled": true`.
 
 ### Gestione Multi-Progetto GCP
 
@@ -78,7 +78,7 @@ Da `gcloud` 581.0.0, `gcloud services enable` abilita automaticamente anche il r
 Concedi i ruoli all'identità Google usata da OpenCode. Per tutti gli endpoint MCP remoti Google è obbligatorio il ruolo base `roles/mcp.toolUser`, che include `mcp.tools.call`. Aggiungi anche i ruoli specifici dei servizi necessari:
 
 - **BigQuery**: `roles/bigquery.jobUser` e `roles/bigquery.dataViewer`; per scrivere dati, usa `roles/bigquery.dataEditor`.
-- **Cloud Run**: la configurazione `cloud-run` fornita in `src/opencode.json` è in sola lettura (`scope: "https://www.googleapis.com/auth/run.readonly"`) e gli agenti pipeline negano `cloud-run_deploy_*`; richiede `roles/run.viewer`. Se in futuro servono operazioni di scrittura o deploy, concedi `roles/run.developer` (oltre a `roles/iam.serviceAccountUser` e `roles/artifactregistry.reader`), cambia lo scope OAuth in `https://www.googleapis.com/auth/run` e consenti esplicitamente i tool di deploy nei permessi dell'agente.
+- **Cloud Run**: la configurazione `cloud-run` fornita in `packs/integrations/opencode.json` è in sola lettura (`scope: "https://www.googleapis.com/auth/run.readonly"`) e gli agenti pipeline negano `cloud-run_deploy_*`; richiede `roles/run.viewer`. Se in futuro servono operazioni di scrittura o deploy, concedi `roles/run.developer` (oltre a `roles/iam.serviceAccountUser` e `roles/artifactregistry.reader`), cambia lo scope OAuth in `https://www.googleapis.com/auth/run` e consenti esplicitamente i tool di deploy nei permessi dell'agente.
 - **Cloud Logging e Monitoring** (anche per osservare Cloud Run e Cloud Build): `roles/logging.viewer` oppure `roles/logging.admin`, e `roles/monitoring.viewer` oppure `roles/monitoring.admin`.
 - **Cloud SQL (PostgreSQL)**: `roles/cloudsql.viewer` e `roles/cloudsql.studioUser` (oppure `roles/cloudsql.admin`). Per consentire l'esecuzione SQL è inoltre obbligatorio abilitare Data API sull'istanza PostgreSQL:
 
@@ -130,7 +130,7 @@ Il token Bearer scade dopo un'ora: per continuare a usare i server, genera ed es
 
 ### Attivazione in OpenCode
 
-Attiva i server che vuoi usare tramite `manage-agents`: apri Resource Manager con `r` e abilita i server MCP desiderati. L'operazione copia la relativa voce sotto `mcp.servers` in `~/.config/opencode/opencode.json` e ne rimuove `"disabled"` (in V2 un server è attivo quando `disabled` è assente). In alternativa, modifica direttamente la voce del server MCP remoto sotto `mcp.servers` in quel file e rimuovi `"disabled": true`.
+Basta rimuovere `"disabled": true`. Dopo aver installato i pack con `manage-agents install`, puoi ridefinire il server desiderato nell'`opencode.json` della root del progetto su cui lavori senza `"disabled": true` (in V2 un server è attivo quando `disabled` è assente), oppure modificare la voce in `~/.config/opencode/opencode.json`: `manage-agents` non sovrascrive mai in silenzio una voce gestita modificata dall'utente senza `--adopt`.
 
 ---
 
@@ -182,40 +182,17 @@ set TWENTYFIRST_API_KEY=tua-api-key-qui
 
 ---
 
-## 📂 Come Utilizzare `opencode.json`
+## Come installare le configurazioni MCP e LSP
 
-### Opzione A: Copia Globale in `~/.config/opencode/`
-Per applicare la configurazione a tutti i progetti OpenCode:
+### Installazione con `manage-agents` (consigliata)
 
-**Linux / macOS:**
+Usa il gestore dei pack. Registrando il catalogo come sorgente ed eseguendo `manage-agents install flow pipeline` (oppure `manage-agents install integrations common` se vuoi solo server MCP e LSP, passando `--target <dir>` a `install` e `status` quando usi una cartella diversa da `~/.config/opencode`), il motore unisce `mcp` e `lsp` preservando `model`, `providers`, `permissions` e ogni altra chiave personale:
+
 ```bash
-mkdir -p ~/.config/opencode
-cp src/opencode.json ~/.config/opencode/opencode.json
-```
-
-**Windows (PowerShell):**
-```powershell
-New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.config\opencode"
-Copy-Item src\opencode.json "$env:USERPROFILE\.config\opencode\opencode.json"
-```
-
-### Opzione B: Riferimento nel file di configurazione principale
-Se hai già un file `~/.config/opencode/opencode.json`, puoi collegare questo progetto aggiungendo la sezione `projects`:
-
-```json
-{
-  "projects": {
-    "agents": {
-      "path": "~/.config/opencode/projects/agents",
-      "agents": "general/agents"
-    }
-  }
-}
-```
-
-### Opzione C: Symlink (macOS / Linux)
-```bash
-ln -sf $(pwd)/src/opencode.json ~/.config/opencode/opencode.json
+manage-agents source add catalog https://github.com/lorecanc/agents.git
+manage-agents source pull
+manage-agents install flow pipeline
+manage-agents status
 ```
 
 ---

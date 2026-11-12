@@ -24,10 +24,11 @@ ALWAYS prefer MCP graph tools over grep/glob/file-search for code discovery.
 
 # Handoff per agenti e manutenzione della repository
 
-Questa repository è un **catalogo di pack OpenCode**. Li installa, li modifica e ne genera il routing dei modelli
-`manage-agents`, un motore indipendente con un proprio contratto: `manage-agents/contract/CONTRACT.md`. Il motore
-vive ancora in `manage-agents/` finché non passa alla sua repository; il catalogo non deve dipendere dal suo codice,
-solo dal contratto.
+Questa repository ospita solo pack. `manage-agents` (nella repository indipendente
+[`lorecanc/manage-agents`](https://github.com/lorecanc/manage-agents)) li valida, li installa, li modifica e ne genera
+il routing dei modelli seguendo il contratto versionato pubblicato in
+[`contract/CONTRACT.md`](https://github.com/lorecanc/manage-agents/blob/main/contract/CONTRACT.md), unica interfaccia
+ammessa tra catalogo e motore.
 
 ## 1. Struttura
 
@@ -57,7 +58,7 @@ solo dal contratto.
   all'utente. Due pack non possono impostare la stessa voce con valori diversi.
 - I test (`*.test.*`) stanno accanto al codice che verificano, non vengono installati e girano su `.tree/`: per
   questo i loro import seguono il layout installato (`../dev-tools/_repo.js`), non quello del singolo pack.
-- Prima di consegnare, ogni pack modificato deve passare `manage-agents pack validate packs/<nome>`.
+- Prima di consegnare, ogni pack modificato deve passare `manage-agents pack validate --git packs/<nome>`.
 
 ## 3. Archetipi: `flow` e `pipeline`
 
@@ -96,11 +97,12 @@ solo dal contratto.
 1. Modificare i file in `packs/`. Se cambiano i profili in `scripts/bash-profiles.json`, eseguire
    `npm run sync-bash`; `npm run check` segnala gli agenti non allineati.
 2. Eseguire `npm test`, che ricostruisce `.tree/` e lancia i test dei pack, del bench e degli script.
-3. Validare i pack toccati con `node manage-agents/manage-agents.mjs pack validate packs/<nome>`.
+3. Validare i pack toccati con `manage-agents pack validate --git packs/<nome>` (con `manage-agents` installato da
+   `lorecanc/manage-agents` nel `PATH`, oppure invocato con `node <percorso-manage-agents>/manage-agents.mjs`).
 4. Se cambiano agenti, skill o server MCP della pipeline o dei pack che richiede, rigenerare i bridge e verificarli:
-   - `node manage-agents/manage-agents.mjs --no-auto-commit bridge --pack pipeline --target claude --no-register`
-   - `node manage-agents/manage-agents.mjs --no-auto-commit bridge --pack pipeline --target codex`
-   - `node manage-agents/manage-agents.mjs bridge check`
+   - `manage-agents --no-auto-commit bridge --pack pipeline --target claude --no-register`
+   - `manage-agents --no-auto-commit bridge --pack pipeline --target codex`
+   - `manage-agents bridge check`
    I flag `--no-register` e `--no-validate` vengono salvati in `bridges/translation-config.json`: se non devono
    restare, ripristinare il file dopo la generazione.
 5. Per provare i pack nella propria configurazione OpenCode: registrare una volta il catalogo come sorgente

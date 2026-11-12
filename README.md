@@ -1,7 +1,7 @@
 # OpenCode agent packs
 
 Ready-made OpenCode agents, commands, skills, plugins and tools, distributed as **packs** and installed with
-[manage-agents](manage-agents/README.md). Project-owned content is MIT licensed.
+[manage-agents](https://github.com/lorecanc/manage-agents). Project-owned content is MIT licensed.
 
 ## Packs
 
@@ -47,7 +47,7 @@ bench/ bin/ docs/    agent benchmark, opencode-wt, documentation
 .tree/               generated: every pack merged as OpenCode sees them installed (tests and bench run here)
 ```
 
-Packs follow the contract in [`manage-agents/contract/CONTRACT.md`](manage-agents/contract/CONTRACT.md): native
+Packs follow the contract in [`CONTRACT.md`](https://github.com/lorecanc/manage-agents/blob/main/contract/CONTRACT.md): native
 OpenCode paths, every other file under the pack's namespace (`tools/<pack>/`, `resources/<pack>/`), shared code in a
 pack the others require, tests (`*.test.*`) next to the code and never installed.
 
@@ -57,11 +57,12 @@ pack the others require, tests (`*.test.*`) next to the code and never installed
 npm ci
 npm test                 # builds .tree/, runs the pack, bench and script tests
 npm run check            # pipeline shell rules match scripts/bash-profiles.json (npm run sync-bash rewrites them)
-manage-agents pack validate packs/*/
+manage-agents pack validate --git packs/*/
 manage-agents bridge check
 ```
 
-Edit packs with the manage-agents TUI from the repository root (`manage-agents`): models, permissions, skills,
+Edit packs with the manage-agents TUI from the repository root (`manage-agents`, installed from
+[`lorecanc/manage-agents`](https://github.com/lorecanc/manage-agents)): models, permissions, skills,
 delegations, parameters, routing defaults, and `e` to install the focused pack into your OpenCode config. Agent
 filenames follow `[family-]<pack>-<role>.md`. [`AGENTS.md`](AGENTS.md) is the maintenance handoff for agents working
 on this repository.

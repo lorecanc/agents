@@ -8,7 +8,6 @@ permissions:
   contents: read
 
 env:
-  # The engine lives in manage-agents/ until it moves to its own repository; afterwards CI checks it out there.
   ENGINE_REPOSITORY: lorecanc/manage-agents
 
 jobs:
@@ -21,31 +20,34 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - name: Check out the catalog
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          path: catalog
       - name: Check out the engine
-        if: ${{ hashFiles('manage-agents/package.json') == '' }}
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           repository: ${{ env.ENGINE_REPOSITORY }}
-          path: manage-agents
+          path: engine
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 26
       - run: npm ci
+        working-directory: catalog
       - run: npm ci
-        working-directory: manage-agents
-      - name: Engine tests (while the engine lives in this repository)
-        run: |
-          if git ls-files --error-unmatch manage-agents/package.json >/dev/null 2>&1; then
-            npm --prefix manage-agents run validate
-          else
-            echo "engine checked out from $ENGINE_REPOSITORY; its own CI tests it"
-          fi
+        working-directory: engine
       - name: Catalog tests (merged pack tree, bench, scripts)
         run: npm test
+        working-directory: catalog
       - name: Pipeline shell rules match scripts/bash-profiles.json
         run: npm run check
+        working-directory: catalog
       - name: Every pack satisfies the contract
-        run: node manage-agents/manage-agents.mjs pack validate packs/*/
+        run: node engine/manage-agents.mjs pack validate --git catalog/packs/*/
+      - name: Cross-pack dependency closure resolves cleanly
+        run: |
+          mkdir -p xdg
+          XDG_CONFIG_HOME="$PWD/xdg" node engine/manage-agents.mjs source add catalog catalog
+          XDG_CONFIG_HOME="$PWD/xdg" node engine/manage-agents.mjs resolve flow pipeline docs slides wiki general
       - name: Committed bridges match a fresh regeneration
-        run: node manage-agents/manage-agents.mjs bridge check --workspace .
+        run: node engine/manage-agents.mjs bridge check --workspace catalog

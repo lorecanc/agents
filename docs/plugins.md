@@ -1,38 +1,42 @@
 # Pipeline guard, tools and worktree launcher
 
-Deterministic support for the `pipeline-*` agent family. Prompts and
-permissions in `../agents/` are the primary control; everything here is defense in depth plus the
-parts that must not be left to a model: scoped commits, process cleanup, git-state tracking.
+Deterministic support for the `pipeline-*` and `flow-*` agent families. Prompts and
+permissions in `packs/pipeline/agents/` and `packs/flow/agents/` are the primary control; everything
+here is defense in depth plus the parts that must not be left to a model: scoped commits, process
+cleanup, git-state tracking.
 
-Only sessions whose agent name matches `pipeline-*` (or a legacy `*-pipeline-*` name) are affected.
+Only sessions whose agent name matches `pipeline-*` (or a legacy `*-pipeline-*` name) are affected by
+`pipeline-guard`; `flow-guard` applies the lighter rules described below to `flow-*` sessions.
 Other sessions are untouched.
 
 ## V2 layout
 
-This tree targets OpenCode V2 and `@opencode/plugin@2.2.5`. Plugins are directories, not single
+This catalog targets OpenCode V2 and `@opencode/plugin@2.2.5`. Plugins are directories, not single
 files, and V2 does not discover `tools/*.ts`: every tool is registered by a plugin through
-`ctx.tool.transform`.
+`ctx.tool.transform`. Sources live under `packs/<pack>/` and keep the same relative paths once
+installed into `~/.config/opencode/`:
 
-| Path | Purpose |
-|------|---------|
-| `plugins/pipeline-guard/index.ts` | Hooks: scratch env, write/git guards, session registry, activity log, git-state check, compaction context |
-| `plugins/dev-tools/index.ts` | Registers the four `dev_*` tools, shared by the pipeline and flow families |
-| `plugins/pipeline-tools/index.ts` | Registers the two pipeline-only tools, `pipeline_state` and `pipeline_commit` |
-| `plugins/doc-tools/index.ts` | Registers the seven `doc_*` tools |
-| `plugins/slide-tools/index.ts` | Registers the nine `slide_*` tools |
-| `tools/_tool.ts` | Adapter from the legacy tool definition shape to a V2 definition (`toV2Tool`) and JSON Schema builder |
-| `tools/pipeline_state.ts` | Read-only: baseline, changed files (session / pre-existing / unattributed), anomalies, recorded `activity` |
-| `tools/dev_env.ts` | Read-only Phase 0 probe: Docker, binaries, contract, workspaces, guard/tools, MCP, env var presence, verification outlook |
-| `tools/pipeline_commit.ts` | Commit only the session's files; never push, amend, branch or stash |
-| `tools/dev_verify.ts` | lint / typecheck / tests / build with timeouts and a failure-class hint |
-| `tools/dev_smoke.ts` | Start service, check, always stop it and free the port |
-| `tools/dev_serve.ts` | Keep the service running for a browser (`start` / `status` / `stop`), always bounded |
-| `tools/doc_*.ts`, `tools/slide_*.ts` | Document and presentation tools |
-| `tools/_repo.js`, `tools/_sessions.js`, `tools/_bash_guard.js` | Shared logic: paths, git, repo info, scratch, snapshots and locks; session registry; bash parser and write/git checks (also used by flow-guard) |
-| `tools/_run.js`, `tools/_services.js`, `tools/_serve.js`, `tools/_env.js` | Shared logic of the `dev_*` tools: runners, dependent services, service lifecycle, env probe |
-| `tools/_pipeline_core.js` | Pipeline-only logic: agent/role matching, activity log, stale-session cleanup, file claims, commit planning |
-| `bin/opencode-wt.mjs` | Opt-in isolated worktree: `start`, `finish`, `abort`, `list`, `gc` |
-| `tools/_*.test.mjs` | Tests, run by `manage-agents` (`npm test`) |
+| Installed path | Pack | Purpose |
+|------|------|---------|
+| `plugins/pipeline-guard/index.ts` | `pipeline` | Hooks: scratch env, write/git guards, session registry, activity log, git-state check, compaction context |
+| `plugins/pipeline-tools/index.ts` | `pipeline` | Registers the two pipeline-only tools, `pipeline_state` and `pipeline_commit` |
+| `plugins/flow-guard/index.ts`, `plugins/flow-context/index.ts`, `plugins/flow-mode/index.ts` | `flow` | Flow guard, git/todo session context, and `flow_plan_enter` / `flow_plan_exit` |
+| `plugins/dev-tools/index.ts` | `dev-tools` | Registers the four `dev_*` tools, shared by the `pipeline` and `flow` packs |
+| `plugins/doc-tools/index.ts`, `plugins/slide-tools/index.ts` | `office-tools` | Registers the seven `doc_*` tools and the nine `slide_*` tools |
+| `tools/toolkit/_tool.ts` | `toolkit` | Adapter from the tool definition shape to a V2 definition (`toV2Tool`) and JSON Schema builder |
+| `tools/pipeline/pipeline_state.ts` | `pipeline` | Read-only: baseline, changed files (session / pre-existing / unattributed), anomalies, recorded `activity` |
+| `tools/pipeline/pipeline_commit.ts` | `pipeline` | Commit only the session's files; never push, amend, branch or stash |
+| `tools/pipeline/_pipeline_core.js` | `pipeline` | Pipeline-only logic: agent/role matching, activity log, stale-session cleanup, file claims, commit planning |
+| `tools/dev-tools/dev_env.ts` | `dev-tools` | Read-only Phase 0 probe: Docker, binaries, contract, workspaces, guard/tools, MCP, env var presence, verification outlook |
+| `tools/dev-tools/dev_verify.ts` | `dev-tools` | lint / typecheck / tests / build with timeouts and a failure-class hint |
+| `tools/dev-tools/dev_smoke.ts` | `dev-tools` | Start service, check, always stop it and free the port |
+| `tools/dev-tools/dev_serve.ts` | `dev-tools` | Keep the service running for a browser (`start` / `status` / `stop`), always bounded |
+| `tools/dev-tools/_repo.js`, `_sessions.js`, `_bash_guard.js` | `dev-tools` | Shared logic: paths, git, repo info, scratch, snapshots and locks; session registry; bash parser and write/git checks (also used by `flow-guard`) |
+| `tools/dev-tools/_run.js`, `_services.js`, `_serve.js`, `_env.js` | `dev-tools` | Shared logic of the `dev_*` tools: runners, dependent services, service lifecycle, env probe |
+| `tools/office-tools/doc_*.ts`, `slide_*.ts` | `office-tools` | Document and presentation tools and Python/PPTX helpers |
+| `tools/flow/_flow_guard.js`, `_flow_context.js`, `_flow_mode.js` | `flow` | Pure logic for the three `flow` plugins |
+| `bin/opencode-wt.mjs` | *(catalog root)* | Opt-in isolated worktree CLI: `start`, `finish`, `abort`, `list`, `gc` |
+| `packs/*/**/*.test.mjs` | *(not installed)* | Tests, executed against the merged `.tree/` directory via `npm test` |
 
 ## Plugins and tool registration
 
@@ -80,21 +84,25 @@ carries `options.permission` set to its full effective name, alongside `namespac
 
 ## Install
 
-Sources live in `src/plugins` and `src/tools` (never edit the generated `export/`).
-`manage-agents export` installs the plugin directories and the helper modules their registries
-import, together with the pipeline agents, and `category check` fails when an agent permits a
-`dev_*` or `pipeline_*` tool that is not shipped.
-
-To install by hand, mirror the layout into the OpenCode config directory; `plugins/` and `tools/`
-must stay siblings because every registry imports `../../tools/*.js`:
+Sources live in `packs/<pack>/` (`pipeline`, `flow`, `dev-tools`, `office-tools`, `toolkit`, ...).
+[`manage-agents`](https://github.com/lorecanc/manage-agents) resolves each requested pack together with
+its `requires` closure and installs the plugin directories and their `tools/<pack>/` modules into
+`~/.config/opencode` (or `--target <dir>`), omitting `*.test.*` files from the target. `manage-agents pack validate --git packs/*/`
+checks each pack's layout, manifest and namespaces and lists external imports, while `manage-agents resolve`
+verifies that every cross-pack import is supplied by a directly required pack.
 
 ```bash
-cp -R src/plugins/dev-tools src/plugins/pipeline-guard src/plugins/pipeline-tools src/plugins/doc-tools src/plugins/slide-tools ~/.config/opencode/plugins/
-cp src/tools/_*.js src/tools/_tool.ts src/tools/dev_*.ts src/tools/pipeline_*.ts src/tools/doc_*.ts src/tools/slide_*.ts ~/.config/opencode/tools/
-rm -f ~/.config/opencode/tools/_*.test.mjs   # tests are not needed at runtime
-# optional launcher
-ln -s "$PWD/src/bin/opencode-wt.mjs" ~/.local/bin/opencode-wt
+manage-agents source add catalog https://github.com/lorecanc/agents.git
+manage-agents source pull
+manage-agents install flow pipeline
+
+# optional worktree launcher from a local catalog checkout
+ln -s "$PWD/bin/opencode-wt.mjs" ~/.local/bin/opencode-wt
 ```
+
+To inspect the merged tree locally without touching `~/.config/opencode`, run `npm run merge`, which
+assembles all packs into `.tree/` (`plugins/` and `tools/<pack>/` stay siblings because registries
+import `../../tools/<pack>/*.js`).
 
 The V2 config lists each plugin directory by its config-relative path. Do not add a separate
 `tools/` entry for a tool module: registration happens inside the domain registry.
@@ -103,11 +111,11 @@ Emergency switch for the guard: `OPENCODE_PIPELINE_GUARD=off`.
 
 ## flow-guard (flow family)
 
-`plugins/flow-guard/index.ts` is the guard for the `flow-*` agents (the Claude Code style v2). It acts only
+`packs/flow/plugins/flow-guard/index.ts` is the guard for the `flow-*` agents (the Claude Code style v2). It acts only
 on sessions whose agent matches `flow-*` and keeps nothing on disk: no session registry, git snapshots,
 activity log, doom-loop rule or cross-session locks. Allow/ask decisions belong to the agent permissions;
-the guard only stops what must never run. The logic lives in `tools/_flow_guard.js` and reuses the bash
-parser and path checks of `_bash_guard.js` (`checkBash` with a `gitPolicy` override), shared with pipeline-guard.
+the guard only stops what must never run. The logic lives in `tools/flow/_flow_guard.js` and reuses the bash
+parser and path checks of `tools/dev-tools/_bash_guard.js` (`checkBash` with a `gitPolicy` override), shared with pipeline-guard.
 
 - Blocks writes outside the repository or into `.git`, `sudo`, dangerous env overrides, reading real
   `.env` files (templates are fine), and any repository write from the read-only agents (all but
@@ -132,9 +140,9 @@ Emergency switch: `OPENCODE_FLOW_GUARD=off`.
 
 ## flow-context (session context, Claude Code style)
 
-`plugins/flow-context/index.ts` adds per-request system text to `flow-*` sessions through the `context`
+`packs/flow/plugins/flow-context/index.ts` adds per-request system text to `flow-*` sessions through the `context`
 session hook. Nothing is persisted: the text is rebuilt for every model call. The logic lives in
-`tools/_flow_context.js`.
+`tools/flow/_flow_context.js`.
 
 - `flow-build` and `flow-plan` get the git snapshot taken at the session's first model call: current
   branch, main branch, `git status --short` (truncated at 2000 characters) and the last 5 commits,
@@ -146,8 +154,8 @@ Switch: `OPENCODE_FLOW_CONTEXT=off`.
 
 ## flow-mode (plan mode, Claude Code style)
 
-`plugins/flow-mode/index.ts` makes `flow-plan` a mode of the same conversation, like Claude Code's
-EnterPlanMode / ExitPlanMode. The rules and texts live in `tools/_flow_mode.js`.
+`packs/flow/plugins/flow-mode/index.ts` makes `flow-plan` a mode of the same conversation, like Claude Code's
+EnterPlanMode / ExitPlanMode. The rules and texts live in `tools/flow/_flow_mode.js`.
 
 - `flow_plan_enter` (only `flow-build`): asks the user, then switches the session to `flow-plan`.
 - `flow_plan_exit` (only `flow-plan`): checks that the plan is a non-empty `.opencode/plans/*.md`, asks
@@ -160,22 +168,24 @@ EnterPlanMode / ExitPlanMode. The rules and texts live in `tools/_flow_mode.js`.
   session agent before every step); the model stays the session's.
 - Users can still switch by hand: Shift+Tab cycles the visible primaries, `/flow-plan` starts planning.
 
-## agent-router (runtime model routing)
+## manage-agents-router (runtime model routing)
 
-`plugins/agent-router/index.ts` applies the model configurations of an archetype (see `ARCHETIPI.md`):
-the model of each subagent follows the provider or model the calling agent runs on, so one set of
-canonical agents serves every provider. It acts only when a canonical archetype agent listed in
-`routing.json` (today `flow-build`, `flow-plan` and `pipeline-orchestrator`, each judged on the model it
-runs on) calls the `subagent` tool; other agents are untouched. The decision logic lives in `tools/_agent_router.js`.
+When at least one installed pack declares `archetype` (`flow` or `pipeline`), [`manage-agents`](https://github.com/lorecanc/manage-agents)
+installs its own runtime plugin into `plugins/manage-agents-router/index.ts` (`router.js`) and writes a
+`routing.json` file next to it. Each subagent's model follows the provider or exact model the calling
+agent runs on, so one set of canonical agents serves every provider. It acts only when a caller listed in
+`routing.json` (`flow-build`, `flow-plan` and `pipeline-orchestrator`) calls the `subagent` tool; other
+agents are untouched.
 
 - `model.request` records the agent and model of each session (title/summary/compaction are ignored).
 - `tool.execute.before` sets `input.model` on `subagent` calls. OpenCode picks a subagent's model as
   `input.model ?? agent.model ?? parent session model`, so the order is: a model the caller passed
-  explicitly, then a fixed role (a canonical subagent with `model` in its frontmatter), then the
-  configuration for `provider/model` or `provider`, otherwise the caller's model.
-- `routing.json` sits next to the plugin and is generated by manage-agents from
-  `.agent-manager/agent-routing.json` (edited in the TUI with `M` on the archetype folder, or with
-  `manage-agents routing`); never edit it by hand. It is re-read on every subagent call, so changes need no restart.
+  explicitly, then a pinned subagent (fixed `model` in its frontmatter or user override), then the
+  configuration for `provider/model` or `provider`, otherwise the caller's model (`inherit`).
+- `routing.json` is regenerated by `manage-agents` at every reconcile by layering each pack's
+  `routingDefaults` in `opencode-pack.json` (edited in the TUI with `m` on the archetype pack folder)
+  under user settings in `~/.config/manage-agents/routing.json` (edited with `manage-agents models`).
+  Never edit `routing.json` by hand. It is re-read on every subagent call, so changes need no restart.
 - Fail-open: a missing or invalid `routing.json` routes nothing.
 
 Switches: `OPENCODE_AGENT_ROUTER=off` disables it; `OPENCODE_AGENT_ROUTING=<path>` reads another file.
