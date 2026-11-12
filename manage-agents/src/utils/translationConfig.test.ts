@@ -17,6 +17,7 @@ import {
   resolveModelTarget,
   resolveRole,
   saveTranslationConfig,
+  translationConfigPath,
   unusedModelMapKeys,
   validateClaudeModelName,
   validateMarketplaceName,
@@ -182,6 +183,14 @@ test("loading v2 is idempotent", () => {
   const loaded = loadTranslationConfig(workspace)
   assert.deepEqual(loaded, DEFAULT_TRANSLATION_CONFIG)
   assert.equal(fs.readFileSync(filePath, "utf8"), before)
+})
+
+test("the default translation config lives in the catalog's bridges directory", (t) => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "translation-config-"))
+  t.after(() => fs.rmSync(workspace, { recursive: true, force: true }))
+  assert.equal(translationConfigPath(workspace), path.join(workspace, "bridges", "translation-config.json"))
+  assert.equal(saveTranslationConfig(workspace, { ...DEFAULT_TRANSLATION_CONFIG, pluginName: "catalog-plugin" }), translationConfigPath(workspace))
+  assert.equal(loadTranslationConfig(workspace).pluginName, "catalog-plugin")
 })
 
 test("claude marketplace emission and automation defaults are enabled when absent", () => {

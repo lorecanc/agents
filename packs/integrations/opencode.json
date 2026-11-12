@@ -1,0 +1,171 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "servers": {
+      "chrome-devtools": {
+        "type": "local",
+        "command": [
+          "npx",
+          "-y",
+          "chrome-devtools-mcp@latest"
+        ],
+        "codemode": false
+      },
+      "XcodeBuildMCP": {
+        "type": "local",
+        "command": [
+          "npx",
+          "-y",
+          "xcodebuildmcp@latest",
+          "mcp"
+        ],
+        "codemode": false,
+        "disabled": true
+      },
+      "shadcn": {
+        "type": "local",
+        "command": [
+          "npx",
+          "-y",
+          "shadcn@latest",
+          "mcp"
+        ],
+        "codemode": false
+      },
+      "magic": {
+        "type": "local",
+        "command": [
+          "npx",
+          "-y",
+          "@21st-dev/magic@latest"
+        ],
+        "environment": {
+          "API_KEY": "{env:TWENTYFIRST_API_KEY}"
+        },
+        "codemode": false
+      },
+      "cupertino": {
+        "type": "local",
+        "command": [
+          "cupertino",
+          "serve"
+        ],
+        "codemode": false,
+        "disabled": true
+      },
+      "axiom": {
+        "type": "local",
+        "command": [
+          "npx",
+          "-y",
+          "axiom-mcp"
+        ],
+        "codemode": false
+      },
+      "cwe-search": {
+        "type": "local",
+        "command": [
+          "npx",
+          "-y",
+          "cwe-search-mcp@latest"
+        ],
+        "codemode": false
+      },
+      "bigquery": {
+        "type": "remote",
+        "url": "https://bigquery.googleapis.com/mcp",
+        "disabled": true
+      },
+      "cloud-run": {
+        "type": "remote",
+        "url": "https://run.googleapis.com/mcp",
+        "disabled": true
+      },
+      "cloud-logging": {
+        "type": "remote",
+        "url": "https://logging.googleapis.com/mcp",
+        "disabled": true
+      },
+      "cloud-monitoring": {
+        "type": "remote",
+        "url": "https://monitoring.googleapis.com/mcp",
+        "disabled": true
+      },
+      "cloud-sql": {
+        "type": "remote",
+        "url": "https://sqladmin.googleapis.com/mcp",
+        "disabled": true
+      },
+      "cloud-storage": {
+        "type": "remote",
+        "url": "https://storage.googleapis.com/storage/mcp",
+        "disabled": true
+      },
+      "cloud-cli": {
+        "type": "remote",
+        "url": "https://cloudcli.googleapis.com/mcp",
+        "disabled": true
+      }
+    }
+  },
+  "lsp": {
+    "basedpyright": {
+      "command": [
+        "basedpyright-langserver",
+        "--stdio"
+      ],
+      "extensions": [
+        ".py"
+      ]
+    },
+    "ruff": {
+      "command": [
+        "ruff",
+        "server"
+      ],
+      "extensions": [
+        ".py"
+      ]
+    },
+    "html": {
+      "command": [
+        "vscode-html-language-server",
+        "--stdio"
+      ],
+      "extensions": [
+        ".html",
+        ".htm",
+        ".vue"
+      ]
+    },
+    "css": {
+      "command": [
+        "vscode-css-language-server",
+        "--stdio"
+      ],
+      "extensions": [
+        ".css",
+        ".scss",
+        ".less"
+      ]
+    },
+    "sql": {
+      "command": [
+        "sqls"
+      ],
+      "extensions": [
+        ".sql"
+      ]
+    },
+    "markdown": {
+      "command": [
+        "marksman",
+        "server"
+      ],
+      "extensions": [
+        ".md",
+        ".mdx"
+      ]
+    }
+  }
+}

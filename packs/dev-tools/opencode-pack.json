@@ -1,0 +1,9 @@
+{
+  "contract": "1.0",
+  "name": "dev-tools",
+  "version": "1.0.0",
+  "description": "dev_env, dev_verify, dev_smoke and dev_serve tools with their repository, process and service helpers",
+  "requires": {
+    "toolkit": "^1.0.0"
+  }
+}

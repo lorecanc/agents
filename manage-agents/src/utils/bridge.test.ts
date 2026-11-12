@@ -3,6 +3,7 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import test from "node:test"
+import { fileURLToPath } from "node:url"
 import { bridgeToClaudeCode, buildClaudeCodePlugin, normalizeClaudeAgentName, writeClaudeCodePlugin } from "./bridge.js"
 import { DEFAULT_TRANSLATION_CONFIG, resolveMarketplaceName, resolveRole, type TranslationConfig } from "./translationConfig.js"
 import { claudeNextSteps } from "./claudeNextSteps.js"
@@ -58,9 +59,6 @@ test("writeClaudeCodePlugin refuses a symlinked output pointing outside the work
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "claude-bridge-symlink-ws-"))
   const outside = fs.mkdtempSync(path.join(os.tmpdir(), "claude-bridge-symlink-out-"))
   fs.symlinkSync(outside, path.join(workspace, "out"), "dir")
-  // The icon copy must stay inside the gated .claude-plugin directory.
-  fs.mkdirSync(path.join(workspace, "manage-agents", "assets"), { recursive: true })
-  fs.writeFileSync(path.join(workspace, "manage-agents", "assets", "plugin-icon.png"), "icon")
   const plugin = buildClaudeCodePlugin([fixture("pipeline-orchestrator.md")], "decent-pipeline", "pipeline-")
   assert.throws(
     () => writeClaudeCodePlugin(plugin, path.join(workspace, "out"), workspace),
@@ -75,12 +73,12 @@ test("writeClaudeCodePlugin refuses a symlinked skills directory pointing outsid
   const output = path.join(workspace, "claude")
   fs.mkdirSync(output, { recursive: true })
   fs.symlinkSync(outside, path.join(output, "skills"), "dir")
-  fs.mkdirSync(path.join(workspace, "src", "commands"), { recursive: true })
-  fs.writeFileSync(path.join(workspace, "src", "commands", "pipeline-bug.md"), "---\ndescription: Bug triage\n---\nFix the bug.\n")
+  fs.mkdirSync(path.join(workspace, "commands"), { recursive: true })
+  fs.writeFileSync(path.join(workspace, "commands", "pipeline-bug.md"), "---\ndescription: Bug triage\n---\nFix the bug.\n")
   const plugin = buildClaudeCodePlugin([fixture("pipeline-orchestrator.md")], "decent-pipeline", "pipeline-")
 
   assert.throws(
-    () => writeClaudeCodePlugin(plugin, output, workspace, "general", {
+    () => writeClaudeCodePlugin(plugin, output, workspace, {
       companions: { plugins: [], tools: [], commands: ["commands/pipeline-bug.md"], skills: [] }
     }),
     /outside workspace/i
@@ -95,12 +93,12 @@ test("writeClaudeCodePlugin refuses a symlinked command skill leaf pointing outs
   const output = path.join(workspace, "claude")
   fs.mkdirSync(path.join(output, "skills"), { recursive: true })
   fs.symlinkSync(outsideFile, path.join(output, "skills", "pipeline-bug"), "file")
-  fs.mkdirSync(path.join(workspace, "src", "commands"), { recursive: true })
-  fs.writeFileSync(path.join(workspace, "src", "commands", "pipeline-bug.md"), "---\ndescription: Bug triage\n---\nFix the bug.\n")
+  fs.mkdirSync(path.join(workspace, "commands"), { recursive: true })
+  fs.writeFileSync(path.join(workspace, "commands", "pipeline-bug.md"), "---\ndescription: Bug triage\n---\nFix the bug.\n")
   const plugin = buildClaudeCodePlugin([fixture("pipeline-orchestrator.md")], "decent-pipeline", "pipeline-")
 
   assert.throws(
-    () => writeClaudeCodePlugin(plugin, output, workspace, "general", {
+    () => writeClaudeCodePlugin(plugin, output, workspace, {
       companions: { plugins: [], tools: [], commands: ["commands/pipeline-bug.md"], skills: [] }
     }),
     /outside workspace/i
@@ -112,15 +110,8 @@ test("refuses a symlinked companion command source that escapes the workspace", 
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "claude-companion-link-ws-"))
   const outsideFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "claude-companion-link-out-")), "passwd")
   fs.writeFileSync(outsideFile, "outside\n")
-  fs.mkdirSync(path.join(workspace, ".agent-manager"), { recursive: true })
-  fs.writeFileSync(path.join(workspace, ".agent-manager", "companion-links.json"), JSON.stringify({
-    version: 1,
-    categories: {
-      pipeline: { plugins: [], commands: ["commands/pipeline-bug.md"], skills: [], tools: [] }
-    }
-  }))
-  fs.mkdirSync(path.join(workspace, "src", "commands"), { recursive: true })
-  fs.symlinkSync(outsideFile, path.join(workspace, "src", "commands", "pipeline-bug.md"), "file")
+  fs.mkdirSync(path.join(workspace, "commands"), { recursive: true })
+  fs.symlinkSync(outsideFile, path.join(workspace, "commands", "pipeline-bug.md"), "file")
   const output = path.join(workspace, "claude")
 
   assert.throws(
@@ -129,9 +120,7 @@ test("refuses a symlinked companion command source that escapes the workspace", 
       "decent-pipeline",
       "pipeline-",
       output,
-      workspace,
-      undefined,
-      { category: "pipeline" }
+      workspace
     ),
     /must not be a symlink/i
   )
@@ -232,8 +221,7 @@ test("keeps unresolved and already-scoped references unchanged", () => {
 
 test("writes Claude MCP and LSP layers from OpenCode config", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "claude-bridge-workspace-"))
-  fs.mkdirSync(path.join(workspace, "general"), { recursive: true })
-  fs.writeFileSync(path.join(workspace, "general", "opencode.json"), JSON.stringify({
+  fs.writeFileSync(path.join(workspace, "opencode.json"), JSON.stringify({
     mcp: { docs: { command: ["docs-mcp", "--stdio"], enabled: true } },
     lsp: { markdown: { command: ["marksman", "server"], extensions: [".md"] } }
   }))
@@ -255,9 +243,8 @@ test("writes Claude MCP and LSP layers from OpenCode config", () => {
   const readme = fs.readFileSync(path.join(output, "README.md"), "utf8")
   assert.match(readme, /--agent pipeline:orchestrator/)
   assert.match(readme, /Source and configuration/)
-  assert.match(readme, /discovered under `general\/`/)
-  assert.match(readme, /`src\/opencode\.json`/)
-  assert.match(readme, /legacy `general\/opencode\.json`/)
+  assert.match(readme, /`bridges\/translation-config\.json`/)
+  assert.doesNotMatch(readme, /\.agent-manager|`src\/`|general\//)
   assert.match(readme, /Do not edit this directory directly/)
   assert.equal(JSON.parse(fs.readFileSync(path.join(output, ".lsp.json"), "utf8")).markdown.extensionToLanguage[".md"], "markdown")
   assert.equal(result.preview?.[0].role, "orchestrator")
@@ -272,19 +259,9 @@ test("Claude README stays generic for non-Copilot categories", () => {
   assert.doesNotMatch(readme, /Copilot pipeline/)
 })
 
-test("Claude README uses the configured source directory", () => {
-  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "claude-bridge-source-"))
-  const output = path.join(workspace, "bridges", "claude")
-  bridgeToClaudeCode([fixture("docs-orchestrator.md")], "docs", "docs-", output, workspace, config({ sourceDir: "custom-agents" }))
-  const readme = fs.readFileSync(path.join(output, "README.md"), "utf8")
-  assert.match(readme, /`custom-agents\/`/)
-  assert.doesNotMatch(readme, /agents\/general\/agents\//)
-})
-
 test("normalizes a dirty plugin name for scoped references", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "claude-bridge-name-workspace-"))
-  fs.mkdirSync(path.join(workspace, "general"), { recursive: true })
-  fs.writeFileSync(path.join(workspace, "general", "opencode.json"), "{}\n")
+  fs.writeFileSync(path.join(workspace, "opencode.json"), "{}\n")
   const output = path.join(workspace, "bridges", "claude")
   bridgeToClaudeCode(
     [fixture("pipeline-orchestrator.md", "Delegate to @pipeline-code_reviewer."), fixture("pipeline-code_reviewer.md")],
@@ -300,8 +277,7 @@ test("normalizes a dirty plugin name for scoped references", () => {
 
 test("writes exactly one blank line between Claude frontmatter and body", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "claude-bridge-spacing-workspace-"))
-  fs.mkdirSync(path.join(workspace, "general"), { recursive: true })
-  fs.writeFileSync(path.join(workspace, "general", "opencode.json"), "{}\n")
+  fs.writeFileSync(path.join(workspace, "opencode.json"), "{}\n")
   const output = path.join(workspace, "bridges", "claude")
 
   bridgeToClaudeCode(
@@ -320,8 +296,7 @@ test("writes exactly one blank line between Claude frontmatter and body", () => 
 
 test("includes disabled MCP servers required by agents and emits setup guidance", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "claude-required-mcp-workspace-"))
-  fs.mkdirSync(path.join(workspace, "general"), { recursive: true })
-  fs.writeFileSync(path.join(workspace, "general", "opencode.json"), JSON.stringify({
+  fs.writeFileSync(path.join(workspace, "opencode.json"), JSON.stringify({
     mcp: {
       cupertino: { command: ["cupertino", "serve"], enabled: false },
       "codebase-memory-mcp": { command: ["codebase-memory-mcp"], enabled: true }
@@ -361,8 +336,7 @@ test("includes disabled MCP servers required by agents and emits setup guidance"
 test("renderMcpSetup formats remote URL MCP servers without empty command install instructions", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "claude-remote-mcp-"))
   t.after(() => fs.rmSync(root, { recursive: true, force: true }))
-  fs.mkdirSync(path.join(root, "src"), { recursive: true })
-  fs.writeFileSync(path.join(root, "src", "opencode.json"), JSON.stringify({
+  fs.writeFileSync(path.join(root, "opencode.json"), JSON.stringify({
     mcp: { servers: { bigquery: { type: "remote", url: "https://bigquery.googleapis.com/mcp" } } }
   }))
   const agent = fixture("pipeline-orchestrator.md")
@@ -563,7 +537,7 @@ test("README documents model aliases and connection modes", () => {
   assert.match(readme, /v2\.1\.257/)
 })
 
-test("lists untranspiled OpenCode plugins and tools only when they exist", () => {
+test("lists untranspiled OpenCode plugins and tools found in the workspace layout", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "claude-readme-companions-"))
   const agents = [fixture("pipeline-orchestrator.md")]
 
@@ -572,21 +546,24 @@ test("lists untranspiled OpenCode plugins and tools only when they exist", () =>
   assert.doesNotMatch(fs.readFileSync(path.join(emptyOutput, "README.md"), "utf8"), /## OpenCode plugins and tools/)
   assert.equal(empty.warnings.some(warning => warning.includes("not transpiled")), false)
 
-  fs.mkdirSync(path.join(workspace, "src", "plugins", "pipeline-guard"), { recursive: true })
-  fs.writeFileSync(path.join(workspace, "src", "plugins", "pipeline-guard", "index.ts"), "")
-  fs.mkdirSync(path.join(workspace, "src", "tools"), { recursive: true })
-  fs.writeFileSync(path.join(workspace, "src", "tools", "pipeline_commit.ts"), "")
+  fs.mkdirSync(path.join(workspace, "plugins", "pipeline-guard"), { recursive: true })
+  fs.writeFileSync(path.join(workspace, "plugins", "pipeline-guard", "index.ts"), "")
+  fs.mkdirSync(path.join(workspace, "tools", "pipeline"), { recursive: true })
+  for (const file of ["pipeline_commit.ts", "_pipeline_core.js", "pipeline_commit.test.mjs", "notes.md"]) {
+    fs.writeFileSync(path.join(workspace, "tools", "pipeline", file), "")
+  }
 
   const output = path.join(workspace, "claude")
   const result = bridgeToClaudeCode(agents, "pipeline", "pipeline-", output, workspace)
   const readme = fs.readFileSync(path.join(output, "README.md"), "utf8")
   assert.match(readme, /## OpenCode plugins and tools/)
   assert.match(readme, /plugins\/pipeline-guard/)
-  assert.match(readme, /tools\/pipeline_commit\.ts/)
+  assert.match(readme, /tools\/pipeline\/pipeline_commit\.ts/)
+  assert.doesNotMatch(readme, /_pipeline_core|\.test\.mjs|notes\.md/)
   assert.match(readme, /`tool\.execute\.before` \| `PreToolUse`/)
   assert.match(readme, /`session\.idle` \| `Stop`/)
   assert.ok(result.warnings.some(warning => warning.includes("OpenCode plugin 'plugins/pipeline-guard' is not transpiled")))
-  assert.ok(result.warnings.some(warning => warning.includes("OpenCode tool 'tools/pipeline_commit.ts' is not transpiled")))
+  assert.ok(result.warnings.some(warning => warning.includes("OpenCode tool 'tools/pipeline/pipeline_commit.ts' is not transpiled")))
 
   const secondOutput = path.join(workspace, "claude")
   bridgeToClaudeCode(agents, "pipeline", "pipeline-", secondOutput, workspace)
@@ -697,52 +674,6 @@ test("emits no promotion or per-tool MCP deny warnings when not needed", () => {
   assert.equal(result.warnings.some(warning => warning.includes("MCP per-tool deny rules")), false)
 })
 
-test("resolves companion links from the bridged category, not the global prefix", () => {
-  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "claude-companion-category-"))
-  fs.mkdirSync(path.join(workspace, ".agent-manager"), { recursive: true })
-  fs.writeFileSync(
-    path.join(workspace, ".agent-manager", "companion-links.json"),
-    JSON.stringify({
-      version: 1,
-      categories: {
-        pipeline: {
-          plugins: ["plugins/pipeline-guard"],
-          commands: [],
-          skills: [],
-          tools: ["tools/pipeline_commit.ts"]
-        },
-        docs: {
-          plugins: [],
-          commands: [],
-          skills: [],
-          tools: ["tools/doc_convert.ts"]
-        }
-      }
-    })
-  )
-  for (const relative of ["plugins/pipeline-guard/index.ts", "tools/pipeline_commit.ts", "tools/doc_convert.ts"]) {
-    const fullPath = path.join(workspace, "src", relative)
-    fs.mkdirSync(path.dirname(fullPath), { recursive: true })
-    fs.writeFileSync(fullPath, "")
-  }
-  const agents = [fixture("pipeline-orchestrator.md")]
-
-  const docsOutput = path.join(workspace, "docs-claude")
-  const docs = bridgeToClaudeCode(agents, "pipeline", "pipeline-", docsOutput, workspace, undefined, { category: "docs" })
-  const docsReadme = fs.readFileSync(path.join(docsOutput, "README.md"), "utf8")
-  assert.match(docsReadme, /## OpenCode plugins and tools/)
-  assert.match(docsReadme, /tools\/doc_convert\.ts/)
-  assert.doesNotMatch(docsReadme, /pipeline-guard/)
-  assert.doesNotMatch(docsReadme, /pipeline_commit\.ts/)
-  assert.ok(docs.warnings.some(warning => warning.includes("OpenCode tool 'tools/doc_convert.ts' is not transpiled")))
-  assert.equal(docs.warnings.some(warning => warning.includes("pipeline-guard") || warning.includes("pipeline_commit.ts")), false)
-
-  const pipelineOutput = path.join(workspace, "pipeline-claude")
-  bridgeToClaudeCode(agents, "pipeline", "pipeline-", pipelineOutput, workspace, undefined, { category: "pipeline" })
-  const pipelineReadme = fs.readFileSync(path.join(pipelineOutput, "README.md"), "utf8")
-  assert.match(pipelineReadme, /plugins\/pipeline-guard/)
-})
-
 test("writeClaudeCodePlugin prunes stale generated agents and skills with warnings", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "claude-stale-artifacts-"))
   const output = path.join(workspace, "claude")
@@ -780,8 +711,7 @@ test("writeClaudeCodePlugin prunes stale generated agents and skills with warnin
 test("translates V1 and V2 OpenCode MCP declarations to the same Claude .mcp.json", () => {
   const build = (mcp: Record<string, any>) => {
     const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "claude-bridge-mcp-shape-"))
-    fs.mkdirSync(path.join(workspace, "src"), { recursive: true })
-    fs.writeFileSync(path.join(workspace, "src", "opencode.json"), JSON.stringify({ mcp }))
+      fs.writeFileSync(path.join(workspace, "opencode.json"), JSON.stringify({ mcp }))
     const output = path.join(workspace, "claude")
     bridgeToClaudeCode(
       [fixture("pipeline-orchestrator.md", "")],
@@ -812,8 +742,7 @@ test("translates V1 and V2 OpenCode MCP declarations to the same Claude .mcp.jso
 
 test("keeps MCP permissions declared in V2 permissions arrays", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "claude-bridge-mcp-v2-permissions-"))
-  fs.mkdirSync(path.join(workspace, "src"), { recursive: true })
-  fs.writeFileSync(path.join(workspace, "src", "opencode.json"), JSON.stringify({
+  fs.writeFileSync(path.join(workspace, "opencode.json"), JSON.stringify({
     mcp: { servers: { cupertino: { type: "local", command: ["cupertino", "serve"], disabled: true } } }
   }))
   const agent = fixture("pipeline-swift_specialist.md", "Use Cupertino to ground the review.")
@@ -835,8 +764,7 @@ test("keeps MCP permissions declared in V2 permissions arrays", () => {
 
 test("warns when a disabled MCP server is emitted because agents require it", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "claude-disabled-mcp-required-"))
-  fs.mkdirSync(path.join(workspace, "src"), { recursive: true })
-  fs.writeFileSync(path.join(workspace, "src", "opencode.json"), JSON.stringify({
+  fs.writeFileSync(path.join(workspace, "opencode.json"), JSON.stringify({
     mcp: { XcodeBuildMCP: { command: ["xcodebuild-mcp", "serve"], enabled: false } }
   }))
   const agent = fixture("pipeline-swift_specialist.md")
@@ -890,19 +818,15 @@ test("emits a non-empty marketplace description", () => {
   assert.ok(marketplace.description.trim().length > 0, "the marketplace description must not be empty")
 })
 
-test("copies the shared plugin icon into .claude-plugin when the workspace provides it", () => {
+test("copies the engine's plugin icon into .claude-plugin", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "claude-plugin-icon-"))
   const plugin = buildClaudeCodePlugin([fixture("pipeline-orchestrator.md")], "decent-pipeline", "pipeline-")
 
-  const withoutIcon = writeClaudeCodePlugin(plugin, path.join(workspace, "no-icon"), workspace)
-  assert.equal(fs.existsSync(path.join(withoutIcon.pluginDir, ".claude-plugin", "icon.png")), false, "no icon is emitted without the source asset")
+  const result = writeClaudeCodePlugin(plugin, path.join(workspace, "claude"), workspace)
 
-  const source = path.join(workspace, "manage-agents", "assets", "plugin-icon.png")
-  fs.mkdirSync(path.dirname(source), { recursive: true })
-  const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47])
-  fs.writeFileSync(source, bytes)
-  const withIcon = writeClaudeCodePlugin(plugin, path.join(workspace, "with-icon"), workspace)
-  assert.deepEqual(fs.readFileSync(path.join(withIcon.pluginDir, ".claude-plugin", "icon.png")), bytes)
+  const engineIcon = fileURLToPath(new URL("../../assets/plugin-icon.png", import.meta.url))
+  assert.ok(result.files.includes(".claude-plugin/icon.png"))
+  assert.deepEqual(fs.readFileSync(path.join(result.pluginDir, ".claude-plugin", "icon.png")), fs.readFileSync(engineIcon))
 })
 
 test("reports the effective plugin and marketplace names written by the bridge", () => {
@@ -924,7 +848,7 @@ test("reports the effective plugin and marketplace names written by the bridge",
     "the next-steps hint must use the effective plugin name"
   )
 
-  const noMarketplace = writeClaudeCodePlugin(plugin, path.join(workspace, "no-marketplace"), workspace, "general", { emitMarketplace: false })
+  const noMarketplace = writeClaudeCodePlugin(plugin, path.join(workspace, "no-marketplace"), workspace, { emitMarketplace: false })
   assert.equal(noMarketplace.marketplaceName, null)
 })
 
@@ -963,15 +887,8 @@ test("prune refuses symlinked entries that escape the plugin directory", { skip:
 
 test("translates pipeline commands into plugin skills", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "claude-command-skills-"))
-  fs.mkdirSync(path.join(workspace, ".agent-manager"), { recursive: true })
-  fs.writeFileSync(path.join(workspace, ".agent-manager", "companion-links.json"), JSON.stringify({
-    version: 1,
-    categories: {
-      pipeline: { plugins: [], commands: ["commands/pipeline-bug.md"], skills: [], tools: [] }
-    }
-  }))
-  fs.mkdirSync(path.join(workspace, "src", "commands"), { recursive: true })
-  fs.writeFileSync(path.join(workspace, "src", "commands", "pipeline-bug.md"), [
+  fs.mkdirSync(path.join(workspace, "commands"), { recursive: true })
+  fs.writeFileSync(path.join(workspace, "commands", "pipeline-bug.md"), [
     "---",
     "description: Triage and fix a pipeline bug",
     "agent: pipeline-orchestrator",
@@ -986,9 +903,7 @@ test("translates pipeline commands into plugin skills", () => {
     "decent-pipeline",
     "pipeline-",
     output,
-    workspace,
-    undefined,
-    { category: "pipeline" }
+    workspace
   )
 
   const skillPath = path.join(output, "skills", "pipeline-bug", "SKILL.md")
@@ -1014,8 +929,7 @@ test("translates pipeline commands into plugin skills", () => {
     "pipeline-",
     disabledOutput,
     workspace,
-    config({ claude: { overrides: {}, emitCommands: false } }),
-    { category: "pipeline" }
+    config({ claude: { overrides: {}, emitCommands: false } })
   )
   const skillsDir = path.join(disabledOutput, "skills")
   const names = fs.existsSync(skillsDir) ? fs.readdirSync(skillsDir) : []
@@ -1028,15 +942,8 @@ test("translates pipeline commands into plugin skills", () => {
 
 test("preserves command descriptions containing a colon", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "claude-command-description-"))
-  fs.mkdirSync(path.join(workspace, ".agent-manager"), { recursive: true })
-  fs.writeFileSync(path.join(workspace, ".agent-manager", "companion-links.json"), JSON.stringify({
-    version: 1,
-    categories: {
-      pipeline: { plugins: [], commands: ["commands/pipeline-bug.md"], skills: [], tools: [] }
-    }
-  }))
-  fs.mkdirSync(path.join(workspace, "src", "commands"), { recursive: true })
-  fs.writeFileSync(path.join(workspace, "src", "commands", "pipeline-bug.md"), [
+  fs.mkdirSync(path.join(workspace, "commands"), { recursive: true })
+  fs.writeFileSync(path.join(workspace, "commands", "pipeline-bug.md"), [
     "---",
     "description: Pipeline: fix a bug with mandatory test-first (Red then Green)",
     "agent: pipeline-orchestrator",
@@ -1051,9 +958,7 @@ test("preserves command descriptions containing a colon", () => {
     "decent-pipeline",
     "pipeline-",
     output,
-    workspace,
-    undefined,
-    { category: "pipeline" }
+    workspace
   )
 
   const content = fs.readFileSync(path.join(output, "skills", "pipeline-bug", "SKILL.md"), "utf8")
@@ -1064,16 +969,9 @@ test("preserves command descriptions containing a colon", () => {
 
 test("scopes sibling pipeline command references to the plugin", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "claude-command-scope-"))
-  fs.mkdirSync(path.join(workspace, ".agent-manager"), { recursive: true })
-  fs.writeFileSync(path.join(workspace, ".agent-manager", "companion-links.json"), JSON.stringify({
-    version: 1,
-    categories: {
-      pipeline: { plugins: [], commands: ["commands/pipeline-bug.md", "commands/pipeline-ops.md"], skills: [], tools: [] }
-    }
-  }))
-  fs.mkdirSync(path.join(workspace, "src", "commands"), { recursive: true })
-  fs.writeFileSync(path.join(workspace, "src", "commands", "pipeline-bug.md"), "---\ndescription: Bug\n---\nFix it.\n")
-  fs.writeFileSync(path.join(workspace, "src", "commands", "pipeline-ops.md"), [
+  fs.mkdirSync(path.join(workspace, "commands"), { recursive: true })
+  fs.writeFileSync(path.join(workspace, "commands", "pipeline-bug.md"), "---\ndescription: Bug\n---\nFix it.\n")
+  fs.writeFileSync(path.join(workspace, "commands", "pipeline-ops.md"), [
     "---",
     "description: Ops",
     "---",
@@ -1087,9 +985,7 @@ test("scopes sibling pipeline command references to the plugin", () => {
     "decent-pipeline",
     "pipeline-",
     output,
-    workspace,
-    undefined,
-    { category: "pipeline" }
+    workspace
   )
 
   const content = fs.readFileSync(path.join(output, "skills", "pipeline-ops", "SKILL.md"), "utf8")
@@ -1099,14 +995,7 @@ test("scopes sibling pipeline command references to the plugin", () => {
 
 test("copies companion skills into the plugin", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "claude-companion-skills-"))
-  fs.mkdirSync(path.join(workspace, ".agent-manager"), { recursive: true })
-  fs.writeFileSync(path.join(workspace, ".agent-manager", "companion-links.json"), JSON.stringify({
-    version: 1,
-    categories: {
-      pipeline: { plugins: [], commands: [], skills: ["skills/code-review-antipatterns"], tools: [] }
-    }
-  }))
-  const sourceSkillDir = path.join(workspace, "src", "skills", "code-review-antipatterns")
+  const sourceSkillDir = path.join(workspace, "skills", "code-review-antipatterns")
   fs.mkdirSync(path.join(sourceSkillDir, "references"), { recursive: true })
   fs.writeFileSync(path.join(sourceSkillDir, "SKILL.md"), [
     "---",
@@ -1124,9 +1013,7 @@ test("copies companion skills into the plugin", () => {
     "decent-pipeline",
     "pipeline-",
     output,
-    workspace,
-    undefined,
-    { category: "pipeline" }
+    workspace
   )
 
   const copiedSkill = path.join(output, "skills", "code-review-antipatterns", "SKILL.md")
@@ -1148,22 +1035,14 @@ test("copies companion skills into the plugin", () => {
     "pipeline-",
     disabledOutput,
     workspace,
-    config({ claude: { overrides: {}, emitSkills: false } }),
-    { category: "pipeline" }
+    config({ claude: { overrides: {}, emitSkills: false } })
   )
   assert.equal(fs.existsSync(path.join(disabledOutput, "skills", "code-review-antipatterns")), false)
 })
 
 test("warns but continues when a copied companion skill has malformed frontmatter", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "claude-companion-bad-frontmatter-"))
-  fs.mkdirSync(path.join(workspace, ".agent-manager"), { recursive: true })
-  fs.writeFileSync(path.join(workspace, ".agent-manager", "companion-links.json"), JSON.stringify({
-    version: 1,
-    categories: {
-      pipeline: { plugins: [], commands: [], skills: ["skills/broken"], tools: [] }
-    }
-  }))
-  const sourceSkillDir = path.join(workspace, "src", "skills", "broken")
+  const sourceSkillDir = path.join(workspace, "skills", "broken")
   fs.mkdirSync(sourceSkillDir, { recursive: true })
   const malformed = "---\ndescription: [unterminated\n---\n\nBroken body.\n"
   fs.writeFileSync(path.join(sourceSkillDir, "SKILL.md"), malformed)
@@ -1174,9 +1053,7 @@ test("warns but continues when a copied companion skill has malformed frontmatte
     "decent-pipeline",
     "pipeline-",
     output,
-    workspace,
-    undefined,
-    { category: "pipeline" }
+    workspace
   )
 
   assert.ok(result.warnings.some(warning => warning.includes("Malformed frontmatter in copied companion skill 'skills/broken/SKILL.md'")), `expected a malformed-frontmatter warning, got ${JSON.stringify(result.warnings)}`)
@@ -1190,14 +1067,7 @@ test("refuses a companion skill tree containing symlinks", { skip: process.platf
   const outsideReference = path.join(outside, "target.md")
   fs.writeFileSync(outsideSkill, "outside skill\n")
   fs.writeFileSync(outsideReference, "outside reference\n")
-  fs.mkdirSync(path.join(workspace, ".agent-manager"), { recursive: true })
-  fs.writeFileSync(path.join(workspace, ".agent-manager", "companion-links.json"), JSON.stringify({
-    version: 1,
-    categories: {
-      pipeline: { plugins: [], commands: [], skills: ["skills/leaky"], tools: [] }
-    }
-  }))
-  const sourceSkillDir = path.join(workspace, "src", "skills", "leaky")
+  const sourceSkillDir = path.join(workspace, "skills", "leaky")
   fs.mkdirSync(path.join(sourceSkillDir, "references"), { recursive: true })
   fs.symlinkSync(outsideSkill, path.join(sourceSkillDir, "SKILL.md"), "file")
   fs.symlinkSync(outsideReference, path.join(sourceSkillDir, "references", "link.md"), "file")
@@ -1209,9 +1079,7 @@ test("refuses a companion skill tree containing symlinks", { skip: process.platf
       "decent-pipeline",
       "pipeline-",
       output,
-      workspace,
-      undefined,
-      { category: "pipeline" }
+      workspace
     ),
     /must not be a symlink/i
   )

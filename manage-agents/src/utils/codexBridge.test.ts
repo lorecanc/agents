@@ -78,8 +78,8 @@ test("bridge emits manifest, Codex agents, skills and translated links", () => {
   assert.match(orchestratorToml, /@fast-lane/)
   assert.ok(fs.existsSync(path.join(output, "skills", "orchestrator", "SKILL.md")))
   assert.match(fs.readFileSync(path.join(output, "README.md"), "utf8"), /Source and configuration/)
-  assert.match(fs.readFileSync(path.join(output, "README.md"), "utf8"), /`general\/`/)
-  assert.match(fs.readFileSync(path.join(output, "README.md"), "utf8"), /`src\/opencode\.json`/)
+  assert.match(fs.readFileSync(path.join(output, "README.md"), "utf8"), /`bridges\/translation-config\.json`/)
+  assert.doesNotMatch(fs.readFileSync(path.join(output, "README.md"), "utf8"), /\.agent-manager|`src\/`|general\//)
   assert.match(fs.readFileSync(path.join(output, "README.md"), "utf8"), /Do not edit this directory directly/)
 })
 
@@ -90,15 +90,6 @@ test("Codex README stays generic for non-Copilot categories", () => {
   const readme = fs.readFileSync(path.join(output, "README.md"), "utf8")
   assert.match(readme, /canonical source agents/)
   assert.doesNotMatch(readme, /Copilot pipeline/)
-})
-
-test("Codex README uses the configured source directory", () => {
-  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "codex-bridge-source-"))
-  const output = path.join(workspace, "bridges", "codex")
-  bridgeToCodex([agent("docs-orchestrator.md", "any", { mode: "primary" }, "")], "docs", "docs-", output, workspace, { ...DEFAULT_TRANSLATION_CONFIG, sourceDir: "custom-agents" })
-  const readme = fs.readFileSync(path.join(output, "README.md"), "utf8")
-  assert.match(readme, /`custom-agents\/`/)
-  assert.doesNotMatch(readme, /agents\/general\/agents\//)
 })
 
 test("role targets can be overridden without changing source agents", () => {
@@ -241,8 +232,7 @@ test("V1 spellings inside a V2 permissions array do not flip the sandbox to work
 
 test("Codex plugin mirrors enabled MCP servers in a valid companion layer", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "codex-bridge-mcp-"))
-  fs.mkdirSync(path.join(workspace, "general"), { recursive: true })
-  fs.writeFileSync(path.join(workspace, "general", "opencode.json"), JSON.stringify({
+  fs.writeFileSync(path.join(workspace, "opencode.json"), JSON.stringify({
     mcp: {
       docs: { command: ["docs-mcp", "--stdio"], enabled: true },
       cupertino: { command: ["cupertino", "serve"], enabled: false }
@@ -266,8 +256,7 @@ test("Codex plugin mirrors enabled MCP servers in a valid companion layer", () =
 test("translates V1 and V2 OpenCode MCP declarations to the same Codex .mcp.json", () => {
   const build = (mcp: Record<string, any>) => {
     const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "codex-bridge-mcp-shape-"))
-    fs.mkdirSync(path.join(workspace, "src"), { recursive: true })
-    fs.writeFileSync(path.join(workspace, "src", "opencode.json"), JSON.stringify({ mcp }))
+      fs.writeFileSync(path.join(workspace, "opencode.json"), JSON.stringify({ mcp }))
     const output = path.join(workspace, "codex")
     bridgeToCodex([agent("orchestrator.md", "any", { mode: "primary" }, "")], "configured", "", output, workspace)
     return JSON.parse(fs.readFileSync(path.join(output, ".mcp.json"), "utf8"))
@@ -291,8 +280,7 @@ test("translates V1 and V2 OpenCode MCP declarations to the same Codex .mcp.json
 test("renderCodexMcpSetup formats remote URL MCP servers without empty command install instructions", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-remote-mcp-"))
   t.after(() => fs.rmSync(root, { recursive: true, force: true }))
-  fs.mkdirSync(path.join(root, "src"), { recursive: true })
-  fs.writeFileSync(path.join(root, "src", "opencode.json"), JSON.stringify({
+  fs.writeFileSync(path.join(root, "opencode.json"), JSON.stringify({
     mcp: { servers: { bigquery: { type: "remote", url: "https://bigquery.googleapis.com/mcp" } } }
   }))
   const orchestrator = agent("orchestrator.md", "any", { mode: "primary", permission: { "bigquery_*": "allow" } }, "")
@@ -397,8 +385,7 @@ test("Codex bridge translates OpenCode tool names and flags OpenCode-only tools 
 
 test("Codex bridge never treats pipeline tool or built-in permission keys as MCP servers", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "codex-bridge-mcp-keys-"))
-  fs.mkdirSync(path.join(workspace, "src"), { recursive: true })
-  fs.writeFileSync(path.join(workspace, "src", "opencode.json"), JSON.stringify({ mcp: {
+  fs.writeFileSync(path.join(workspace, "opencode.json"), JSON.stringify({ mcp: {
     pipeline: { command: ["fake-pipeline"], enabled: false },
     apply: { command: ["fake-apply"], enabled: false },
     patch: { command: ["fake-patch"], enabled: false },
@@ -419,8 +406,7 @@ test("Codex bridge never treats pipeline tool or built-in permission keys as MCP
 
 test("Codex bridge never treats known tool permission keys as MCP servers", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "codex-bridge-known-keys-"))
-  fs.mkdirSync(path.join(workspace, "src"), { recursive: true })
-  fs.writeFileSync(path.join(workspace, "src", "opencode.json"), JSON.stringify({ mcp: {
+  fs.writeFileSync(path.join(workspace, "opencode.json"), JSON.stringify({ mcp: {
     opencode: { command: ["fake-opencode"], enabled: false }
   } }))
   const output = path.join(workspace, "bridges", "codex")

@@ -1,0 +1,6 @@
+{
+  "contract": "1.0",
+  "name": "common",
+  "version": "1.0.0",
+  "description": "Shared by docs, flow, pipeline, slides and wiki: codebase-memory MCP server with its usage instructions, Italian and SEO writing skills"
+}

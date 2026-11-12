@@ -1,0 +1,21 @@
+{
+  "name": "agents-catalog",
+  "private": true,
+  "description": "OpenCode agent packs (flow, pipeline, docs, slides, wiki and their shared packs), installed with manage-agents",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22.15.0"
+  },
+  "scripts": {
+    "merge": "node scripts/merge-packs.mjs",
+    "pretest": "node scripts/merge-packs.mjs",
+    "test": "node --import tsx --test \".tree/**/*.test.mjs\" \"bench/*.test.mjs\" \"scripts/*.test.mjs\"",
+    "sync-bash": "node scripts/sync-bash.mjs",
+    "check": "node scripts/sync-bash.mjs --check"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.1",
+    "yaml": "^2.4.5"
+  }
+}

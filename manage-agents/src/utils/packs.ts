@@ -82,7 +82,7 @@ const NATIVE_DIRS = new Set(["agents", "commands", "skills", "plugins", "themes"
 const LEGACY_DIRS = new Map([["agent", "agents"], ["mode", "agents"], ["modes", "agents"], ["command", "commands"], ["skill", "skills"], ["plugin", "plugins"], ["tool", "tools"]])
 const RESERVED_DIRS = new Set(["instructions", ".manage-agents"])
 const IGNORED_NAMES = new Set([".DS_Store", "node_modules"])
-const CONFIG_KEYS = new Set(["$schema", "plugins", "mcp", "skills", "instructions", "agents", "commands", "formatter", "lsp"])
+const CONFIG_KEYS = new Set(["$schema", "plugins", "mcp", "skills", "instructions", "agents", "commands", "formatter", "lsp", "experimental"])
 const PLUGIN_ENTRY_RE = /^(?:index|server)\.(?:ts|js|mjs)$/
 const CODE_RE = /\.(?:ts|mts|cts|js|mjs|cjs)$/
 const SCRIPT_RE = /\.(?:sh|bash|zsh|py|rb|pl|ts|mts|js|mjs|cjs)$/
@@ -366,7 +366,7 @@ export function validatePack(packRoot: string, options: ValidatePackOptions = {}
           error("frontmatter-invalid", file, "invalid YAML frontmatter")
         }
         if (text !== null && (typeof description !== "string" || !description.trim())) warning("skill-description", file, "without a description the model cannot discover the skill")
-      } else if (SCRIPT_RE.test(file) || (fs.statSync(path.join(root, file)).mode & 0o111) !== 0) executable.skillScripts.push(file)
+      } else if (!isTestFile(file) && (SCRIPT_RE.test(file) || (fs.statSync(path.join(root, file)).mode & 0o111) !== 0)) executable.skillScripts.push(file)
     } else if (top === "plugins") {
       if (rest.length === 1) error("plugin-single-file", file, "use a directory plugin: plugins/<name>/index.ts")
       else if (rest.length === 2 && (PLUGIN_ENTRY_RE.test(rest[1]) || rest[1] === "package.json") && !ids.plugins.includes(rest[0])) ids.plugins.push(rest[0])
@@ -376,7 +376,7 @@ export function validatePack(packRoot: string, options: ValidatePackOptions = {}
     } else {
       const namespaced = packName !== undefined && (rest[0] === packName && rest.length > 1 || top === "tools" && rest.length === 1 && rest[0].startsWith(`_${packName}_`))
       if (!namespaced) error("namespace", file, `non-native paths must live under ${top}/${packName ?? "<pack>"}/${top === "tools" ? ` or tools/_${packName ?? "<pack>"}_*` : ""}`)
-      if (top === "tools" && CODE_RE.test(file)) executable.toolModules.push(file)
+      if (top === "tools" && CODE_RE.test(file) && !isTestFile(file)) executable.toolModules.push(file)
     }
   }
 
@@ -451,6 +451,9 @@ export function validatePack(packRoot: string, options: ValidatePackOptions = {}
         if (isObject(entry) && Array.isArray(entry.command) && typeof entry.command[0] === "string") executable.externalCommands.push(entry.command[0])
       }
     }
+    for (const key of ["formatter", "lsp", "experimental"] as const) {
+      if (config[key] !== undefined && !isObject(config[key])) error("config-invalid", file, `"${key}" must be an object`)
+    }
     for (const key of ["agents", "commands"] as const) {
       const section = config[key]
       if (section === undefined) continue
@@ -481,7 +484,7 @@ export function validatePack(packRoot: string, options: ValidatePackOptions = {}
     visitStrings(config)
   }
 
-  for (const file of files.filter(file => (file.startsWith("plugins/") || file.startsWith("tools/")) && CODE_RE.test(file))) {
+  for (const file of files.filter(file => (file.startsWith("plugins/") || file.startsWith("tools/")) && CODE_RE.test(file) && !isTestFile(file))) {
     const text = readText(root, file, issues)
     if (text === null) continue
     for (const match of stripJsComments(text).matchAll(IMPORT_RE)) {
@@ -498,7 +501,7 @@ export function validatePack(packRoot: string, options: ValidatePackOptions = {}
     }
   }
 
-  for (const file of files.filter(file => TEXT_RE.test(file))) {
+  for (const file of files.filter(file => TEXT_RE.test(file) && !isTestFile(file))) {
     const lines = readText(root, file, issues)?.split(/\r?\n/) ?? []
     const line = lines.findIndex(text => ABSOLUTE_CONFIG_RE.test(text))
     if (line !== -1) warning("absolute-config-path", `${file}:${line + 1}`, "absolute OpenCode config path; it breaks under XDG_CONFIG_HOME or a custom target (best-effort check)")
@@ -531,5 +534,8 @@ export const hasErrors = (validation: PackValidation) => validation.issues.some(
 
 const NOT_INSTALLED_RE = /^(?:opencode-pack\.json|(?:README|LICENSE|LICENCE|CHANGELOG)(?:\.(?:md|txt|rst))?)$/i
 
-/** Files the installer copies: everything except the manifest and the root README, LICENSE and CHANGELOG. */
-export const installableFiles = (validation: PackValidation) => validation.files.filter(file => file.includes("/") || !NOT_INSTALLED_RE.test(file))
+/** Tests and their helpers (`*.test.*`) stay in the pack, next to the code they test, and are never installed. */
+export const isTestFile = (file: string) => /\.test\.[^/]+$/.test(file)
+
+/** Files the installer copies: everything except tests, the manifest and the root README, LICENSE and CHANGELOG. */
+export const installableFiles = (validation: PackValidation) => validation.files.filter(file => !isTestFile(file) && (file.includes("/") || !NOT_INSTALLED_RE.test(file)))

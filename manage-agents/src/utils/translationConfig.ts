@@ -21,6 +21,7 @@ export interface TranslationConfig {
   target: TranslationTarget
   pluginName: string
   prefix: string
+  /** Pre-pack agent source directory; still parsed and validated, ignored by pack bridges. */
   sourceDir: string
   inference?: boolean
   defaultTier: string
@@ -107,7 +108,7 @@ export function authorName(env: NodeJS.ProcessEnv = process.env): string {
 }
 
 export function translationConfigPath(workspaceRoot: string): string {
-  return path.join(workspaceRoot, ".agent-manager", "translation-config.json")
+  return path.join(workspaceRoot, "bridges", "translation-config.json")
 }
 
 function merge<T extends Record<string, any>>(base: T, override: Partial<T> | undefined): T {

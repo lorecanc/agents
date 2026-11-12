@@ -1,7 +1,7 @@
 {
   "name": "manage-agents",
   "version": "1.0.0",
-  "description": "Standalone terminal agent manager for the agents monorepo",
+  "description": "Install, edit and route OpenCode agent packs from local or git sources",
   "license": "MIT",
   "main": "dist/index.js",
   "bin": {
@@ -16,8 +16,8 @@
     "start": "node manage-agents.mjs",
     "build": "node src/build.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "npm run typecheck && node --import tsx --test \"src/utils/*.test.ts\" \"test/**/*.test.ts\" \"runtime/**/*.test.mjs\" \"scripts/*.test.ts\" \"../src/tools/*.test.mjs\" \"../src/bench/*.test.mjs\" \"ext/**/*.test.ts\"",
-    "validate": "npm run typecheck && npm test && npm run build && node manage-agents.mjs --no-auto-commit category build --all && node manage-agents.mjs category check --all && node manage-agents.mjs bridge check"
+    "test": "npm run typecheck && node --import tsx --test \"src/utils/*.test.ts\" \"runtime/**/*.test.mjs\"",
+    "validate": "npm test && npm run build && node manage-agents.mjs pack validate contract/examples/minimal-pack"
   },
   "dependencies": {
     "@opentui/core": "0.5.7",
@@ -34,5 +34,15 @@
     "esbuild": "^0.28.1",
     "tsx": "^4.23.1",
     "typescript": "^5.8.2"
-  }
+  },
+  "files": [
+    "manage-agents.mjs",
+    "dist",
+    "assets",
+    "contract",
+    "runtime",
+    "README.md",
+    "GUIDA.md",
+    "LICENSE"
+  ]
 }

@@ -2,18 +2,14 @@ import React, { useState, useEffect, useMemo } from "react"
 import fs from "node:fs"
 import path from "node:path"
 import os from "node:os"
+import { isDeepStrictEqual } from "node:util"
 import { useKeyboard, useTerminalDimensions } from "@opentui/react"
 import {
   findAgentFiles,
   AgentInfo,
-  organizeAgents,
   updateAgentsModel,
   repairAgentModels,
   updateAgentsColor,
-  forkCategory,
-  parseForkReplacements,
-  exportAgents,
-  getExportDestination,
   analyzeAgentName,
   renameAgent,
   getAgentPermissionSummary,
@@ -23,14 +19,11 @@ import {
   updateAgentParams,
   updateAgentDelegations,
   discoverAgentResources,
-  updateAgentResourcesAndMcp,
+  updateAgentResources,
   AgentResourceCatalog,
   AgentResourceChanges,
   AgentResourceItem,
   AgentMcpResourceItem,
-  previewImport,
-  importAgents,
-  AgentDiffResult,
   analyzePermissionOrder,
   fixPermissionOrder,
   type TuningField,
@@ -38,17 +31,16 @@ import {
   buildTuningUpdateParams,
   sanitizeFilename,
   getCategoryPrefixes,
-  getGlobalOpenCodeConfigPath,
-  resolveSourceSubdir,
-  resolveCategoriesSubdir
 } from "./utils/agents.js"
 import { loadModelCatalog, suggestModels, collectInvalidModelGroups, modelDisplayValue, getModelVariants, type ModelCatalog } from "./utils/models.js"
-import { discoverAvailableCategoryCompanionItems, getCompanionLinksConfigPath, type SelectableCompanionItem, updateCategoryCompanionLinks } from "./utils/companionLinks.js"
-import { agentRoutingConfigPath, agentRoutingOutputPath, archetypeBundles, buildAgentRouting, callersLabel, rebuildArchetypeBundles, describeArchetype, INHERIT, isRoutableArchetype, setArchetypeConfig, type ArchetypeAgent, type RoleModels } from "./utils/agentRouting.js"
-import { buildCategoryDistribution } from "./utils/categoryDistribution.js"
-import { bridgeToClaudeCode } from "./utils/bridge.js"
-import { bridgeToCodex } from "./utils/codexBridge.js"
-import { buildInferenceIndex, loadTranslationConfig, resolveModelTarget, resolveRole, saveTranslationConfig, validateClaudeModelName, type TranslationConfig } from "./utils/translationConfig.js"
+import { callersLabel, describeArchetype, INHERIT, isRoutableArchetype, setArchetypeConfig, type ArchetypeAgent, type RoleModels } from "./utils/archetypes.js"
+import { packDir, readManifest } from "./utils/catalog.js"
+import { changeTarget, installChange } from "./utils/installer.js"
+import { addSource, engineConfigDir, loadSources, removeSource, saveSources } from "./utils/sources.js"
+import { bridgePack } from "./utils/bridgeWorkspace.js"
+import { describeChangeResult } from "./utils/changeReport.js"
+import { defaultTarget, serializeLock } from "./utils/lock.js"
+import { buildInferenceIndex, loadTranslationConfig, resolveModelTarget, resolveRole, saveTranslationConfig, translationConfigPath, validateClaudeModelName, type TranslationConfig } from "./utils/translationConfig.js"
 import { claudeNextSteps } from "./utils/claudeNextSteps.js"
 import { registerPlugin, validatePlugin } from "./utils/claudePluginCli.js"
 import { AUTO_COMMIT_MESSAGES, autoCommitEnabled, repositoryTransaction, type TransactionWarning } from "./utils/repositoryTransaction.js"
@@ -70,18 +62,15 @@ type ViewMode =
   | "repair-selector"
   | "repair-confirm"
   | "tier-selector"
-  | "organization-confirm"
    | "action-result"
-  | "fork-prompt"
   | "bridge-prompt"
-  | "export-confirm"
+  | "install-confirm"
   | "color-selector"
   | "rename-prompt"
   | "permission-preset"
   | "delegation-manager"
   | "resource-manager"
   | "parameter-tuning"
-  | "import-diff"
   | "layout"
   | "routing-configs"
   | "routing-editor"
@@ -94,19 +83,20 @@ interface ActiveItem {
   agent?: AgentInfo
 }
 
-interface ResourceManagerRow {
-  section: "agent" | "companion"
-  kind?: AgentResourceItem["kind"]
-  item: AgentResourceItem | AgentMcpResourceItem | SelectableCompanionItem
+interface InstallPreview {
+  pack: string
+  target: string
+  lines: string[]
+  confirmations: string[]
+  /** The dry run found problems: nothing can be applied. */
+  blocked: boolean
+  /** Lock the preview resolved to: applying installs exactly this, or nothing. */
+  lockText: string
 }
 
-const CATEGORY_DESCRIPTIONS: Record<string, string> = {
-  wiki: "Codebase analysis and automatic project wiki page generation & updating.",
-  pipeline: "Pipeline archetype: an orchestrator that routes work to planner, executor, tester, reviewers and specialists.",
-  slides: "PowerPoint slides templating, layout design, composition analysis, and page writer.",
-  docs: "HTML documentation structure planning, layout design, and generation.",
-  storybook: "Storybook components format and documentation builder.",
-  general: "General orchestrators, bash executors, loop verifiers, and multi-purpose agents."
+interface ResourceManagerRow {
+  kind: AgentResourceItem["kind"]
+  item: AgentResourceItem | AgentMcpResourceItem
 }
 
 const COLOR_PALETTE: { group: string; emoji: string; colors: { name: string; value: string; hex: string }[] }[] = [
@@ -244,20 +234,14 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
   }
   const [actionResultScrollOffset, setActionResultScrollOffset] = useState(0)
 
-  // Fork Category State
-  const [forkSourceCategory, setForkSourceCategory] = useState("")
-  const [forkFindQuery, setForkFindQuery] = useState("")
-  const [forkReplaceQuery, setForkReplaceQuery] = useState("")
-  const [forkFocusedField, setForkFocusedField] = useState<"find" | "replace">("find")
-  const [exportCategory, setExportCategory] = useState<string | null>(null)
+  const [installPreview, setInstallPreview] = useState<InstallPreview | null>(null)
 
   // Bridge State
   const [bridgePluginName, setBridgePluginName] = useState("")
   const [bridgePipelinePrefix, setBridgePipelinePrefix] = useState("")
-  const [bridgeSourceDir, setBridgeSourceDir] = useState(() => resolveSourceSubdir(workspaceRoot))
   const [bridgeTarget, setBridgeTarget] = useState<"claude" | "codex">("claude")
   const [bridgeModelTarget, setBridgeModelTarget] = useState("")
-  const [bridgeFocusedField, setBridgeFocusedField] = useState<"name" | "prefix" | "sourceDir" | "model">("name")
+  const [bridgeFocusedField, setBridgeFocusedField] = useState<"name" | "prefix" | "model">("name")
   const [translationConfig, setTranslationConfig] = useState<TranslationConfig | null>(() => {
     try {
       return loadTranslationConfig(workspaceRoot, undefined, { persistMigration: false })
@@ -295,11 +279,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
   const [draftSkillAll, setDraftSkillAll] = useState(false)
   const [draftAllowedSkills, setDraftAllowedSkills] = useState<Set<string>>(new Set())
   const [draftPermissions, setDraftPermissions] = useState<Record<string, boolean>>({})
-  const [draftMcpEnabled, setDraftMcpEnabled] = useState<Record<string, boolean>>({})
   const [explicitResourcePermissions, setExplicitResourcePermissions] = useState<Set<string>>(new Set())
-  const [resourceCategoryTarget, setResourceCategoryTarget] = useState<string | null>(null)
-  const [resourceDraftCompanion, setResourceDraftCompanion] = useState<Record<string, boolean>>({})
-  const [companionAvailableItems, setCompanionAvailableItems] = useState<SelectableCompanionItem[]>([])
 
   // Parameter Tuning State
   const [tuningSteps, setTuningSteps] = useState("50")
@@ -317,11 +297,6 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
     return next
   })
 
-  // Import Diff State
-  const [importDiffs, setImportDiffs] = useState<AgentDiffResult[]>([])
-  const [focusedDiffIndex, setFocusedDiffIndex] = useState(0)
-  const [importDiffScrollOffset, setImportDiffScrollOffset] = useState(0)
-
   // Inspector Tab State
   const [inspectorTab, setInspectorTab] = useState<"overview" | "naming" | "security" | "delegations" | "resources">("overview")
   const [graphScrollOffset, setGraphScrollOffset] = useState(0)
@@ -338,15 +313,6 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
   }, [bridgePipelinePrefix, bridgePrefixSuggestions])
    const [bridgeSuggestionIndex, setBridgeSuggestionIndex] = useState(0)
    const [bridgeSuggestionScrollOffset, setBridgeSuggestionScrollOffset] = useState(0)
-  const bridgeSourceValidation = useMemo(() => {
-    const validPath = Boolean(bridgeSourceDir) && !bridgeSourceDir.startsWith("/") && !bridgeSourceDir.split(/[\\/]/).includes("..")
-    if (!validPath) return { valid: false, count: 0 }
-    try {
-      return { valid: true, count: findAgentFiles(workspaceRoot, bridgeSourceDir).length }
-    } catch {
-      return { valid: false, count: 0 }
-    }
-  }, [bridgeSourceDir, workspaceRoot])
   useEffect(() => {
     setBridgeSuggestionIndex(index => Math.min(index, Math.max(0, filteredBridgePrefixSuggestions.length - 1)))
     setBridgeSuggestionScrollOffset(offset => Math.min(offset, Math.max(0, filteredBridgePrefixSuggestions.length - 5)))
@@ -414,7 +380,6 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
   const maxVisibleTiers = Math.max(0, Math.floor(termHeight * 0.9) - 9)
   const maxVisibleColors = Math.max(0, Math.floor(termHeight * 0.7) - 9)
   const maxVisibleActionResultLines = Math.max(0, Math.floor(termHeight * 0.7) - 8)
-  const maxVisibleImportDiffs = Math.max(0, Math.floor(termHeight * 0.8) - 14)
   const modelModalInnerWidth = Math.max(1, Math.floor(termWidth * 0.7) - 6)
   const repairConfirmContentWidth = Math.max(1, Math.floor(termWidth * 0.76) - 6)
 
@@ -448,43 +413,32 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
     setActionResultScrollOffset((offset) => Math.min(offset, maxOffset))
   }, [actionResultLines.length, maxVisibleActionResultLines])
 
-  useEffect(() => {
-    const maxOffset = Math.max(0, importDiffs.length - maxVisibleImportDiffs)
-    setImportDiffScrollOffset((offset) => Math.min(offset, maxOffset))
-  }, [importDiffs.length, maxVisibleImportDiffs])
-
   const refreshData = () => {
-    // A model set or cleared on a canonical archetype subagent pins or unpins it in the router.
-    try { buildAgentRouting(workspaceRoot) } catch {}
     setAgents(findAgentFiles(workspaceRoot))
   }
 
-  const openResourceManager = (agent: AgentInfo | null, categoryOverride?: string) => {
-    const cat = categoryOverride || agent?.category || "general"
+  const packDescription = (pack: string) => {
+    const dir = packDir(workspaceRoot, pack)
+    if (!dir) return "Not a pack of this workspace."
     try {
-      const compItems = discoverAvailableCategoryCompanionItems(workspaceRoot, cat)
-      setResourceCategoryTarget(cat)
-      setCompanionAvailableItems(compItems)
-      setResourceDraftCompanion(Object.fromEntries(compItems.map(item => [item.relativePath, item.linked])))
+      const description = readManifest(dir).description
+      return typeof description === "string" && description ? description : "No description in opencode-pack.json."
+    } catch (error: any) {
+      return `Unreadable opencode-pack.json: ${error?.message || error}`
+    }
+  }
+
+  const openResourceManager = (agent: AgentInfo) => {
+    try {
+      const catalog = discoverAgentResources(workspaceRoot, agent, agents)
       setResourceTargetAgent(agent)
-      if (agent) {
-        const catalog = discoverAgentResources(workspaceRoot, agent, agents)
-        setResourceCatalog(catalog)
-        setDraftSkillAll(catalog.skills.find(item => item.kind === "skill-wildcard")?.allowed || false)
-        setDraftAllowedSkills(new Set(catalog.skills.filter(item => item.kind === "skill" && item.allowed).map(item => item.name)))
-        setDraftPermissions(Object.fromEntries([...catalog.tools, ...catalog.mcpServers].map(item => [item.permissionKey, item.allowed])))
-        setExplicitResourcePermissions(new Set(catalog.tools
-          .filter(item => item.kind === "tool" && item.familyKey && Object.prototype.hasOwnProperty.call(agent.frontmatter.permission || {}, item.permissionKey))
-          .map(item => item.permissionKey)))
-        setDraftMcpEnabled(Object.fromEntries(catalog.mcpServers.map(item => [item.serverKey, item.serverEnabled])))
-      } else {
-        setResourceCatalog({ skills: [], tools: [], mcpServers: [], companionFiles: [], opencodeRawContent: null })
-        setDraftSkillAll(false)
-        setDraftAllowedSkills(new Set())
-        setDraftPermissions({})
-        setDraftMcpEnabled({})
-        setExplicitResourcePermissions(new Set())
-      }
+      setResourceCatalog(catalog)
+      setDraftSkillAll(catalog.skills.find(item => item.kind === "skill-wildcard")?.allowed || false)
+      setDraftAllowedSkills(new Set(catalog.skills.filter(item => item.kind === "skill" && item.allowed).map(item => item.name)))
+      setDraftPermissions(Object.fromEntries([...catalog.tools, ...catalog.mcpServers].map(item => [item.permissionKey, item.allowed])))
+      setExplicitResourcePermissions(new Set(catalog.tools
+        .filter(item => item.kind === "tool" && item.familyKey && Object.prototype.hasOwnProperty.call(agent.frontmatter.permission || {}, item.permissionKey))
+        .map(item => item.permissionKey)))
       setResourceModalFocusIndex(0)
       setResourceModalScrollOffset(0)
       setLayoutStatus("")
@@ -492,6 +446,95 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
     } catch (error: any) {
       setLayoutStatus(terminalSafeText(error?.message || error))
     }
+  }
+
+  // Installs a pack of this workspace into the OpenCode config: the workspace is (or becomes) a local source.
+  const installRequest = (pack: string) => {
+    const registry = loadSources()
+    const root = fs.realpathSync(workspaceRoot)
+    let source = registry.sources.find(candidate => candidate.kind === "local" && candidate.path === root)
+    const added = !source
+    if (!source) {
+      const base = path.basename(root).toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "") || "workspace"
+      let name = base
+      for (let index = 2; registry.sources.some(candidate => candidate.name === name); index++) name = `${base}-${index}`
+      source = addSource(registry, name, root)
+    }
+    return { registry, added, request: `${source.name}/${pack}`, sourceName: source.name }
+  }
+
+  const previewInstall = (pack: string) => {
+    if (!packDir(workspaceRoot, pack)) {
+      setLayoutStatus(`${pack} is not a pack of this workspace.`)
+      return
+    }
+    const target = defaultTarget()
+    void (async () => {
+      try {
+        const { registry, added, request, sourceName } = installRequest(pack)
+        const result = await changeTarget(target, "install", registry, installChange(registry, [request]), { dryRun: true })
+        setInstallPreview({
+          pack, target,
+          lines: [...(added ? [`This workspace will be registered as source "${sourceName}".`, ""] : []), ...describeChangeResult(target, result)],
+          confirmations: result.confirmations,
+          blocked: result.status === "failed",
+          lockText: result.change ? serializeLock(result.change.lock) : "",
+        })
+        setViewMode("install-confirm")
+      } catch (error: any) {
+        setActionResultTitle("Install Preview Failed")
+        setActionResultLines([`An error occurred:`, `  ${terminalSafeText(error?.message || error)}`])
+        setViewMode("action-result")
+      }
+    })()
+  }
+
+  const applyInstall = (preview: InstallPreview) => {
+    const fail = (error: any) => {
+      setActionResultTitle("Install Failed")
+      setActionResultLines([`An error occurred:`, `  ${terminalSafeText(error?.message || error)}`])
+    }
+    void (async () => {
+      let prepared: ReturnType<typeof installRequest>
+      try {
+        prepared = installRequest(preview.pack)
+      } catch (error) {
+        fail(error)
+        setViewMode("action-result")
+        return
+      }
+      const { registry, added, request, sourceName } = prepared
+      let succeeded = false
+      try {
+        // Saved first, so an applied lock never names a source the registry lacks; dropped again if nothing was installed.
+        if (added) saveSources(registry)
+        // The user approved the preview: install it only if the packs and the confirmations are still the same.
+        const compute = installChange(registry, [request])
+        const result = await changeTarget(preview.target, "install", registry, current => {
+          const change = compute(current)
+          return change.problems.length || serializeLock(change.lock) === preview.lockText
+            ? change
+            : { ...change, problems: ["the packs changed since the preview; press e again to review the new version"] }
+        }, { confirm: async reasons => isDeepStrictEqual([...reasons].sort(), [...preview.confirmations].sort()) })
+        succeeded = result.status === "applied" || result.status === "unchanged"
+        setActionResultTitle(succeeded ? "Install Complete" : "Install Failed")
+        setActionResultLines(describeChangeResult(preview.target, result))
+      } catch (error) {
+        fail(error)
+      }
+      if (!succeeded && added) {
+        try {
+          const current = loadSources()
+          if (current.sources.some(source => source.name === sourceName)) {
+            removeSource(current, sourceName)
+            saveSources(current)
+          }
+        } catch {
+          // The source registration only made the failed install possible; leaving it is harmless.
+        }
+      }
+      setViewMode("action-result")
+    })()
   }
 
   const setMutationRefreshFailure = (error: unknown, warning?: TransactionWarning) => {
@@ -527,25 +570,19 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
       } else if (modelMap) {
         delete modelMap["*"]
       }
-      const sourceAgents = findAgentFiles(workspaceRoot, bridgeSourceDir)
-      const bridgeCategory = activeItems[focusedIndex]?.category || ""
-      const targetAgents = selectedAgentPaths.size > 0
-        ? agents.filter((a) => selectedAgentPaths.has(a.currentPath))
-        : sourceAgents.filter((a) => a.category === bridgeCategory)
-      if (targetAgents.length === 0) {
-        setActionResultTitle("No Agents to Bridge")
-        setActionResultLines([bridgeCategory ? `No agents found for category '${bridgeCategory}'.` : "No agents selected to bridge."])
+      const pack = activeItems[focusedIndex]?.category || ""
+      if (!packDir(workspaceRoot, pack)) {
+        setActionResultTitle("No Pack to Bridge")
+        setActionResultLines(["Focus an agent or a pack folder: the bridge translates a whole pack."])
         setViewMode("action-result")
         return
       }
       const safePluginName = sanitizeFilename(bridgePluginName)
-      const bridgeFolder = bridgeTarget === "codex" ? "codex" : "claude-code"
-      const outputDir = path.join(workspaceRoot, fs.existsSync(path.join(workspaceRoot, "export")) ? path.join("export", "bridges") : "bridges", bridgeFolder, safePluginName)
-       const tx = mutate([path.join(workspaceRoot, ".agent-manager", "translation-config.json"), outputDir], "bridge", () => {
-        saveTranslationConfig(workspaceRoot, { ...bridgeConfig, pluginName: bridgePluginName, prefix: bridgePipelinePrefix, sourceDir: bridgeSourceDir })
-        return bridgeTarget === "codex"
-          ? bridgeToCodex(targetAgents, bridgePluginName, bridgePipelinePrefix, outputDir, workspaceRoot, { ...bridgeConfig, pluginName: bridgePluginName, prefix: bridgePipelinePrefix, sourceDir: bridgeSourceDir })
-          : bridgeToClaudeCode(targetAgents, bridgePluginName, bridgePipelinePrefix, outputDir, workspaceRoot, { ...bridgeConfig, pluginName: bridgePluginName, prefix: bridgePipelinePrefix, sourceDir: bridgeSourceDir }, { category: bridgeCategory || undefined })
+      const outputDir = path.join(workspaceRoot, "bridges", bridgeTarget === "codex" ? "codex" : "claude-code", safePluginName)
+      const config = { ...bridgeConfig, pluginName: bridgePluginName, prefix: bridgePipelinePrefix }
+      const tx = mutate([translationConfigPath(workspaceRoot), outputDir], "bridge", () => {
+        saveTranslationConfig(workspaceRoot, config)
+        return bridgePack({ workspaceRoot, pack, target: bridgeTarget, outputDir, config, pluginName: bridgePluginName, prefix: bridgePipelinePrefix })
       })
        const result = tx.value
        setTranslationConfig(loadTranslationConfig(workspaceRoot, undefined, { persistMigration: false }))
@@ -804,14 +841,9 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
   const saveRoutingConfig = (trigger: string, roles: RoleModels | null, previousTrigger?: string) => {
     if (!routingArchetype) return false
     try {
-      // Like the Resource Manager, keep the bundles in step so `category check` stays green: every
-      // archetype bundle ships routing.json, not only the one being edited.
-      const tx = mutate([agentRoutingConfigPath(workspaceRoot), agentRoutingOutputPath(workspaceRoot), ...archetypeBundles(workspaceRoot).map(bundle => bundle.output)], "routing", () => {
-        setArchetypeConfig(workspaceRoot, routingArchetype, trigger, roles, { previousTrigger })
-        rebuildArchetypeBundles(workspaceRoot)
-      })
+      const tx = mutate([path.join(packDir(workspaceRoot, routingArchetype)!, "opencode-pack.json")], "routing", () => setArchetypeConfig(workspaceRoot, routingArchetype, trigger, roles, { previousTrigger }))
       setRoutingRevision(revision => revision + 1)
-      setRoutingStatus(`${roles ? "Saved" : "Deleted"} configuration '${trigger}'. Press E on the folder to install it in OpenCode.${tx.warning ? ` ⚠ auto-commit: ${tx.warning.message}` : ""}`)
+      setRoutingStatus(`${roles ? "Saved" : "Deleted"} configuration '${trigger}'. They are the pack defaults: press E on the folder to install it; \`manage-agents models\` overrides them per target.${tx.warning ? ` ⚠ auto-commit: ${tx.warning.message}` : ""}`)
       return true
     } catch (error: any) {
       setRoutingStatus(`Error: ${error?.message || error}`)
@@ -888,7 +920,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           setLayoutError("Read-only environment override: preview only; Enter does not save.")
         } else {
           try {
-             const revision = saveUiConfig(workspaceRoot, layoutDraft, uiConfigRevisionState)
+             const revision = saveUiConfig(engineConfigDir(), layoutDraft, uiConfigRevisionState)
              setUiConfigRevision(revision)
             setLayoutSnapshot(layoutDraft); setAppliedShare(layoutDraft); setLayoutError(""); setLayoutStatus("Layout saved")
             setActionResultTitle("Layout saved")
@@ -896,7 +928,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
             setViewMode("main")
           } catch (error: any) {
             if (error?.message === "configuration changed; reload and retry") {
-              const current = loadUiConfig(workspaceRoot)
+              const current = loadUiConfig()
               setUiConfigRevision(current.revision)
               setLayoutStatus("Configuration changed externally. Reloaded revision; press Enter again to overwrite with current preview, or Esc.")
             } else {
@@ -1030,7 +1062,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           return
         }
         const focusedFolder = activeItems[focusedIndex]
-        if (selectedAgentPaths.size === 0 && focusedFolder?.type === "folder" && isRoutableArchetype(focusedFolder.category)) {
+        if (selectedAgentPaths.size === 0 && focusedFolder?.type === "folder" && isRoutableArchetype(workspaceRoot, focusedFolder.category)) {
           setRoutingArchetype(focusedFolder.category)
           setRoutingFocus(0)
           setRoutingConfirmDelete(false)
@@ -1070,21 +1102,6 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           setTierScrollOffset(0)
           setViewMode("tier-selector")
         }
-      } else if (key === "o") {
-        setViewMode("organization-confirm")
-      } else if (key === "f" && !isUppercaseF) {
-        if (activeItems.length > 0) {
-          const item = activeItems[focusedIndex]
-          if (isRoutableArchetype(item.category)) {
-            setLayoutStatus(`'${item.category}' is an archetype: it is installed once and models come from its configurations (M on the folder), so it is not forked.`)
-            return
-          }
-          setForkSourceCategory(item.category || "")
-          setForkFindQuery("")
-          setForkReplaceQuery("")
-          setForkFocusedField("find")
-          setViewMode("fork-prompt")
-        }
       } else if (key === "b" && !e.shift) {
         if (activeItems.length > 0) {
           // Read disk state so a bridge opened after a concurrent CLI run does not prefill stale values.
@@ -1099,7 +1116,6 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           setBridgeModelTarget(config?.claude.modelMap?.["*"] || "")
           setBridgePluginName(config?.pluginName || "decent-pipeline")
           setBridgePipelinePrefix(config?.prefix || "")
-          setBridgeSourceDir(config?.sourceDir || resolveSourceSubdir(workspaceRoot))
           setBridgeFocusedField("name")
           setViewMode("bridge-prompt")
         }
@@ -1117,14 +1133,12 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           setBridgeModelTarget(config?.codex.modelMap?.["*"] || "")
           setBridgePluginName(config?.pluginName || "decent-pipeline")
           setBridgePipelinePrefix(config?.prefix || "")
-          setBridgeSourceDir(config?.sourceDir || resolveSourceSubdir(workspaceRoot))
           setBridgeFocusedField("name")
           setViewMode("bridge-prompt")
         }
       } else if (key === "e") {
         const focused = activeItems[focusedIndex]
-        setExportCategory(selectedAgentPaths.size === 0 && focused?.type === "folder" ? focused.category : null)
-        setViewMode("export-confirm")
+        if (focused) previewInstall(focused.category)
       } else if (key === "c") {
         if (activeItems.length === 0 || !activeItems[focusedIndex]?.agent) {
           setActionResultTitle("No Agent Focused")
@@ -1168,8 +1182,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
       } else if (key === "u") {
         const target = activeItems[focusedIndex]
         if (target?.type === "file" && target.agent) openResourceManager(target.agent)
-        else if (target?.type === "folder") openResourceManager(null, target.category)
-        else setLayoutStatus("Select an agent or category folder to manage resources.")
+        else setLayoutStatus("Focus an agent to manage its skills, tools and MCP permissions.")
       } else if (key === "t") {
         if (activeItems.length > 0) {
           const focusedItem = activeItems[focusedIndex]
@@ -1189,29 +1202,6 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           setTuningDirtyFields(new Set())
           setTuningFocusedField("steps")
           setViewMode("parameter-tuning")
-        }
-      } else if (key === "i") {
-        try {
-          const preview = previewImport(workspaceRoot)
-          const companionDiffs: AgentDiffResult[] = preview.companionResources.map(resource => ({
-            filename: resource.relativePath,
-            localPath: resource.localPath,
-            exportPath: resource.exportPath,
-            existsLocally: resource.existsLocally,
-            existsInExport: resource.existsInExport,
-            hasDifferences: resource.hasDifferences,
-            localContent: "",
-            exportContent: ""
-          }))
-          const diffs = [...preview.agents, ...companionDiffs]
-           setImportDiffs(diffs)
-           setFocusedDiffIndex(0)
-           setImportDiffScrollOffset(0)
-           setViewMode("import-diff")
-        } catch (error: any) {
-          setActionResultTitle("Error Loading Import Diff")
-          setActionResultLines([`An error occurred:`, `  ${error.message || error}`])
-          setViewMode("action-result")
         }
       } else if (key === "1") {
         setInspectorTab("overview")
@@ -1435,7 +1425,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           const impacted = agents.filter(agent => !targetAgents.some(target => target.currentPath === agent.currentPath) && roles.has(resolveRole(agent, translationConfig)))
           const nextConfig = { ...translationConfig, roles: { ...translationConfig.roles } }
           roles.forEach(role => { nextConfig.roles[role] = chosenTier })
-            const tx = mutate([path.join(workspaceRoot, ".agent-manager", "translation-config.json")], "config", () => saveTranslationConfig(workspaceRoot, nextConfig))
+            const tx = mutate([translationConfigPath(workspaceRoot)], "config", () => saveTranslationConfig(workspaceRoot, nextConfig))
             setTranslationConfig(loadTranslationConfig(workspaceRoot, undefined, { persistMigration: false }))
             try { refreshData() } catch (error) { setMutationRefreshFailure(error, tx.warning); return }
           setSelectedAgentPaths(new Set())
@@ -1452,70 +1442,6 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
       } else if (key === "escape") {
         setViewMode("main")
       }
-    } else if (viewMode === "organization-confirm") {
-      // 4. Auto-organize confirm mode
-      if (key === "y" || key === "enter" || key === "return") {
-        try {
-            const tx = mutate(agents.flatMap(a => [a.currentPath, a.targetPath]), "organize", () => organizeAgents(workspaceRoot, agents))
-            const { copied, skipped, backupsPath } = tx.value
-           try { refreshData() } catch (error) { setMutationRefreshFailure(error, tx.warning); return }
-           setMutationSuccess("Reorganization Complete", [
-            `Local backup created at:`,
-            `  ${backupsPath}`,
-            ``,
-            `Copied ${copied.length} files to category directories:`
-           ].concat(copied.map((line) => `  * ${line}`), skipped.length > 0 ? [``, `Skipped ${skipped.length} files (manifest-backed categories require category build):`, ...skipped.map((line) => `  * ${line}`)] : []), tx.warning)
-        } catch (error: any) {
-          setActionResultTitle("Error During Reorganization")
-          setActionResultLines([`An error occurred:`, `  ${error.message || error}`])
-        }
-        setViewMode("action-result")
-      } else if (key === "n" || key === "escape") {
-        setViewMode("main")
-      }
-    } else if (viewMode === "fork-prompt") {
-      // 5. Fork category prompt mode
-      if (key === "escape") {
-        setViewMode("main")
-      } else if (key === "tab" || key === "up" || key === "down") {
-        setForkFocusedField((prev) => prev === "find" ? "replace" : "find")
-      } else if (key === "backspace") {
-        if (forkFocusedField === "find") {
-          setForkFindQuery((prev) => prev.slice(0, -1))
-        } else {
-          setForkReplaceQuery((prev) => prev.slice(0, -1))
-        }
-      } else if (key === "enter" || key === "return") {
-        if (!forkFindQuery) return
-        try {
-          const selectedPaths: string[] | undefined = selectedAgentPaths.size > 0 ? Array.from(selectedAgentPaths) : undefined
-          const replacements = parseForkReplacements(forkReplaceQuery)
-          const replacementCount = typeof replacements === "string" ? 1 : replacements.length
-            const tx = mutate([path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot), "agents")], "fork", () => forkCategory(workspaceRoot, forkSourceCategory, forkFindQuery, replacements, selectedPaths))
-            const result = tx.value
-                try { refreshData() } catch (error) { setMutationRefreshFailure(error, tx.warning); return }
-          setSelectedAgentPaths(new Set())
-           setMutationSuccess("Fork Category Complete", [
-            `Category '${forkSourceCategory}' successfully forked!`,
-            result.backupsPath ? `Local backup created at:` : `No backup needed`,
-            ...(result.backupsPath ? [`  ${result.backupsPath}`] : []),
-            ``,
-             `Summary: ${result.copied.length} copied, ${result.skipped.length} skipped across ${replacementCount} replacement${replacementCount === 1 ? "" : "s"}`,
-             `Forked ${result.copied.length} files under general/agents/:`
-            ].concat(result.copied.map((line) => `  * ${line}`), result.skipped.length > 0 ? [``, `Skipped ${result.skipped.length} files:`, ...result.skipped.map((line) => `  * ${line}`)] : []), tx.warning)
-          setViewMode("action-result")
-        } catch (error: any) {
-          setActionResultTitle("Error During Fork")
-          setActionResultLines([`An error occurred:`, `  ${error.message || error}`])
-          setViewMode("action-result")
-        }
-      } else if (/^[\x20-\x7E]$/.test(rawChar)) {
-        if (forkFocusedField === "find") {
-          setForkFindQuery((prev) => prev + rawChar)
-        } else {
-          setForkReplaceQuery((prev) => prev + rawChar)
-        }
-      }
     } else if (viewMode === "bridge-prompt") {
       // 6. Bridge to Claude Code prompt mode
       if (key === "escape") {
@@ -1524,7 +1450,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
         if (bridgeFocusedField === "prefix" && filteredBridgePrefixSuggestions.length > 0) {
           setBridgePipelinePrefix(filteredBridgePrefixSuggestions[bridgeSuggestionIndex].prefix)
         }
-        setBridgeFocusedField((prev) => prev === "name" ? "prefix" : prev === "prefix" ? "sourceDir" : prev === "sourceDir" ? "model" : "name")
+        setBridgeFocusedField((prev) => prev === "name" ? "prefix" : prev === "prefix" ? "model" : "name")
       } else if (key === "up" || key === "down") {
         if (bridgeFocusedField === "prefix" && filteredBridgePrefixSuggestions.length > 0) {
             setBridgeSuggestionIndex(index => {
@@ -1535,82 +1461,13 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
              return next
            })
         } else {
-          setBridgeFocusedField((prev) => prev === "name" ? "prefix" : prev === "prefix" ? "sourceDir" : prev === "sourceDir" ? "model" : "name")
+          setBridgeFocusedField((prev) => prev === "name" ? "prefix" : prev === "prefix" ? "model" : "name")
         }
       }
-    } else if (viewMode === "export-confirm") {
-      // 7. Export confirmation mode
-      if (key === "y" || key === "enter" || key === "return") {
-        try {
-          const exportPaths = selectedAgentPaths.size > 0
-            ? selectedAgentPaths
-            : exportCategory ? new Set(agents.filter(agent => agent.category === exportCategory).map(agent => agent.currentPath)) : undefined
-          const exportAgentsList = exportPaths
-            ? agents.filter(agent => exportPaths.has(agent.currentPath))
-            : exportCategory ? agents.filter(agent => agent.category === exportCategory) : agents
-          const resourceSourceRoot = path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot))
-          const result = exportAgents(exportAgentsList, undefined, resourceSourceRoot, {
-            completeExport: selectedAgentPaths.size === 0 && !exportCategory
-          })
-          setSelectedAgentPaths(new Set())
-          setActionResultTitle("Export Complete")
-          const lines = [
-            `Successfully exported ${result.exported.length} agents to:`,
-            `  ${result.destinationPath.replace(/\/Users\/[^\/]+/, "~")}`,
-            ``,
-            ...(result.backupPath
-              ? [`Disaster-recovery backup at:`, `  ${result.backupPath.replace(/\/Users\/[^\/]+/, "~")}`]
-              : [`No backup created (no existing files replaced)`])
-          ]
-          if (result.domainResources.length > 0) {
-            lines.push(
-              ``,
-              `Companion resources installed:`,
-              ...result.domainResources.map(resource => `  ${resource.replace(/\/Users\/[^\/]+/, "~")}`),
-              `Resource backup: ${result.domainBackupPath ? result.domainBackupPath.replace(/\/Users\/[^\/]+/, "~") : "not needed"}`
-            )
-          }
-          if (result.pluginProvisioning) {
-            const prov = result.pluginProvisioning
-            if (prov.installed.length > 0 || prov.skipped.length > 0) {
-              lines.push(
-                ``,
-                `Ontology plugins provisioned (${prov.installed.length} installed, ${prov.skipped.length} aligned):`,
-                ...prov.installed.map(p => `  ✔ ${p} (npm ci --omit=dev)`),
-                ...prov.skipped.map(p => `  • ${p} (node_modules aligned)`)
-              )
-            }
-            if (prov.opencodeConfigPath) {
-              lines.push(`Registered plugins in: ${prov.opencodeConfigPath.replace(/\/Users\/[^/]+/, "~")}`)
-              if (prov.opencodeConfigBackupPath) {
-                lines.push(`Config backup at: ${prov.opencodeConfigBackupPath.replace(/\/Users\/[^/]+/, "~")}`)
-              }
-            }
-            if (prov.ontologyStackConfigPath && prov.ontologyStackDirectory) {
-              lines.push(`Ontology stack config: ${prov.ontologyStackConfigPath.replace(/\/Users\/[^/]+/, "~")} -> ${prov.ontologyStackDirectory.replace(/\/Users\/[^/]+/, "~")}`)
-            }
-            if (prov.failed.length > 0) {
-              lines.push(``, `⚠ Plugin provisioning warnings:`, ...prov.failed.map(f => `  * ${f.plugin}: ${f.error}`))
-            }
-          }
-          if (result.skipped.length > 0) {
-            lines.push(``, `⚠ Skipped ${result.skipped.length} files:`,
-              ...result.skipped.map((s) => `  * ${s}`))
-          }
-          if (result.experimentalTodoWarning) {
-            lines.push(``, `⚠ ${result.experimentalTodoWarning}`)
-          } else {
-            const configPath = path.join(path.dirname(result.destinationPath), "opencode.json")
-            lines.push(``, `✔ experimental.todo enabled in ${configPath.replace(/\/Users\/[^\/]+/, "~")}`)
-          }
-          for (const warning of result.extensionWarnings ?? []) lines.push(``, `⚠ ${warning}`)
-          setActionResultLines(lines)
-        } catch (error: any) {
-          setActionResultTitle("Error During Export")
-          setActionResultLines([`An error occurred:`, `  ${error.message || error}`])
-        }
-        setViewMode("action-result")
-      } else if (key === "n" || key === "escape") {
+    } else if (viewMode === "install-confirm") {
+      if ((key === "y" || key === "enter" || key === "return") && installPreview && !installPreview.blocked) {
+        applyInstall(installPreview)
+      } else if (key === "n" || key === "escape" || ((key === "enter" || key === "return") && installPreview?.blocked)) {
         setViewMode("main")
       }
     } else if (viewMode === "routing-configs") {
@@ -1843,13 +1700,8 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
         } else if (key === "space") {
         const row = resourceManagerRows[resourceModalFocusIndex]
         if (!row) return
-        if (row.section === "companion") {
-          const item = row.item as SelectableCompanionItem
-          setResourceDraftCompanion(previous => ({ ...previous, [item.relativePath]: !previous[item.relativePath] }))
-          return
-        }
         if (!resourceCatalog) return
-        const agentItem = row.item as AgentResourceItem | AgentMcpResourceItem
+        const agentItem = row.item
         if (row.kind === "skill-wildcard") {
           const nextAll = !draftSkillAll
           setDraftSkillAll(nextAll)
@@ -1879,25 +1731,8 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           setDraftPermissions(previous => ({ ...previous, [agentItem.permissionKey]: !previous[agentItem.permissionKey] }))
           setExplicitResourcePermissions(previous => new Set([...previous, agentItem.permissionKey]))
         }
-      } else if (key === "x") {
-        const row = resourceManagerRows[resourceModalFocusIndex]
-        if (row?.kind === "mcp") {
-          const item = row.item as AgentMcpResourceItem
-          if (item.configuredInOpencode || item.recommendedInRepo) {
-            setDraftMcpEnabled(previous => ({ ...previous, [item.serverKey]: !previous[item.serverKey] }))
-          } else {
-            setLayoutStatus("Server is not configured in ~/.config/opencode/opencode.json.")
-          }
-        }
       } else if (key === "enter" || key === "return") {
-        if (!resourceCatalog) return
-        const companionChanged = companionAvailableItems.some(item => Boolean(resourceDraftCompanion[item.relativePath]) !== item.linked)
-        const nextLinks = {
-          plugins: companionAvailableItems.filter(item => item.group === "plugin" && resourceDraftCompanion[item.relativePath]).map(item => item.relativePath),
-          commands: companionAvailableItems.filter(item => item.group === "command" && resourceDraftCompanion[item.relativePath]).map(item => item.relativePath),
-          skills: companionAvailableItems.filter(item => item.group === "skill" && resourceDraftCompanion[item.relativePath]).map(item => item.relativePath),
-          tools: companionAvailableItems.filter(item => item.group === "tool" && resourceDraftCompanion[item.relativePath]).map(item => item.relativePath)
-        }
+        if (!resourceCatalog || !resourceTargetAgent) return
         const initialWildcard = resourceCatalog.skills.find(item => item.kind === "skill-wildcard")?.allowed || false
         const initialAllowedSkills = new Set<string>(resourceCatalog.skills.filter(item => item.kind === "skill" && item.allowed).map(item => item.name))
         const allowedNames: string[] = Array.from(draftAllowedSkills)
@@ -1909,51 +1744,20 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
             return changed && (!inheritedChildTool || explicitResourcePermissions.has(item.permissionKey))
           })
           .map(item => [item.permissionKey, draftPermissions[item.permissionKey]]))
-        const mcpEnabled: Record<string, boolean> = Object.fromEntries(resourceCatalog.mcpServers
-          .filter(item => (item.configuredInOpencode || item.recommendedInRepo) && draftMcpEnabled[item.serverKey] !== item.serverEnabled)
-          .map(item => [item.serverKey, draftMcpEnabled[item.serverKey]]))
         const changes: AgentResourceChanges = {
           ...(skillsChanged ? { skills: { all: draftSkillAll, allowedNames } } : {}),
-          ...(Object.keys(permissions).length ? { permissions } : {}),
-          ...(Object.keys(mcpEnabled).length ? { mcpEnabled } : {})
+          ...(Object.keys(permissions).length ? { permissions } : {})
         }
-        if (!companionChanged && !changes.skills && !changes.permissions && !changes.mcpEnabled) {
+        if (!changes.skills && !changes.permissions) {
           setLayoutStatus("No changes to save.")
           setViewMode("main")
           return
         }
-        const hasAgentChanges = Boolean(changes.skills || changes.permissions)
-        const categoryManifestPath = resourceCategoryTarget
-          ? path.join(workspaceRoot, ".agent-manager", "categories", `${resourceCategoryTarget}.json`)
-          : ""
-        const hasCategoryManifest = Boolean(categoryManifestPath && fs.existsSync(categoryManifestPath))
-        const allowedPaths = [
-          ...(companionChanged ? [getCompanionLinksConfigPath(workspaceRoot)] : []),
-          ...(companionChanged && hasCategoryManifest ? [categoryManifestPath, path.join(workspaceRoot, "export", "categories", resourceCategoryTarget!)] : []),
-          ...(resourceTargetAgent && hasAgentChanges ? [path.relative(workspaceRoot, resourceTargetAgent.currentPath)] : [])
-        ]
-        if (allowedPaths.length === 0 && resourceTargetAgent) allowedPaths.push(path.relative(workspaceRoot, resourceTargetAgent.currentPath))
         try {
-          const tx = mutate(allowedPaths, "tune", () => {
-            if (companionChanged && resourceCategoryTarget) {
-              const key = resourceCategoryTarget
-              updateCategoryCompanionLinks(workspaceRoot, key, nextLinks)
-              if (fs.existsSync(path.join(workspaceRoot, ".agent-manager", "categories", `${key}.json`))) buildCategoryDistribution(workspaceRoot, key)
-            }
-            const agentResult = resourceTargetAgent
-              ? updateAgentResourcesAndMcp(workspaceRoot, resourceTargetAgent, resourceCatalog, changes)
-              : { changedPaths: [] }
-            return { changedPaths: [...(companionChanged ? [getCompanionLinksConfigPath(workspaceRoot)] : []), ...agentResult.changedPaths] }
-          })
-          setCompanionAvailableItems(discoverAvailableCategoryCompanionItems(workspaceRoot, resourceCategoryTarget || "general"))
+          const target = resourceTargetAgent
+          const tx = mutate([target.currentPath], "tune", () => updateAgentResources(target, resourceCatalog, changes))
           try { refreshData() } catch (error) { setMutationRefreshFailure(error, tx.warning); return }
-          setMutationSuccess(companionChanged && !resourceTargetAgent ? "Category Companion Links Updated" : "Resources Updated", [
-            ...(resourceTargetAgent ? [`Updated skills, custom tools, and MCP permissions for:`, `  ${resourceTargetAgent.filename}`] : []),
-            ...(companionChanged ? [`Updated exported companion links for category: ${resourceCategoryTarget}`] : []),
-            ...(tx.value.changedPaths.includes(resourceCatalog.opencodeConfigPath ?? getGlobalOpenCodeConfigPath())
-              ? ["", "~/.config/opencode/opencode.json updated. Restart OpenCode for MCP server changes to take effect."]
-              : [])
-          ], tx.warning)
+          setMutationSuccess("Resources Updated", [`Updated skills, custom tools, and MCP permissions for:`, `  ${target.filename}`], tx.warning)
           setViewMode("action-result")
         } catch (error: any) {
           setActionResultTitle("Error Updating Agent Resources")
@@ -2124,71 +1928,6 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           setRenameRole((prev) => prev + rawChar)
         }
       }
-    } else if (viewMode === "import-diff") {
-      // 14. Import diff mode
-      if (importDiffs.length > 0 && (key === "up" || key === "k")) {
-         setFocusedDiffIndex((prev) => {
-           const next = prev > 0 ? prev - 1 : importDiffs.length - 1
-           setImportDiffScrollOffset((offset) => {
-             if (next < offset) return next
-             if (next >= offset + maxVisibleImportDiffs) return next - maxVisibleImportDiffs + 1
-             return offset
-           })
-           return next
-         })
-      } else if (importDiffs.length > 0 && (key === "down" || key === "j")) {
-         setFocusedDiffIndex((prev) => {
-           const next = prev < importDiffs.length - 1 ? prev + 1 : 0
-           setImportDiffScrollOffset((offset) => {
-             if (next < offset) return next
-             if (next >= offset + maxVisibleImportDiffs) return next - maxVisibleImportDiffs + 1
-             return offset
-           })
-           return next
-         })
-      } else if (key === "pageup") {
-         if (importDiffs.length > 0) {
-           const next = Math.max(0, focusedDiffIndex - maxVisibleImportDiffs)
-           setFocusedDiffIndex(next)
-           setImportDiffScrollOffset(Math.min(next, Math.max(0, importDiffs.length - maxVisibleImportDiffs)))
-         }
-      } else if (key === "pagedown") {
-         if (importDiffs.length > 0) {
-           const next = Math.min(importDiffs.length - 1, focusedDiffIndex + maxVisibleImportDiffs)
-           setFocusedDiffIndex(next)
-           setImportDiffScrollOffset(Math.min(
-             Math.max(0, importDiffs.length - maxVisibleImportDiffs),
-             next
-           ))
-         }
-      } else if (key === "enter" || key === "return") {
-        try {
-            const tx = mutate([
-              path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot), "agents"),
-              path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot), "tools"),
-              path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot), "commands"),
-              path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot), "skills"),
-              path.join(workspaceRoot, resolveSourceSubdir(workspaceRoot), "plugins")
-            ], "import", () => importAgents(workspaceRoot))
-            const result = tx.value
-           try { refreshData() } catch (error) { setMutationRefreshFailure(error, tx.warning); return }
-            setMutationSuccess("Import Complete", [
-             `Successfully imported ${result.imported.length} agents:`,
-             ...result.imported.map((filename) => `  * ${filename}`),
-             `Successfully imported ${result.importedResources.length} companion resources:`,
-             ...result.importedResources.map((filename) => `  * ${filename}`),
-             ``,
-            result.backupPath ? `Backup created at:` : `No backup needed`,
-            ...(result.backupPath ? [`  ${result.backupPath}`] : [])
-           ], tx.warning)
-        } catch (error: any) {
-          setActionResultTitle("Error During Import")
-          setActionResultLines([`An error occurred:`, `  ${error.message || error}`])
-        }
-        setViewMode("action-result")
-      } else if (key === "escape") {
-        setViewMode("main")
-      }
     } else if (viewMode === "action-result") {
       // 10. Action result dialog
       const maxOffset = Math.max(0, actionResultLines.length - maxVisibleActionResultLines)
@@ -2289,18 +2028,13 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
       `* ${item.name} [${item.allowed ? "ALLOW" : "DENY"}] ${item.configuredInOpencode
         ? `[MCP: ${item.serverEnabled ? "ON" : "OFF"}]`
         : item.recommendedInRepo
-          ? "[Recommended in repo (x in u to enable)]"
-          : "[Not in ~/.config/opencode/opencode.json]"}`
-    ), `--- COMPANION FILES (${catalog.companionFiles.length}) ---`, ...(catalog.companionFiles.length ? catalog.companionFiles : ["(none)"])]
+          ? "[Declared by its packs]"
+          : "[Not declared by its packs nor installed]"}`
+    )]
   }, [resourceInspector.catalog])
-  const resourceManagerRows = useMemo<ResourceManagerRow[]>(() => [
-    ...(resourceCatalog ? [
-      ...resourceCatalog.skills.map(item => ({ section: "agent" as const, kind: item.kind, item })),
-      ...resourceCatalog.tools.map(item => ({ section: "agent" as const, kind: item.kind, item })),
-      ...resourceCatalog.mcpServers.map(item => ({ section: "agent" as const, kind: item.kind, item }))
-    ] : []),
-    ...companionAvailableItems.map(item => ({ section: "companion" as const, item }))
-  ], [resourceCatalog, companionAvailableItems])
+  const resourceManagerRows = useMemo<ResourceManagerRow[]>(() => resourceCatalog
+    ? [...resourceCatalog.skills, ...resourceCatalog.tools, ...resourceCatalog.mcpServers].map(item => ({ kind: item.kind, item }))
+    : [], [resourceCatalog])
   const maxVisibleResourceRows = Math.max(1, layout.listRows - 7)
   const visibleResourceRows = resourceManagerRows.slice(resourceModalScrollOffset, resourceModalScrollOffset + maxVisibleResourceRows)
   const resourceInspectorPageSize = Math.max(1, layout.listRows - 5)
@@ -2310,8 +2044,6 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
   const visibleModels = modelTreeItems.slice(modelScrollOffset, modelScrollOffset + maxVisibleModels)
   const visibleColors = colorTreeItems.slice(colorScrollOffset, colorScrollOffset + maxVisibleColors)
   const visibleDelegationItems = delegationItems.slice(delegationScrollOffset, delegationScrollOffset + maxVisibleItems)
-  const visibleImportDiffs = importDiffs.slice(importDiffScrollOffset, importDiffScrollOffset + maxVisibleImportDiffs)
-  const importDiffMaxOffset = Math.max(0, importDiffs.length - maxVisibleImportDiffs)
   const actionResultMaxOffset = Math.max(0, actionResultLines.length - maxVisibleActionResultLines)
   const visibleActionResultLines = actionResultLines.slice(
     actionResultScrollOffset,
@@ -2515,7 +2247,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
                   {inspectorTab === "overview" && (
                     <box flexDirection="column" marginTop={1} flexGrow={1}>
                       <box flexDirection="row">
-                        <text style={{ textColor: "gray" }} width="35%">Category:</text>
+                        <text style={{ textColor: "gray" }} width="35%">Pack:</text>
                         <text style={{ textColor: "yellow" }} width="65%">
                            {middleEllipsis(currentItem.agent.category, 30)}
                         </text>
@@ -2599,7 +2331,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
                               <text style={{ textColor: "cyan" }}>{middleEllipsis(analysis.family || "(none)", 30)}</text>
                             </box>
                             <box flexDirection="row">
-                              <text style={{ textColor: "gray" }} width="35%">Category:</text>
+                              <text style={{ textColor: "gray" }} width="35%">Pack:</text>
                               <text style={{ textColor: "yellow" }}>{middleEllipsis(analysis.category || "(none)", 30)}</text>
                             </box>
                             <box flexDirection="row">
@@ -2733,17 +2465,17 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
               ) : (
                            <box flexDirection="column" flexGrow={1} overflow="hidden">
                   <text style={{ textColor: "yellow" }} b>
-                     {middleEllipsis(`📁 Category: ${currentItem.category.toUpperCase()}`, 40)}
+                     {middleEllipsis(`📁 Pack: ${currentItem.category.toUpperCase()}`, 40)}
                   </text>
                   <text style={{ textColor: "white" }} marginTop={1}>
-                     {middleEllipsis(`Directory: /categories/${currentItem.category}/agents/`, 50)}
+                     {middleEllipsis(`Directory: ${path.relative(workspaceRoot, path.join(packDir(workspaceRoot, currentItem.category) ?? workspaceRoot, "agents"))}/`, 50)}
                   </text>
                   <text style={{ textColor: "gray" }} marginTop={2}>
                     Purpose Summary:
                   </text>
                   <box borderStyle="single" borderColor="#333333" padding={1} marginTop={1} flexGrow={1}>
                     <text style={{ textColor: "white" }}>
-                       {terminalSafeText(CATEGORY_DESCRIPTIONS[currentItem.category] || "Specific compilation pipeline folder.")}
+                       {terminalSafeText(packDescription(currentItem.category))}
                     </text>
                   </box>
                 </box>
@@ -2762,13 +2494,13 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           const footerInnerWidth = Math.max(0, termWidth - 6)
           const compact = footerInnerWidth < 118
             const footerRows = viewMode !== "main" ? [[], [], []] : compact ? [
-              [["SPACE", "Select"], ["A", "All"], ["S", "Match"], ["/", "Search"], ["1-5", "Tabs"], ["S+L", "Layout"], ["F", "Fork"]],
-              [["M", "Mod"], ["C", "Col"], ["P", "Perm"], ["G", "Del"], ["T", "Tun"], ["S+T", "Tier"], ["I", "Imp"], ["O", "Org"]],
-              [["B", "Claude"], ["S+B", "Codex"], ["R", "Rename"], ["E", "Export"], ["V", "Repair"], ["U", "Resources"]]
+              [["SPACE", "Select"], ["A", "All"], ["S", "Match"], ["/", "Search"], ["1-5", "Tabs"], ["S+L", "Layout"]],
+              [["M", "Mod"], ["C", "Col"], ["P", "Perm"], ["G", "Del"], ["T", "Tun"], ["S+T", "Tier"]],
+              [["B", "Claude"], ["S+B", "Codex"], ["R", "Rename"], ["E", "Install"], ["V", "Repair"], ["U", "Resources"]]
             ] : [
-              [["SPACE", "Select"], ["A", "All"], ["S", "Same model"], ["/", "Search"], ["1-5", "Inspector"], ["SHIFT+L", "Layout"], ["O", "Organization"]],
-              [["M", "Model"], ["C", "Color"], ["P", "Permissions"], ["G", "Delegations"], ["T", "Tune"], ["SHIFT+T", "Tier"], ["I", "Import"], ["V", "Repair models"]],
-              [["B", "Claude bridge"], ["SHIFT+B", "Codex bridge"], ["R", "Rename"], ["E", "Export"], ["F", "Fork"], ["U", "Skills/Tools"]]
+              [["SPACE", "Select"], ["A", "All"], ["S", "Same model"], ["/", "Search"], ["1-5", "Inspector"], ["SHIFT+L", "Layout"]],
+              [["M", "Model"], ["C", "Color"], ["P", "Permissions"], ["G", "Delegations"], ["T", "Tune"], ["SHIFT+T", "Tier"], ["V", "Repair models"]],
+              [["B", "Claude bridge"], ["SHIFT+B", "Codex bridge"], ["R", "Rename"], ["E", "Install"], ["U", "Skills/Tools"]]
           ]
          return (
            <box height={5} flexShrink={0} overflow="hidden" flexDirection="column" borderStyle="single" borderColor="#2B5581" paddingLeft={1} paddingRight={1}>
@@ -2930,7 +2662,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           borderStyle="double"
           borderColor="#9B59B6"
           backgroundColor="#1e1e1e"
-          title={` Resource Manager: ${resourceTargetAgent ? middleEllipsis(resourceTargetAgent.filename, 38) : resourceCategoryTarget} `}
+          title={` Resource Manager: ${middleEllipsis(resourceTargetAgent?.filename ?? "", 38)} `}
           titleColor="#9B59B6"
           padding={1}
           flexDirection="column"
@@ -2938,27 +2670,14 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           overflow="hidden"
         >
           <box flexDirection="column" flexGrow={1} minHeight={0} overflow="hidden">
-            <text style={{ textColor: "white" }} flexShrink={0}>Toggle agent permissions and category companion links exported with the category.</text>
+            <text style={{ textColor: "white" }} flexShrink={0}>Toggle the skills, custom tools and MCP servers this agent may use (from its pack and the packs it requires).</text>
             <box flexDirection="column" marginTop={1} flexGrow={1} minHeight={0} overflow="hidden">
               {resourceTargetAgent && <text style={{ textColor: "yellow" }}>--- AGENT RESOURCES ---</text>}
               {visibleResourceRows.map((row, index) => {
                 const rowIndex = resourceModalScrollOffset + index
                 const item = row.item
                 const isFocused = rowIndex === resourceModalFocusIndex
-                if (row.section === "companion") {
-                  const companion = item as SelectableCompanionItem
-                  const linked = Boolean(resourceDraftCompanion[companion.relativePath])
-                  const companionStart = resourceManagerRows.findIndex(candidate => candidate.section === "companion")
-                  return <React.Fragment key={`${companion.id}-${rowIndex}`}>
-                    {rowIndex === companionStart && <text style={{ textColor: "yellow" }}>{`--- CATEGORY COMPANION LINKS (${resourceCategoryTarget}) [exported with category] ---`}</text>}
-                    <box backgroundColor={isFocused ? "#2B5581" : "transparent"} height={1} flexShrink={0} flexDirection="row">
-                      <text width={8} style={{ textColor: linked ? "green" : "gray" }}>{linked ? "[x]" : "[ ]"}</text>
-                      <text width={12} style={{ textColor: "magenta" }}>{`[LINK-${companion.group.toUpperCase()}]`}</text>
-                      <text flexGrow={1} wrapMode="none" overflow="hidden" style={{ textColor: isFocused ? "white" : "#E1E4E8" }} u={isFocused}>{middleEllipsis(companion.relativePath, Math.max(1, panelWidths.inspector + panelWidths.list - 42))}</text>
-                    </box>
-                  </React.Fragment>
-                }
-                const agentResource = item as AgentResourceItem | AgentMcpResourceItem
+                const agentResource = item
                 const allowed = row.kind === "skill-wildcard"
                   ? draftSkillAll
                   : row.kind === "skill"
@@ -2970,10 +2689,8 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
                 const mcpItem = agentResource as AgentMcpResourceItem
                 const status = row.kind === "mcp"
                   ? mcpItem.configuredInOpencode
-                    ? ` [MCP: ${draftMcpEnabled[mcpItem.serverKey] ? "ON" : "OFF"}]`
-                    : mcpItem.recommendedInRepo
-                      ? ` [MCP: ${draftMcpEnabled[mcpItem.serverKey] ? "ON (install to global)" : "Recommended (x to install)"}]`
-                      : " [Not in global opencode.json]"
+                    ? ` [MCP: ${mcpItem.serverEnabled ? "ON" : "OFF"}]`
+                    : mcpItem.recommendedInRepo ? " [declared by its packs]" : " [not declared nor installed]"
                   : ""
                 return (
                   <box key={`${item.id}-${rowIndex}`} backgroundColor={isFocused ? "#2B5581" : "transparent"} height={1} flexShrink={0} flexDirection="row">
@@ -2982,7 +2699,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
                     <text flexGrow={1} wrapMode="none" overflow="hidden" style={{ textColor: isFocused ? "white" : "#E1E4E8" }} u={isFocused}>
                       {middleEllipsis(item.name, Math.max(1, panelWidths.inspector + panelWidths.list - 42))}
                     </text>
-                    <text style={{ textColor: row.kind === "mcp" && (mcpItem.configuredInOpencode || mcpItem.recommendedInRepo) && draftMcpEnabled[mcpItem.serverKey] ? "green" : "gray" }}>{status}</text>
+                    <text style={{ textColor: row.kind === "mcp" && mcpItem.configuredInOpencode && mcpItem.serverEnabled ? "green" : "gray" }}>{status}</text>
                   </box>
                 )
               })}
@@ -2992,7 +2709,7 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
             {resourceManagerRows.length > maxVisibleResourceRows && <text style={{ textColor: "gray" }} flexShrink={0}>
               {`▲ ${resourceModalScrollOffset + 1}-${Math.min(resourceModalScrollOffset + maxVisibleResourceRows, resourceManagerRows.length)}/${resourceManagerRows.length} ▼`}
             </text>}
-            <text style={{ textColor: "gray" }} wrapMode="none" overflow="hidden">Navigate: ↑/↓ | Space: Toggle | x: Toggle MCP | Enter: Save | Esc: Cancel</text>
+            <text style={{ textColor: "gray" }} wrapMode="none" overflow="hidden">Navigate: ↑/↓ | Space: Toggle | Enter: Save | Esc: Cancel</text>
           </box>
         </box>
       )}
@@ -3115,99 +2832,6 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
           <box height={2} flexShrink={0} justifyContent="space-between" borderStyle="single" border={["top"]} borderColor="#333333" paddingTop={1} overflow="hidden" flexDirection="row">
             <text width="78%" wrapMode="none" overflow="hidden" style={{ textColor: "gray" }}>{middleEllipsis("[TAB/↑/↓] Switch Fields | [SPACE] Variant/Toggle | [ENTER] Save", 58)}</text>
             <text width="22%" wrapMode="none" overflow="hidden" style={{ textColor: "red" }} b>[ESC] Cancel</text>
-          </box>
-        </box>
-      )}
-
-      {/* Modal - Import & Diff Viewer */}
-      {viewMode === "import-diff" && (
-        <box
-          style={{
-            position: "absolute",
-            left: "10%",
-            top: "10%",
-            width: "80%",
-            height: "80%"
-          }}
-          borderStyle="double"
-          borderColor="#2ECC71"
-          backgroundColor="#1e1e1e"
-          title=" Two-Way Sync: Import & Diff Viewer "
-          titleColor="#2ECC71"
-          padding={1}
-          flexDirection="column"
-          justifyContent="space-between"
-        >
-          <box flexDirection="column" flexGrow={1} overflow="hidden">
-            <text style={{ textColor: "white" }} flexShrink={0}>
-              Compare repository files with ~/.config/opencode/agents/:
-            </text>
-
-            <box flexDirection="column" marginTop={1} flexGrow={1} overflow="hidden">
-              {visibleImportDiffs.map((diff, index) => {
-                const idx = importDiffScrollOffset + index
-                const isFocused = idx === focusedDiffIndex
-                const statusColor = !diff.existsInExport
-                  ? "gray"
-                  : diff.hasDifferences
-                  ? "yellow"
-                  : "green"
-
-                const statusText = !diff.existsInExport
-                  ? "Not in OpenCode"
-                  : diff.hasDifferences
-                  ? diff.existsLocally === false
-                    ? "⚠ NEW in OpenCode (Import available)"
-                    : "⚠ MODIFIED in OpenCode (Import available)"
-                  : "✓ Identical"
-
-                return (
-                  <box
-                    key={diff.filename}
-                    backgroundColor={isFocused ? "#2B5581" : "transparent"}
-                    paddingLeft={1}
-                    height={1}
-                    flexDirection="row"
-                  >
-                    <text style={{ textColor: statusColor }} width="28%">
-                      {statusText}
-                    </text>
-                    <text style={{ textColor: isFocused ? "#FFFFFF" : "#9ECBFF" }} width="72%">
-                       {middleEllipsis(diff.filename, 45)}
-                    </text>
-                  </box>
-                )
-              })}
-              {importDiffs.length > 0 && <text style={{ textColor: "gray" }} flexShrink={0}>
-                {`▲ ${importDiffScrollOffset + 1}-${Math.min(importDiffScrollOffset + visibleImportDiffs.length, importDiffs.length)}/${importDiffs.length} ▼`}
-              </text>}
-            </box>
-
-            {importDiffs[focusedDiffIndex] && (
-              <box flexDirection="column" marginTop={1} borderStyle="single" borderColor="#333333" padding={1} height={6} flexShrink={0} overflow="hidden">
-                <text style={{ textColor: "yellow" }} b>Selected File Status:</text>
-                <text style={{ textColor: "white" }}>
-                   File: {middleEllipsis(importDiffs[focusedDiffIndex].filename, 50)}
-                </text>
-                <text style={{ textColor: importDiffs[focusedDiffIndex].hasDifferences ? "yellow" : "green" }}>
-                  {importDiffs[focusedDiffIndex].hasDifferences ? "Changes detected between repo and OpenCode." : "File matches OpenCode export exactly."}
-                </text>
-              </box>
-            )}
-            {importDiffs[focusedDiffIndex] && !importDiffs[focusedDiffIndex].filename.endsWith(".md") && (
-              <box flexDirection="column" marginTop={1} borderStyle="single" borderColor="#333333" padding={1} height={5} flexShrink={0} overflow="hidden">
-                <text style={{ textColor: "yellow" }} b>Companion Resource:</text>
-                <text style={{ textColor: "white" }}>{middleEllipsis(importDiffs[focusedDiffIndex].filename, 60)}</text>
-                <text style={{ textColor: importDiffs[focusedDiffIndex].hasDifferences ? "yellow" : "green" }}>
-                  {importDiffs[focusedDiffIndex].hasDifferences ? "Resource differs from OpenCode export." : "Resource matches OpenCode export exactly."}
-                </text>
-              </box>
-            )}
-          </box>
-
-          <box justifyContent="space-between" borderStyle="single" border={["top"]} borderColor="#333333" paddingTop={1}>
-            <text style={{ textColor: "gray" }}>[↑/↓] Navigate Diff | [ENTER] Pull / Import All from OpenCode</text>
-            <text style={{ textColor: "red" }} b>[ESC] Cancel</text>
           </box>
         </box>
       )}
@@ -3555,131 +3179,6 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
         </box>
       )}
 
-      {/* Modal - Reorganization Confirmation */}
-      {viewMode === "organization-confirm" && (
-        <box
-          style={{
-            position: "absolute",
-            left: "12%",
-            top: "20%",
-            width: "76%",
-            height: "60%"
-          }}
-          borderStyle="double"
-          borderColor="yellow"
-          backgroundColor="#1e1e1e"
-          title=" Reorganization Confirmation "
-          titleColor="yellow"
-          padding={1}
-          flexDirection="column"
-          justifyContent="space-between"
-        >
-          <box flexDirection="column">
-            <text style={{ textColor: "white" }} b>
-              AUTO-ORGANIZATION ACTION DETAILS:
-            </text>
-            <text style={{ textColor: "#E1E4E8" }} marginTop={1}>
-              1. A copy of the general/ directory will be saved to backups/
-            </text>
-            <text style={{ textColor: "#E1E4E8" }}>
-              2. Agent files currently in general/agents/ will be categorized by prefix:
-            </text>
-            <text style={{ textColor: "cyan" }}>
-              {"* Copied to subfolder: categories/<category>/agents/"}
-            </text>
-            <text style={{ textColor: "#E1E4E8" }} marginTop={1}>
-              3. The target files' frontmatter will be updated with category metadata.
-            </text>
-            <text style={{ textColor: "yellow" }} b marginTop={1}>
-              Note: Files are copied, not moved. The originals in general/agents remain untouched.
-            </text>
-          </box>
-
-          <box justifyContent="center" gap={4}>
-            <text style={{ textColor: "green" }} b>
-              Press [Y] or [ENTER/RETURN] to confirm
-            </text>
-            <text style={{ textColor: "red" }} b>
-              Press [N] or [ESC] to cancel
-            </text>
-          </box>
-        </box>
-      )}
-
-      {/* Modal - Fork Category Prompt */}
-      {viewMode === "fork-prompt" && (
-        <box
-          style={{
-            position: "absolute",
-            left: "15%",
-            top: "20%",
-            width: "70%",
-            height: "55%"
-          }}
-          borderStyle="double"
-          borderColor="cyan"
-          backgroundColor="#1e1e1e"
-          title=" Fork Category Folder "
-          titleColor="cyan"
-          padding={1}
-          flexDirection="column"
-          justifyContent="space-between"
-        >
-          <box flexDirection="column" gap={1}>
-            <box flexDirection="row">
-              <text style={{ textColor: "white" }} b>FORK CATEGORY: </text>
-              <text style={{ textColor: "yellow" }} b>{forkSourceCategory.toUpperCase()}</text>
-            </box>
-            <text style={{ textColor: "gray" }} marginTop={1}>
-              Copy agents and replace the find pattern in filenames and content. Plain text is one literal replacement; for multiple replacements, enter go-, kimi-, hybrid-, free-. Brackets are optional for backward compatibility.
-            </text>
-
-            {/* Find field */}
-            <box
-              flexDirection="column"
-              borderStyle="single"
-              borderColor={forkFocusedField === "find" ? "cyan" : "#333333"}
-              paddingLeft={1}
-              paddingRight={1}
-              marginTop={1}
-            >
-              <text style={{ textColor: forkFocusedField === "find" ? "cyan" : "gray" }} b>
-                {forkFocusedField === "find" ? "► Find String Pattern:" : "  Find String Pattern:"}
-              </text>
-              <text style={{ textColor: "white" }}>
-                {forkFindQuery || "[ Type pattern to search, e.g. go- ]"}
-              </text>
-            </box>
-
-            {/* Replace field */}
-            <box
-              flexDirection="column"
-              borderStyle="single"
-              borderColor={forkFocusedField === "replace" ? "cyan" : "#333333"}
-              paddingLeft={1}
-              paddingRight={1}
-              marginTop={1}
-            >
-              <text style={{ textColor: forkFocusedField === "replace" ? "cyan" : "gray" }} b>
-                {forkFocusedField === "replace" ? "► Replace With String(s):" : "  Replace With String(s):"}
-              </text>
-              <text style={{ textColor: "white" }}>
-                {forkReplaceQuery || "[ e.g. go- or go-, kimi-, hybrid-, free- ]"}
-              </text>
-            </box>
-          </box>
-
-          <box justifyContent="space-between" borderStyle="single" border={["top"]} borderColor="#333333" paddingTop={1}>
-            <text style={{ textColor: "gray" }}>
-              [TAB] Fields | [ENTER] Fork
-            </text>
-            <text style={{ textColor: "red" }} b>
-              [ESC] Cancel
-            </text>
-          </box>
-        </box>
-      )}
-
       {/* Modal - Bridge to Claude Code */}
       {viewMode === "bridge-prompt" && (
         <box
@@ -3758,26 +3257,6 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
                </box>}
             </box>
 
-            {/* Source directory field */}
-            <box
-              flexDirection={bridgeFocusedField === "sourceDir" ? "column" : "row"}
-              borderStyle="single"
-              borderColor={bridgeFocusedField === "sourceDir" ? (bridgeTarget === "codex" ? "#00AAFF" : "#FF6B35") : "#333333"}
-              paddingLeft={1}
-              paddingRight={1}
-              marginTop={1}
-              flexShrink={0}
-            >
-              <text width="30%" flexShrink={0} style={{ textColor: bridgeFocusedField === "sourceDir" ? (bridgeTarget === "codex" ? "#00AAFF" : "#FF6B35") : "gray" }} b>
-                {bridgeFocusedField === "sourceDir" ? "► Source Directory:" : "  Source Directory:"}
-              </text>
-              <input width="50%" value={bridgeSourceDir} placeholder="e.g. general" focused={bridgeFocusedField === "sourceDir"} onInput={setBridgeSourceDir} onSubmit={generateBridge} />
-              <text width="20%" flexShrink={0} style={{ textColor: bridgeSourceValidation.valid ? "green" : "red" }}>
-                {bridgeSourceValidation.valid ? `✓ ${bridgeSourceValidation.count} agents found` : "✗ invalid path"}
-              </text>
-              {bridgeFocusedField === "sourceDir" && <text flexShrink={0} style={{ textColor: "gray" }}>Workspace-relative folder containing agent files.</text>}
-            </box>
-
             {/* Map all models to field */}
             <box
               flexDirection={bridgeFocusedField === "model" ? "column" : "row"}
@@ -3792,16 +3271,16 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
                 {bridgeFocusedField === "model" ? "► Map all models to:" : "  Map all models to:"}
               </text>
               <input width="70%" value={bridgeModelTarget} placeholder="empty = tier mapping" focused={bridgeFocusedField === "model"} onInput={setBridgeModelTarget} onSubmit={generateBridge} />
-              {bridgeFocusedField === "model" && <text flexShrink={0} style={{ textColor: "gray" }}>empty = tier mapping; full per-model editing lives in .agent-manager/translation-config.json</text>}
+              {bridgeFocusedField === "model" && <text flexShrink={0} style={{ textColor: "gray" }}>empty = tier mapping; full per-model editing lives in bridges/translation-config.json</text>}
             </box>
 
             {/* Info */}
             <box marginTop={1} flexDirection="column">
               <text flexShrink={0} style={{ textColor: "gray" }}>
-                {`Source: ${selectedAgentPaths.size > 0 ? `${selectedAgentPaths.size} selected agents` : `all agents in focused category`}`}
+                {`Source: pack '${activeItems[focusedIndex]?.category ?? ""}' and the packs it requires`}
               </text>
               <text flexShrink={0} style={{ textColor: "gray" }}>
-                {`Output: ${fs.existsSync(path.join(workspaceRoot, "export")) ? "export/bridges" : "bridges"}/${bridgeTarget === "codex" ? "codex" : "claude-code"}/${bridgePluginName || "..."}/`}
+                {`Output: bridges/${bridgeTarget === "codex" ? "codex" : "claude-code"}/${bridgePluginName || "..."}/`}
               </text>
             </box>
           </box>
@@ -3817,60 +3296,43 @@ export function App({ workspaceRoot, listShare = 2 / 3, uiConfigWarning, configR
         </box>
       )}
 
-      {/* Modal - Export Confirmation */}
-      {viewMode === "export-confirm" && (
+      {/* Modal - Install a pack of the workspace into OpenCode */}
+      {viewMode === "install-confirm" && installPreview && (
         <box
           style={{
             position: "absolute",
             left: "12%",
-            top: "20%",
+            top: "15%",
             width: "76%",
-            height: "60%"
+            height: "70%"
           }}
           borderStyle="double"
           borderColor="#00CC66"
           backgroundColor="#1e1e1e"
-          title=" Export to OpenCode "
+          title={` Install ${installPreview.pack} `}
           titleColor="#00CC66"
           padding={1}
           flexDirection="column"
           justifyContent="space-between"
         >
-          <box flexDirection="column">
+          <box flexDirection="column" overflow="hidden">
             <text style={{ textColor: "white" }} b>
-              EXPORT AGENTS TO OPENCODE CONFIG:
+              {`Install pack '${installPreview.pack}' and the packs it requires into ${installPreview.target.replace(os.homedir(), "~")}`}
             </text>
-            <text style={{ textColor: "#E1E4E8" }} marginTop={1}>
-              {selectedAgentPaths.size > 0
-                ? `1. ${selectedAgentPaths.size} selected agents will be exported.`
-                : exportCategory
-                  ? `1. ${agents.filter(agent => agent.category === exportCategory).length} agents in focused category '${exportCategory}' will be exported.`
-                  : `1. All ${agents.length} agents will be exported.`}
-            </text>
-            <text style={{ textColor: "#E1E4E8" }}>
-              {`2. Destination: ${getExportDestination().replace(/\/Users\/[^\/]+/, "~")}`}
-            </text>
-            <text style={{ textColor: "cyan" }}>
-              {"3. Files are FULLY OVERWRITTEN (including model field)."}
-            </text>
-            <text style={{ textColor: "yellow" }} b marginTop={1}>
-              {"⚠ Disaster-recovery backup:"}
-            </text>
-            <text style={{ textColor: "#E1E4E8" }}>
-              {"  A single backup of the destination folder will be created at"}
-            </text>
-            <text style={{ textColor: "#E1E4E8" }}>
-              {"  ~/.config/opencode/agents_backup/ (overwritten each export)."}
-            </text>
+            {installPreview.lines.map((line, index) => (
+              <text key={`install-${index}`} style={{ textColor: line.startsWith("ERROR") ? "red" : line.startsWith("warning") ? "yellow" : "#E1E4E8" }}>{line}</text>
+            ))}
+            {installPreview.confirmations.length > 0 && <text style={{ textColor: "yellow" }} b marginTop={1}>Confirming also accepts:</text>}
+            {installPreview.confirmations.map((reason, index) => (
+              <text key={`confirm-${index}`} style={{ textColor: "yellow" }}>{`  * ${terminalSafeText(reason)}`}</text>
+            ))}
           </box>
 
           <box justifyContent="center" gap={4}>
-            <text style={{ textColor: "green" }} b>
-              Press [Y] or [ENTER/RETURN] to confirm
-            </text>
-            <text style={{ textColor: "red" }} b>
-              Press [N] or [ESC] to cancel
-            </text>
+            {installPreview.blocked
+              ? <text style={{ textColor: "red" }} b>Nothing can be installed: press [ESC] to go back</text>
+              : <text style={{ textColor: "green" }} b>Press [Y] or [ENTER/RETURN] to install</text>}
+            {!installPreview.blocked && <text style={{ textColor: "red" }} b>Press [N] or [ESC] to cancel</text>}
           </box>
         </box>
       )}

@@ -1,0 +1,9 @@
+{
+  "contract": "1.0",
+  "name": "general",
+  "version": "1.0.0",
+  "description": "Standalone agents, commands and skills outside any workflow",
+  "requires": {
+    "integrations": "^1.0.0"
+  }
+}

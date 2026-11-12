@@ -30,6 +30,8 @@ export interface InstalledState {
   installedVersion: 1
   files: Record<string, { hash: string; owner: string }>
   config: Record<string, Contribution>
+  /** Config sections (dotted, e.g. "mcp", "mcp.servers") the engine created: removed again once they are empty. */
+  createdSections?: string[]
 }
 
 export interface PlannedWrite {
@@ -81,7 +83,7 @@ export interface LoadedPack {
 }
 
 const ARRAY_SECTIONS = ["plugins", "skills", "instructions"] as const
-const OBJECT_SECTIONS = ["mcp.servers", "agents", "commands", "formatter", "lsp"] as const
+const OBJECT_SECTIONS = ["mcp.servers", "agents", "commands", "formatter", "lsp", "experimental"] as const
 const PACK_CONFIG_FILES = new Set(["opencode.json", "opencode.jsonc"])
 const SCHEMA = "https://opencode.ai/config.json"
 const STALE_LOCK_GRACE_MS = 10_000
@@ -129,7 +131,8 @@ export function readInstalled(target: string): InstalledState {
   if (raw === null) return { installedVersion: 1, files: {}, config: {} }
   const filesValid = isObject(raw?.files) && Object.entries(raw.files).every(([rel, owned]: [string, any]) =>
     isSafeRel(rel) && typeof owned?.hash === "string" && typeof owned.owner === "string")
-  if (raw?.installedVersion !== 1 || !filesValid || !isObject(raw.config)) throw new Error(`${file}: unsupported or damaged installed state`)
+  const createdValid = raw?.createdSections === undefined || (Array.isArray(raw.createdSections) && raw.createdSections.every((section: unknown) => typeof section === "string"))
+  if (raw?.installedVersion !== 1 || !filesValid || !createdValid || !isObject(raw.config)) throw new Error(`${file}: unsupported or damaged installed state`)
   return raw
 }
 
@@ -388,16 +391,17 @@ export function planReconcile(target: string, lock: PackLock, registry: SourceRe
     }
   }
 
-  const config = planConfig(target, configFile, packs, previous, legacy, options, plan, overrides, routing !== null)
-  plan.installed = { installedVersion: 1, files, config }
+  const { config, createdSections } = planConfig(target, configFile, packs, previous, legacy, options, plan, overrides, routing !== null)
+  plan.installed = { installedVersion: 1, files, config, ...(createdSections.length ? { createdSections } : {}) }
   return plan
 }
 
-function planConfig(target: string, configFile: string, packs: LoadedPack[], previous: InstalledState, legacy: Set<string>, options: PlanOptions, plan: ReconcilePlan, overrides: Map<string, Required<PackOverrides>>, withRouter: boolean): Record<string, Contribution> {
+function planConfig(target: string, configFile: string, packs: LoadedPack[], previous: InstalledState, legacy: Set<string>, options: PlanOptions, plan: ReconcilePlan, overrides: Map<string, Required<PackOverrides>>, withRouter: boolean): { config: Record<string, Contribution>; createdSections: string[] } {
+  const unchangedState = { config: previous.config, createdSections: previous.createdSections ?? [] }
   const full = path.join(target, configFile)
   if (fs.lstatSync(full, { throwIfNoEntry: false })?.isSymbolicLink()) {
     plan.conflicts.push(`${configFile} is a symlink; replace it with a regular file (or install into the directory it points to with --target)`)
-    return previous.config
+    return unchangedState
   }
   const text = fs.existsSync(full) ? fs.readFileSync(full, "utf8") : null
   let current: Record<string, any>
@@ -407,11 +411,12 @@ function planConfig(target: string, configFile: string, packs: LoadedPack[], pre
     current = parsed
   } catch (error) {
     plan.conflicts.push(`${configFile}: cannot be parsed (${(error as Error).message})`)
-    return previous.config
+    return unchangedState
   }
 
   const unmanaged: Record<string, any> = structuredClone(current)
   const changedLocally = new Set<string>()
+  const emptiedSections = new Set<string>()
   for (const contribution of Object.values(previous.config)) {
     for (const section of ARRAY_SECTIONS) {
       const list = unmanaged[section]
@@ -426,8 +431,10 @@ function planConfig(target: string, configFile: string, packs: LoadedPack[], pre
       if (!isObject(object)) continue
       for (const [key, value] of Object.entries(values)) {
         if (!Object.hasOwn(object, key)) continue
-        if (isDeepStrictEqual(object[key], value)) delete object[key]
-        else changedLocally.add(`${section}\0${key}`)
+        if (isDeepStrictEqual(object[key], value)) {
+          delete object[key]
+          emptiedSections.add(section)
+        } else changedLocally.add(`${section}\0${key}`)
       }
     }
   }
@@ -494,10 +501,28 @@ function planConfig(target: string, configFile: string, packs: LoadedPack[], pre
     if (merged.length) next[section] = merged
     else delete next[section]
   }
+  const created = new Set(previous.createdSections ?? [])
   for (const [section, values] of Object.entries(managedObjects)) {
+    const parts = section.split(".")
+    for (let depth = 1; depth <= parts.length; depth++) {
+      const prefix = parts.slice(0, depth).join(".")
+      if (getPath(next, prefix) === undefined) created.add(prefix)
+    }
     const object = ensurePath(next, section)
     for (const [key, value] of Object.entries(values)) setOwn(object, key, value)
   }
+  // A section the engine created and its managed entries left empty goes too, with created parents it leaves empty
+  // (mcp.servers -> mcp). Sections the user wrote stay, even when empty.
+  for (const section of emptiedSections) {
+    const parts = section.split(".")
+    for (let depth = parts.length; depth > 0; depth--) {
+      const parent = depth === 1 ? next : getPath(next, parts.slice(0, depth - 1).join("."))
+      const child = isObject(parent) ? parent[parts[depth - 1]] : undefined
+      if (!created.has(parts.slice(0, depth).join(".")) || !isObject(child) || Object.keys(child).length) break
+      delete parent[parts[depth - 1]]
+    }
+  }
+  const createdSections = [...created].filter(prefix => getPath(next, prefix) !== undefined).sort()
 
   const unchanged = text === null ? !packs.length : isDeepStrictEqual(next, current)
   if (!unchanged) {
@@ -508,7 +533,7 @@ function planConfig(target: string, configFile: string, packs: LoadedPack[], pre
       plan.adopted.files.push(configFile)
     }
   }
-  return contributions
+  return { config: contributions, createdSections }
 }
 
 function isPlainJson(text: string): boolean {
@@ -898,6 +923,7 @@ export async function restoreBackup(target: string, backupId: string): Promise<{
     if ((backup.files as string[]).includes(configFile)) {
       plan.configText = fs.readFileSync(path.join(dir, "files", configFile), "utf8")
       installed.config = {}
+      delete installed.createdSections
     } else if (backup.config.length) {
       const config = fs.existsSync(configPath) ? parseJsonc(fs.readFileSync(configPath, "utf8")) as Record<string, any> : { $schema: SCHEMA }
       for (const entry of backup.config as AdoptedConfigEntry[]) {

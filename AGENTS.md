@@ -24,36 +24,93 @@ ALWAYS prefer MCP graph tools over grep/glob/file-search for code discovery.
 
 # Handoff per agenti e manutenzione della repository
 
-## 1. Architettura delle sorgenti (`src/` vs `.agent-manager/` vs `export/`)
+Questa repository è un **catalogo di pack OpenCode**. Li installa, li modifica e ne genera il routing dei modelli
+`manage-agents`, un motore indipendente con un proprio contratto: `manage-agents/contract/CONTRACT.md`. Il motore
+vive ancora in `manage-agents/` finché non passa alla sua repository; il catalogo non deve dipendere dal suo codice,
+solo dal contratto.
 
-- `src/` è l'unica fonte canonica: include `src/agents/`, `src/plugins/`, `src/tools/`, `src/commands/`, `src/skills/` e `src/opencode.json`. Non modificare mai a mano i file generati sotto `export/categories/**` o `export/bridges/**`.
-- `src/AGENTS.md` viene distribuito in `export/categories/{docs,slides,wiki,flow,pipeline}/AGENTS.md`. Questo `AGENTS.md` nella root è invece l'handoff per gli agenti che lavorano su questa repository.
-- La categoria `flow` (`src/agents/flow-*.md`, skill `src/skills/flow-*`, comandi `src/commands/flow-*.md`, plugin `src/plugins/flow-guard`, `src/plugins/flow-mode`, `src/plugins/flow-context`) è la v2 della pipeline in stile Claude Code: l'agente di lavoro `flow-build`, la plan mode `flow-plan` nella stessa conversazione (Shift+Tab, `/flow-plan`, oppure build la propone con `flow_plan_enter`; l'utente approva il piano con `flow_plan_exit` e si torna a build) e subagent read-only (`flow-explore`, `flow-review`, `flow-research`, `flow-eye`, `flow-ops`). È una categoria con manifest V2 (`.agent-manager/categories/flow.json`) e non tocca la pipeline v1. È un **archetipo**: si distribuisce una sola volta con gli agenti canonici (niente bundle timbrati per provider) e i modelli dei subagent arrivano dalle configurazioni modelli. Gli agenti canonici `flow-*` non fissano `model`, tranne quando l'utente vuole un agente fisso (per esempio `flow-eye`, che richiede un modello con input immagini).
-- **Archetipi e configurazioni modelli: leggere [`ARCHETIPI.md`](ARCHETIPI.md) prima di toccare modelli, agenti o risorse di `flow` o `pipeline`.** In breve: il TUI (`M` sulla cartella `flow` o `pipeline`) o `manage-agents routing` scrivono `.agent-manager/agent-routing.json` ("se `flow-build` o `pipeline-orchestrator` gira su questo provider o modello, i subagent usano questi modelli"). Il plugin `src/plugins/agent-router` lo applica a runtime leggendo `src/plugins/agent-router/routing.json`, che è generato e non va mai modificato a mano. Non reintrodurre bundle `*-flow` o `*-pipeline`, né profili per famiglia: sono stati rimossi apposta. I subagent di un archetipo non vanno nascosti con `hidden: true`, altrimenti spariscono dall'elenco del tool `subagent`.
-- La categoria `pipeline` (`src/agents/pipeline-*.md`, comandi `src/commands/pipeline-*.md`, plugin `pipeline-guard`, `pipeline-tools`, `dev-tools`, `doc-tools`, `slide-tools` e `agent-router`) è il secondo archetipo, con `pipeline-orchestrator` come agente di riferimento. Ha il manifest V2 `.agent-manager/categories/pipeline.json` e si costruisce in `export/categories/pipeline`. Solo l'orchestratore fissa `model`, come modello di partenza; i modelli dei subagent arrivano dalle configurazioni.
+## 1. Struttura
 
-## 2. Distribuzione delle categorie (Manifest V2)
+- `packs/<nome>/`: un pack per directory, con `opencode-pack.json` e il layout nativo di OpenCode (`agents/`,
+  `commands/`, `skills/<id>/SKILL.md`, `plugins/<nome>/index.ts`, `tools/<pack>/`, `resources/<pack>/`,
+  `opencode.json`, `AGENTS.md`). Sono l'unica fonte: niente viene generato dentro `packs/`.
+  - Workflow: `flow`, `pipeline`, `docs`, `slides`, `wiki`, `general`.
+  - Pack condivisi, elencati nei `requires` di chi li usa: `common` (MCP `codebase-memory-mcp`,
+    `experimental.todo`, skill comuni), `code-review`, `dev-tools` (`dev_env`, `dev_verify`, `dev_smoke`,
+    `dev_serve` e gli helper `_repo.js`, `_sessions.js`, `_run.js`, ...), `office-tools` (tool `doc_*` e `slide_*`
+    con gli script Python), `toolkit` e `integrations` (server MCP opzionali e LSP).
+- `scripts/`: strumenti del catalogo. `merge-packs.mjs` costruisce `.tree/`; `sync-bash.mjs` e `bash-profiles.json`
+  generano le regole `shell` degli agenti della pipeline.
+- `.tree/`: vista unita di tutti i pack, con il layout che OpenCode riceve dopo l'installazione. È generata (da
+  `npm test` o `npm run merge`), ignorata da git e non va modificata.
+- `bench/`, `bin/`, `docs/`: benchmark degli agenti, `opencode-wt` e documentazione; girano da `.tree/`.
+- `bridges/`: plugin Claude Code e layer Codex generati dalla pipeline, più `translation-config.json`. Si rigenerano
+  con il motore, mai a mano.
 
-- **Categorie con manifest (`docs`, `slides`, `wiki`, `flow`, `pipeline`)**: sono governate da `.agent-manager/categories/<id>.json` (`schemaVersion: 2`), che definisce l'allowlist esatta delle risorse con `policy: "text" | "binary" | "mixed" | "runtime"` e i metadati di provenienza SHA-256 (`CATEGORY.json`, `PROVENANCE.json`, `opencode.json`).
-- **Sincronizzazione Resource Manager (`U` nella TUI) ↔ manifest**: `.agent-manager/companion-links.json` governa i companion link per l'export diretto a OpenCode. Quando si aggiornano i plugin di una categoria con manifest V2 (`updateCategoryCompanionLinks`), le risorse plugin già presenti in `.agent-manager/categories/<id>.json` mantengono la policy esistente (per esempio `"text"`), mentre le nuove voci plugin aggiunte ricevono `policy: "runtime"`; l'operazione valida l'ID categoria e rifiuta path traversal e symlink, poi ricostruisce il bundle in `export/categories/<id>`.
+## 2. Regole del contratto da ricordare
 
-## 3. Regole sui plugin OpenCode V2 vs bridge Claude Code / Codex
+- Ogni file che non è nativo di OpenCode sta nel namespace del pack: `tools/<pack>/…`, `resources/<pack>/…`. Il
+  codice usato da più pack va in un pack dedicato, che gli altri richiedono in `requires`. Un pack può riferirsi solo
+  ai file dei pack che richiede direttamente.
+- Un pack può impostare in `opencode.json` solo `plugins`, `mcp`, `skills`, `instructions`, `agents`, `commands`,
+  `formatter`, `lsp` ed `experimental`. Il resto (`model`, `default_agent`, `providers`, `permissions`) appartiene
+  all'utente. Due pack non possono impostare la stessa voce con valori diversi.
+- I test (`*.test.*`) stanno accanto al codice che verificano, non vengono installati e girano su `.tree/`: per
+  questo i loro import seguono il layout installato (`../dev-tools/_repo.js`), non quello del singolo pack.
+- Prima di consegnare, ogni pack modificato deve passare `manage-agents pack validate packs/<nome>`.
 
-- **Plugin OpenCode V2**: devono essere directory (`src/plugins/<name>/index.ts` o `index.js`) che esportano `Plugin.define` da `@opencode/plugin`. I plugin che registrano tool (`dev-tools`, `pipeline-tools`, `doc-tools` e `slide-tools`) usano `ctx.tool.transform` con import statici; `pipeline-guard` è hook-only e non registra tool. Un componente usato da più workflow (`flow` e `pipeline`) non porta il prefisso di un workflow: `dev-tools` registra `dev_env`, `dev_verify`, `dev_smoke` e `dev_serve` e viene distribuito con entrambi, come gli helper `_repo.js`, `_sessions.js`, `_bash_guard.js`, `_run.js`, `_env.js`, `_serve.js` e `_services.js`; `pipeline-tools` (`pipeline_state`, `pipeline_commit`) e `_pipeline_core.js` restano solo della pipeline. I contratti su disco non cambiano nome: `.opencode/pipeline.json`, la directory di stato `opencode-pipeline`, `$PIPELINE_SCRATCH`, `PIPELINE_SERVE_CMD` e `pipeline-supervisor`. Resource Manager (`discoverAvailableCategoryCompanionItems`), `exportAgents` e `validateCategoryManifest` accettano `index.ts` e `index.js` in directory `plugins/<name>` e rifiutano file singoli o directory senza entrypoint.
-- **Plugin V1 legacy a file singolo (`plugins/*.js`)**: non sono supportati da OpenCode V2, non compaiono nel Resource Manager e non vengono convertiti automaticamente nella configurazione utente (`~/.config/opencode/plugins/`). Gli eventuali plugin personali a file singolo vanno migrati a directory o rimossi manualmente.
-- **Bridge Claude Code / Codex (`B` / `Shift+B` e `manage-agents bridge`)**: generano pacchetti in `export/bridges/{claude-code,codex}/` traducendo agenti, skill, comandi e server MCP, inclusi gli endpoint MCP remoti con `url`; il `README.md` li documenta senza istruzioni di installazione locale vuote. Partono dagli agenti canonici della categoria, si bloccano se la lista agenti è vuota e non usano le configurazioni modelli (traducono i modelli con `.agent-manager/translation-config.json`). Non effettuano la transpilazione dei plugin runtime TypeScript di OpenCode (`src/plugins/*`).
+## 3. Archetipi: `flow` e `pipeline`
 
-## 4. Checklist operativa per aggiornare la pipeline e verificare la repository
+- Sono pack con `archetype` nel manifest: i chiamanti (`flow-build` e `flow-plan`, `pipeline-orchestrator`)
+  delegano ai subagent del pack. Quando un chiamante gira su un provider o su un modello esatto, `routingDefaults`
+  assegna i modelli dei subagent; i ruoli assenti, o con `inherit`, usano il modello del chiamante.
+- `routingDefaults` si modifica con la TUI (`m` sulla cartella del pack, senza agenti selezionati), che scrive `opencode-pack.json` e rivalida
+  il pack. Ciascun utente sovrascrive i default per il proprio target con `manage-agents models`, senza toccare il
+  catalogo.
+- Il plugin di routing (`plugins/manage-agents-router`) e il suo `routing.json` appartengono al motore, che li
+  installa e li rigenera a ogni reconcile. Non vanno aggiunti a un pack.
+- Un subagent con `model` nel frontmatter è fisso e il routing lo salta: si fissa solo quando serve davvero (per
+  esempio un modello con input immagini per `flow-eye`). Tra i chiamanti, solo `pipeline-orchestrator` fissa `model`,
+  come modello di partenza. I subagent di un archetipo non vanno nascosti con `hidden: true`, altrimenti spariscono
+  dall'elenco del tool `subagent`.
+- `flow` è la v2 della pipeline in stile Claude Code: l'agente di lavoro `flow-build`, la plan mode `flow-plan`
+  nella stessa conversazione (Shift+Tab, `/flow-plan`, oppure `flow_plan_enter`, con approvazione tramite
+  `flow_plan_exit`) e i subagent read-only `flow-explore`, `flow-review`, `flow-research`, `flow-eye`, `flow-ops`.
 
-1. Modificare solo i file canonici in `src/`. Se cambiano i profili Bash in `.agent-manager/bash-profiles.json`, eseguire `node manage-agents/manage-agents.mjs --no-auto-commit pipeline sync-bash`.
-2. Rigenerare le categorie e `src/plugins/agent-router/routing.json` con `node manage-agents/manage-agents.mjs --no-auto-commit category build --all`. Il comando è idempotente sui contenuti e sulle `mtime` dei file invariati.
-3. Se cambiano agenti, skill o configurazione MCP della pipeline, rigenerare i bridge:
-   - `node manage-agents/manage-agents.mjs --no-auto-commit bridge --category pipeline --target claude`
-   - `node manage-agents/manage-agents.mjs --no-auto-commit bridge --category pipeline --target codex`
-4. Prima di concludere, validare tutto con `npm --prefix manage-agents run validate` (esegue `typecheck`, `test`, `build`, `category build --all`, `category check --all` e `bridge check`).
-5. Per installare o aggiornare nella configurazione locale OpenCode (`~/.config/opencode`), eseguire `node manage-agents/manage-agents.mjs export --all --yes`. È idempotente: aggiorna solo ciò che cambia, migra il blocco MCP di `opencode.json` a V2 preservando le chiavi utente, registra le directory plugin ed elimina le vecchie risorse gestite non più consegnate tramite `.resource-export-manifest.json`. Quando installa la pipeline elimina anche gli agenti timbrati ritirati (`{free,go,hybrid,mistral}-pipeline-<ruolo>.md`), solo per nome esatto.
+## 4. Plugin OpenCode V2 e bridge
 
-## 5. Regole di orchestrazione e gestione della finestra di contesto
+- Un plugin è una directory `plugins/<nome>/index.ts` (o `index.js`) che esporta `Plugin.define` da
+  `@opencode/plugin`. I plugin che registrano tool (`dev-tools`, `pipeline-tools`, `doc-tools`, `slide-tools`, `flow-mode`
+  con `flow_plan_enter` e `flow_plan_exit`) usano `ctx.tool.transform` con import statici; `pipeline-guard`,
+  `flow-guard` e `flow-context` usano solo gli hook. I file singoli `plugins/*.js` di OpenCode V1 non sono supportati.
+- Un componente condiviso da più workflow non porta il prefisso di un workflow (`dev-tools`, non `pipeline-dev`). I
+  contratti su disco restano invariati: `.opencode/pipeline.json`, la directory di stato `opencode-pipeline`,
+  `$PIPELINE_SCRATCH`, `PIPELINE_SERVE_CMD` e `pipeline-supervisor`.
+- I bridge (`manage-agents bridge --pack pipeline --target claude|codex`, oppure `B`/`Shift+B` nella TUI) traducono
+  il pack con i pack che richiede: agenti, comandi, skill, server MCP e LSP. Usano
+  `bridges/translation-config.json` e non le configurazioni dei modelli. I plugin TypeScript e i tool custom non
+  vengono tradotti: il README generato li elenca.
 
-- Non riusare mai `sessionID` per concatenare task esplorativi o di verifica indipendenti nello stesso subagent: accumula token e degrada la finestra di contesto. Aprire sempre sessioni fresche e lanciare in parallelo, nello stesso turno, tutti i subagent indipendenti.
-- Non concatenare `git add` e `git commit` con `&&` se la policy della shell li blocca; verificare sempre con `npm --prefix manage-agents run validate`.
+## 5. Checklist operativa
+
+1. Modificare i file in `packs/`. Se cambiano i profili in `scripts/bash-profiles.json`, eseguire
+   `npm run sync-bash`; `npm run check` segnala gli agenti non allineati.
+2. Eseguire `npm test`, che ricostruisce `.tree/` e lancia i test dei pack, del bench e degli script.
+3. Validare i pack toccati con `node manage-agents/manage-agents.mjs pack validate packs/<nome>`.
+4. Se cambiano agenti, skill o server MCP della pipeline o dei pack che richiede, rigenerare i bridge e verificarli:
+   - `node manage-agents/manage-agents.mjs --no-auto-commit bridge --pack pipeline --target claude --no-register`
+   - `node manage-agents/manage-agents.mjs --no-auto-commit bridge --pack pipeline --target codex`
+   - `node manage-agents/manage-agents.mjs bridge check`
+   I flag `--no-register` e `--no-validate` vengono salvati in `bridges/translation-config.json`: se non devono
+   restare, ripristinare il file dopo la generazione.
+5. Per provare i pack nella propria configurazione OpenCode: registrare una volta il catalogo come sorgente
+   (`manage-agents source add catalog <percorso-del-repo>`), poi `manage-agents install flow pipeline`. Dopo una
+   modifica, `manage-agents update` porta il target alla nuova versione; `manage-agents status` dice se qualcosa si
+   è disallineato.
+
+## 6. Regole di orchestrazione e finestra di contesto
+
+- Non riusare mai `sessionID` per concatenare task esplorativi o di verifica indipendenti nello stesso subagent:
+  accumula token e degrada la finestra di contesto. Aprire sessioni fresche e lanciare in parallelo, nello stesso
+  turno, tutti i subagent indipendenti.
+- Non concatenare `git add` e `git commit` con `&&` se la policy della shell li blocca.

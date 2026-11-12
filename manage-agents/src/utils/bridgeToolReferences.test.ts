@@ -65,7 +65,7 @@ test("Claude bridge output carries the runtime note, translated names, and allow
   const output = path.join(workspace, "export", "bridges", "claude-code", "decent-pipeline")
   const orchestrator = agent("pipeline-orchestrator.md", { mode: "primary", permission: { pipeline_state: "allow", dev_env: "allow", todowrite: "allow", question: "allow" } }, ORCHESTRATOR_BODY)
   const executor = agent("pipeline-executor.md", { mode: "subagent", permission: { edit: "allow", bash: { "*": "deny", "git status*": "allow" } } }, "Implement the plan.")
-  const result = bridgeToClaudeCode([orchestrator, executor], "decent-pipeline", "pipeline-", output, workspace, DEFAULT_TRANSLATION_CONFIG, { category: "pipeline" })
+  const result = bridgeToClaudeCode([orchestrator, executor], "decent-pipeline", "pipeline-", output, workspace, DEFAULT_TRANSLATION_CONFIG)
   const generated = fs.readFileSync(path.join(output, "agents", "orchestrator.md"), "utf8")
   assert.match(generated, /tools: .*TodoWrite/)
   assert.doesNotMatch(generated, /mcp__pipeline__/)

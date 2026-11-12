@@ -1,6 +1,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import crypto from "node:crypto"
+import { engineConfigDir } from "./sources.js"
 
 export interface UiConfig { listShare: number }
 export const DEFAULT_UI_CONFIG: UiConfig = { listShare: 2 / 3 }
@@ -14,7 +15,7 @@ export interface UiConfigLoadResult {
   config: UiConfig
   warning?: string
   configPath: string
-  source: "environment" | "workspace" | "default"
+  source: "environment" | "user" | "default"
   readOnly: boolean
   revision: string
 }
@@ -34,7 +35,7 @@ function readConfigBytes(configPath: string): { bytes: Buffer; stat?: fs.Stats; 
     if (error?.code === "ENOENT") return { bytes: Buffer.alloc(0), revision: MISSING_UI_CONFIG_REVISION }
     throw error
   }
-  if (!pathStat.isFile() || pathStat.isSymbolicLink() || pathStat.size > MAX_CONFIG_BYTES) throw new Error("ui-config.json must be a real regular file")
+  if (!pathStat.isFile() || pathStat.isSymbolicLink() || pathStat.size > MAX_CONFIG_BYTES) throw new Error("ui.json must be a real regular file")
   const noFollow = (fs.constants as typeof fs.constants & { O_NOFOLLOW?: number }).O_NOFOLLOW
   let flags = fs.constants.O_RDONLY
   if (typeof noFollow === "number") flags |= noFollow
@@ -51,11 +52,11 @@ function readConfigBytes(configPath: string): { bytes: Buffer; stat?: fs.Stats; 
   } finally { if (fd !== undefined) try { fs.closeSync(fd) } catch { /* best effort */ } }
 }
 
-/** Load the optional, read-only UI configuration for the TUI. */
-export function loadUiConfig(workspaceRoot: string): UiConfigLoadResult {
+/** Load the optional UI configuration of the TUI: <configDir>/ui.json, read-only when AGENT_MANAGER_UI_CONFIG points elsewhere. */
+export function loadUiConfig(configDir: string = engineConfigDir()): UiConfigLoadResult {
   const configuredPath = process.env.AGENT_MANAGER_UI_CONFIG
-  const configPath = configuredPath || path.join(workspaceRoot, ".agent-manager", "ui-config.json")
-  const source = configuredPath ? "environment" : "workspace"
+  const configPath = configuredPath || path.join(configDir, "ui.json")
+  const source = configuredPath ? "environment" : "user"
   let current: { bytes: Buffer; stat?: fs.Stats; revision: string }
   try { current = readConfigBytes(configPath) } catch (error: any) {
     return { config: DEFAULT_UI_CONFIG, warning: error?.message?.includes("regular file") ? "UI config is not a valid regular file; using defaults." : "UI config could not be read; using defaults.", configPath, source: configuredPath ? source : "default", readOnly: !!configuredPath, revision: MISSING_UI_CONFIG_REVISION }
@@ -72,20 +73,20 @@ export function loadUiConfig(workspaceRoot: string): UiConfigLoadResult {
 
 function writeAll(fd: number, bytes: Buffer): void { let offset = 0; while (offset < bytes.length) offset += fs.writeSync(fd, bytes, offset, bytes.length - offset) }
 
-/** Safely persist the workspace-local UI configuration. Portable Node cannot defeat an active same-user path attacker. */
-export function saveUiConfig(workspaceRoot: string, listShare: number, expectedRevisionOrDeps?: string | UiConfigWriterDeps, suppliedDeps: UiConfigWriterDeps = {}): string {
+/** Safely persist the user's UI configuration. Portable Node cannot defeat an active same-user path attacker. */
+export function saveUiConfig(configDir: string, listShare: number, expectedRevisionOrDeps?: string | UiConfigWriterDeps, suppliedDeps: UiConfigWriterDeps = {}): string {
   const expectedRevision = typeof expectedRevisionOrDeps === "string" ? expectedRevisionOrDeps : undefined
   const deps = typeof expectedRevisionOrDeps === "string" || expectedRevisionOrDeps === undefined ? suppliedDeps : expectedRevisionOrDeps
   if (process.env.AGENT_MANAGER_UI_CONFIG) throw new Error("UI config is read-only when AGENT_MANAGER_UI_CONFIG is set")
   if (!validListShare(listShare)) throw new Error("listShare must be a finite number between 0.60 and 0.75")
-  const realWorkspace = fs.realpathSync(workspaceRoot)
-  const managerDir = path.join(realWorkspace, ".agent-manager")
-  try { fs.mkdirSync(managerDir, { mode: 0o700 }) } catch (error: any) { if (error?.code !== "EEXIST") throw error }
-  const managerStat = fs.lstatSync(managerDir)
-  if (!managerStat.isDirectory() || managerStat.isSymbolicLink()) throw new Error(".agent-manager must be a real directory")
+  fs.mkdirSync(path.dirname(configDir), { recursive: true })
+  try { fs.mkdirSync(configDir, { mode: 0o700 }) } catch (error: any) { if (error?.code !== "EEXIST") throw error }
+  const managerStat = fs.lstatSync(configDir)
+  if (!managerStat.isDirectory() || managerStat.isSymbolicLink()) throw new Error(`${configDir} must be a real directory`)
+  const managerDir = fs.realpathSync(configDir)
   const parentBefore = fs.statSync(managerDir)
-  const target = path.join(managerDir, "ui-config.json")
-  const lockPath = path.join(managerDir, "ui-config.lock")
+  const target = path.join(managerDir, "ui.json")
+  const lockPath = path.join(managerDir, "ui.lock")
   let lockFd: number | undefined
   let lockIdentity: fs.Stats | undefined
   let lockCreated = false
@@ -106,7 +107,7 @@ export function saveUiConfig(workspaceRoot: string, listShare: number, expectedR
     const current = readConfigBytes(target)
     if (expectedRevision !== undefined && current.revision !== expectedRevision) throw new Error("configuration changed; reload and retry")
     const targetMode = current.stat ? current.stat.mode & 0o777 : 0o600
-    temporary = path.join(managerDir, `.ui-config.json.tmp-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`)
+    temporary = path.join(managerDir, `.ui.json.tmp-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`)
     let fd: number | undefined
     try {
       fd = fs.openSync(temporary, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o600); ownsTemporary = true

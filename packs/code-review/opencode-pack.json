@@ -1,0 +1,6 @@
+{
+  "contract": "1.0",
+  "name": "code-review",
+  "version": "1.0.0",
+  "description": "Catalog of code review anti-patterns (skill code-review-antipatterns)"
+}

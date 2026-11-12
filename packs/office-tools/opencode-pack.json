@@ -1,0 +1,9 @@
+{
+  "contract": "1.0",
+  "name": "office-tools",
+  "version": "1.0.0",
+  "description": "Document (DOCX) and presentation (PPTX) tools: doc-tools and slide-tools plugins, Python scripts and templates",
+  "requires": {
+    "toolkit": "^1.0.0"
+  }
+}

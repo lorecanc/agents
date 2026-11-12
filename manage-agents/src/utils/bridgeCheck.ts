@@ -1,9 +1,6 @@
 import fs from "node:fs"
-import os from "node:os"
 import path from "node:path"
-import { findAgentFiles } from "./agents.js"
-import { bridgeToClaudeCode } from "./bridge.js"
-import { bridgeToCodex } from "./codexBridge.js"
+import { withGeneratedPackBridge, type BridgeTarget } from "./bridgeWorkspace.js"
 import type { TranslationConfig } from "./translationConfig.js"
 
 /** Relative POSIX path -> file bytes. */
@@ -20,10 +17,11 @@ export interface TreeDiff {
 
 export interface BridgeCheckOptions {
   workspaceRoot: string
-  target: "claude" | "codex"
-  category: string
+  pack: string
+  target: BridgeTarget
+  /** Also supplies the plugin name and agent prefix. */
   config: TranslationConfig
-  /** Committed bridge output; must live inside `workspaceRoot`. */
+  /** Committed bridge output, normally `bridges/<claude-code|codex>/<plugin>` in the catalog. */
   committedDir: string
 }
 
@@ -76,62 +74,10 @@ function readTree(root: string): TreeSnapshot {
   return tree
 }
 
-function copyIfPresent(source: string, destination: string): void {
-  if (!fs.existsSync(source)) return
-  fs.mkdirSync(path.dirname(destination), { recursive: true })
-  fs.cpSync(source, destination, { recursive: true })
-}
-
-/**
- * Mirror the workspace inputs the bridge reads into the temp root: agent
- * sources and `opencode.json` live under `config.sourceDir`, companion links
- * and the plugin icon are fixed locations. The committed output is never
- * copied: it is compared against the freshly generated tree instead.
- */
-function mirrorWorkspaceInputs(workspaceRoot: string, tempRoot: string, config: TranslationConfig): void {
-  const copied = new Set<string>()
-  const mirror = (relativePath: string) => {
-    if (!relativePath || copied.has(relativePath)) return
-    copied.add(relativePath)
-    copyIfPresent(path.join(workspaceRoot, relativePath), path.join(tempRoot, relativePath))
-  }
-  mirror(config.sourceDir)
-  // Legacy source root: companion resolution falls back to it when `src/` is absent.
-  mirror("general")
-  mirror(path.join("manage-agents", "assets"))
-  mirror(".agent-manager")
-}
-
-/** Regenerate the bridge in a temp workspace and compare it with the committed output. */
-export function checkBridge(options: BridgeCheckOptions): BridgeCheckResult {
-  const { workspaceRoot, target, category, config, committedDir } = options
-  if (!/^[a-z0-9][a-z0-9_-]*$/i.test(category)) throw new Error(`Invalid bridge category "${category}"`)
-  const relativeCommitted = path.relative(workspaceRoot, committedDir)
-  if (!relativeCommitted || relativeCommitted.startsWith("..") || path.isAbsolute(relativeCommitted)) {
-    throw new Error(`Bridge output must live inside the workspace: ${committedDir}`)
-  }
-
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "bridge-check-"))
-  try {
-    mirrorWorkspaceInputs(workspaceRoot, tempRoot, config)
-    const agents = findAgentFiles(tempRoot, config.sourceDir).filter(agent => agent.category === category)
-    if (agents.length === 0) {
-      throw new Error(`No agents found for category '${category}' under ${path.join(workspaceRoot, config.sourceDir)}`)
-    }
-
-    const expectedDir = path.join(tempRoot, relativeCommitted)
-    if (target === "codex") {
-      bridgeToCodex(agents, config.pluginName, config.prefix, expectedDir, tempRoot, config)
-    } else {
-      bridgeToClaudeCode(agents, config.pluginName, config.prefix, expectedDir, tempRoot, config, { category })
-    }
-
-    const diff = compareTrees(readTree(expectedDir), readTree(committedDir))
-    return {
-      ...diff,
-      clean: diff.missing.length === 0 && diff.changed.length === 0 && diff.extra.length === 0
-    }
-  } finally {
-    fs.rmSync(tempRoot, { recursive: true, force: true })
-  }
+/** Regenerate the bridge of `pack` and compare it with the committed output, without touching it. */
+export function checkPackBridge(options: BridgeCheckOptions): BridgeCheckResult {
+  const { committedDir, ...bridge } = options
+  const diff = withGeneratedPackBridge({ ...bridge, outputDir: committedDir, pluginName: bridge.config.pluginName, prefix: bridge.config.prefix },
+    generatedDir => compareTrees(readTree(generatedDir), readTree(committedDir)))
+  return { ...diff, clean: diff.missing.length === 0 && diff.changed.length === 0 && diff.extra.length === 0 }
 }

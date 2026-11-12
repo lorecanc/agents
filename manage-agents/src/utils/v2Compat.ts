@@ -240,7 +240,7 @@ const V1_ONLY_PERMISSION_KEYS = new Set([
   "list_mcp_resource_templates",
 ])
 
-/** Repository custom tools (`src/tools/{dev,pipeline}_*.ts`) are V2-only as well. */
+/** Repository custom tools (`tools/dev-tools/dev_*.ts`, `tools/pipeline/pipeline_*.ts`) are V2-only as well. */
 const CUSTOM_TOOL_ACTION = /^(?:dev|pipeline)_[a-z][a-z0-9_]*$/
 
 /**

@@ -1,159 +1,218 @@
-# Agent Manager
+# manage-agents
 
-## OpenCode V2 Compatibility
+Install, edit and route OpenCode agents distributed as **packs**.
 
-This manager is compatible with both OpenCode V1 and V2. The following V2 changes are handled transparently:
+A pack is a directory laid out like an OpenCode config directory (`agents/`, `commands/`, `skills/`, `plugins/`,
+`tools/<pack>/`, `opencode.json`) plus an `opencode-pack.json` manifest. Packs come from **sources**: local
+directories or git repositories, any number of them. manage-agents resolves the packs you ask for and the packs they
+require, copies them into an OpenCode config directory, merges their `opencode.json` entries into yours, and keeps
+track of what it owns so it can update or remove it later. It also edits agents (models, permissions, skills,
+delegations, parameters), generates the model routing of archetype packs, and translates packs into Claude Code
+plugins and Codex layers.
 
-- **Frontmatter fields**: V2 renames `max_steps` → `steps`, `disable` → `disabled`, `prompt` → `system`, and moves `temperature`/`top_p` under `request.body`. The manager auto-detects and normalizes both formats. Agent-level `temperature` is inert in OpenCode 2.2.5, so tune behavior through model variants instead.
-- **Permissions**: V2 uses a `permissions` array (`[{action, resource, effect}]`) instead of V1's `permission` object. Both formats are supported.
-- **Model variants**: V2 joins `variant` to the model reference with `#` (e.g., `provider/model#variant`). The manager handles both separate and joined formats. Variants are defined on the model, not in the agent frontmatter.
-- **Agent directories**: V2 discovers agents in `agents/`, `agent/`, `mode/`, and `modes/` directories. Agents in `mode/` or `modes/` are treated as primary agents.
-- **Config format**: V2 uses `agents` (plural) instead of `agent`, `commands` instead of `command`, and `subagent` instead of `subtask`. The manager translates between formats.
-- **CLI commands**: The `opencode models --refresh` flag was removed in V2. The manager now uses `opencode models` without the flag.
+The engine and the packs are independent: the engine knows nothing about a particular catalog, and a catalog needs
+nothing from the engine beyond the contract.
 
-All existing V1 agent files continue to work without modification. New V2 fields are also accepted.
-
-## Auto-commit semantics
-
-Enabled auto-commit is best-effort. Git preflight, staging, commit, or publish failures return the mutation value with a warning and recovery guidance; invalid plans and mutation failures remain blocking errors.
-
-Standalone Node/Bun terminal manager and OpenTUI application for the repository's `/src`, `/export`, and `/.agent-manager` layout. It is the supported interface for category generation, bridge translation, catalog maintenance, and safe repository mutations.
-
-[Guida pratica in italiano](GUIDA.md)
-
-## Purpose and architecture
-
-The repository has four root-level areas: `/src` contains canonical sources (`agents/` with the prefixless `pipeline-*` base pipeline and `docs-*`, `slides-*`, and `wiki-*` agents, plus `commands/`, `plugins/`, `skills/`, `tools/`, `bench/`, `bin/`, and `opencode.json`); `/export` contains generated category distributions (`categories/docs`, `flow`, `general`, `pipeline`, `slides`, and `wiki`) and `bridges/` for Claude Code and Codex; `/.agent-manager` contains `agent-routing.json`, `bash-profiles.json`, `companion-links.json`, `translation-config.json`, and `categories/*.json`; `/manage-agents` contains this CLI and interactive TUI.
-
-The CLI/TUI reads the workspace, canonical agent files, category manifests, and translation configuration. Category renderers create deterministic distributions from manifest allowlists. Bridge renderers translate selected agents to Claude Code or Codex without modifying source prompts; for the pipeline they start from the canonical `src/agents/pipeline-*.md` and map models through `.agent-manager/translation-config.json`, not through archetype model configurations. Generated outputs include metadata or warnings where the target format cannot represent an OpenCode feature.
+- Pack contract (what a pack may contain, how it is installed): [`contract/CONTRACT.md`](contract/CONTRACT.md),
+  JSON Schema [`contract/opencode-pack.schema.json`](contract/opencode-pack.schema.json), example
+  [`contract/examples/minimal-pack`](contract/examples/minimal-pack).
+- Skill for agents that write packs: [`contract/skills/opencode-pack-authoring`](contract/skills/opencode-pack-authoring/SKILL.md).
+- [Guida pratica in italiano](GUIDA.md).
 
 ## Requirements and installation
 
-Use Node.js `>=26.4.0` or Bun `>=1.3.0`; Bun is recommended. From the repository root:
+Node.js `>=26.4.0` or Bun `>=1.3.0` (OpenTUI uses FFI; the launcher re-executes Node with `--experimental-ffi`).
 
 ```bash
-cd manage-agents && npm ci
+git clone <engine-repo> manage-agents && cd manage-agents
+npm ci            # or: bun install
+npm link          # optional: puts `manage-agents` on PATH
 ```
 
-macOS/Linux: `./manage-agents.sh`, `bun manage-agents/manage-agents.mjs`, `node manage-agents/manage-agents.mjs`, or `npm start --prefix manage-agents`. Windows PowerShell: `bun .\manage-agents\manage-agents.mjs`, `node .\manage-agents\manage-agents.mjs`, or `npm start --prefix manage-agents`. Windows cmd uses the same `node`/`bun` commands with backslashes; the shell launcher requires WSL or Git Bash. The manager discovers the workspace from the repository root, `agents/`, or `manage-agents/`.
+Run it with `manage-agents`, `node manage-agents.mjs` or `bun manage-agents.mjs`. The launcher rebuilds `dist/` when
+the sources are newer.
 
 ## Quick start
 
 ```bash
-cd manage-agents
-npm ci # or: bun install
-npm start
+manage-agents source add catalog https://github.com/<you>/agents.git   # or a local directory
+manage-agents source pull                                              # clone/fetch git sources
+manage-agents install flow pipeline                                    # into $XDG_CONFIG_HOME/opencode
+manage-agents status                                                   # "In sync." when nothing drifted
+manage-agents update                                                   # pull and move to the new versions
 ```
 
-The launcher also accepts direct Node/Bun invocation from the repository root; see the command examples below.
+To edit a catalog, open the TUI in it: `cd agents && manage-agents` (or `manage-agents --workspace <dir>`).
+
+## Concepts
+
+- **Source**: a directory or git repository holding packs (`packs/<name>/opencode-pack.json`, or packs at any depth).
+  Registered in `$XDG_CONFIG_HOME/manage-agents/sources.json`; git checkouts live in
+  `$XDG_CACHE_HOME/manage-agents/sources/<name>` and are never edited.
+- **Target**: an OpenCode config directory, by default `$XDG_CONFIG_HOME/opencode` (`~/.config/opencode`). Its
+  state is in `<target>/.manage-agents/`: `desired.json` (what you asked for), `lock.json` (exact resolution:
+  source, version, revision, hashes) and `installed.json` (files and config entries the engine owns).
+- **Workspace**: the catalog (a directory with `packs/<name>/opencode-pack.json`) or the single pack that the TUI and
+  the agent commands (`create`, `lint`, `fix-names`, `audit`, `tune`, `bridge`) edit. It is `--workspace <dir>`,
+  `$MANAGE_AGENTS_WORKSPACE`, or the nearest catalog or pack above the current directory.
+- **Archetype pack**: a pack whose primary agents (`archetype.callers`) delegate to its subagents, with
+  `routingDefaults` that pick the subagents' models from the caller's model. The engine installs its own router
+  plugin, `plugins/manage-agents-router`, and generates its `routing.json` at every reconcile.
+- **User settings**: `$XDG_CONFIG_HOME/manage-agents/routing.json` (model routing) and `overrides.json` (frontmatter
+  patches) apply at reconcile, globally or per target, and are never written into packs, so they also work with
+  read-only git sources.
 
 ## CLI
 
-Without a subcommand, the TUI starts. Available commands:
+Without a command the TUI opens on the workspace. Every command has `--help`.
 
-* `create [name]` — interactively create an agent.
-* `bridge --category <name> [--target claude|codex] [--output path] [--name name] [--prefix prefix] [--source-dir dir] [--config path] [--model source=target]... [--map-all target] [--no-register] [--no-validate] [--marketplace-name name] [--wizard]` — generate translation layers and manifests.
-* `export [--all|--category name]` — export agents and matching domain resources to OpenCode with disaster-recovery backups.
-* `lint` — inspect naming convention compliance; `fix-names [--dry-run]` repairs names and references.
-* `audit` — audit permission ordering and risk.
-* `import [--dry-run]` — import agents and companion resources from the OpenCode configuration.
-* `tune [--steps n] [--temp n] [--variant name|--effort name] [--clear-variant|--clear-effort] [--category name]` — update model parameters. `--temp` remains accepted, but agent-level temperature is inert in OpenCode 2.2.5; use model variants for behavior.
-* `pipeline sync-bash [--dry-run]` — rewrite the `permission.bash` rule blocks of `src/agents/pipeline-*.md` from `.agent-manager/bash-profiles.json`, changing nothing else in the files (agents whose role has no profile, such as `bash: deny` roles, are skipped). Then run `category build --all` to rebuild `export/categories/pipeline`. Pipeline profiles were replaced by model configurations (`routing`, below; see `ARCHETIPI.md`).
-* `routing show|build|check|set <archetype> <provider|provider/model> [<role>=<provider/model#variant|inherit> ...]|unset <archetype> <trigger>` — model configurations of archetypes (scriptable twin of `M` on the archetype folder in the TUI): when the reference agent (`flow-build` for `flow`, `pipeline-orchestrator` for `pipeline`) runs on a provider or exact model, its subagents use the configured models; roles left out inherit. Stored in `.agent-manager/agent-routing.json`, resolved into `src/plugins/agent-router/routing.json` (also by `category build`, `export` and the TUI) for the runtime plugin; `category check` reports drift. Subagents with a frontmatter `model` are fixed and skipped. See `ARCHETIPI.md`.
-* `sync status --target <repo> [--from <source-or-bundle>] [--component all|agent-manager|pipeline-core] [--check] [--json]` — compare shared component versions, compatibility, file drift, and dirty target files; `--check` exits non-zero for incompatibility, local changes, or drift.
-* `sync release --out <dir> [--component all|agent-manager|pipeline-core] [--json]` — create a versioned release bundle with `release-index.json` and SHA-256 content digest.
-* `sync apply --target <repo> [--from <source-or-bundle>] [--component all|agent-manager|pipeline-core] [--dry-run] [--force] [--no-refresh] [--json]` — preview or apply shared files and bring the target to parity: delete component files the source no longer ships (recorded by an earlier sync, deleted in the source's git history, or matching an explicit pattern such as `src/agents/pipeline-*.md`), align every category manifest and companion-links entry the source has (categories only the target has, or whose agents are overlay material such as ontology, stay), seed `agent-routing.json` when missing, align the manager's package `scripts` and the blueprint's plugin list, and remove the retired `*-pipeline` bundles and `pipeline-profiles.json`. Local overlays and excludes are preserved, locally modified files are refused without `--force`, and no Git commit is created. Afterwards run `category build --all`, the two `bridge` commands and `validate` in the target. `shared-sync` aliases `sync`; `diff`, `export`, and `import` alias `status`, `release`, and `apply`.
-* `category list` — list category manifests.
-* `category build <id|--all>`, `category check <id|--all>`, `category status <id|--all>`, `category explain <id|--all>` — build, verify, or inspect v2 distributions. `pipeline` is a manifest category like the others (`.agent-manager/categories/pipeline.json` → `export/categories/pipeline`). When `pipeline` is in scope, `check` also fails when that bundle does not ship a tool its agents permit or a helper module a pipeline tool or plugin imports, and reports, with a short diff, any canonical pipeline agent whose bash block differs from its profile expansion.
-* `category package <id|--all> --output artifacts/categories [--dry-run]` — validate and copy current distributions into a repository-local artifact directory.
-* `topic-export wiki [--check]` — deprecated alias forwarding to the category commands.
-* `pack validate <pack-dir>... [--json] [--git]` — check directories against the OpenCode pack contract ([`contract/CONTRACT.md`](contract/CONTRACT.md), JSON Schema [`contract/opencode-pack.schema.json`](contract/opencode-pack.schema.json)): layout, `opencode-pack.json`, namespaces, `opencode.json` keys, references between files and packs, archetype declarations. It reports the pack's IDs, its executable surface (plugins, tool modules, skill scripts, MCP servers) and the references a required pack must provide; exit 1 on errors. `--git` applies the stricter rules for git sources. Packs are the input format of the upcoming installer; agents writing packs load [`contract/skills/opencode-pack-authoring`](contract/skills/opencode-pack-authoring/SKILL.md). `pack list [--json]` shows the packs offered by the registered sources.
-* `source list|add|remove|pull|trust|untrust|prefer` — sources of packs, stored in `$XDG_CONFIG_HOME/manage-agents/sources.json`. `add <name> <dir|git-url> [--ref <ref>] [--trust]` registers a local directory or a git repository (`https:`, `ssh:`, `git@host:path`; other schemes are refused). Git sources are cloned into `$XDG_CACHE_HOME/manage-agents/sources/<name>` by `pull`, checked out detached at their ref (default: the remote HEAD) and never edited. Untrusted sources can be listed, validated and resolved, but their executable content needs confirmation when installed. `prefer <pack> <source>` picks a source when several offer the same pack.
-* `resolve <[source/]pack[@range]>... [--target <dir>] [--json]` — resolve packs and their `requires` across the sources without writing anything: exactly one candidate per pack name (same name in two sources, or several versions in one, is an error until a source, preference or range decides; the newest is never picked on its own), cycles and missing packs are errors, every selected pack is validated, and references into other packs must come from a directly required pack. Prints the install order, the executable surface, the changes against `<target>/.manage-agents/lock.json` (default target `$XDG_CONFIG_HOME/opencode`) and what would need confirmation; exit 1 on problems.
-* `install <[source/]pack[@range]>...`, `uninstall <pack>...`, `update [<pack>...]`, `reconcile`, `status`, `restore <backup-id>` (all with `[--target <dir>]`; `install`/`uninstall`/`update`/`reconcile` with `--dry-run` and `--json`, `status` with `--json`; `install`/`update`/`reconcile` with `--adopt`; `install`/`update` with `--yes`) — install packs into an OpenCode config directory (default `$XDG_CONFIG_HOME/opencode`). State lives in `<target>/.manage-agents/`: `desired.json` (root requests), `lock.json` (exact resolution) and `installed.json` (owned files and config entries with hashes). The managed part of `opencode.json` is regenerated from the packs while the user's keys stay; skills and instructions paths become absolute and each pack's `AGENTS.md` becomes `instructions/<pack>.md`. Every conflict (same ID in two packs, files or config entries the user owns, managed files changed locally) is reported before anything is written; `--adopt` backs up and replaces, `restore` undoes it. Writes are journaled and rolled back on failure or after a crash; one command at a time per target. Semantics: [`contract/CONTRACT.md` §8](contract/CONTRACT.md#8-installation-semantics-engine-side). `export` keeps working during the transition; files it installed are replaced by `install` without `--adopt`.
-* `models show|set|unset|pin|unpin` and `override show|set|unset` (with `[--target <dir>] [--global] [--no-reconcile] [--yes]`) — user settings applied at reconcile and never written into packs, also for read-only git sources: model routing of archetype packs (`models set <pack> <trigger> <agent>=<provider/model[#variant]|inherit>`; the engine installs its own router plugin `plugins/manage-agents-router` and generates its `routing.json` from the pack's `routingDefaults`, the global settings and the target settings) and frontmatter overrides (`override set <pack>/<id> steps=30 hidden=true`, YAML values, `null` removes a field; `--command` for commands). `models pin` fixes a subagent's model (routing skips it); `models unpin` removes any fixed model, the pack's included. Each edit reconciles the target. Stored in `$XDG_CONFIG_HOME/manage-agents/{routing,overrides}.json`. The legacy `routing` command still serves the in-repo catalog until the migration to packs.
+Packs, sources and targets:
 
-All commands support focused `--help` where implemented. Manifest-backed category output is under `export/categories/`; it includes a README, exact MIT `LICENSE`, AGENTS, category metadata, and provenance hashes. `src/` is the source of truth; resources are selected through manifests and dependencies, not merely by filename.
+* `pack validate <pack-dir>... [--json] [--git]` — check directories against the contract: layout, manifest,
+  namespaces, `opencode.json` keys, references between files and packs, archetype declarations. Reports the pack's
+  IDs, its executable surface (plugins, tool modules, skill scripts, MCP servers, external commands) and what a
+  required pack must provide; exit 1 on errors. `--git` applies the stricter rules for git sources. `pack list
+  [--json]` shows the packs the registered sources offer.
+* `source list|add|remove|pull|trust|untrust|prefer` — `add <name> <dir|git-url> [--ref <ref>] [--trust]` registers a
+  directory or a git repository (`https:`, `ssh:`, `git@host:path`; other schemes and URLs with credentials are
+  refused). `pull` clones or fetches git sources and checks them out detached at their ref (default: the remote
+  HEAD). Installing executable content from an untrusted source, or a change to executable content from any source,
+  needs confirmation. `prefer <pack> <source>`
+  picks a source when several offer the same pack.
+* `resolve <[source/]pack[@range]>... [--target <dir>] [--json]` — resolve packs and their `requires` without writing:
+  exactly one candidate per pack name (the newest is never picked silently), cycles and missing packs are errors,
+  every selected pack is validated. Prints the install order, the executable surface, the changes against the
+  target's lock and what would need confirmation.
+* `install <[source/]pack[@range]>...`, `uninstall <pack>...`, `update [<pack>...]`, `reconcile`, `status`,
+  `restore <backup-id>` — all with `[--target <dir>]`; `install`/`uninstall`/`update`/`reconcile` with `--dry-run`
+  and `--json`; `install`/`update`/`reconcile` with `--adopt`; `install`/`update` with `--yes`. The managed part of
+  `opencode.json` is regenerated from the packs while your keys stay; config sections the engine empties are
+  removed. Every conflict (the same ID in two packs, files or entries you own, managed files you changed) is
+  reported before anything is written; `--adopt` backs up and replaces, `restore` undoes it. Writes are journaled
+  and rolled back on failure or after a crash; one command at a time per target. Semantics:
+  [`contract/CONTRACT.md` §8](contract/CONTRACT.md#8-installation-semantics-engine-side).
+* `models show|set|unset|pin|unpin` and `override show|set|unset` (with `[--target <dir>] [--global]
+  [--no-reconcile] [--yes]`) — user settings. `models set <pack> <trigger> <agent>=<provider/model[#variant]|inherit>`
+  routes the subagents of an archetype pack when a caller runs on `<trigger>` (a provider, or `provider/model`);
+  `models pin <pack>/<agent> <model>` fixes a subagent's model, `unpin` removes any fixed model, the pack's included.
+  `override set <pack>/<id> steps=30 hidden=true` patches frontmatter (YAML values, `null` removes a field;
+  `--command` for commands). Each edit reconciles the target.
 
-`import --dry-run` previews agent and companion-resource changes without modifying files or creating backups. The effective import applies only changed/new agents and modified resources from `tools/`, `commands/`, `skills/`, and `plugins/`; identical files are skipped and no backup is created when there are no differences.
+Workspace (catalog or pack you are editing):
 
-Shared releases are defined by `.agent-manager/shared-sync.json`: it versions the `agentManager` and `pipelineCore` components, declares pipeline-to-manager compatibility, and protects repository-local overlays. Check the target with `sync status` before applying; incompatible versions and locally modified shared target files block an apply unless the changes are deliberately overridden with `--force`.
+* `create` — create an agent in a pack of the workspace (`[family-]<pack>-<role>.md`, V2 frontmatter).
+* `lint` — naming convention report; `fix-names [--dry-run]` renames and updates references.
+* `audit` — permission ordering and risk report.
+* `tune [--steps n] [--temp n] [--variant name|--effort name] [--clear-variant|--clear-effort] [--category <pack>|--all]`
+  — update model parameters. Agent-level `temperature` is inert in OpenCode 2.2.5; use model variants.
+* `bridge [--pack <name>] [--target claude|codex] [--output path] [--name name] [--prefix prefix] [--config path]
+  [--model source=target]... [--map-all target] [--no-register] [--no-validate] [--marketplace-name name] [--wizard]`
+  — translate a pack (default: the configured `prefix` without its trailing `-`), with the packs it requires, into a
+  Claude Code plugin or a Codex layer (default output
+  `bridges/<claude-code|codex>/<name>` in the workspace). `bridge check [--pack <name>] [--target claude|codex]`
+  regenerates the committed bridges and compares them byte for byte. See [Bridges](#bridges).
 
-`bridge` maps source models per target. `--model <source>=<target>` is repeatable and accepts comma-separated lists; `--map-all <target>` is shorthand for `--model "*=<target>"`. As `bridge --help` states: `Map a source model to a target model; repeatable and accepts comma lists` and `Shorthand for --model "*=<target>": use one model for every source`. Keys match an agent's source model as a full lowercase ID (`zai-glm-5-3`) or as the bare ID after the last `/` (`glm-5-3`), with `"*"` as the catch-all. Resolution order is per-agent overrides, then `modelMap` (full ID, bare ID, `"*"`), then the role tier, then inference, then `defaultTier`; an empty map keeps the previous tier behavior. Keys that match no agent in the bridge are reported with a target-specific message: `[model-map] entry "<key>" matches no source agent model in this bridge` for Claude and `[model-map] entry "<key>" matches no source agent model` for Codex.
-
-Mappings passed on the command line are persisted to the translation config for the selected target and replayed by later runs without flags, so they win over keys already in the file. No CLI flag removes a persisted catch-all: clear it with the TUI bridge field or by editing `.agent-manager/translation-config.json`. Claude targets must be `fable`, `sonnet`, `opus`, `haiku`, `inherit`, or a full `claude-*` ID (for example `claude-opus-5-5`); any other value is rejected on save with `Invalid Claude model "<value>". Use an alias (fable, sonnet, opus, haiku, inherit) or a full claude-* model ID.`, prefixed by `claude.modelMap["<source>"]:`. Codex targets only need to be non-empty strings, and a Codex model-map entry emits the target model without a reasoning effort.
-
-A Claude bridge is self-hosting. Alongside `.claude-plugin/plugin.json` it emits `.claude-plugin/marketplace.json` (`{name, description, owner, plugins: [{name, source: "."}]}`), a local marketplace that publishes the plugin from the output directory itself. Each linked pipeline command (`src/commands/pipeline-*.md`) becomes `skills/<name>/SKILL.md`: the source `description` is kept, `disable-model-invocation: true` and `arguments: request` are set, `$ARGUMENTS` becomes `$request`, `` !`cmd` `` lines become fenced bash blocks, and the body delegates to the plugin orchestrator. Companion skills such as `code-review-antipatterns` are copied under `skills/`.
-
-Each run prunes generated artifacts that are not in its expected set (agents and skills, plus `marketplace.json` when marketplace emission is off) and warns per removed file. It also warns when a disabled MCP server is still emitted because translated agents require its tools. `.lsp.json` documents the project LSP setup and is not read by `claude plugin validate`. When `manage-agents/assets/plugin-icon.png` exists, the bridge copies it to `.claude-plugin/icon.png`; replace that file to change the plugin icon.
-
-`--no-register`, `--no-validate`, and `--marketplace-name <name>` control the post-generation steps and the marketplace name only; marketplace emission itself is controlled solely by `claude.emitMarketplace` in the JSON, which no CLI flag changes. These flags persist to `claude` in the translation config exactly like `--model`/`--map-all`, so later runs reuse them without flags. The same settings live in `claude.emitMarketplace`, `claude.emitCommands`, `claude.emitSkills`, `claude.autoValidate`, `claude.autoRegister` (these five fields are optional and default to `true`) and `claude.marketplaceName` (optional; default `<pluginName>-local`; charset `[A-Za-z0-9][A-Za-z0-9._-]*`; names equal to `claude` or `claude-code` and the `claude-`, `anthropic-`, and `anthropics-` prefixes are rejected). No flag turns a disabled step back on: edit the JSON.
-
-After the repository transaction closes, `autoValidate` runs `claude plugin validate <outputDir> --strict` (exit 0 pass, 1 fail, 2 CLI error); a failure or an undecided CLI error skips registration. `autoRegister` then runs `claude plugin marketplace add <outputDir>` followed by `claude plugin install <pluginName>@<marketplaceName>`; both are user-scope, idempotent, and prompt-free for local sources. Registration is also skipped when `claude.emitMarketplace` is off, because there is no marketplace manifest to add. When `claude` is not on PATH both steps are skipped with warnings and generation still succeeds. Registration is once-ever: local marketplaces load in place, so no update command is needed after regeneration, and the refreshed plugin is available in the next session or after `/reload-plugins`. Invoke agents as `claude --plugin-dir <dir> --agent <plugin>:<name>` or `@agent-<plugin>:<name>`, and skills as `/<plugin>:<skill>`.
+Auto-commit is off by default; `--auto-commit`/`--no-auto-commit` (or `AGENT_MANAGER_AUTO_COMMIT=1|0`) turn on or off local, scoped commits of
+workspace edits; see [Safety](#safety).
 
 ## TUI keymap
 
-The agent list is a tree with one folder per category. At startup every folder is closed; `→`/`l` opens the focused folder and `←`/`h` closes it. The provider folders of the model selector and the color groups of the color selector are also closed at first and open/close with `→`/`←` or `Enter`. The model selector opens with the provider of the current model already expanded (the focused agent's model for `m`, the edited row's model in the archetype model configurations). While the model search has text, every provider with a matching model is shown expanded; the agent-list search (`/`) likewise hides folders without matches, updates their counts and shows the others expanded; clearing the filter restores each folder's open or closed state.
+The agent list is a tree with one folder per pack, all closed at startup; `→`/`l` opens the focused folder and `←`/`h`
+closes it. The search (`/`) hides folders without matches and shows the others expanded; clearing it restores each
+folder's state. The model selector opens with the provider of the current model expanded.
 
-Main view: arrows or `j/k` move (with an agent focused on inspector tabs 3–5 they scroll the tab instead), `/` searches file names (`Enter` keeps the filter, `Esc` clears it), `Space` selects the focused agent, `a` toggles every agent of the focused item's category, `s` toggles the agents of the same category with the focused agent's model, `m` model (on an archetype folder such as `flow`, with no selection: its model configurations), `v` repair invalid models, `Shift-T` tier, `t` parameters (selection, focused folder, or focused agent), `c` color, `p` permission preset, `g` delegations, `u` Skills, Tools & MCP Manager (on a folder: the category's companion links), `r` rename, `o` organize, `f` fork (find/replace copy of a category; archetype folders such as `flow` and `pipeline` are not forked), `b` Claude bridge, `Shift-B` Codex bridge (selected agents, else the focused category), `e` export (selected agents, else the focused folder's category, else everything), `i` import diff, `1–5` inspector tabs, `Shift-L` layout, `F` fix permission order (inspector tab 3), `PageUp/PageDown` scroll, `Esc` close modals, and `Ctrl-C` quit. In the model selector only the arrows navigate: printable keys type into the search (every word must appear in `provider/model`), `Backspace` edits it, `Esc` clears it and then closes, `Enter` toggles a provider or assigns a model, and `Ctrl-R` reloads the catalog. In the layout modal, arrows/`h/l` adjust the split, `Home`/`End` select bounds, `R` resets, `Enter` saves, and `Esc` cancels. Modals support prompts, model/provider trees, tier assignment, color palettes, delegation toggles, resource permissions, import diffs, bridge configuration, confirmation dialogs, and action-result scrolling.
+Main view: arrows or `j/k` move (on inspector tabs 3–5 with an agent focused they scroll the tab), `/` searches file
+names (`Enter` keeps the filter, `Esc` clears it), `Space` selects the focused agent, `a` toggles every agent of the
+focused pack, `s` the agents of the same pack with the focused agent's model, `m` model (on an archetype pack folder
+with no selection: its routing defaults), `v` repair invalid models, `Shift-T` tier, `t` parameters (selection,
+focused folder or focused agent), `c` color, `p` permission preset, `g` delegations, `u` skills, tools and MCP
+permissions of the focused agent, `r` rename, `b` Claude bridge, `Shift-B` Codex bridge (of the focused pack), `e`
+install the focused pack into OpenCode, `1–5` inspector tabs, `Shift-L` layout, `F` fix permission order (inspector
+tab 3), `PageUp/PageDown` scroll, `Esc` close modals, `Ctrl-C` quit.
 
-The Claude and Codex bridge modals (`b`/`Shift-B`) have four fields: plugin name, prefix, source directory, and `Map all models to`; `Tab` cycles through them in that order. The model field sets the `"*"` catch-all for the selected target: empty keeps tier mapping, and emptying a value that was persisted deletes the catch-all. For the Claude target the value must pass the alias validation above; for Codex it is saved as a non-empty model ID. Per-model editing happens in `.agent-manager/translation-config.json`.
+- **Model selector**: only the arrows navigate; printable keys type into the search (every word must appear in
+  `provider/model`), `Backspace` edits it, `Esc` clears it and then closes, `Enter` toggles a provider or assigns a
+  model, `Ctrl-R` reloads the catalog.
+- **Routing defaults** (`m` on an archetype pack): one row per trigger. Editing a configuration writes the pack's
+  `routingDefaults` in `opencode-pack.json` and validates the pack, restoring the file if it no longer satisfies the
+  contract. They are what the pack ships; a user changes them per target with `manage-agents models`.
+- **Install** (`e`): previews the change with a dry run (packs, files, confirmations needed for executable content)
+  and installs on `Y`. The workspace becomes a local source the first time (named after its directory).
+- **Skills, Tools & MCP** (`u` on an agent): `Space` toggles the agent's `allow`/`deny` for a skill (or `* (All
+  Skills)`), a tool family (`slide_*`), a tool, or an MCP server (`<server>_*`). The list contains what the agent's
+  pack and the packs it requires provide. `Enter` saves the agent file; nothing else is written.
+- **Bridge** (`b`/`Shift-B`): plugin name, prefix and `Map all models to`; `Tab` cycles. The model field sets the
+  `"*"` catch-all for the target (empty keeps the tier mapping).
+- **Layout** (`Shift-L`): arrows/`h/l` adjust the split, `Home`/`End` select bounds, `R` resets, `Enter` saves to
+  `$XDG_CONFIG_HOME/manage-agents/ui.json` (`{ "version": 1, "listShare": 0.6667 }`, 0.60–0.75).
+  `AGENT_MANAGER_UI_CONFIG=<file>` reads another file and makes the layout read-only.
 
-Inspector tabs `1–5` are Info (Overview), Name, Sec, Graph, and `Res` (Skills & Tools). Tab `1` displays the focused agent’s configured Thinking / Effort (`variant`) and any provider pass-through `reasoningEffort` option. OpenCode maps an agent’s `variant` to the selected model’s provider variant configuration. Tab `5` shows the focused agent’s authorized Skills (`permission.skill`, including `*` wildcard and dead-reference detection), custom tools from `src/tools/*.ts` (including families such as `slide_*` and `doc_*`), MCP servers/namespaces and their `disabled` status under `mcp.servers` in `src/opencode.json` alongside agent permissions (`<server>_*`), and domain companion files under `tools/`, `commands/`, `skills/`, and `plugins/`. The inspector scrolls with `Up/Down` (`j/k`) and `PageUp/PageDown`.
+Inspector tabs: Info, Name, Sec(urity), Graph (delegations), Res(ources). Tab 1 shows the Thinking/Effort
+(`variant`). Tab 5 shows the agent's skills (with dead references), the custom tools of its packs grouped by family,
+and the MCP servers it may use, with their state in the target's `opencode.json`.
 
-Press `t` to open Parameter Tuning. Along with `steps`, `temperature`, `mode`, and `hidden`, it lets you set Thinking / Effort (`variant`). In that field, `Space` or `←`/`→` cycles through OpenCode’s standard variants (`none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`) and unset/default; you can also type a custom variant name (for example, `thinking`) and press `Backspace` to clear it. The available variants depend on the provider/model; OpenCode documents Anthropic `high`/`max`, OpenAI `none`/`minimal`/`low`/`medium`/`high`/`xhigh`, and Google `low`/`high`. Custom variants are configured on the model, not in the agent frontmatter. Agent-level `temperature` is accepted but inert in OpenCode 2.2.5; use variants instead. See the official [agent configuration](https://opencode.ai/docs/agents/#additional) and [model variants](https://opencode.ai/docs/models/#variants) documentation.
+Parameter tuning (`t`) sets `steps`, `temperature`, `mode`, `hidden` and Thinking/Effort (`variant`; `Space` or
+`←`/`→` cycles `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, or type a custom name). Variants are
+defined on the model: see OpenCode's [agent](https://opencode.ai/docs/agents/#additional) and
+[model variants](https://opencode.ai/docs/models/#variants) documentation.
 
-The CLI `tune` command accepts `--variant <name>` (alias `--effort <name>`) to set the variant, or `--clear-variant` (alias `--clear-effort`) to unset it. The variant names a configuration defined on the model. For example: `./manage-agents.sh tune --effort high --category pipeline`.
+## OpenCode V2 compatibility
 
-Press `u` on a focused agent to open the **Skills, Tools & MCP Manager** checklist (on a category folder it lists only that category's companion links: plugins, commands, skills, and tools). `Space` toggles the agent’s `allow`/`deny` permission for a skill (or `* (All Skills)`), tool family (such as `slide_*` or `doc_*`), individual tool, or MCP server (`<server>_*`). On a configured MCP server, `x` toggles its workspace-wide `disabled` flag under `mcp.servers` in `src/opencode.json`, independently of agent permissions; restart OpenCode for changes to that file to take effect at runtime. `Enter` atomically saves all draft changes, rolling back if any write fails, and creates a repository checkpoint when auto-commit is enabled. `Esc` discards the draft without modifying files.
+Agents are read in both V1 and V2 form and written back in their own form: `max_steps`/`steps`,
+`disable`/`disabled`, `prompt`/`system`, `temperature`/`top_p` under `request.body`, `permission` objects and
+`permissions` arrays (`[{action, resource, effect}]`), and `provider/model#variant`. Agents in `mode/` or `modes/`
+are primary. The model catalog comes from `opencode models`.
 
-The TUI list/inspector split can be adjusted without writing to the repository. Create `.agent-manager/ui-config.json` with `{ "version": 1, "listShare": 0.6667 }`; values from `0.60` through `0.75` are accepted. Set `AGENT_MANAGER_UI_CONFIG` to use an external read-only config instead. Missing or invalid configuration uses the default two-thirds list share.
+## Bridges
 
-Workspace saves use a SHA-256 revision and an exclusive `.agent-manager/ui-config.lock` to protect cooperating manager instances. Malformed files retain a revision, while missing files use the `missing` sentinel. This is practical cooperating-writer safety: portable Node cannot fully protect against an active same-user attacker swapping paths during the operation. Environment overrides remain read-only.
+A bridge translates one pack of the workspace, with the packs it requires, into a Claude Code plugin or a Codex
+layer: agents, commands as skills, skills, MCP and LSP servers merged from the packs' `opencode.json`. Options live
+in `bridges/translation-config.json` of the workspace (`pluginName`, `prefix`, model tiers and maps, Claude
+settings).
 
-The TUI fork prompt accepts comma-separated replacements, such as `go-, kimi-, free-`; bracketed batch syntax, such as `[go-, kimi-, free-]`, remains compatible. An empty whole replacement removes the find string. List members must be non-empty and unique; empty or duplicate entries are invalid. A batch performs one complete preflight and creates at most one backup.
+- **Models.** `--model <source>=<target>` is repeatable and accepts comma lists; `--map-all <target>` is
+  `--model "*=<target>"`. Keys match an agent's model as a full lowercase ID or as the bare ID after the last `/`.
+  Resolution: per-agent overrides, then `modelMap` (full ID, bare ID, `"*"`), then the role tier, then inference,
+  then `defaultTier`. Mappings and the Claude flags given on the command line are saved in the translation config and
+  replayed by later runs. Claude targets must be `fable`, `sonnet`, `opus`, `haiku`, `inherit` or a full `claude-*`
+  ID; Codex targets any non-empty model ID.
+- **Claude plugin.** Emits `.claude-plugin/plugin.json` and a local `marketplace.json`, agents, skills (commands
+  become `skills/<name>/SKILL.md` with `$ARGUMENTS` → `$request`), `.mcp.json`, `.lsp.json` and the engine's plugin
+  icon. Unless disabled (`claude.autoValidate`, `claude.autoRegister`, `--no-validate`, `--no-register`) it then
+  runs `claude plugin validate --strict` and registers the plugin in Claude Code (user scope, once). Each run removes
+  generated files that are no longer produced.
+- **Permissions.** Tool-level only: OpenCode keys map to Claude tools (`shell` → `Bash`, `edit` → `Write`/`Edit`,
+  `task` → `Agent`, MCP keys → `mcp__<server>__*`, ...). Granular patterns (shell allowlists, edit globs, ask states)
+  cannot be carried by plugin agents; each is reported as a warning and listed in the generated README.
+- **What is not translated.** OpenCode plugins and custom tools of the packs are listed in the generated README with
+  their nearest Claude equivalents; prompts that mention OpenCode-only tools get a runtime note saying the documented
+  fallbacks apply. Tool names in prompt bodies are adapted (`todowrite` → `TodoWrite`/`update_plan`, Task tool →
+  `Agent`, ...).
 
-## Workflows and generated output
+## Safety
 
-Edit canonical files under `src/` and configuration under `.agent-manager/`, then use `category build` or `bridge` to regenerate outputs. `category check` is read-only. Generated directories must not be edited directly; their README, category metadata, provenance hashes, and bridge warnings are produced by the manager.
+- Install, uninstall and update are transactions on the target: planned, checked for conflicts, journaled, applied,
+  and rolled back on failure. Replaced user content goes to `<target>/.manage-agents/backups/<id>/`.
+- Workspace edits are atomic per file and refuse files changed on disk since they were read. With auto-commit on,
+  each edit becomes a local, unsigned, hook-free commit of exactly the paths it touched, after a clean-worktree,
+  identity, branch, lock, symlink and scope check; failures leave the change for manual recovery and never reset your
+  work.
+- Pack content is untrusted: terminal output escapes control characters, git URLs with credentials are refused,
+  symlinks are never followed in managed scopes.
 
-## Backups, bridges, and safety
-
-OpenCode agent exports back up to `$XDG_CONFIG_HOME/opencode/agents_backup/` (or `~/.config/opencode/agents_backup/` when XDG is unset); organize/fork operations use `backups/` (ignored). Bridges are written to `export/bridges/claude-code/` or `export/bridges/codex/`, or to an explicit output directory that stays inside the workspace. Auto-commit is off by default (`--auto-commit` or `AGENT_MANAGER_AUTO_COMMIT=1` enables it); when enabled, repository mutations commit only after a clean-worktree, identity, branch, lock, symlink, and scope check. Commits are local, unsigned, hook-free, and scoped. Normal Git worktree races remain possible, but selected paths are fingerprinted after mutation and verified immediately before commit; committed blobs and modes are verified afterward. `--no-auto-commit` or `AGENT_MANAGER_AUTO_COMMIT=0` turns it off again; failures leave changes for manual recovery and do not reset user work. Topic `--check` always bypasses transactions. Temporary staging/backup siblings are never staged. Claude bridge validation and registration run after the transaction closes, so a missing `claude` CLI or a failed validation does not affect the generated output.
-
-Global export uses `$XDG_CONFIG_HOME/opencode` when set, otherwise `~/.config/opencode`. For each successfully exported agent, companion resources from `tools/`, `commands/`, `skills/`, and `plugins/` of `src/` are installed under the same relative path in that directory, so `plugins/` and `tools/` stay siblings. Resources are selected from the matching `.agent-manager/categories/<domain>.json` manifest when present, domain-prefixed directories and top-level files (`<domain>` or `<domain>-*`), tool families named `<domain>_*.ts` (every `tools/pipeline_*.ts` for pipeline agents, including tools no agent permits yet), the tools and skills each agent's permissions name, and companion links (which bring the shared `dev_*` tools and `plugins/dev-tools`); relative imports of the selected tools and plugins (`_repo.js`, `_sessions.js`, `_bash_guard.js`, `_run.js`, `_pipeline_core.js`, `_paths.js`, `_safeName.js`, `_python.js`, ...) are traced and added. Tests (`*.test.*`), `_testutil.mjs`, `.d.ts`, and README files under `tools/`/`plugins/` are never installed. Pipeline agents therefore install the six plugin directories (`plugins/agent-router`, `plugins/dev-tools`, `plugins/pipeline-guard`, `plugins/pipeline-tools`, `plugins/doc-tools`, and `plugins/slide-tools`) and all tool modules with their helpers. The pipeline is installed once; when a pipeline agent is exported, the retired installed files `{free,go,hybrid,mistral}-pipeline-<role>.md` (exact names only) are removed from the agents directory. Identical resource files (content and permissions) are skipped without writes or backups. Before replacing changed files, only the resource files being overwritten are saved in a separate `resource_export_backup_<timestamp>_<suffix>/` directory under the OpenCode configuration root; the 5 most recent such directories are retained automatically. If resource installation fails, both companion resources and agents exported in that operation are rolled back.
-
-Pipeline bash allowlists have one source of truth: `.agent-manager/bash-profiles.json` defines named, ordered rule blocks (`profiles`) and, per role, the ordered list of blocks that expands to that agent's `permission.bash` (`roles`). OpenCode applies the last matching rule, so expansion keeps the exact order. Edit the profiles, run `pipeline sync-bash`, then `category build --all`. `src/utils/bashProfiles.test.ts` checks that the canonical agents equal their expansion, evaluates per-role fixtures with an OpenCode-like matcher, and scans prompt bodies for backticked commands the agent's own allowlist would deny.
-
-`import --dry-run` previews agent and companion-resource changes without modifying files or creating backups. `import` from the CLI or TUI imports only changed/new agents and modified companion resources (`tools/`, `commands/`, `skills/`, and `plugins/`) back into `src/`; identical files are skipped, and no backup is created when there are no differences. For `pipeline`, the companion-resource set includes `dev_*.ts`, `pipeline_*.ts` and their helpers, `skills/code-review-antipatterns`, and the six plugin directories (`plugins/agent-router`, `plugins/dev-tools`, `plugins/pipeline-guard`, `plugins/pipeline-tools`, `plugins/doc-tools`, `plugins/slide-tools`).
-
-Bridge permission translation is tool-level. OpenCode keys map to Claude tool names (`bash`/`shell` → `Bash`, `edit` → `Write` and `Edit`, `read`/`grep`/`glob` → `Read`/`Grep`/`Glob`, `task` → `Agent`, `webfetch` → `WebFetch`, `websearch` → `WebSearch`, `skill` → `Skill`, `lsp` → `LSP`, `question` → `AskUserQuestion`, `todowrite` → `TodoWrite`, MCP keys → `mcp__<server>__*` plus the plugin-scoped form). Granular OpenCode patterns (bash pattern lists, edit globs, webfetch URL globs, ask states) cannot be enforced per agent in a Claude Code plugin: plugin agents ignore `permissionMode` and hooks, and granular allow/ask/deny rules exist only in settings the plugin cannot carry. The bridge emits the tool-level decision, warns about each granular pattern rule, dropped built-in or custom key, and promoted ask state it cannot represent, and generates no `hooks/hooks.json`.
-
-The generated README documents what the bridge does not translate. Companion links for the category (for pipeline, the six plugin directories and the `dev_*` / `pipeline_*` tools) are listed under `OpenCode plugins and tools` with their nearest Claude equivalents: `tool.execute.before` → `PreToolUse`, `tool.execute.after` → `PostToolUse`, `session.idle` → `Stop`, `permission.asked` → `PermissionRequest`, and custom tools point to an MCP server. Each untranspiled plugin or tool also produces a warning.
-
-Prompt bodies are adapted from a data table in `src/utils/bridgeToolReferences.ts`. For Claude, OpenCode tool names are rewritten (`todowrite` → `TodoWrite`, `` `question` `` → `` `AskUserQuestion` ``, `` `task` `` and "Task tool/call" → `Agent`, backticked `read`/`grep`/`glob`/`lsp`/`skill`/`webfetch`/`websearch`/`bash`/`edit`/`write` → their Claude names); for Codex, `todowrite` → `update_plan`, with guidance for `question`, the Task tool, file tools, and edits. OpenCode-only tools (`pipeline_state`, `pipeline_commit`, `dev_verify`, `dev_smoke`, `dev_serve`, `dev_env`, and any other `pipeline_*` key or mention) are never deleted from the text: one `Runtime note (OpenCode bridge)` blockquote is inserted after the leading H1 saying they are unavailable and that the prompt's documented fallbacks apply. `dev_*` and `pipeline_*` permission keys are recognised as repository custom tools and never mistaken for MCP servers. Per-agent bash/shell pattern rules cannot be expressed by Claude plugin agents (`tools:` only) or Codex agents (`sandbox_mode` only); each generated README lists them under `Per-agent bash allowlists (not enforced)`.
-
-Its `Model connection` section explains that the bridge emits family aliases (`sonnet`, `opus`, `haiku`, `fable`, `inherit`) unless a full `claude-*` ID is pinned in `claude.modelMap`, a tier's `claude.model`, or a per-agent `claude.overrides` entry. Aliases resolve per connection mode: subscription OAuth via `/login` needs no extra configuration, while API key, Bedrock, and Vertex connections resolve according to the provider configuration. `fable` requires Claude Code CLI v2.1.257 or newer.
-
-## Development and validation
+## Development
 
 ```bash
-cd manage-agents
 npm ci
-npm test
-npm run typecheck
+npm test          # typecheck + node:test (src/utils, runtime)
 npm run build
-npm run validate
+npm run validate  # test + build + validation of the example pack
 ```
 
-`validate` runs typecheck, tests, build, and the read-only `category check --all` freshness check. Build-all stages every category and leaves a recovery journal if interrupted. Bun equivalents are `bun install`, `bun test`, and `bun run build`. CI runs Node and Bun on macOS, Linux, and Windows.
-
-### Repository-local extensions
-
-A repository can add behavior to the manager without editing shared files. If `dist/extensions.js` exists beside `dist/index.js`, the manager loads it at startup; its default export (or an `extension` export) may provide `commands` (CLI commands or flags such as `update` or `--version`; built-in commands always win and the names appear in `--help`) and `afterExport` (called at the end of every export; its `extras` land in `ExportResult.extras`, its `warnings` are printed with the other export warnings, and a failure never fails the export). The type is `ManagerExtension` in `src/utils/extensions.ts`. `MANAGE_AGENTS_EXTENSION=<file>` loads another module instead (useful to run `src/index.tsx` with `tsx` against `ext/index.ts`). Without the file nothing changes, so the shared manager carries no repository-specific code. The extension sources belong to the repository: put them in `manage-agents/ext/` (entry point `ext/index.ts`; `npm run build` bundles it to `dist/extensions.js`, the launcher rebuilds when the sources change, and `npm test` runs `ext/**/*.test.ts`) and list `manage-agents/ext/**` under `localOverlay.neverOverwrite` in `.agent-manager/shared-sync.json` so sync never touches it. Add `ext/**/*.ts` to the repository's own `tsconfig.json` to type-check it.
-
-Troubleshooting: configure `git config user.name` and `user.email` for auto-commit; clean unrelated work before mutations; remove a stale `agent-manager.lock` only after confirming no manager is running; never use symlinks in managed scopes; ensure `git` is on PATH; ensure the `claude` CLI is on PATH for automatic Claude bridge validation and registration (generation still succeeds without it); on Windows invoke quoted paths with PowerShell’s `&` operator and use Node/Bun rather than the Unix launcher.
+Troubleshooting: set `git config user.name`/`user.email` for auto-commit; a stale `<target>/.manage-agents/install.lock`
+is reclaimed automatically when its process is gone; keep `git` (sources) and `claude` (Claude bridge validation and
+registration) on PATH; on Windows use Node or Bun directly.
 
 ## License
 
-MIT. Third-party dependencies and services retain their own terms; see the repository root `LICENSE`.
+MIT. Third-party dependencies and services keep their own terms.

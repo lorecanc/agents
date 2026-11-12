@@ -7,29 +7,45 @@ on:
 permissions:
   contents: read
 
+env:
+  # The engine lives in manage-agents/ until it moves to its own repository; afterwards CI checks it out there.
+  ENGINE_REPOSITORY: lorecanc/manage-agents
+
 jobs:
-  test:
+  catalog:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     defaults:
       run:
-        working-directory: manage-agents
+        shell: bash
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - name: Check out the engine
+        if: ${{ hashFiles('manage-agents/package.json') == '' }}
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          repository: ${{ env.ENGINE_REPOSITORY }}
+          path: manage-agents
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 26
-          cache: npm
-          cache-dependency-path: manage-agents/package-lock.json
       - run: npm ci
-      - run: npm run validate
-      - run: node manage-agents/manage-agents.mjs bridge --help
-        working-directory: .
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-      - run: bun install
-      - run: bun run typecheck
-      - run: bun run build
-      - run: bun manage-agents/manage-agents.mjs bridge --help
-        working-directory: .
+      - run: npm ci
+        working-directory: manage-agents
+      - name: Engine tests (while the engine lives in this repository)
+        run: |
+          if git ls-files --error-unmatch manage-agents/package.json >/dev/null 2>&1; then
+            npm --prefix manage-agents run validate
+          else
+            echo "engine checked out from $ENGINE_REPOSITORY; its own CI tests it"
+          fi
+      - name: Catalog tests (merged pack tree, bench, scripts)
+        run: npm test
+      - name: Pipeline shell rules match scripts/bash-profiles.json
+        run: npm run check
+      - name: Every pack satisfies the contract
+        run: node manage-agents/manage-agents.mjs pack validate packs/*/
+      - name: Committed bridges match a fresh regeneration
+        run: node manage-agents/manage-agents.mjs bridge check --workspace .

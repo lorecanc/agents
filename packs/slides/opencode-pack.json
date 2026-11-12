@@ -1,0 +1,11 @@
+{
+  "contract": "1.0",
+  "name": "slides",
+  "version": "1.0.0",
+  "description": "HTML-to-PPTX presentations: orchestrator, planners and writers, slide commands and design skills",
+  "requires": {
+    "common": "^1.0.0",
+    "office-tools": "^1.0.0",
+    "toolkit": "^1.0.0"
+  }
+}

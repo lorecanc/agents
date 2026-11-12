@@ -1,11 +1,12 @@
 import fs from "node:fs"
 import path from "node:path"
+import { fileURLToPath } from "node:url"
 import YAML from "yaml"
 import { escapeRegExp, extractFrontmatter, normalizeAgentBody } from "./agents.js"
 import type { AgentInfo } from "./agents.js"
 import { buildInferenceIndex, DEFAULT_TRANSLATION_CONFIG, resolveMarketplaceName, resolveModelTarget, authorName, unusedModelMapKeys, validateMarketplaceName } from "./translationConfig.js"
 import type { TranslationConfig } from "./translationConfig.js"
-import { getCategoryCompanionLinks } from "./companionLinks.js"
+import { isTestFile } from "./packs.js"
 import { assertInsideRealWorkspace, realpathThroughExistingAncestor } from "./pathValidation.js"
 import { isKnownPermissionKey, translatePermissionsV2ToV1 } from "./v2Compat.js"
 import { isServerDisabled, readMcpServers } from "./opencodeMcp.js"
@@ -551,9 +552,9 @@ function appendMcpNotes(body: string, mcpServers: string[]): string {
 }
 
 /**
- * Translate the repository's OpenCode MCP declaration into Claude's plugin
+ * Translate the workspace's OpenCode MCP declaration into Claude's plugin
  * `.mcp.json` shape. This is deliberately a generated artifact: the source
- * `general/opencode.json` remains untouched.
+ * `opencode.json` remains untouched.
  */
 function buildClaudeMcpConfig(
   workspaceRoot: string,
@@ -563,7 +564,7 @@ function buildClaudeMcpConfig(
   config: Record<string, any> | null
   warnings: string[]
 } {
-  const sourcePath = [path.join(workspaceRoot, "src", "opencode.json"), path.join(workspaceRoot, "general", "opencode.json")].find(file => fs.existsSync(file)) || path.join(workspaceRoot, "src", "opencode.json")
+  const sourcePath = path.join(workspaceRoot, "opencode.json")
   if (!fs.existsSync(sourcePath)) return { config: null, warnings: [] }
 
   // A deny must never be traded for availability, so this fails the bridge
@@ -629,7 +630,7 @@ function buildClaudeLspConfig(workspaceRoot: string): {
   config: Record<string, any> | null
   warnings: string[]
 } {
-  const sourcePath = [path.join(workspaceRoot, "src", "opencode.json"), path.join(workspaceRoot, "general", "opencode.json")].find(file => fs.existsSync(file)) || path.join(workspaceRoot, "src", "opencode.json")
+  const sourcePath = path.join(workspaceRoot, "opencode.json")
   if (!fs.existsSync(sourcePath)) return { config: null, warnings: [] }
 
   try {
@@ -714,33 +715,58 @@ interface OpenCodeCompanions {
   skills: string[]
 }
 
-/** Companion roots, in resolution order: `src/` wins over the legacy `general/`. */
-function companionRoots(workspaceRoot: string): string[] {
-  return [path.join(workspaceRoot, "src"), path.join(workspaceRoot, "general"), workspaceRoot]
-}
+const TOOL_CODE_RE = /\.(?:ts|mts|cts|js|mjs|cjs)$/
 
 function resolveCompanionSourcePath(workspaceRoot: string, relative: string): string | null {
-  for (const root of companionRoots(workspaceRoot)) {
-    const candidate = path.join(root, relative)
-    if (!fs.existsSync(candidate)) continue
-    if (fs.lstatSync(candidate).isSymbolicLink()) {
-      throw new Error(`Companion source must not be a symlink: ${candidate}`)
-    }
-    assertInsideRealWorkspace(workspaceRoot, fs.realpathSync(candidate), candidate)
-    return candidate
+  const candidate = path.join(workspaceRoot, relative)
+  if (!fs.existsSync(candidate)) return null
+  if (fs.lstatSync(candidate).isSymbolicLink()) {
+    throw new Error(`Companion source must not be a symlink: ${candidate}`)
   }
-  return null
+  assertInsideRealWorkspace(workspaceRoot, fs.realpathSync(candidate), candidate)
+  return candidate
 }
 
-/** Linked companion paths are workspace-relative but live under the source root. */
-function resolveOpenCodeCompanions(workspaceRoot: string, category: string): OpenCodeCompanions {
-  const links = getCategoryCompanionLinks(workspaceRoot, category)
-  const exists = (relative: string) => companionRoots(workspaceRoot).some(root => fs.existsSync(path.join(root, relative)))
+/** Sorted workspace-relative paths under `directory` accepted by `keep`; `recursive` descends into rejected directories. */
+function listEntries(
+  workspaceRoot: string,
+  directory: string,
+  keep: (entry: fs.Dirent, relative: string) => boolean,
+  recursive = false
+): string[] {
+  const found: string[] = []
+  const visit = (relativeDir: string) => {
+    const absoluteDir = path.join(workspaceRoot, relativeDir)
+    if (!fs.existsSync(absoluteDir) || !fs.statSync(absoluteDir).isDirectory()) return
+    for (const entry of fs.readdirSync(absoluteDir, { withFileTypes: true })) {
+      const relative = `${relativeDir}/${entry.name}`
+      if (keep(entry, relative)) found.push(relative)
+      else if (recursive && entry.isDirectory()) visit(relative)
+    }
+  }
+  visit(directory)
+  return found.sort()
+}
+
+/** OpenCode companions present in the bridged workspace, found by its native layout. */
+function scanOpenCodeCompanions(workspaceRoot: string): OpenCodeCompanions {
   return {
-    plugins: links.plugins.filter(exists),
-    tools: links.tools.filter(exists),
-    commands: links.commands.filter(exists),
-    skills: links.skills.filter(exists)
+    plugins: listEntries(workspaceRoot, "plugins", entry => entry.isDirectory()),
+    tools: listEntries(workspaceRoot, "tools", entry => !entry.isDirectory() && TOOL_CODE_RE.test(entry.name) && !entry.name.startsWith("_") && !isTestFile(entry.name), true),
+    commands: listEntries(workspaceRoot, "commands", entry => !entry.isDirectory() && entry.name.endsWith(".md"), true),
+    skills: listEntries(workspaceRoot, "skills", (entry, relative) => entry.isDirectory() && fs.existsSync(path.join(workspaceRoot, relative, "SKILL.md")))
+  }
+}
+
+/** A file of the engine's `assets/`, found by walking up from this module (works from `src/utils` and `dist/`). */
+function engineAssetPath(name: string): string | null {
+  let dir = path.dirname(fileURLToPath(import.meta.url))
+  while (true) {
+    const candidate = path.join(dir, "assets", name)
+    if (fs.existsSync(candidate)) return candidate
+    const parent = path.dirname(dir)
+    if (parent === dir) return null
+    dir = parent
   }
 }
 
@@ -749,7 +775,7 @@ function renderCompanionSection(companions: OpenCodeCompanions | undefined): str
   return [
     "## OpenCode plugins and tools",
     "",
-    "These OpenCode companions are linked by the category but are not transpiled by the bridge:",
+    "These OpenCode companions ship with the bridged packs but are not transpiled by the bridge:",
     "",
     ...companions.plugins.map(plugin => `- Plugin: ${markdownCode(plugin)}`),
     ...companions.tools.map(tool => `- Tool: ${markdownCode(tool)}`),
@@ -1043,7 +1069,6 @@ export function writeClaudeCodePlugin(
   plugin: ClaudeCodePlugin,
   outputDir: string,
   workspaceRoot: string,
-  sourceDir = "general",
   options: ClaudeCodeWriteOptions = {}
 ): BridgeResult {
   // Resolve symlinks through the nearest existing ancestor so the containment
@@ -1098,9 +1123,9 @@ export function writeClaudeCodePlugin(
   fs.writeFileSync(pluginJsonPath, JSON.stringify(pluginJson, null, 2), "utf-8")
   files.push(".claude-plugin/plugin.json")
 
-  // The validator probes the default icon path; copy the shared asset when present.
-  const iconSource = path.join(workspaceRoot, "manage-agents", "assets", "plugin-icon.png")
-  if (fs.existsSync(iconSource)) {
+  // The validator probes the default icon path; copy the engine's asset when present.
+  const iconSource = engineAssetPath("plugin-icon.png")
+  if (iconSource) {
     fs.copyFileSync(iconSource, path.join(pluginMetaDir, "icon.png"))
     files.push(".claude-plugin/icon.png")
   }
@@ -1227,14 +1252,14 @@ export function writeClaudeCodePlugin(
     "",
     "## Source and configuration",
     "",
-    `Agent definitions are discovered under ${markdownCode(`${sourceDir}/`)}; model tiers, roles, overrides, and bridge options come from ${markdownCode(".agent-manager/translation-config.json")}. MCP and LSP declarations are read from ${markdownCode("src/opencode.json")}, falling back to the legacy ${markdownCode("general/opencode.json")} when it is absent.`,
+    `Agents come from the bridged pack; commands, skills, plugins, and tools come from that pack and the packs it requires. Model tiers, roles, overrides, and bridge options come from ${markdownCode("bridges/translation-config.json")}. MCP and LSP declarations are merged from the ${markdownCode("opencode.json")} of every included pack.`,
     "",
     "## Generated contents",
     "",
     "- `.claude-plugin/plugin.json` — plugin metadata.",
     ...(emitMarketplace ? ["- `.claude-plugin/marketplace.json` — local marketplace manifest used by `claude plugin install`."] : []),
     "- `agents/` — translated prompts with normalized names and rewritten delegation references.",
-    ...(expectedSkills.size > 0 ? ["- `skills/` — plugin skills translated from linked OpenCode commands and copied companion skills."] : []),
+    ...(expectedSkills.size > 0 ? ["- `skills/` — plugin skills translated from the packs' OpenCode commands and copied pack skills."] : []),
     "- `.mcp.json` and `.lsp.json` — translated runtime configurations, when present.",
     "- `README.md` — this generated inventory and setup guide.",
     "",
@@ -1304,23 +1329,14 @@ export function writeClaudeCodePlugin(
   }
 }
 
-export interface ClaudeBridgeOptions {
-  /** Category used to resolve OpenCode companion links; defaults to the first agent's category. */
-  category?: string
-}
-
-/**
- * One-shot: bridge a category of agents to Claude Code plugin.
- * Main entry point for both TUI and CLI.
- */
+/** One-shot: bridge agents to a Claude Code plugin, with the companions found in `workspaceRoot`. */
 export function bridgeToClaudeCode(
   agents: AgentInfo[],
   pluginName: string,
   prefix: string,
   outputDir: string,
   workspaceRoot: string,
-  config: TranslationConfig = DEFAULT_TRANSLATION_CONFIG,
-  options: ClaudeBridgeOptions = {}
+  config: TranslationConfig = DEFAULT_TRANSLATION_CONFIG
 ): BridgeResult {
   if (!Array.isArray(agents) || agents.length === 0) {
     throw new Error(`Cannot generate Claude Code bridge "${pluginName}": no agents provided.`)
@@ -1344,14 +1360,11 @@ export function bridgeToClaudeCode(
   }
 
   const plugin = buildClaudeCodePlugin(agents, safePluginName, prefix, config, availableMcpServers, resolvedTargets)
-  const companionCategory = options.category || agents[0]?.category || ""
-  const companions = companionCategory
-    ? resolveOpenCodeCompanions(workspaceRoot, companionCategory)
-    : undefined
-  for (const file of companions?.plugins || []) {
+  const companions = scanOpenCodeCompanions(workspaceRoot)
+  for (const file of companions.plugins) {
     allWarnings.push(`OpenCode plugin '${file}' is not transpiled; see the README section 'OpenCode plugins and tools'`)
   }
-  for (const file of companions?.tools || []) {
+  for (const file of companions.tools) {
     allWarnings.push(`OpenCode tool '${file}' is not transpiled; see the README section 'OpenCode plugins and tools'`)
   }
   for (const key of unusedModelMapKeys(agents, config, "claude")) {
@@ -1360,7 +1373,7 @@ export function bridgeToClaudeCode(
   const bashAllowlists = agents
     .map((agent, index) => collectBashAllowlist(plugin.agents[index]?.name ?? agent.filename, agent.frontmatter))
     .filter((allowlist): allowlist is BashAllowlist => allowlist !== null)
-  const result = writeClaudeCodePlugin(plugin, outputDir, workspaceRoot, config.sourceDir, {
+  const result = writeClaudeCodePlugin(plugin, outputDir, workspaceRoot, {
     companions,
     bashAllowlists,
     serverScopedMcpDenies: serverScopedDenies,

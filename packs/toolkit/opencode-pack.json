@@ -1,0 +1,6 @@
+{
+  "contract": "1.0",
+  "name": "toolkit",
+  "version": "1.0.0",
+  "description": "Tool definition helper shared by the tool plugins"
+}

@@ -46,6 +46,9 @@ Rules (all enforced by `manage-agents pack validate`):
   list in `requires`.
 - **Root files**: only the ones shown above (`README`, `LICENSE`, `CHANGELOG` with no extension or `.md`, `.txt`,
   `.rst`). Entries named `.git*` and `.DS_Store` are ignored at any depth.
+- **Tests**: files named `*.test.*` (tests and test helpers) live next to the code they test and are never installed.
+  Their imports are not checked, because they run on the merged layout of all packs (the installed tree) rather than
+  on a single pack. They follow the namespace rule like any other file.
 - **Reserved paths**: `instructions/`, `.manage-agents/` and `plugins/manage-agents-router/` belong to the engine.
 - **Ignored**: `node_modules/` is never installed. Plugins may import only `@opencode/plugin`, Node built-ins and
   their own files; vendor anything else as bundled files. OpenCode V2 does not document installing arbitrary
@@ -108,8 +111,11 @@ Unknown keys are errors.
 ## 4. `opencode.json(c)`
 
 A pack may set only these keys: `$schema`, `plugins`, `mcp`, `skills`, `instructions`, `agents`, `commands`,
-`formatter` and `lsp`. Everything else (`model`, `default_agent`, `providers`, `permissions`, ...) belongs to the
-user and is an error. JSONC (comments, trailing commas) is accepted.
+`formatter`, `lsp` and `experimental`. Everything else (`model`, `default_agent`, `providers`, `permissions`, ...)
+belongs to the user and is an error. JSONC (comments, trailing commas) is accepted.
+
+`experimental` flags (for example `{"todo": true}` for agents that use `todowrite`) are owned per flag, like the
+other config entries: two packs setting the same flag to different values conflict.
 
 - `plugins`: `"./plugins/<name>"` or `{ "package": "./plugins/<name>", "options": { ... } }`. Local entries must
   point to `./plugins/<name>`. Other specs (npm or git packages) are reported as executable surface. Absolute paths
@@ -179,7 +185,8 @@ Rules:
 
 - The same desired state and lock always produce the same tree and the same `opencode.json`.
 - The managed part of `opencode.json` is regenerated from the pack contributions; the user's own keys are
-  preserved.
+  preserved. A section (`mcp.servers`, `lsp`, `experimental`, ...) left empty by removing managed entries is
+  removed too; an empty section the user wrote stays.
 - Conflicts, including collisions with files the user created, are detected before anything is written. If the
   target changes between that check and the write (for example while a confirmation prompt is open), nothing is
   written.
@@ -204,8 +211,9 @@ Details:
 
 - **Conflicts**: two packs providing the same ID or the same path with different content, a file or config entry
   the user owns, or a managed file changed locally. Each is reported before anything is written. `--adopt` backs
-  up the user's version to `.manage-agents/backups/<id>/` and replaces it. Files listed by the legacy
-  `manage-agents export` (`.resource-export-manifest.json`) are replaced without `--adopt`, and still backed up.
+  up the user's version to `.manage-agents/backups/<id>/` and replaces it. Files installed by the
+  `export` command of earlier manage-agents versions (listed in `.resource-export-manifest.json`) are replaced
+  without `--adopt`, and still backed up, so a target set up that way moves to packs with a plain `install`.
 - **Plugin options**: a pack's plugins are registered as `./plugins/<name>`. A pack that requires another may
   register one of its plugins explicitly, with `options`, and that entry replaces the implicit registration.
 - **Transactions**: changes are staged inside the target and recorded in `.manage-agents/journal.json`. A failure

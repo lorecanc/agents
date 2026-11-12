@@ -86,7 +86,7 @@ const CODEX_TABLE: TargetToolTable = {
 const TABLES: Record<BridgeTarget, TargetToolTable> = { claude: CLAUDE_TABLE, codex: CODEX_TABLE }
 
 /**
- * OpenCode custom tools shipped by this repository (`src/tools/{dev,pipeline}_*.ts`).
+ * OpenCode custom tools shipped by this repository (`tools/dev-tools/dev_*.ts`, `tools/pipeline/pipeline_*.ts`).
  * Any `pipeline_<name>` identifier (and the four `dev_*` tools) is treated as one, so new tools are covered
  * without editing this list; the named ones are always recognized.
  */

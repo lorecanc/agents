@@ -3,12 +3,10 @@ import path from "node:path"
 import { spawnSync } from "node:child_process"
 
 export const AUTO_COMMIT_MESSAGES = {
-  create: "chore(agent-manager): create agent", import: "chore(agent-manager): import agents",
+  create: "chore(agent-manager): create agent",
   rename: "chore(agent-manager): fix names/rename agents", tune: "chore(agent-manager): update/tune agents",
-  organize: "chore(agent-manager): organize agents", fork: "chore(agent-manager): fork agent category",
   bridge: "chore(agent-manager): generate bridge", config: "chore(agent-manager): save/migrate translation config",
-  companionLinks: "chore(agent-manager): update companion resource links", pipeline: "chore(agent-manager): sync pipeline profile",
-  routing: "chore(agent-manager): sync agent routing",
+  routing: "chore(agent-manager): update archetype routing defaults",
 } as const
 
 export class RepositoryTransactionError extends Error {}

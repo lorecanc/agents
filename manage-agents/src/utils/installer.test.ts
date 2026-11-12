@@ -151,7 +151,7 @@ test("locally changed managed files: update conflicts without --adopt, uninstall
   assert.equal(fs.readFileSync(path.join(target, "agents/flow-scout.md"), "utf8"), "edited by me\n")
   assert.ok(!fs.existsSync(path.join(target, "agents/flow-build.md")))
   assert.ok(!fs.existsSync(path.join(target, "tools")), "empty directories are removed")
-  assert.deepEqual(config(target), { $schema: "https://opencode.ai/config.json", mcp: { servers: {} } })
+  assert.deepEqual(config(target), { $schema: "https://opencode.ai/config.json" })
 })
 
 test("uninstall keeps a dependency still required and refuses to remove it directly", async (t) => {
@@ -306,6 +306,26 @@ test("identical content the user already had stays theirs and survives uninstall
   assert.equal((await changeTarget(target, "uninstall", registry, uninstallChange(["flow"]), options)).status, "applied")
   assert.ok(fs.existsSync(path.join(target, "commands/flow-go.md")))
   assert.deepEqual(config(target).mcp.servers.db, { type: "local", command: ["db-mcp"] })
+})
+
+test("uninstall drops the config sections it emptied but keeps the user's empty ones", async (t) => {
+  const { target, install, registry, options } = setup(t)
+  fs.writeFileSync(path.join(target, "opencode.json"), JSON.stringify({ model: "a/b", lsp: {} }))
+  assert.equal((await install(["flow"])).status, "applied")
+  assert.ok(config(target).mcp.servers.db)
+
+  assert.equal((await changeTarget(target, "uninstall", registry, uninstallChange(["flow"]), options)).status, "applied")
+  assert.deepEqual(config(target), { model: "a/b", lsp: {} })
+})
+
+test("an empty section the user wrote stays after a pack filled it and was uninstalled", async (t) => {
+  const { target, install, registry, options } = setup(t)
+  fs.writeFileSync(path.join(target, "opencode.json"), JSON.stringify({ mcp: { servers: {} } }))
+  assert.equal((await install(["flow"])).status, "applied")
+  assert.ok(config(target).mcp.servers.db)
+
+  assert.equal((await changeTarget(target, "uninstall", registry, uninstallChange(["flow"]), options)).status, "applied")
+  assert.deepEqual(config(target), { mcp: { servers: {} } })
 })
 
 test("a manifest-only change in a local source is caught as a change since the lock", async (t) => {

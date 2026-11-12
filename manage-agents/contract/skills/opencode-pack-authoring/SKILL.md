@@ -41,8 +41,8 @@ Never create: other root files, `instructions/`, `.manage-agents/`, the legacy s
 
 ## opencode.json(c)
 
-Only `plugins`, `mcp` (as `mcp.servers.<name>`), `skills`, `instructions`, `agents`, `commands`, `formatter` and
-`lsp`. Never set the user's keys (`model`, `default_agent`, `providers`, `permissions`, ...).
+Only `plugins`, `mcp` (as `mcp.servers.<name>`), `skills`, `instructions`, `agents`, `commands`, `formatter`, `lsp`
+and `experimental` flags. Never set the user's keys (`model`, `default_agent`, `providers`, `permissions`, ...).
 
 ## Archetypes and models
 

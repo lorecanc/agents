@@ -325,7 +325,7 @@ function buildCodexMcpConfig(
   config: Record<string, any> | null
   warnings: string[]
 } {
-  const sourcePath = [path.join(workspaceRoot, "src", "opencode.json"), path.join(workspaceRoot, "general", "opencode.json")].find(file => fs.existsSync(file)) || path.join(workspaceRoot, "src", "opencode.json")
+  const sourcePath = path.join(workspaceRoot, "opencode.json")
   if (!fs.existsSync(sourcePath)) return { config: null, warnings: [] }
 
   // A deny must never be traded for availability, so this fails the bridge
@@ -413,17 +413,17 @@ function renderCodexMcpSetup(config: Record<string, any> | null): string[] {
   return lines
 }
 
-function renderReadme(plugin: CodexPlugin, warnings: string[], mcpConfig: Record<string, any> | null, sourceDir: string, bashAllowlists: BashAllowlist[] = []): string {
+function renderReadme(plugin: CodexPlugin, warnings: string[], mcpConfig: Record<string, any> | null, bashAllowlists: BashAllowlist[] = []): string {
   const lines = [
     `# ${plugin.pluginName}`,
     "",
     "This directory is a generated translation layer from the canonical source agents. Source agents are unchanged.",
     "",
-    "> **Generated output.** Do not edit this directory directly. Change canonical agents or `.agent-manager/translation-config.json`, then regenerate with the manager.",
+    "> **Generated output.** Do not edit this directory directly. Change the pack's agents or `bridges/translation-config.json`, then regenerate with the manager.",
     "",
     "## Source and configuration",
     "",
-    `Agent prompts are discovered under ${markdownCode(`${sourceDir}/`)}. Translation roles, tiers, model overrides, prefix, and output options come from ${markdownCode(".agent-manager/translation-config.json")}; MCP declarations come from ${markdownCode("src/opencode.json")} (legacy fallback ${markdownCode("general/opencode.json")}).`,
+    `Agent prompts come from the bridged pack. Translation roles, tiers, model overrides, prefix, and output options come from ${markdownCode("bridges/translation-config.json")}; MCP declarations are merged from the ${markdownCode("opencode.json")} of the pack and the packs it requires.`,
     "",
     "## Contents",
     "",
@@ -535,7 +535,7 @@ export function writeCodexPlugin(
     const bashAllowlists = agents
       .map((agent, index) => collectBashAllowlist(translatedAgents[index]?.name ?? agent.filename, agent.frontmatter))
       .filter((allowlist): allowlist is BashAllowlist => allowlist !== null)
-    fs.writeFileSync(readmePath, renderReadme(plugin, warnings, mcpResult.config, config.sourceDir, bashAllowlists))
+    fs.writeFileSync(readmePath, renderReadme(plugin, warnings, mcpResult.config, bashAllowlists))
     files.push(readmePath)
   }
 

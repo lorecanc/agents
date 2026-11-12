@@ -1,0 +1,11 @@
+{
+  "contract": "1.0",
+  "name": "docs",
+  "version": "1.0.0",
+  "description": "DOCX documents from HTML sources: orchestrator, planner and HTML writer agents, document commands and design skills",
+  "requires": {
+    "common": "^1.0.0",
+    "office-tools": "^1.0.0",
+    "toolkit": "^1.0.0"
+  }
+}

@@ -2,17 +2,16 @@
 .DS_Store
 
 # Node/Bun
-manage-agents/node_modules/
-manage-agents/dist/
-manage-agents/*.log
-manage-agents/.agent-manager/category-artifacts/
-.agent-manager/category-artifacts/
-src/**/node_modules/
-src/**/dist/
+node_modules/
+dist/
+*.log
+
+# Merged pack tree, rebuilt by `npm test` / `npm run merge`
+.tree/
 
 # Generated agent workspace artifacts
 backups/
-artifacts/categories/
+artifacts/
 .tmp/
 .opencode-scratch/
 *.zip

@@ -1,0 +1,6 @@
+{
+  "contract": "1.0",
+  "name": "integrations",
+  "version": "1.0.0",
+  "description": "Optional MCP servers (Chrome DevTools, shadcn, Magic, Axiom, CWE search, Xcode, Cupertino, Google Cloud; several disabled by default) and LSP settings"
+}
