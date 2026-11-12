@@ -25,7 +25,7 @@ Serve Node.js `>=26.4.0` oppure Bun `>=1.3.0`. OpenTUI usa FFI, quindi con Node 
 `--experimental-ffi`.
 
 ```bash
-git clone <engine-repo> manage-agents && cd manage-agents
+git clone https://github.com/lorecanc/manage-agents.git manage-agents && cd manage-agents
 npm ci            # oppure: bun install
 npm link          # facoltativo: mette `manage-agents` nel PATH
 ```
@@ -93,7 +93,7 @@ manage-agents source add catalog ~/dev/agents
 Un repository git (`https:`, `ssh:` o `git@host:path`; gli URL con credenziali vengono rifiutati):
 
 ```bash
-manage-agents source add catalog https://github.com/<utente>/agents.git --ref main
+manage-agents source add catalog https://github.com/lorecanc/agents.git --ref main
 manage-agents source pull catalog
 ```
 

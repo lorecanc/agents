@@ -3,6 +3,10 @@
   "version": "1.0.0",
   "description": "Install, edit and route OpenCode agent packs from local or git sources",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lorecanc/manage-agents.git"
+  },
   "main": "dist/index.js",
   "bin": {
     "manage-agents": "./manage-agents.mjs"

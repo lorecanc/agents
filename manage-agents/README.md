@@ -24,7 +24,7 @@ nothing from the engine beyond the contract.
 Node.js `>=26.4.0` or Bun `>=1.3.0` (OpenTUI uses FFI; the launcher re-executes Node with `--experimental-ffi`).
 
 ```bash
-git clone <engine-repo> manage-agents && cd manage-agents
+git clone https://github.com/lorecanc/manage-agents.git manage-agents && cd manage-agents
 npm ci            # or: bun install
 npm link          # optional: puts `manage-agents` on PATH
 ```
@@ -35,11 +35,11 @@ the sources are newer.
 ## Quick start
 
 ```bash
-manage-agents source add catalog https://github.com/<you>/agents.git   # or a local directory
-manage-agents source pull                                              # clone/fetch git sources
-manage-agents install flow pipeline                                    # into $XDG_CONFIG_HOME/opencode
-manage-agents status                                                   # "In sync." when nothing drifted
-manage-agents update                                                   # pull and move to the new versions
+manage-agents source add catalog https://github.com/lorecanc/agents.git   # or a local directory
+manage-agents source pull                                                 # clone/fetch git sources
+manage-agents install flow pipeline                                       # into $XDG_CONFIG_HOME/opencode
+manage-agents status                                                      # "In sync." when nothing drifted
+manage-agents update                                                      # pull and move to the new versions
 ```
 
 To edit a catalog, open the TUI in it: `cd agents && manage-agents` (or `manage-agents --workspace <dir>`).
