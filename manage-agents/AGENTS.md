@@ -41,7 +41,7 @@ this engine solely through the versioned pack contract in `contract/`.
   with its runtime unit tests (`*.test.mjs`).
 - `contract/`: `CONTRACT.md`, `opencode-pack.schema.json`, `examples/minimal-pack/`, and the
   `skills/opencode-pack-authoring/SKILL.md` authoring skill.
-- `test/fixtures/`: self-contained pack fixtures used by tests.
+- `test/helpers.ts`: shared helpers for building temporary packs and repositories in tests.
 
 ## 2. Non-negotiable invariants
 
