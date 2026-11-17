@@ -78,10 +78,12 @@ _If you are unsure of the user's configuration, ask the user to provide their cu
 
 ### Step 5: Run Diagnostic Commands
 
-If the issue is still unclear, run diagnostic commands to test the server directly:
+If the active agent has `shell` access, it may run these commands directly. If `shell` is disabled, as for the read-only `chrome-devtools` diagnostic agent, use `chrome-devtools_*` MCP tools directly where applicable and provide any required host CLI command for the user or calling build/ops agent to execute.
 
-- Run `npx chrome-devtools-mcp@latest --help` to verify the installation and Node.js environment.
-- If you need more information, run `DEBUG=* npx chrome-devtools-mcp@latest --logFile=/tmp/cdm-test.log` to capture verbose logs. Analyze the output for errors.
+If the issue is still unclear, use the commands below to test the server directly when the active agent has `shell` access. Otherwise, provide the relevant command for the user or calling build/ops agent to execute, and use available `chrome-devtools_*` MCP tools directly where applicable.
+
+- With shell access, run `npx chrome-devtools-mcp@latest --help` to verify the installation and Node.js environment.
+- If you need more information and have shell access, run `DEBUG=* npx chrome-devtools-mcp@latest --logFile=/tmp/cdm-test.log` to capture verbose logs. Analyze the output for errors.
 
 ### Step 6: Check GitHub for Existing Issues
 

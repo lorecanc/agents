@@ -1,7 +1,6 @@
 ---
 description: Creates structured slide outline plans from task briefs using corporate template layouts with spatial contracts. Returns JSON only — selects from available layouts, assigns content per-placeholder, determines narrative flow.
 mode: subagent
-hidden: true
 permissions:
   - action: edit
     resource: "*"
@@ -46,17 +45,17 @@ layout_name | category | TITLE(45,45,1188x122 ~80ch) BODY#0(45,169,585x447 ~180w
 
 **You must select the `layout` field to an exact layout name from the catalog.** Match your content needs with the placeholder structure:
 
-- `title_centered` / `title_left` → cover slides-orchestrator, section openings, back covers
+- `title_centered` / `title_left` → cover slides, section openings, back covers
 - `content_1col` → single-column text-heavy, simple lists
 - `content_2col` → comparative content, two related topics side by side
 - `content_text_image` → text + supporting visual, split layouts
 - `content_multicol` → 3+ body columns, dashboards, multi-topic overviews
 - `key_figures` → statistics, metrics, KPI highlights (large numbers + labels)
 - `team` → profile cards, people, team member lists
-- `table_of_contents` → agenda slides-orchestrator, deck navigation
+- `table_of_contents` → agenda slides, deck navigation
 - `map` → geographic, location-based content
 - `case_study` → case studies, detailed examples
-- `quote` → testimonial, pull-quote slides-orchestrator
+- `quote` → testimonial, pull-quote slides
 - `blank` / `back_cover` → minimal content, full visual
 
 ### Per-placeholder content plan
@@ -108,7 +107,7 @@ For each layout, you must output a `placeholders` array assigning content to eac
 
 ## Constraints
 
-- Exactly the requested count of slides-orchestrator
+- Exactly the requested number of slides
 - Pages must be contiguous
 - Concise titles; content should describe WHAT the slide covers, not HOW it should look
 - `layout` must be an exact `safe_key` from the layout catalog
@@ -122,7 +121,7 @@ Return exactly this JSON structure:
 
 ```json
 {
-  "slides-orchestrator": [
+  "slides": [
     {
       "page": 1,
       "title": "Copertina: Lennon vs McCartney",

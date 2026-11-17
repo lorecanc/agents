@@ -5,7 +5,7 @@ import { executeCommit, planCommit } from "./_pipeline_core.js"
 
 export default tool({
   description:
-    "Create a local commit containing ONLY the files this session touched (files recorded by the session plus `expected_files`), never files that were already modified before the session, and never anything staged by someone else. Never pushes, amends, branches or stashes. Prefer this over raw git add/commit. Use dry_run to preview the commit scope.",
+    "Create a local commit containing ONLY changed files listed in `expected_files`; claimed files omitted from that list are excluded and reported. Never includes files that were already modified before the session or anything staged by someone else. Never pushes, amends, branches or stashes. Prefer this over raw git add/commit. Use dry_run to preview the commit scope.",
   args: {
     mode: tool.schema.enum(["final", "checkpoint"]).describe("final: conventional commit message; checkpoint: `chore(checkpoint): ...`"),
     message: tool.schema.string().describe("Commit subject, one line. For checkpoint the `chore(checkpoint): ` prefix is added if missing."),
@@ -33,7 +33,7 @@ export default tool({
     const degraded = !root || !root.baseline
     if (degraded) root = { sessionId: context.sessionID, rootId: context.sessionID, files: {}, baseline: { dirty: args.baseline_dirty || [] } }
     const plan = planCommit(info, root, args.expected_files)
-    const base: any = { degraded, plan }
+    const base: any = { degraded, plan, excluded_claimed_files: plan.claimedOnly }
     if (degraded && !args.baseline_dirty) {
       base.warning = "No session baseline registered and no baseline_dirty given: files that were already modified before the session cannot be detected."
     }

@@ -9,7 +9,11 @@ Writing UI without rendering it is guessing. This loop closes the gap between th
 
 ## 0. Get a URL
 
-1. Run `dev_serve` with `action: "start"`. It reads the `serve` or `smoke` section of `.opencode/pipeline.json`, or the `dev`/`start` script. It returns a localhost URL and always stops by itself.
+1. Run `dev_serve` with `action: "start"`. If `.opencode/pipeline.json` declares backing `services`
+   (such as Postgres or Redis) for `serve` or `smoke`, pass `with_services: true` as in
+   `dev_serve({ action: "start", with_services: true })`. This lets full-stack pages use live
+   dependencies during browser checks; `dev_serve` cleans them up on stop or idle. Otherwise, it reads
+   the `serve` or `smoke` section, or the `dev`/`start` script, and returns a localhost URL.
 2. If it cannot start (`env` or `harness` class), try once to fix the obvious cause (a missing install, the wrong workspace). Otherwise, for static HTML, open the file with a `file://` URL.
 3. If nothing can render, stop the loop and report `UNVERIFIED: <reason>`. Do not pretend.
 4. Do not start dev servers with raw `npm run dev &`; they outlive the session.

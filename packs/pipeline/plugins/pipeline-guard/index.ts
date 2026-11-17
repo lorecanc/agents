@@ -39,15 +39,26 @@ import {
 } from "../../tools/dev-tools/_repo.js"
 import { isLive, readSession, writeSession } from "../../tools/dev-tools/_sessions.js"
 import { FILE_WRITE_TOOLS, bashWriteTargets, checkBash, checkWritePath, editTargets, isShellTool } from "../../tools/dev-tools/_bash_guard.js"
-import { appendActivity, clipText, isDenialText, conflictingClaims, isPipelineAgent, removeStaleSessions, roleOf } from "../../tools/pipeline/_pipeline_core.js"
+import { appendActivity, clipText, deleteRootChildren, isDenialText, conflictingClaims, isPipelineAgent, removeStaleSessions, roleOf } from "../../tools/pipeline/_pipeline_core.js"
 import { stopServicesOwnedBy } from "../../tools/dev-tools/_serve.js"
 
 const HEARTBEAT_MS = 30_000
 const INTERNAL_AGENTS = new Set(["title", "summary", "compaction"])
-// V2 has no `doom_loop` permission action, so the guard reproduces it: the third consecutive
-// identical call is rejected. Keep at most LIMIT signatures per session and MAX_SESSIONS sessions.
+// V2 has no `doom_loop` permission action, so the guard reproduces it with separate inspection and mutation limits.
+// Keep at most the larger limit of signatures per session and MAX_SESSIONS sessions.
 const DOOM_LOOP_LIMIT = 3
+const DOOM_LOOP_READ_LIMIT = 6
 const DOOM_LOOP_MAX_SESSIONS = 500
+const READ_ONLY_INSPECTION_TOOLS = new Set([
+  "read", "view", "grep", "glob", "lsp", "pipeline_state", "dev_env",
+  "opencode_read_mcp_resource", "opencode_list_mcp_resources",
+])
+const READ_ONLY_CODEBASE_MEMORY_TOOLS = new Set([
+  "codebase-memory-mcp_search_graph", "codebase-memory-mcp_search_code", "codebase-memory-mcp_trace_path",
+  "codebase-memory-mcp_get_code_snippet", "codebase-memory-mcp_query_graph", "codebase-memory-mcp_get_architecture",
+  "codebase-memory-mcp_get_graph_schema", "codebase-memory-mcp_list_projects", "codebase-memory-mcp_index_status",
+  "codebase-memory-mcp_detect_changes",
+])
 
 class GuardBlock extends Error {}
 
@@ -91,6 +102,9 @@ export async function setupPipelineGuard(ctx, options = {}) {
   const rootsByDir = new Map()
   const infos = new Map()
   const lastWrite = new Map()
+  /** Repository path key -> in-flight tool owner, held from execute.before through execute.after. */
+  const inFlightWrites = new Map()
+  let writeReservationSequence = 0
   /** sessionId -> { llm, tools, flushedLlm, flushedTools } (per-session step counters) */
   const steps = new Map()
   /** callIDs already logged (by the after hook or as a guard block), so error events are not doubled */
@@ -163,6 +177,48 @@ export async function setupPipelineGuard(ctx, options = {}) {
     } catch (e) {
       log("warn", `cannot write session record: ${e.message}`)
     }
+  }
+
+  function persistChild(s, busy = true) {
+    if (!s || s.rootId === s.sessionId) return null
+    const info = infoFor(s.directory || directory)
+    if (!info) return null
+    const now = Date.now()
+    const previous = s.childRec || readSession(info, s.sessionId)
+    const rec = {
+      ...(previous || {}),
+      sessionId: s.sessionId,
+      rootId: s.rootId,
+      agent: s.agent,
+      role: roleOf(s.agent),
+      pid: process.pid,
+      cwd: s.directory || directory,
+      busy,
+      startedAt: previous?.startedAt || now,
+      updatedAt: now,
+      files: previous?.rootId === s.rootId ? (previous.files || {}) : {},
+    }
+    s.childRec = rec
+    try {
+      writeSession(info, rec)
+    } catch (e) {
+      log("warn", `cannot write child session record: ${e.message}`)
+    }
+    return rec
+  }
+
+  function releaseInFlight(sessionId, callID = null) {
+    for (const [key, owner] of inFlightWrites) {
+      if (owner.sessionId === sessionId && (!callID || owner.callID === callID)) inFlightWrites.delete(key)
+    }
+  }
+
+  function inFlightConflict(info, rootId, rel, callerSessionId) {
+    const prefix = `${info.stateDir}\u0000${rootId}\u0000${rel}\u0000`
+    for (const [key, owner] of inFlightWrites) {
+      if (key.startsWith(prefix) && owner.sessionId !== callerSessionId) return owner
+    }
+    return null
   }
 
   function trackRoot(rec) {
@@ -248,17 +304,13 @@ export async function setupPipelineGuard(ctx, options = {}) {
       return entry
     }
     const { rootId, rootKnown } = await resolveRoot(sessionId)
-    const s = { pipeline: true, agent, rootId, rootKnown, directory }
+    const s: any = { pipeline: true, agent, rootId, rootKnown, directory, sessionId }
     sessions.set(sessionId, s)
     const info = infoFor(directory)
     if (!info) return s
     ensureRoot(rootId, agent, info)
     if (rootId !== sessionId) {
-      try {
-        writeSession(info, { sessionId, rootId, agent, pid: process.pid, cwd: directory, updatedAt: Date.now() })
-      } catch {
-        /* ignore */
-      }
+      persistChild(s, true)
     }
     return s
   }
@@ -349,11 +401,16 @@ export async function setupPipelineGuard(ctx, options = {}) {
     // A different call ends the current streak; keep the history capped at the limit.
     if (history.length && history[history.length - 1] !== signature) history.length = 0
     history.push(signature)
-    if (history.length > DOOM_LOOP_LIMIT) history.shift()
-    if (history.length < DOOM_LOOP_LIMIT) return
+    const limit = READ_ONLY_INSPECTION_TOOLS.has(tool) || READ_ONLY_CODEBASE_MEMORY_TOOLS.has(tool)
+      ? DOOM_LOOP_READ_LIMIT
+      : DOOM_LOOP_LIMIT
+    if (history.length > limit) history.shift()
+    if (history.length < limit) return
     throw blocked(
-      `${tool} was called ${DOOM_LOOP_LIMIT} times in a row with identical input (doom_loop).`,
-      "Bound the wait inside one command instead of polling with the same call: widen the timeout, add a readiness loop, or change the input.",
+      `${tool} was called ${limit} times in a row with identical input (doom_loop).`,
+      limit === DOOM_LOOP_READ_LIMIT
+        ? "Reuse prior read output instead of re-reading identically."
+        : "Bound the wait inside one command instead of polling with the same call: widen the timeout, add a readiness loop, or change the input.",
     )
   }
 
@@ -390,6 +447,7 @@ export async function setupPipelineGuard(ctx, options = {}) {
     if (part.callID && loggedCalls.has(part.callID)) return
     const s = sessions.get(part.sessionID)
     if (!s || !s.pipeline) return
+    releaseInFlight(part.sessionID, part.callID)
     markLogged(part.callID)
     const error = clipText(part.state.error)
     record(part.sessionID, {
@@ -401,11 +459,13 @@ export async function setupPipelineGuard(ctx, options = {}) {
 
   function touchBusy(s) {
     const rec = rootRec(s)
-    if (!rec) return
-    if (!rec.busy) {
-      rec.busy = true
-      persist(rec, true)
-    } else persist(rec)
+    if (rec) {
+      if (!rec.busy) {
+        rec.busy = true
+        persist(rec, true)
+      } else persist(rec)
+    }
+    if (s && s.rootId !== s.sessionId) persistChild(s, true)
   }
 
   function ctxFor(s, cwd) {
@@ -417,6 +477,11 @@ export async function setupPipelineGuard(ctx, options = {}) {
   const blocked = (reason, hint = "") => new GuardBlock(`[pipeline-guard] Blocked: ${reason}${hint ? ` ${hint}` : ""}`)
 
   async function onIdle(sessionId) {
+    const s = sessions.get(sessionId)
+    releaseInFlight(sessionId)
+    if (s && s.pipeline && s.rootId !== sessionId) {
+      persistChild(s, false)
+    }
     const rec = roots.get(sessionId)
     if (!rec) return
     rec.busy = false
@@ -446,12 +511,35 @@ export async function setupPipelineGuard(ctx, options = {}) {
     persist(rec, true)
   }
 
+  async function onRootEnded(rootId) {
+    const root = roots.get(rootId)
+    const rootSession = sessions.get(rootId)
+    const info = infoFor(root?.cwd || rootSession?.directory || directory)
+    await onIdle(rootId)
+    for (const [id, session] of sessions) {
+      if (id !== rootId && session.pipeline && session.rootId === rootId) persistChild(session, false)
+    }
+    if (info) deleteRootChildren(info, rootId)
+  }
+
   const offExit = onProcessExit(() => {
     for (const id of steps.keys()) flushSteps(id)
+    const childRoots = new Map()
+    for (const [id, s] of sessions) {
+      if (s.pipeline && s.rootId !== id) {
+        persistChild(s, false)
+        childRoots.set(s.rootId, s.directory || directory)
+      }
+    }
+    inFlightWrites.clear()
     for (const rec of roots.values()) {
       if (rec.pid !== process.pid) continue
       const info = infoFor(rec.cwd)
       if (info) writeSession(info, { ...rec, busy: false, updatedAt: Date.now() })
+    }
+    for (const [rootId, cwd] of childRoots) {
+      const info = infoFor(cwd)
+      if (info && !readSession(info, rootId)) deleteRootChildren(info, rootId)
     }
   })
 
@@ -545,19 +633,28 @@ export async function setupPipelineGuard(ctx, options = {}) {
       if (!guardCtx) return
       const role = roleOf(s.agent)
       const args = event.input && typeof event.input === "object" ? event.input : {}
+      const writeRels = []
       if (isShellTool(event.tool)) {
         const cwd = typeof args.workdir === "string" ? path.resolve(guardCtx.cwd, args.workdir) : guardCtx.cwd
         const reason = checkBash(args.command, role, { ...guardCtx, cwd })
         if (reason) throw blocked(reason)
         if (s.rootKnown) {
           for (const rel of bashWriteTargets(args.command, { ...guardCtx, cwd })) {
-            const clash = conflictingClaims(guardCtx.info, s.rootId, rel)
+            const clash = conflictingClaims(guardCtx.info, s.rootId, rel, Date.now(), id)
             if (clash.length) {
               throw blocked(
                 `${rel} is being modified by another active opencode session (${clash.map((c) => c.sessionId).join(", ")}).`,
                 "Do not edit it now: finish the other work first or report the conflict to the orchestrator.",
               )
             }
+            const inFlight = inFlightConflict(guardCtx.info, s.rootId, rel, id)
+            if (inFlight) {
+              throw blocked(
+                `${rel} is being modified by another active opencode session (${inFlight.sessionId}).`,
+                "Do not edit it now: finish the other work first or report the conflict to the orchestrator.",
+              )
+            }
+            writeRels.push(rel)
           }
         }
       } else if (FILE_WRITE_TOOLS.has(event.tool)) {
@@ -567,17 +664,31 @@ export async function setupPipelineGuard(ctx, options = {}) {
           if (reason) throw blocked(`${event.tool}: ${reason}`)
           if (s.rootKnown) {
             const rel = toRel(guardCtx.info, abs)
-            const clash = rel ? conflictingClaims(guardCtx.info, s.rootId, rel) : []
+            const clash = rel ? conflictingClaims(guardCtx.info, s.rootId, rel, Date.now(), id) : []
             if (clash.length) {
               throw blocked(
                 `${rel} is being modified by another active opencode session (${clash.map((c) => c.sessionId).join(", ")}).`,
                 "Do not edit it now: finish the other work first or report the conflict to the orchestrator.",
               )
             }
+            const inFlight = rel ? inFlightConflict(guardCtx.info, s.rootId, rel, id) : null
+            if (inFlight) {
+              throw blocked(
+                `${rel} is being modified by another active opencode session (${inFlight.sessionId}).`,
+                "Do not edit it now: finish the other work first or report the conflict to the orchestrator.",
+              )
+            }
+            if (rel) writeRels.push(rel)
           }
         }
       }
       noteToolCall(id, event.tool, args)
+      const callID = callIdOf(event)
+      for (const rel of writeRels) {
+        const reservationId = `${callID || id}:${++writeReservationSequence}`
+        const key = `${guardCtx.info.stateDir}\u0000${s.rootId}\u0000${rel}\u0000${reservationId}`
+        inFlightWrites.set(key, { rootId: s.rootId, sessionId: id, callID })
+      }
     } catch (e) {
       if (e instanceof GuardBlock) {
         markLogged(callIdOf(event))
@@ -598,6 +709,7 @@ export async function setupPipelineGuard(ctx, options = {}) {
     const tool = event?.tool
     const args = event?.input && typeof event.input === "object" ? event.input : {}
     const callId = callIdOf(event)
+    releaseInFlight(id, callId)
     try {
       const s = sessions.get(id)
       if (s && s.pipeline && !(callId && loggedCalls.has(callId))) {
@@ -623,7 +735,8 @@ export async function setupPipelineGuard(ctx, options = {}) {
       const rec = rootRec(s)
       const info = infoFor(s.directory)
       if (!rec || !info) return
-      let changed = false
+      let rootChanged = false
+      let childChanged = false
       const baseCwd = typeof args.workdir === "string"
         ? path.resolve(s.directory || directory, args.workdir)
         : (s.directory || directory)
@@ -632,12 +745,26 @@ export async function setupPipelineGuard(ctx, options = {}) {
         : editTargets(tool, args)
       for (const target of targets) {
         const rel = isShellTool(tool) ? target : toRel(info, path.resolve(baseCwd, target))
-        if (rel && !rec.files[rel]) {
-          rec.files[rel] = Date.now()
-          changed = true
+        if (rel) {
+          const now = Date.now()
+          if (!rec.files[rel]) {
+            rec.files[rel] = now
+            rootChanged = true
+          }
+          if (s.rootId !== id) {
+            const child = s.childRec || persistChild(s, true)
+            if (child) {
+              child.files ||= {}
+              if (!child.files[rel]) {
+                child.files[rel] = now
+                childChanged = true
+              }
+            }
+          }
         }
       }
-      if (changed) persist(rec, true)
+      if (rootChanged) persist(rec, true)
+      if (childChanged) persistChild(s, true)
     } catch {
       /* fail open */
     }
@@ -693,7 +820,18 @@ export async function setupPipelineGuard(ctx, options = {}) {
       const ended = type === "session.deleted" || type === "session.end" || type === "session.ended" || type === "session.closed"
       if (ended) {
         const endedId = id || (props.info && typeof props.info.id === "string" ? props.info.id : undefined)
-        if (endedId) streaks.delete(endedId)
+        if (endedId) {
+          streaks.delete(endedId)
+          releaseInFlight(endedId)
+          const endedSession = sessions.get(endedId)
+          if (endedSession && endedSession.pipeline && endedSession.rootId !== endedId) persistChild(endedSession, false)
+          const root = roots.get(endedId)
+          const info = infoFor(root?.cwd || endedSession?.directory || directory)
+          const persistedRoot = info && readSession(info, endedId)
+          if (root || (endedSession?.pipeline && endedSession.rootId === endedId) || persistedRoot?.rootId === endedId) {
+            await onRootEnded(endedId)
+          }
+        }
       }
       if (type === "session.idle" && id) await onIdle(id)
       else if (type === "session.status" && id && props.status && props.status.type === "idle") await onIdle(id)

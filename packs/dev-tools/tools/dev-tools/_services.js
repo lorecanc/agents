@@ -19,9 +19,9 @@ import path from "node:path"
 import { execFileSync, spawn } from "node:child_process"
 import { randomBytes } from "node:crypto"
 
-import { ensureScratch, pidAlive, redact } from "./_repo.js"
+import { ensureScratch, isInside, pidAlive, realpathLoose, redact } from "./_repo.js"
 import {
-  envHint, findFreePort, groupAlive, isPortFree, killTree, portListening, runCommand, runtimeEnv, shQuote, waitReady,
+  envHint, findFreePort, groupAlive, isPortFree, killTree, parseEnvFile, portListening, runCommand, runtimeEnv, shQuote, waitReady,
 } from "./_run.js"
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -169,12 +169,17 @@ export async function detectDocker({ info, pathEnv = process.env.PATH, signal } 
 // ------------------------------------------------------------ processes
 
 /** Run `cmd` under the supervisor: own process group, dies with the owner process or at the TTL. */
-function spawnSupervised(cmd, { cwd, env, log, ttlS }) {
+function spawnSupervised(cmd, { cwd, env, log, ttlS, ownerPid = process.pid }) {
   const fd = fs.openSync(log, "a")
   const state = { exited: false, exitInfo: null }
-  const child = spawn("sh", ["-c", SUPERVISOR, "pipeline-supervisor", String(process.pid), String(ttlS)], {
-    cwd, env: { ...env, PIPELINE_SERVE_CMD: cmd }, detached: true, stdio: ["ignore", fd, fd],
-  })
+  let child
+  try {
+    child = spawn("sh", ["-c", SUPERVISOR, "pipeline-supervisor", String(ownerPid), String(ttlS)], {
+      cwd, env: { ...env, PIPELINE_SERVE_CMD: cmd }, detached: true, stdio: ["ignore", fd, fd],
+    })
+  } finally {
+    fs.closeSync(fd)
+  }
   child.unref()
   child.on("exit", (code, sig) => {
     state.exited = true
@@ -184,7 +189,6 @@ function spawnSupervised(cmd, { cwd, env, log, ttlS }) {
     state.exited = true
     state.exitInfo = { code: 127, error: e.message }
   })
-  fs.closeSync(fd)
   state.pid = child.pid
   return state
 }
@@ -195,6 +199,13 @@ const readFile = (f) => {
   } catch {
     return ""
   }
+}
+
+function readEnvFile(info, cwd, envFile) {
+  if (!envFile) return {}
+  const abs = realpathLoose(path.resolve(cwd || info.top, envFile))
+  if (!isInside(info.top, abs)) throw new Error("services.env_file must be inside the repository")
+  return parseEnvFile(abs)
 }
 
 async function waitPortFree(port, ms = 5000) {
@@ -236,19 +247,19 @@ async function startCustom(h, spec, ctx) {
   const subst = (s) => String(s).replaceAll("${PORT}", String(port))
   const exported = {}
   for (const [k, v] of Object.entries(spec.env || {})) exported[k] = subst(v)
-  const env = runtimeEnv(ctx.info, { ...ctx.inherited, ...exported, PORT: String(port) })
+  const fileEnv = readEnvFile(ctx.info, ctx.cwd, spec.env_file)
+  const env = runtimeEnv(ctx.info, { ...ctx.inherited, ...fileEnv, ...exported, PORT: String(port) })
   const log = path.join(ensureScratch(ctx.info), `service-${h.name}-${Date.now()}.log`)
-  const proc = spawnSupervised(subst(spec.start), { cwd: ctx.cwd, env, log, ttlS: ctx.ttlS })
-  h.started = true
-  h.stop = async () => {
-    if (spec.stop && groupAlive(proc.pid)) {
-      await runCommand(subst(spec.stop), { cwd: ctx.cwd, env, timeoutMs: 30000 })
-    }
-    await killTree(proc.pid)
-    const free = await waitPortFree(port)
-    h.cleanup = { process_stopped: !groupAlive(proc.pid), port_free: free }
-    fs.rmSync(log, { force: true })
+  h.log = log
+  h.cwd = ctx.cwd
+  if (spec.stop) {
+    h.stopCmd = subst(spec.stop)
+    h.envFile = spec.env_file || null
+    h.runtimeEnv = { ...exported, PORT: String(port) }
   }
+  const proc = spawnSupervised(subst(spec.start), { cwd: ctx.cwd, env, log, ttlS: ctx.ttlS, ownerPid: ctx.ownerPid })
+  h.started = true
+  h.supervisorPid = proc.pid
   const timeoutS = Math.min(Number(spec.ready && spec.ready.timeout_s) || 60, MAX_READY_S)
   const ready = await waitReady(spec.ready, {
     portNum: port, subst, readLog: () => readFile(log), isExited: () => proc.exited, timeoutMs: timeoutS * 1000, signal: ctx.signal,
@@ -298,12 +309,10 @@ async function startPostgresNative(h, spec, ctx, native) {
   const data = path.join(base, "data")
   const log = path.join(base, "postgres.log")
   const sock = socketDir(base)
-  const removeData = () => {
-    fs.rmSync(base, { recursive: true, force: true })
-    if (sock && sock.own) fs.rmSync(sock.dir, { recursive: true, force: true })
-    h.cleanup = { ...(h.cleanup || {}), data_removed: !fs.existsSync(base) }
-  }
-  h.stop = async () => removeData()
+  h.dataDir = base
+  h.sockDir = sock && sock.own ? sock.dir : null
+  h.log = log
+  h.cwd = base
   if (!sock) {
     h.status = "blocked"
     h.failure_class_hint = "env"
@@ -329,24 +338,9 @@ async function startPostgresNative(h, spec, ctx, native) {
     "exec", shQuote(native.postgres), "-D", shQuote(data), "-p", String(port), "-k", shQuote(sock.dir),
     "-c", "listen_addresses=127.0.0.1", "-c", "fsync=off", "-c", "synchronous_commit=off", "-c", "full_page_writes=off",
   ].join(" ")
-  const proc = spawnSupervised(cmd, { cwd: base, env, log, ttlS: ctx.ttlS })
+  const proc = spawnSupervised(cmd, { cwd: base, env, log, ttlS: ctx.ttlS, ownerPid: ctx.ownerPid })
   h.started = true
-  h.stop = async () => {
-    // Fast shutdown of the postmaster we started (its pid comes from OUR data directory), then the group.
-    const pid = Number(readFile(path.join(data, "postmaster.pid")).split("\n")[0])
-    if (Number.isInteger(pid) && pid > 1 && pidAlive(pid) && groupAlive(proc.pid)) {
-      try {
-        process.kill(pid, "SIGINT")
-      } catch {
-        /* gone */
-      }
-      for (let i = 0; i < 40 && pidAlive(pid); i++) await sleep(250)
-    }
-    await killTree(proc.pid)
-    const free = await waitPortFree(port)
-    h.cleanup = { process_stopped: !groupAlive(proc.pid), port_free: free }
-    removeData()
-  }
+  h.supervisorPid = proc.pid
   const timeoutS = Math.min(Number(spec.ready && spec.ready.timeout_s) || 60, MAX_READY_S)
   const t0 = Date.now()
   const isready = native.pgIsready
@@ -378,19 +372,17 @@ async function startPostgresDocker(h, spec, ctx, docker) {
   const name = `opencode-pipeline-pg-${process.pid}-${randomBytes(4).toString("hex")}`
   const env = runtimeEnv(ctx.info, { PATH: ctx.pathEnv })
   const log = path.join(ensureScratch(ctx.info), `service-${h.name}-${Date.now()}.log`)
+  h.containerName = name
+  h.dockerBin = docker.bin
+  h.pathEnv = ctx.pathEnv
+  h.cwd = ctx.info.top
+  h.log = log
   // Foreground `docker run --rm`: when the supervisor group is signalled, the CLI proxies the signal and the
   // container is removed, so the owner-death / TTL watch also covers the container.
   const cmd = `exec ${shQuote(docker.bin)} run --rm --name ${name} --label opencode-pipeline=1 -p 127.0.0.1:${port}:5432 -e POSTGRES_HOST_AUTH_METHOD=trust ${shQuote(`postgres:${tag}`)}`
-  const proc = spawnSupervised(cmd, { cwd: ctx.info.top, env, log, ttlS: ctx.ttlS })
+  const proc = spawnSupervised(cmd, { cwd: ctx.info.top, env, log, ttlS: ctx.ttlS, ownerPid: ctx.ownerPid })
   h.started = true
-  h.stop = async () => {
-    // Only the container this run created (unique name).
-    await runCommand(`${shQuote(docker.bin)} rm -f ${name}`, { cwd: ctx.info.top, env, timeoutMs: 30000 })
-    await killTree(proc.pid)
-    const free = await waitPortFree(port)
-    h.cleanup = { process_stopped: !groupAlive(proc.pid), port_free: free, container_removed: true }
-    fs.rmSync(log, { force: true })
-  }
+  h.supervisorPid = proc.pid
   // Allow for an image pull.
   const timeoutS = Math.min(Number(spec.ready && spec.ready.timeout_s) || MAX_READY_S, MAX_READY_S)
   const t0 = Date.now()
@@ -433,63 +425,170 @@ function publicView(h) {
     started: h.started, ready: h.ready, stopped: h.stopped, port: h.port ?? null,
   }
   for (const k of ["version", "ready_ms", "reason", "failure_class_hint", "note", "log_tail", "cleanup"]) if (h[k] !== undefined) out[k] = h[k]
-  out.env_keys = Object.keys(h.env || {})
+  out.env_keys = h.env_keys || Object.keys(h.env || {})
   return out
+}
+
+function serviceRecord(h) {
+  const record = {
+    name: h.name, kind: h.kind, how: h.how || null, status: h.status || "not_started",
+    started: Boolean(h.started), ready: Boolean(h.ready), stopped: Boolean(h.stopped), port: h.port ?? null,
+    supervisorPid: h.supervisorPid, log: h.log, cwd: h.cwd, stopCmd: h.stopCmd, envFile: h.envFile, runtimeEnv: h.runtimeEnv,
+    dataDir: h.dataDir, sockDir: h.sockDir, containerName: h.containerName, dockerBin: h.dockerBin, pathEnv: h.pathEnv,
+    env_keys: Object.keys(h.env || {}),
+  }
+  for (const k of ["version", "ready_ms", "reason", "failure_class_hint", "note", "log_tail", "cleanup"]) {
+    if (h[k] !== undefined) record[k] = h[k]
+  }
+  return JSON.parse(JSON.stringify(record))
+}
+
+/** Stop service records from a prior start, in reverse order. Records are JSON-safe for persisted lifecycles. */
+export async function stopManagedServices(info, records = []) {
+  for (const rec of [...records].reverse()) {
+    const errors = []
+    const noteError = (e) => errors.push(e.message)
+    if (rec.kind === "custom" && rec.stopCmd && groupAlive(rec.supervisorPid)) {
+      try {
+        await runCommand(rec.stopCmd, {
+          cwd: rec.cwd || info.top,
+          env: runtimeEnv(info, { ...readEnvFile(info, rec.cwd || info.top, rec.envFile), ...(rec.runtimeEnv || {}) }),
+          timeoutMs: 30000,
+        })
+      } catch (e) {
+        noteError(e)
+      }
+    } else if (rec.kind === "postgres" && rec.how === "native" && rec.dataDir && rec.supervisorPid && groupAlive(rec.supervisorPid)) {
+      // The postmaster pid is trusted only because it lives in this service's private data directory.
+      const pid = Number(readFile(path.join(rec.dataDir, "data", "postmaster.pid")).split("\n")[0])
+      if (Number.isInteger(pid) && pid > 1 && pidAlive(pid)) {
+        try {
+          process.kill(pid, "SIGINT")
+        } catch {
+          /* gone */
+        }
+        for (let i = 0; i < 40 && pidAlive(pid); i++) await sleep(250)
+      }
+    } else if (rec.kind === "postgres" && rec.how === "docker" && rec.dockerBin && rec.containerName) {
+      try {
+        await runCommand(`${shQuote(rec.dockerBin)} rm -f ${shQuote(rec.containerName)}`, {
+          cwd: rec.cwd || info.top,
+          env: runtimeEnv(info, { PATH: rec.pathEnv || process.env.PATH }),
+          timeoutMs: 30000,
+        })
+      } catch (e) {
+        noteError(e)
+      }
+    }
+
+    if (rec.supervisorPid) {
+      try {
+        await killTree(rec.supervisorPid)
+      } catch (e) {
+        noteError(e)
+      }
+    }
+    let free
+    if (rec.port) {
+      try {
+        free = await waitPortFree(rec.port)
+      } catch (e) {
+        noteError(e)
+      }
+    }
+    for (const target of [rec.dataDir, rec.sockDir, rec.log].filter(Boolean)) {
+      try {
+        fs.rmSync(target, { recursive: target === rec.dataDir || target === rec.sockDir, force: true })
+      } catch (e) {
+        noteError(e)
+      }
+    }
+
+    const cleanup = { ...(rec.cleanup || {}) }
+    if (rec.supervisorPid || rec.port) {
+      cleanup.process_stopped = !groupAlive(rec.supervisorPid)
+      if (rec.port) cleanup.port_free = free
+    }
+    if (rec.dataDir) cleanup.data_removed = !fs.existsSync(rec.dataDir)
+    if (rec.kind === "postgres" && rec.how === "docker" && rec.containerName) cleanup.container_removed = true
+    if (errors.length) cleanup.error = errors.join("; ")
+    rec.cleanup = cleanup
+    rec.stopped = rec.started ? Boolean(cleanup.process_stopped !== false) : false
+  }
+  return records
+}
+
+/**
+ * Start `names` (in order) from `defs`; caller owns returned records and must stop them.
+ * On startup failure, every attempted service is stopped before returning.
+ *   defs: { name: { ...spec, _cwd } }   probe: { path, wellKnownDirs } (tests / unusual installs)
+ */
+export async function startManagedServices({
+  info, defs, names, cwd, signal, ttlS = DEFAULT_SERVICE_TTL_S, minTtlS = 60, ownerPid = process.pid, probe = {},
+}) {
+  const handles = []
+  const ttl = Math.min(MAX_SERVICE_TTL_S, Math.max(minTtlS, Math.round(Number(ttlS) || DEFAULT_SERVICE_TTL_S)))
+  const pathEnv = probe.path ?? process.env.PATH
+  const inherited = {}
+  let failed = null
+
+  for (const name of names || []) {
+    const spec = defs && defs[name]
+    const h = { name, kind: spec?.kind || "custom", started: false, ready: false, stopped: false, env: {} }
+    handles.push(h)
+    if (!spec) {
+      h.status = "error"
+      h.failure_class_hint = "harness"
+      h.reason = `unknown service ${name}`
+      failed = h
+      break
+    }
+    if (signal && signal.aborted) {
+      h.status = "aborted"
+      h.failure_class_hint = "harness"
+      h.reason = "aborted"
+      failed = h
+      break
+    }
+    const ctx = {
+      info, cwd: spec._cwd || cwd || info.top, signal, ttlS: ttl, ownerPid, pathEnv,
+      wellKnownDirs: probe.wellKnownDirs, inherited: { ...inherited },
+    }
+    try {
+      if (spec.kind === "postgres") await startPostgres(h, spec, ctx)
+      else await startCustom(h, spec, ctx)
+    } catch (e) {
+      h.status = "error"
+      h.failure_class_hint = "harness"
+      h.reason = e.message
+    }
+    if (h.status !== "ready") {
+      failed = h
+      break
+    }
+    // Later services see the env of earlier ones (an API that needs the database).
+    Object.assign(inherited, h.env)
+  }
+
+  if (failed) {
+    await stopManagedServices(info, handles)
+    return { ok: false, failed: publicView(failed), services: handles.map(publicView), env: {}, records: [] }
+  }
+  return { ok: true, services: handles.map(publicView), env: { ...inherited }, records: handles.map(serviceRecord) }
 }
 
 /**
  * Start `names` (in order) from `defs`, run fn(env), then ALWAYS stop them (reverse order).
  * Returns { ok: true, value, services } or { ok: false, failed, services } (fn is not called).
- *   defs: { name: { ...spec, _cwd } }   probe: { path, wellKnownDirs } (tests / unusual installs)
  */
-export async function withServices({ info, defs, names, cwd, signal, ttlS = DEFAULT_SERVICE_TTL_S, probe = {} }, fn) {
-  const handles = []
-  const ttl = Math.min(MAX_SERVICE_TTL_S, Math.max(60, Math.round(Number(ttlS) || DEFAULT_SERVICE_TTL_S)))
-  const pathEnv = probe.path ?? process.env.PATH
-  let failed = null
+export async function withServices(options, fn) {
+  const managed = await startManagedServices(options)
+  if (!managed.ok) return { ok: false, failed: managed.failed, services: managed.services }
   let value
-  const inherited = {}
   try {
-    for (const name of names) {
-      const spec = defs[name]
-      const h = { name, kind: spec.kind || "custom", started: false, ready: false, stopped: false, env: {} }
-      handles.push(h)
-      if (signal && signal.aborted) {
-        h.status = "aborted"
-        h.failure_class_hint = "harness"
-        h.reason = "aborted"
-        failed = h
-        break
-      }
-      const ctx = {
-        info, cwd: spec._cwd || cwd || info.top, signal, ttlS: ttl, pathEnv, wellKnownDirs: probe.wellKnownDirs, inherited: { ...inherited },
-      }
-      try {
-        if (spec.kind === "postgres") await startPostgres(h, spec, ctx)
-        else await startCustom(h, spec, ctx)
-      } catch (e) {
-        h.status = "error"
-        h.failure_class_hint = "harness"
-        h.reason = e.message
-      }
-      if (h.status !== "ready") {
-        failed = h
-        break
-      }
-      // Later services see the env of earlier ones (an API that needs the database).
-      Object.assign(inherited, h.env)
-    }
-    if (!failed) value = await fn({ ...inherited })
+    value = await fn(managed.env)
   } finally {
-    for (const h of [...handles].reverse()) {
-      try {
-        if (h.stop) await h.stop()
-      } catch (e) {
-        h.cleanup = { ...(h.cleanup || {}), error: e.message }
-      }
-      h.stopped = h.started ? Boolean(h.cleanup && h.cleanup.process_stopped !== false) : false
-    }
+    await stopManagedServices(options.info, managed.records)
   }
-  const services = handles.map(publicView)
-  return failed ? { ok: false, failed: publicView(failed), services } : { ok: true, value, services }
+  return { ok: true, value, services: managed.records.map(publicView) }
 }

@@ -5,6 +5,8 @@ description: Uses Chrome DevTools MCP for accessibility (a11y) debugging and aud
 
 ## Core Concepts
 
+If the active agent has `shell` access, it may run CLI commands in this skill directly. If `shell` is disabled, as for the read-only `chrome-devtools` diagnostic agent, use `chrome-devtools_*` MCP tools directly where applicable and provide any required host CLI command for the user or calling build/ops agent to execute.
+
 **Accessibility Tree vs DOM**: Visually hiding an element (e.g., `CSS opacity: 0`) behaves differently for screen readers than `display: none` or `aria-hidden="true"`. The `take_snapshot` tool returns the accessibility tree of the page, which represents what assistive technologies "see", making it the most reliable source of truth for semantic structure.
 
 **Reading web.dev documentation**: If you need to research specific accessibility guidelines (like `https://web.dev/articles/accessible-tap-targets`), you can append `.md.txt` to the URL (e.g., `https://web.dev/articles/accessible-tap-targets.md.txt`) to fetch the clean, raw markdown version. This is much easier to read!
@@ -22,8 +24,8 @@ Start by running a Lighthouse accessibility audit to get a comprehensive baselin
     - Check `scores` (0-1 scale). A score < 1 indicates violations.
     - Review `audits.failed` count.
 3.  **Review the Report (CRITICAL)**:
-    - **Parsing**: Do not read the entire file line-by-line. Use a CLI tool like `jq` or a Node.js one-liner to filter for failures:
-      ```bash
+      - **Parsing**: Do not read the entire file line-by-line. Use a CLI tool like `jq` or a Node.js one-liner to filter for failures when the active agent has `shell` access. Otherwise, use available `chrome-devtools_*` MCP tools directly and provide this command for the user or calling build/ops agent to execute:
+       ```bash
       # Extract failing audits with their details
       node -e "const r=require('./report.json'); Object.values(r.audits).filter(a=>a.score!==null && a.score<1).forEach(a=>console.log(JSON.stringify({id:a.id, title:a.title, items:a.details?.items})))"
       ```

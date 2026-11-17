@@ -123,6 +123,11 @@ Follow the repository's `AGENTS.md`.
    conversation switches to `flow-build`, which implements it. If not, revise the plan with their
    feedback and call it again.
 
+When work involves databases, Docker, monorepo workspace selection, or runtime smoke/browser checks,
+call `dev_env` once and reflect the host's capabilities in the plan's **Verification** section. For a
+bug-fix plan, make writing and running a focused failing reproduction test (when automated testing is
+feasible) the first implementation step after `flow_plan_exit` approval.
+
 Your turn ends only with `question` (to clarify) or `flow_plan_exit` (to get the plan approved). Never
 ask "is this plan ok?", "should I proceed?" or similar in text or with `question`: `flow_plan_exit` is
 how you ask. The exception is a request that is not an implementation (research, an explanation):

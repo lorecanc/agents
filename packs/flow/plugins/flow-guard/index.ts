@@ -49,6 +49,9 @@ export async function setupFlowGuard(ctx, options = {}) {
   const directory = ctx?.location?.directory || process.cwd()
   /** sessionId -> agent name */
   const agents = new Map()
+  /** sessionId -> parent sessionId, or null for a root */
+  const parents = new Map()
+  let epoch = 0
   /** sessionId -> true once the session called dev_serve */
   const served = new Set()
   /** sessionId -> (absolute path -> file stamp at the last read or own edit) */
@@ -59,6 +62,23 @@ export async function setupFlowGuard(ctx, options = {}) {
     if (typeof dispose === "function") disposers.push(dispose)
   }
 
+  const forgetSession = (id) => {
+    agents.delete(id)
+    parents.delete(id)
+    served.delete(id)
+    seen.delete(id)
+  }
+  const makeRoom = (collection, id) => {
+    if (collection.size >= MAX_SESSIONS && !collection.has(id)) {
+      const oldest = collection instanceof Set ? collection.values().next().value : collection.keys().next().value
+      forgetSession(oldest)
+    }
+  }
+  const setParent = (id, parent) => {
+    makeRoom(parents, id)
+    parents.set(id, parent)
+  }
+
   const infoFor = (cwd) => {
     const key = cwd || directory
     if (!infos.has(key)) infos.set(key, repoInfo(key))
@@ -67,9 +87,65 @@ export async function setupFlowGuard(ctx, options = {}) {
   const remember = (event) => {
     const id = event?.sessionID || event?.sessionId
     const agent = event?.agent
-    if (!id || typeof agent !== "string" || INTERNAL_AGENTS.has(agent)) return
-    if (agents.size >= MAX_SESSIONS && !agents.has(id)) agents.delete(agents.keys().next().value)
+    if (!id) return
+    if (event && (Object.hasOwn(event, "parentID") || Object.hasOwn(event, "parentId"))) {
+      const parent = event.parentID !== undefined ? event.parentID : event.parentId
+      if (parent === null || typeof parent === "string") {
+        const normalized = parent || null
+        epoch++
+        setParent(id, normalized)
+      }
+    }
+    if (typeof agent !== "string" || INTERNAL_AGENTS.has(agent)) return
+    epoch++
+    makeRoom(agents, id)
     agents.set(id, agent)
+  }
+  const parentOf = async (id) => {
+    if (parents.has(id)) return parents.get(id)
+    try {
+      const lookupEpoch = epoch
+      const response = await ctx.session?.get?.({ sessionID: id })
+      if (lookupEpoch !== epoch) return parents.has(id) ? parents.get(id) : undefined
+      const data = response && response.data !== undefined ? response.data : response
+      if (!data || typeof data !== "object") return undefined
+      const hasId = Object.hasOwn(data, "id")
+      const hasParentID = Object.hasOwn(data, "parentID")
+      const hasParentId = Object.hasOwn(data, "parentId")
+      if (!hasId && !hasParentID && !hasParentId) return undefined
+      const rawParent = data.parentID !== undefined ? data.parentID : data.parentId
+      if (rawParent === undefined && !hasId) return undefined
+      const parent = rawParent === undefined ? null : rawParent
+      if (parent !== null && typeof parent !== "string") return undefined
+      setParent(id, parent || null)
+      return parent || null
+    } catch {
+      /* session lookup is fail-open */
+      return undefined
+    }
+  }
+  const resolveEffectiveRole = async (id) => {
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const startEpoch = epoch
+      const visited = new Set([id])
+      let current = id
+      let retry = false
+      for (let depth = 0; depth < 8; depth++) {
+        const agent = agents.get(current)
+        if (isFlowAgent(agent)) return flowRole(agent)
+        const lookupEpoch = epoch
+        const parent = await parentOf(current)
+        if (lookupEpoch !== epoch) {
+          retry = true
+          break
+        }
+        if (parent === undefined || parent === null || visited.has(parent)) break
+        visited.add(parent)
+        current = parent
+      }
+      if (!retry && startEpoch === epoch) return undefined
+    }
+    return undefined
   }
   const blocked = (reason) => new GuardBlock(`[flow-guard] Blocked: ${reason}`)
   const filePathOf = (args) => {
@@ -104,12 +180,15 @@ export async function setupFlowGuard(ctx, options = {}) {
   keep(ctx.tool.hook("execute.before", async (event) => {
     try {
       const id = event?.sessionID || event?.sessionId
-      const agent = agents.get(id)
-      if (!isFlowAgent(agent)) return
-      const role = flowRole(agent)
+      if (!id) return
+      const role = await resolveEffectiveRole(id)
+      if (!role) return
       const args = event.input && typeof event.input === "object" ? event.input : {}
       const info = infoFor(directory)
-      if (event.tool === "dev_serve") served.add(id)
+      if (event.tool === "dev_serve") {
+        makeRoom(served, id)
+        served.add(id)
+      }
       if (READ_TOOLS.has(event.tool)) {
         const fp = args.filePath ?? args.file_path ?? args.path
         if (isSecretEnvFile(fp)) throw blocked(`reading ${path.basename(fp)} is not allowed (secrets). Use .env.example or ask the user which variables are set.`)
@@ -140,7 +219,9 @@ export async function setupFlowGuard(ctx, options = {}) {
   keep(ctx.tool.hook("execute.after", async (event) => {
     try {
       const id = event?.sessionID || event?.sessionId
-      if (!isFlowAgent(agents.get(id)) || event?.status === "error") return
+      if (!id) return
+      const role = await resolveEffectiveRole(id)
+      if (!role || event?.status === "error") return
       const args = event.input && typeof event.input === "object" ? event.input : {}
       if (READ_TOOLS.has(event.tool)) {
         const read = filePathOf(args)
@@ -186,6 +267,7 @@ export async function setupFlowGuard(ctx, options = {}) {
       }
     }
     agents.clear()
+    parents.clear()
     served.clear()
     seen.clear()
   }

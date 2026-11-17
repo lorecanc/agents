@@ -116,6 +116,20 @@ export function readActivity(info, rootId) {
 
 const isReject = (d) => typeof d === "string" && /^(reject|rejected|deny|denied)$/i.test(d)
 
+export function deleteRootChildren(info, rootId, { force = false, now = Date.now() } = {}) {
+  let deleted = 0
+  for (const rec of listSessions(info)) {
+    if (rec.rootId !== rootId || rec.sessionId === rootId || (!force && isLive(rec, now))) continue
+    try {
+      deleteSession(info, rec.sessionId)
+      deleted++
+    } catch {
+      /* ignore records removed concurrently */
+    }
+  }
+  return deleted
+}
+
 /** Aggregate activity events (see appendActivity) for pipeline_state. */
 export function summarizeActivity(events, { lastN = 30 } = {}) {
   const perAgent = {}
@@ -203,6 +217,7 @@ export function removeStaleSessions(info, now = Date.now(), maxAgeMs = 7 * 24 * 
       } catch {
         /* ignore */
       }
+      if (rec.sessionId === rec.rootId) deleteRootChildren(info, rec.sessionId, { now })
       try {
         if (rec.sessionId === rec.rootId) fs.unlinkSync(activityLogPath(info, rec.sessionId))
       } catch {
@@ -210,6 +225,16 @@ export function removeStaleSessions(info, now = Date.now(), maxAgeMs = 7 * 24 * 
       }
     } else if (rec.rootId) kept.add(rec.rootId)
   }
+  const rootsOnDisk = new Set(listSessions(info).filter((rec) => rec.sessionId === rec.rootId).map((rec) => rec.sessionId))
+  for (const rec of listSessions(info)) {
+    if (rec.sessionId === rec.rootId || rootsOnDisk.has(rec.rootId) || isLive(rec, now)) continue
+    try {
+      deleteSession(info, rec.sessionId)
+    } catch {
+      /* ignore */
+    }
+  }
+  for (const rec of listSessions(info)) if (rec.rootId) kept.add(rec.rootId)
   // Orphan logs (no session record left) are removed once they are old enough.
   let names = []
   try {
@@ -228,9 +253,12 @@ export function removeStaleSessions(info, now = Date.now(), maxAgeMs = 7 * 24 * 
   }
 }
 
-export function conflictingClaims(info, rootId, rel, now = Date.now()) {
+export function conflictingClaims(info, rootId, rel, now = Date.now(), callerSessionId = null) {
   return listSessions(info)
-    .filter((r) => r.sessionId === r.rootId && r.sessionId !== rootId && isLive(r, now) && r.files && r.files[rel])
+    .filter((r) => isLive(r, now) && r.files?.[rel] && (
+      (r.sessionId === r.rootId && r.sessionId !== rootId)
+      || (callerSessionId && callerSessionId !== rootId && r.rootId === rootId && r.sessionId !== rootId && r.sessionId !== callerSessionId)
+    ))
     .map((r) => ({ sessionId: r.sessionId, agent: r.agent, claimedAt: r.files[rel] }))
 }
 
@@ -245,10 +273,10 @@ function normalizeRel(info, p) {
 
 /**
  * Decide what a scoped commit may contain.
- *  commit      : files the session touched (claimed ∪ expected) that are really changed
+ *  commit      : files listed in expected (or claimed when expected is empty) that are really changed
  *  conflicts   : touched files that were ALREADY dirty before the session (cannot be split)
  *  notChanged  : listed files with no change
- *  unattributed: changed files that no one claimed and that were not dirty before
+ *  unattributed: changed files that were neither claimed nor expected and were not dirty before
  *  rejected    : listed paths that are invalid or outside the repository
  */
 export function planCommit(info, rootRec, expected = []) {
@@ -262,12 +290,16 @@ export function planCommit(info, rootRec, expected = []) {
   const baselineDirty = new Set((rootRec && rootRec.baseline && rootRec.baseline.dirty) || [])
   const rejected = []
   const wanted = new Set()
-  for (const p of claimed) wanted.add(p)
-  for (const p of expected) {
+  const hasExpected = Array.isArray(expected) && expected.length > 0
+  const useClaimed = expected === undefined || (Array.isArray(expected) && expected.length === 0)
+  if (useClaimed) for (const p of claimed) wanted.add(p)
+  if (hasExpected) for (const p of expected) {
     const rel = normalizeRel(info, p)
     if (rel) wanted.add(rel)
     else rejected.push(p)
   }
+  const claimedOnly = claimed.filter((p) => !wanted.has(p)).sort()
+  const claimedOnlySet = new Set(claimedOnly)
   const commit = new Set()
   const conflicts = []
   const notChanged = []
@@ -281,7 +313,7 @@ export function planCommit(info, rootRec, expected = []) {
     }
   }
   const unattributed = items
-    .filter((it) => !wanted.has(it.path) && !baselineDirty.has(it.path))
+    .filter((it) => !wanted.has(it.path) && !claimedOnlySet.has(it.path) && !(it.orig && claimedOnlySet.has(it.orig)) && !baselineDirty.has(it.path))
     .map((it) => it.path)
   return {
     commit: [...commit].sort(),
@@ -289,7 +321,7 @@ export function planCommit(info, rootRec, expected = []) {
     notChanged: notChanged.sort(),
     unattributed: unattributed.sort(),
     rejected,
-    claimedOnly: claimed.filter((p) => !(expected || []).some((e) => normalizeRel(info, e) === p)).sort(),
+    claimedOnly,
   }
 }
 

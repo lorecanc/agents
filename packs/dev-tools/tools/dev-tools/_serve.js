@@ -16,7 +16,7 @@ import { ensureScratch, isInside, pidAlive, realpathLoose, redact, withLock } fr
 import {
   envHint, findFreePort, groupAlive, isPortFree, killTree, loadContract, parseEnvFile, portListening, runtimeEnv, waitReady,
 } from "./_run.js"
-import { SUPERVISOR } from "./_services.js"
+import { startManagedServices, stopManagedServices, SUPERVISOR } from "./_services.js"
 
 export const DEFAULT_TTL_S = 900
 export const MAX_TTL_S = 3600
@@ -39,7 +39,7 @@ function writeService(info, rec) {
   if (!fs.existsSync(info.common)) return
   fs.mkdirSync(serveDir(info), { recursive: true })
   const tmp = `${recordFile(info)}.${process.pid}.tmp`
-  fs.writeFileSync(tmp, JSON.stringify(rec))
+  fs.writeFileSync(tmp, JSON.stringify(rec), { mode: 0o600 })
   fs.renameSync(tmp, recordFile(info))
 }
 
@@ -58,8 +58,9 @@ const alive = (rec) => Boolean(rec && groupAlive(rec.supervisorPid))
 const ending = (rec, now = Date.now()) => Boolean(rec && (now >= rec.expiresAt || !pidAlive(rec.ownerPid)))
 
 async function reapIfEnding(info, rec) {
-  if (!rec || !ending(rec)) return false
+  if (!rec || (!ending(rec) && alive(rec))) return false
   if (alive(rec)) await killTree(rec.supervisorPid, 500)
+  if (rec.dependentServices?.length) await stopManagedServices(info, rec.dependentServices)
   return true
 }
 const tail = (text, n) => redact(text.length > n ? "…" + text.slice(-n) : text)
@@ -83,15 +84,15 @@ function serveSpec(info) {
     }
   })()
   const spec = raw && raw.serve && typeof raw.serve.start === "string" ? raw.serve : contract.smoke
-  if (spec) return { spec, problems, smokeHint, from: raw && raw.serve && typeof raw.serve.start === "string" ? "serve" : "smoke" }
+  if (spec) return { spec, problems, smokeHint, from: raw && raw.serve && typeof raw.serve.start === "string" ? "serve" : "smoke", contract }
   const auto = contract.autodetected_smoke || (smokeHint && typeof smokeHint.start === "string" && smokeHint.start.trim() ? smokeHint : null)
-  if (auto) return { spec: auto, problems, smokeHint, from: "autodetect" }
-  return { spec: null, problems, smokeHint, from: "smoke" }
+  if (auto) return { spec: auto, problems, smokeHint, from: "autodetect", contract }
+  return { spec: null, problems, smokeHint, from: "smoke", contract }
 }
 
 function describe(info, rec) {
   const remaining = Math.max(0, Math.round((rec.expiresAt - Date.now()) / 1000))
-  return {
+  const out = {
     status: "running",
     url: rec.url,
     port: rec.port,
@@ -99,6 +100,8 @@ function describe(info, rec) {
     owner_session: rec.ownerRoot,
     started_at: new Date(rec.startedAt).toISOString(),
   }
+  if (rec.servicesSummary !== undefined) out.services = rec.servicesSummary
+  return out
 }
 
 export async function serviceStatus(info) {
@@ -118,9 +121,12 @@ export async function serviceStatus(info) {
  * Start the service (idempotent: an already running one is reused).
  * ownerRoot: root session that owns it. ownerPid: process whose death stops it (opencode itself).
  */
-export async function startService({ info, ownerRoot, ownerPid = process.pid, ttlS = DEFAULT_TTL_S, signal }) {
+export async function startService({
+  info, ownerRoot, ownerPid = process.pid, ttlS = DEFAULT_TTL_S, signal,
+  withServices = false, serviceOptions,
+}) {
   const ttl = Math.min(MAX_TTL_S, Math.max(1, Math.round(Number(ttlS) || DEFAULT_TTL_S)))
-  const { spec, problems, smokeHint, from } = serveSpec(info)
+  const { spec, problems, smokeHint, from, contract } = serveSpec(info)
   if (!spec) {
     return {
       status: "inconclusive",
@@ -130,12 +136,40 @@ export async function startService({ info, ownerRoot, ownerPid = process.pid, tt
       suggested_serve: smokeHint,
     }
   }
+  const serviceNames = Array.isArray(spec.services) ? spec.services : []
+  if (withServices && serviceNames.length) {
+    const defs = contract?.services || {}
+    const unknown = serviceNames.filter((name) => typeof name !== "string" || !Object.hasOwn(defs, name))
+    if (unknown.length) {
+      return {
+        status: "error",
+        failure_class_hint: "harness",
+        reason: `unknown service(s) ${unknown.join(", ")}; defined: ${Object.keys(defs).sort().join(", ") || "none"}`,
+      }
+    }
+  }
   const body = async () => {
+    let managedRecords = null
+    let serverPid = null
+    let fd
+    let log
+    let rec
+    let child
     const existing = readService(info)
     if (existing && (await reapIfEnding(info, existing))) {
       dropService(info, existing)
     } else if (existing && alive(existing)) {
-      return { ...describe(info, existing), reused: true, shared: existing.ownerRoot !== ownerRoot }
+      if (withServices && serviceNames.length && !existing.dependentServices?.length) {
+        if (existing.ownerRoot !== ownerRoot && pidAlive(existing.ownerPid)) {
+          return {
+            status: "blocked", failure_class_hint: "harness",
+            reason: `the running service belongs to another active session (${existing.ownerRoot}) and cannot be upgraded to manage declared services`,
+          }
+        }
+        await stopService({ info, callerRoot: ownerRoot, force: true })
+      } else {
+        return { ...describe(info, existing), reused: true, shared: existing.ownerRoot !== ownerRoot }
+      }
     } else if (existing) dropService(info, existing)
 
     let port
@@ -153,70 +187,108 @@ export async function startService({ info, ownerRoot, ownerPid = process.pid, tt
       if (!isInside(info.top, abs)) return { status: "error", failure_class_hint: "harness", reason: "env_file must be inside the repository" }
       fileEnv = parseEnvFile(abs)
     }
-    const extra = {}
-    for (const [k, v] of Object.entries(spec.env || {})) extra[k] = subst(v)
-    const env = { ...runtimeEnv(info, { ...fileEnv, ...extra, PORT: String(port) }), PIPELINE_SERVE_CMD: subst(spec.start) }
-
-    const scratch = ensureScratch(info)
-    const log = path.join(scratch, `serve-${Date.now()}.log`)
-    const fd = fs.openSync(log, "a")
-    let exited = false
-    const child = spawn("sh", ["-c", SUPERVISOR, "pipeline-supervisor", String(ownerPid), String(ttl)], {
-      cwd: info.top,
-      env,
-      detached: true,
-      stdio: ["ignore", fd, fd],
-    })
-    child.unref()
-    child.on("exit", () => {
-      exited = true
-    })
-    child.on("error", () => {
-      exited = true
-    })
-    fs.closeSync(fd)
     const urlTemplate = typeof spec.url === "string" ? spec.url : "http://127.0.0.1:${PORT}/"
     const url = subst(urlTemplate)
     try {
       if (!new URL(url).hostname.match(/^(localhost|127\.0\.0\.1|\[::1\]|::1)$/)) {
-        await killTree(child.pid)
-        fs.rmSync(log, { force: true })
         return { status: "error", failure_class_hint: "harness", reason: `serve url must target localhost (got ${url})` }
       }
     } catch {
-      await killTree(child.pid)
-      fs.rmSync(log, { force: true })
       return { status: "error", failure_class_hint: "harness", reason: `invalid serve url ${url}` }
     }
-    const rec = {
-      name: SERVICE, supervisorPid: child.pid, ownerPid, ownerRoot, port, url, startedAt: Date.now(), expiresAt: Date.now() + ttl * 1000, ttlS: ttl, log, spec: from,
-    }
-    writeService(info, rec)
 
-    const timeoutS = Math.min(Number(spec.ready && spec.ready.timeout_s) || 60, 180)
-    const ready = await waitReady(spec.ready, {
-      portNum: port, subst, readLog: () => { try { return fs.readFileSync(log, "utf8") } catch { return "" } }, isExited: () => exited, timeoutMs: timeoutS * 1000, signal,
-    })
-    if (!ready.ok) {
-      const text = readTail(log, 5000)
-      await killTree(child.pid)
-      dropService(info, rec)
-      return {
-        status: "fail",
-        phase: "ready",
-        reason: ready.reason,
-        failure_class_hint: ready.harness ? "harness" : envHint(text) ? "env" : ready.exited ? "unclassified" : "harness",
-        log_tail: text,
-        ...(ready.exited && !envHint(text) ? { note: "the service stopped at startup without an environment signature: read log_tail and decide between a code defect and an environment problem" } : {}),
+    try {
+      let managed = { env: {}, services: [], records: [] }
+      if (withServices && serviceNames.length) {
+        managed = await startManagedServices({
+          info, defs: contract.services, names: serviceNames, cwd: info.top,
+          signal, ttlS: ttl, minTtlS: 1, ownerPid, probe: serviceOptions || {},
+        })
+        if (!managed.ok) {
+          return {
+            status: managed.failed.status === "blocked" ? "blocked" : "fail",
+            phase: "services",
+            failure_class_hint: managed.failed.failure_class_hint || "env",
+            reason: managed.failed.reason,
+            services: managed.services,
+          }
+        }
+        managedRecords = managed.records
       }
-    }
-    const deps = Array.isArray(spec.services) && spec.services.length
-      ? ` The ${from} section declares services (${spec.services.join(", ")}): dev_serve does not start them, so they must already be reachable.`
-      : ""
-    return {
-      ...describe(info, rec),
-      ready_ms: ready.ms,
-      note: `Stops by itself in ${ttl}s, when this opencode process ends, or on dev_serve stop. Always call stop when you are done.${deps}`,
+      const extra = {}
+      for (const [k, v] of Object.entries(spec.env || {})) extra[k] = subst(v)
+      const env = { ...runtimeEnv(info, { ...fileEnv, ...managed.env, ...extra, PORT: String(port) }), PIPELINE_SERVE_CMD: subst(spec.start) }
+
+      const scratch = ensureScratch(info)
+      log = path.join(scratch, `serve-${Date.now()}.log`)
+      let exited = false
+      fd = fs.openSync(log, "a")
+      child = spawn("sh", ["-c", SUPERVISOR, "pipeline-supervisor", String(ownerPid), String(ttl)], {
+        cwd: info.top,
+        env,
+        detached: true,
+        stdio: ["ignore", fd, fd],
+      })
+      serverPid = child.pid
+      child.unref()
+      child.on("exit", () => {
+        exited = true
+      })
+      child.on("error", () => {
+        exited = true
+      })
+      fs.closeSync(fd)
+      fd = undefined
+      rec = {
+        name: SERVICE, supervisorPid: child.pid, ownerPid, ownerRoot, port, url, startedAt: Date.now(), expiresAt: Date.now() + ttl * 1000, ttlS: ttl, log, spec: from,
+        ...(managedRecords?.length ? { dependentServices: managedRecords, servicesSummary: managed.services } : {}),
+      }
+      writeService(info, rec)
+
+      const timeoutS = Math.min(Number(spec.ready && spec.ready.timeout_s) || 60, 180)
+      const ready = await waitReady(spec.ready, {
+        portNum: port, subst, readLog: () => { try { return fs.readFileSync(log, "utf8") } catch { return "" } }, isExited: () => exited, timeoutMs: timeoutS * 1000, signal,
+      })
+      if (!ready.ok) {
+        const text = readTail(log, 5000)
+        await killTree(child.pid)
+        serverPid = null
+        if (managedRecords?.length) await stopManagedServices(info, managedRecords)
+        managedRecords = null
+        dropService(info, rec)
+        rec = null
+        return {
+          status: "fail",
+          phase: "ready",
+          reason: ready.reason,
+          failure_class_hint: ready.harness ? "harness" : envHint(text) ? "env" : ready.exited ? "unclassified" : "harness",
+          log_tail: text,
+          ...(ready.exited && !envHint(text) ? { note: "the service stopped at startup without an environment signature: read log_tail and decide between a code defect and an environment problem" } : {}),
+        }
+      }
+      const deps = Array.isArray(spec.services) && spec.services.length && !managedRecords?.length
+        ? ` The ${from} section declares services (${spec.services.join(", ")}): dev_serve does not start them, so they must already be reachable.`
+        : ""
+      return {
+        ...describe(info, rec),
+        ready_ms: ready.ms,
+        note: `Stops by itself in ${ttl}s, when this opencode process ends, or on dev_serve stop. Always call stop when you are done.${deps}`,
+      }
+    } catch (e) {
+      if (fd !== undefined) {
+        try { fs.closeSync(fd) } catch { /* already closed */ }
+      }
+      if (serverPid) {
+        try { await killTree(serverPid) } catch { /* best-effort cleanup */ }
+      }
+      if (managedRecords?.length) {
+        try { await stopManagedServices(info, managedRecords) } catch { /* best-effort cleanup */ }
+      }
+      try { dropService(info, rec) } catch { /* partial state may not have a writable parent */ }
+      if (log) {
+        try { fs.rmSync(log, { force: true }) } catch { /* best-effort cleanup */ }
+      }
+      return { status: "error", failure_class_hint: "harness", reason: e.message }
     }
   }
   try {
@@ -242,6 +314,7 @@ export async function stopService({ info, callerRoot, force = false }) {
     if (!free) await sleep(250)
   }
   const stopped = !groupAlive(rec.supervisorPid)
+  if (rec.dependentServices?.length) await stopManagedServices(info, rec.dependentServices)
   dropService(info, rec)
   return { status: "stopped", process_stopped: stopped, port_free: free, log_tail: log }
 }

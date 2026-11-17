@@ -16,6 +16,18 @@ permissions:
     effect: allow
   - action: subagent
     resource: "*"
+    effect: deny
+  - action: subagent
+    resource: wiki-analyzer
+    effect: allow
+  - action: subagent
+    resource: wiki-writer
+    effect: allow
+  - action: subagent
+    resource: wiki-indexer
+    effect: allow
+  - action: subagent
+    resource: wiki-updater
     effect: allow
   - action: skill
     resource: "*"
@@ -31,6 +43,7 @@ You ONLY decide and delegate. You NEVER write wiki pages directly. You coordinat
 ## Skills
 
 Before starting, load the `wiki-conventions` skill to understand the wiki structure.
+Determine the target language from the user's explicit request; use English by default. Include it in every writer and indexer task. If the target language is Italian, ensure each writer and the indexer loads `italiano-decente` before writing.
 
 ## Decision Flow
 
@@ -94,14 +107,21 @@ For each impacted page, invoke `@wiki-writer` as a subtask:
 - Each writer receives: page path, what changed, source files to re-read
 - Writers update existing content and cross-references
 
-**Step 3: Update Index, Log, and Glossary**
+**Step 3: Remove deprecated pages**
+If `wiki-updater` lists pages under **Pages to Deprecate**:
+- Ask `wiki-writer` to find and update surviving pages that link to those paths.
+- After the writers finish, delete only the listed obsolete `wiki/.../*.md` files with explicit `rm -- <path>` targets. Confirm each target is under `wiki/`; do not delete `index.md`, `log.md`, or `glossary.md`.
+- Keep the exact removed paths for the indexer. The updater and writer cannot delete files with their permissions.
+
+**Step 4: Update Index, Log, and Glossary**
 Invoke `@wiki-indexer` with:
 - List of updated/added/removed pages
+- Exact removed page paths; prune stale entries from `index.md` and `glossary.md`, and record deprecations in `log.md` without leaving stale page references
 - Any new glossary terms
 - Log entry type: "incremental-update"
 - Summary of changes
 
-**Step 4: Update watermark**
+**Step 5: Update watermark**
 Run: `git rev-parse HEAD > wiki/.last-updated-commit`
 
 ## Output

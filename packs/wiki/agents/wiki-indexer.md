@@ -40,7 +40,7 @@ You are the wiki indexer. You are the SOLE OWNER of three files: index.md, log.m
 
 ## Instructions
 
-Load the `wiki-conventions` skill first.
+Load the `wiki-conventions` skill first. Write `index.md`, `glossary.md`, and `log.md` in the target language specified by the orchestrator, using English by default when none is specified. When the target language is Italian, load the `italiano-decente` skill and apply all its rules. Translate headings, labels, descriptions, log text, and definitions; preserve paths, identifiers, and technical names.
 
 ### index.md
 

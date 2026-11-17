@@ -1,16 +1,8 @@
 ---
 description: Start creating a new document
-agent: docs
+agent: docs-orchestrator
 ---
 
 I need you to create a new document about: $ARGUMENTS
 
-Follow the standard document creation workflow:
-1. Ask clarifying questions (document type, audience, tone, length, output format, any brand colors, output filename) — provide your best guess defaults
-2. Research the topic thoroughly if needed
-3. Plan the document structure
-4. Generate the complete HTML document
-5. Create it with doc_create
-6. Auto-export to DOCX with doc_convert
-
-Wait for my answers before proceeding.
+Follow the standard document creation workflow. If the brief clearly states the topic, intended audience or purpose, and length or format, briefly state sensible defaults for any remaining choices and proceed without waiting for confirmation. Otherwise, ask concise clarifying questions only when the core subject or scope is missing, the audience is materially ambiguous, or instructions conflict. Research when needed, plan and author the document, create it with `doc_create`, and export in the requested format (DOCX if unspecified) with `doc_convert`.

@@ -1,7 +1,6 @@
 ---
 description: Assigns composition attributes to a slide outline — preset selection, visual weights, grid templates, decorations, and background layers. Returns JSON recipe only — no HTML, no tools.
 mode: subagent
-hidden: true
 permissions:
   - action: edit
     resource: "*"
@@ -27,13 +26,13 @@ You assign composition attributes to an existing slide outline. Output must be *
 
 ## Your task
 
-Given a slide outline (from `slides-orchestrator-planner`) and the original brief tone, produce a `composition-recipe.json` with:
+Given a slide outline (from `slides-planner`) and the original brief tone, produce a `composition-recipe.json` with:
 
 - `preset`: one of `geometric-minimal`, `editorial`, `bold-shapes`
 - `pptxCompatible` (optional): boolean. When `true`, use `./assets/` PNG paths instead of CSS-only classes for gradients, patterns, and orbs. Default `false`.
 - `overrides`: optional whitespaceRatio override
 - `deckRules`: rhythm constraints
-- `slides-orchestrator[]`: per-slide role, visualWeight, grid, background, decorations
+- `slides[]`: per-slide role, visualWeight, grid, background, and decorations
 
 ## Preset selection (from brief tone)
 
@@ -57,9 +56,11 @@ Given a slide outline (from `slides-orchestrator-planner`) and the original brie
 
 | Weight | Whitespace | Signal |
 |---|---|---|
-| `heavy` | 15–25% | Dense, multi-column, stats, charts |
-| `medium` | 25–35% | Balanced text+image, standard lists |
-| `light` | 40–60% | Minimal, breathable, quotes, section breaks |
+| `heavy` | 20–30% whitespace; 70–80% occupancy | Data, multi-column comparisons, dashboards, or hero covers with large visuals; never exceed 80% occupancy |
+| `medium` | 25–35% whitespace; 65–75% occupancy | Default for standard content slides; include a specific title and substantive body items |
+| `light` | 40–60% whitespace | Section dividers, pull quotes, or closing/CTA slides; preserve intentional breathing room and exempt these slides from the 35% whitespace cap and multi-item minimums |
+
+For free-form content slides without a composition recipe, default to `medium`. Keep each slide within its weight's whitespace range; light slides are exempt from the 35% whitespace cap and multi-item minimums.
 
 ## Grid options
 
@@ -81,7 +82,7 @@ For sidebar layouts, use `z-grid-split` with sidebar styling via `_theme.css` la
 | Base | Use for |
 |---|---|
 | `dark` | Cover, section, closing — full-bleed dark |
-| `surface` | Content and data slides-orchestrator |
+| `surface` | Content and data slides |
 | `accent` | Section dividers — full-bleed accent color |
 
 ## Decorations to choose from
@@ -111,15 +112,15 @@ When `pptxCompatible` is `true`, decorations that are incompatible with PPTX mus
 | Orb large | `deco-orb-lg` | `./assets/orb-lg-accent-blurred.png` |
 
 In `pptxCompatible` mode, set:
-- `background.gradient` → `"./assets/bg-gradient-cover.png"` (or `"./assets/bg-gradient-surface.png"` for surface slides-orchestrator)
+- `background.gradient` → `"./assets/bg-gradient-cover.png"` (or `"./assets/bg-gradient-surface.png"` for surface slides)
 - `background.pattern` → `"./assets/pattern-{type}.png"` instead of `"deco-pattern-{type}"`
 - `background.deco` → use PNG `src` paths for orbs; keep CSS class names for solid decorations (stripes, brackets, lines)
 
 ## Deck-level rhythm rules
 
-- `maxConsecutiveHeavy: 2` — after 2 heavy slides-orchestrator, force next to be medium or light
-- `maxConsecutiveLight: 3` — after 3 light slides-orchestrator, force next to be medium or heavy
-- `sectionBreakAfterSlides: 5` — suggest a light/cover slide every ~5 slides-orchestrator
+- `maxConsecutiveHeavy: 2` — after 2 heavy slides, force the next to be medium or light
+- `maxConsecutiveLight: 3` — after 3 light slides, force the next to be medium or heavy
+- `sectionBreakAfterSlides: 5` — suggest a light/cover slide every ~5 slides
 - `decorationFamily: "<preset>"` — must match the selected preset
 - `backgroundLayering: true` — use the layered background structure (z-bg wrapper)
 
@@ -141,7 +142,7 @@ Return exactly this JSON structure:
     "decorationFamily": "geometric-minimal",
     "backgroundLayering": true
   },
-  "slides-orchestrator": [
+  "slides": [
     {
       "page": 1,
       "role": "cover",
@@ -154,7 +155,7 @@ Return exactly this JSON structure:
         "deco": ["./assets/orb-lg-accent-blurred.png"]
       },
       "decorations": ["deco-stripe-top"],
-      "whitespaceTarget": 0.22
+      "whitespaceTarget": 0.25
     }
   ]
 }
@@ -168,8 +169,8 @@ When `pptxCompatible` is `true`, use PNG paths for gradients, patterns, and orbs
 - Roles must be assigned: cover (page 1), content (most), section (transition points), closing (last page)
 - Enforce rhythm: track consecutive heavy/light counts while assigning
 - Pick grids that match content structure: single element → full, two equal → split, golden ratio content → golden
-- Decorations are optional but recommended for cover/section slides-orchestrator
-- Pattern backgrounds go on `surface` base slides-orchestrator only; never on `dark` or `accent` bases
+- Decorations are optional but recommended for cover/section slides
+- Pattern backgrounds go on `surface` base slides only; never on `dark` or `accent` bases
 - When `pptxCompatible` is `true`, use PNG paths for gradients, patterns, and orbs as specified in the PNG Path Mode table
 - When `pptxCompatible` is `false` or absent, use CSS class names and inline CSS values for all decorations
 - Return ONLY the JSON — no markdown, no text before or after

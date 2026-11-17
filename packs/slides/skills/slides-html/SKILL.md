@@ -1,6 +1,6 @@
 ---
 name: slides-html
-description: "HTML slide authoring rules for the slides-html-writer subagent. Covers layout, design vocabulary, technical requirements, and validation rules for 1280×720 slide HTML documents."
+description: "HTML slide authoring rules for the slides-html_writer subagent. Covers layout, design vocabulary, technical requirements, and validation rules for 1280×720 slide HTML documents."
 license: MIT
 compatibility: opencode
 ---
@@ -70,9 +70,9 @@ Read this first — it tells you the allowed grid variants and item ranges.
 - The layered background structure (`z-bg` wrapper and child order)
 - Font-family assignments (`.display` for titles, `.mono` for code)
 
-### Density notes in ADATTA zones
+### Placeholder capacity notes in ADATTA zones
 
-Every ADATTA zone includes a `max N parole` or `max N chars` hint and a commented example showing correct text density. Target 70-85% of the maximum — never exceed it.
+Every ADATTA zone includes a `max N parole` or `max N chars` hint and a commented example showing correct text capacity. Target 70–85% of the maximum without exceeding it. This is a per-placeholder capacity target, not the slide's visual occupancy target.
 
 ## Layout derivation
 
@@ -85,12 +85,15 @@ When NO template is provided, derive layout from content structure:
 - **Closing/action-oriented slide** → visually distinct CTA block
 - **Comparative content** → side-by-side columns or comparison table
 
-## Density requirements
+## Visual Weight and Whitespace
 
-- **No slide should have more than 35% empty vertical space** below the last content element
-- **Every card/item must have**: a unique specific title + at least 2 substantive sentences
+- `heavy` (data, multi-column comparisons, dashboards, hero covers with large visuals): **20–30% whitespace** (70–80% occupancy; split into two slides if text exceeds 80% occupancy).
+- `medium` (default standard content slides, including free-form content slides without a recipe): **25–35% whitespace** (65–75% occupancy; specific title + substantive items).
+- `light` (section dividers, pull quotes, closing/CTA slides): **40–60% whitespace** (intentional breathing room; do not force content to fill space).
+
+For `medium` and `heavy` slides, choose 2–5 meaningful items based on the communicative goal, layout, and visual complexity. Give each item concrete, specific substance (such as numbers, mechanisms, or outcomes), not vague two-word fragments. Fit sentence length to the slide; never pad wording or add bullets just to meet a mechanical sentence or item count.
+
 - **Cards must never have a fixed `height`** — use `min-height` only as a floor
-- **Fewer than 4 content items?** Add a complementary secondary section
 
 ## Design vocabulary — content level
 

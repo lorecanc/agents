@@ -75,7 +75,7 @@ Fonts for each type are resolved from the design system — don't hardcode.
 
 - Images should be referenced as local paths (`assets/logo.png`) or web URLs.
 - For documents, use `<img>` tags with explicit width/height or style `width:100%`.
-- Charts: generate via matplotlib (SVG format), save to `assets/`, reference in HTML.
+- Charts: author a clean, standalone SVG in `projects/<project_name>/documents/assets/`, or generate one with `python3` via `shell` when `matplotlib` is locally available. Reference it from the HTML.
 - Do not use CSS `background-image`.
 
 ## Cost control

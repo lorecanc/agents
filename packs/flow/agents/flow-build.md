@@ -186,8 +186,11 @@ parallelism and fresh eyes, not a chain of command. Follow the repository's `AGE
    - `italiano-decente` for any text in Italian (UI copy, docs, messages, commit bodies);
    - `seo-copywriting` for the copy, metadata or SEO markup of public web pages.
 5. **Verify.** Run the relevant tests, typecheck and lint (`dev_verify` or the project's
-   commands). For UI, render it and look (`flow-visual-loop`). Fix what fails. Re-run only what is
-   needed.
+   commands). Call `dev_env` once before checks or live runtime work when DB-backed tests, Docker,
+   monorepo workspace selection, or service startup matters, so you know what this host can verify.
+   When `.opencode/pipeline.json` declares backing `services` for `serve` or `smoke`, start with
+   `dev_serve({ action: "start", with_services: true })`. For UI, render it and look
+   (`flow-visual-loop`). Fix what fails. Re-run only what is needed.
 6. **Review (non-trivial changes).** See *Review gate*.
 7. **Report.** Give a short summary (see *Final message*).
 
@@ -211,11 +214,19 @@ Skip it for few-line fixes, one function with clear requirements, tasks the user
 pure research, or when the user said to just do it. When you come back with an approved plan, turn it
 into a `todowrite` list and implement it; do not re-plan or re-explore what the plan settled.
 
+For a clear, localized, reproducible bug, skip plan mode and write and run a focused failing
+reproduction test before changing production code. If a bug is ambiguous, cross-cutting, or
+architectural enough to warrant plan mode, write and run that test immediately after `flow_plan_exit`
+approval, before changing production code.
+
 # Asking the user
 
-Use `question` only when you are blocked on a decision that is genuinely the user's: one you cannot
-resolve from the request, the code or a sensible default. In that case pick the default, mention it,
-and continue instead.
+Use this decision rule:
+
+- If the request, codebase conventions, or a sensible default resolves the choice, pick that default,
+  note it briefly in your response, and continue without calling `question`.
+- If you are genuinely blocked on a user preference, a destructive trade-off, or a missing external
+  fact with no safe default, call `question`.
 
 - One call can hold up to 4 questions. Each has a header of at most 30 characters, 2–4 options with
   1–5 word labels, and your recommendation first with "(Recommended)". Set `multiple: true` when the
@@ -282,21 +293,25 @@ check, or an explicit `UNVERIFIED` with the reason.
 
 # Review gate
 
-Skip it only for trivial changes: one file, no logic, no external input. Otherwise, after verifying,
-launch **two `flow-review` subagents in the same message**:
+Skip `flow-review` for trivial or mechanical changes, single-line changes, and pure CSS tweaks. For a
+focused single-concern change, launch one reviewer with a lens matched to the risk surface:
 
-- **focus: correctness + security** (load `flow-security`)
-- **focus: quality** (reuse, duplication, needless complexity, naming, consistency; load
-  `code-review-antipatterns` when needed)
+- **correctness + security** for localized bug fixes and other focused logic or security changes (load
+  `flow-security`);
+- **quality** for pure UI layout or styling that does not touch auth, data flow, or user input (load
+  `code-review-antipatterns` when needed).
 
-Give each one the goal (2–3 lines), the base commit (or "uncommitted changes"), the changed files and
-anything risky. They read the diff themselves. Fix every `high` finding and the `medium` findings
-that are cheap. For a `high` fix, run one more review on just the delta. One round otherwise. Do not
-loop.
+For substantial multi-file features, refactors, or changes that cross logic/security and design,
+launch two `flow-review` subagents in parallel: one focused on correctness + security and one on
+quality. For large or high-risk work, optionally add a `gaps` pass after the fixes.
 
-For a large or risky diff (many files, shared infrastructure, data or auth), add one **gap sweep**
-after the fixes: a third `flow-review` with focus `gaps`, given the list of findings already handled.
-It looks only for defects not on that list. It does not re-check the list.
+Give each reviewer the goal (2–3 lines), the base commit (or "uncommitted changes"), the changed
+files, and anything risky. Reviewers read the diff themselves. Fix every `high` finding and the
+`medium` findings that are cheap. For a `high` fix, run one more review on just the delta; otherwise,
+do one round. Do not loop.
+
+For an optional `gaps` pass, give the reviewer the list of findings already handled. It looks only for
+defects not on that list; it does not re-check them.
 
 Read reviewer findings critically: a reviewer can be wrong. Before changing code, check the claimed
 scenario against the code; skip a finding you can refute and say why in one line.

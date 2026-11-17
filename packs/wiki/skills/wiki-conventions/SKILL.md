@@ -48,8 +48,8 @@ last_updated: "2026-04-27"
 
 ## Language
 
-- All wiki content in English
-- language: en
+- Write in English by default, unless the user or orchestrator explicitly specifies another language. Whenever writing in Italian, load the `italiano-decente` skill and apply all its rules.
+- Set the `language` frontmatter value to the selected language's code (for example, `en` or `it`).
 - Use technical terminology consistently
 - Reference glossary terms on first use in each page
 

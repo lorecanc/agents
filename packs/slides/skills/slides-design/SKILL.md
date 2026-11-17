@@ -12,9 +12,17 @@ compatibility: opencode
 - **Visual First**: Humans process visuals 60,000x faster than text. Prioritize converting text concepts into diagrams, charts, or imagery. Avoid walls of text.
 - **Text as Visual Element**: Use typography, color, size, and formatting to create visual hierarchy. Plain, unstyled text looks unprofessional.
 - **Structural Integrity**: A pretty slide with poor logic is useless. Ensure clear narrative arc (Beginning, Middle, End) before designing.
-- **Content Breathability**: Less is more. If content occupies >80% of vertical space, split into two slides.
+- **Content Breathability**: Choose a `visualWeight` and follow the whitespace rubric below.
 - **Data Accuracy**: Visuals must be grounded in fact. Prioritize accuracy over aesthetics.
 - **Just-in-Time Execution**: Don't hallucinate assets. Plan first, then generate assets, then build the slide.
+
+## Visual Weight and Whitespace
+
+- `heavy` (data, multi-column comparisons, dashboards, hero covers with large visuals): **20–30% whitespace** (70–80% occupancy; split into two slides if text exceeds 80% occupancy).
+- `medium` (default standard content slides, including free-form content slides without a recipe): **25–35% whitespace** (65–75% occupancy; specific title + substantive items).
+- `light` (section dividers, pull quotes, closing/CTA slides): **40–60% whitespace** (intentional breathing room; do not force content to fill space).
+
+For `medium` and `heavy` slides, choose 2–5 meaningful items based on the communicative goal, layout, and visual complexity. Give each item concrete, specific substance (such as numbers, mechanisms, or outcomes), not vague two-word fragments. Fit sentence length to the slide; never pad wording or add bullets just to meet a mechanical sentence or item count.
 
 ## Visual Asset Selection Strategy
 
@@ -42,7 +50,7 @@ Before generating new assets, review conversation context for:
 
 ## Slide Creation Workflow
 
-1. **Clarify** (MANDATORY): Ask all clarifying questions with best-guess defaults. Wait for reply.
+1. **Clarify only when needed**: If the request specifies a clear topic, purpose/audience, approximate length, and style, proceed with concise, sensible defaults. For targeted `/fix-slide` or `/polish-slides` edits, proceed unless the scope is ambiguous. Ask questions only when an essential decision is genuinely missing or ambiguous.
 2. **Research** (Two-Stage):
    - Stage 1: Run multiple web searches in parallel for context, facts, brand signals
    - Stage 2: Fetch 1-2 high-value URLs for deeper content

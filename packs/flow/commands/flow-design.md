@@ -11,5 +11,8 @@ This is visual work. Quality of the rendered result is the goal.
 2. Implement with the design system, fixing tokens at the source when they are weak. "Smallest diff" does not apply to visual quality; behavior and APIs stay intact.
 3. Load `flow-visual-loop`. Render with `dev_serve` and check 375, 768 and 1280. If you cannot see images, delegate to `flow-eye` (in parallel for several routes). Iterate on the rubric, up to 3 rounds.
 4. Check console errors, accessibility basics and the empty, loading and error states.
-5. Unless the change is CSS-only, finish with a `flow-review` (quality focus).
+5. Follow `flow-build`'s proportional Review gate: use the quality lens for pure UI layout or styling
+   that does not touch auth, data flow, or user input. Add correctness + security in parallel if the
+   scope also crosses into logic or security. The gate determines whether review is needed for
+   trivial, mechanical, single-line, or pure CSS tweaks.
 6. Report the viewports checked, the rounds used, what changed visually and what is left.

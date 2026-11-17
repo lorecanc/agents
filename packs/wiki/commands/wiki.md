@@ -24,6 +24,11 @@ Depth level requested by user: $ARGUMENTS
 ### Changes since last wiki update
 !`if [ -f wiki/.last-updated-commit ]; then git diff --name-status $(cat wiki/.last-updated-commit) HEAD 2>/dev/null || echo "NO_DIFF"; else echo "FULL_SCAN_NEEDED"; fi`
 
+### Uncommitted working-tree status
+!`git status --short 2>/dev/null | head -50 || echo "NO_GIT"`
+
+The watermark tracks committed `HEAD` state only. If source changes are uncommitted, report in the final summary which affected areas remain pending the next commit.
+
 ### Project file tree (source files only)
 !`find . -type f \( -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.jsx" -o -name "*.py" -o -name "*.go" -o -name "*.rs" -o -name "*.java" -o -name "*.rb" -o -name "*.swift" -o -name "*.kt" -o -name "*.c" -o -name "*.cpp" -o -name "*.h" -o -name "*.cs" -o -name "*.vue" -o -name "*.svelte" \) -not -path "*/node_modules/*" -not -path "*/.git/*" -not -path "*/dist/*" -not -path "*/build/*" -not -path "*/wiki/*" -not -path "*/.opencode/*" | sort | head -100`
 

@@ -1,7 +1,6 @@
 ---
 description: Creates structured document outline plans from task briefs. Returns JSON only — assigns sections, layout hints, content hierarchy, and determines narrative flow.
 mode: subagent
-hidden: true
 permissions:
   - action: edit
     resource: "*"
@@ -15,6 +14,9 @@ permissions:
   - action: skill
     resource: "*"
     effect: deny
+  - action: skill
+    resource: italiano-decente
+    effect: allow
   - action: subagent
     resource: "*"
     effect: deny
@@ -35,6 +37,10 @@ Given a task brief, produce an outline with these fields for each section:
 - `layout_hint`: The layout pattern best suited for this section
 - `elements`: Array of elements in this section (e.g., "paragraph", "table", "list", "callout", "chart", "image")
 - `depends_on`: Page number this section depends on (null by default)
+
+## Language
+
+Author `document_title`, every section title or heading, and each `content_description` in the requested document language. Keep JSON keys, `layout_hint` values, and `elements` identifiers unchanged. If the target language is Italian, load `italiano-decente` before planning; use sentence case for headings (Maiuscola solo alla prima parola) and avoid its prohibited patterns from the start.
 
 ## Layout hints
 

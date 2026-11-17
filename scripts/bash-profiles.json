@@ -556,7 +556,7 @@
         ["cp .env.sample *", "allow"],
         ["cp .env.template *", "allow"],
         ["cp .env.test *", "allow"],
-        ["sudo *", "ask"],
+        ["sudo *", "deny"],
         ["psql *", "ask"],
         ["mysql *", "ask"],
         ["mongosh *", "ask"],

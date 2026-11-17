@@ -1,6 +1,6 @@
 ---
 name: slides-template-html
-description: "HTML slide authoring rules for the slides-template-writer subagent. Covers constrained writing within corporate template layout skeletons, validation rules for 1280x720 slide documents."
+description: "HTML slide authoring rules for the slides-template_writer subagent. Covers constrained writing within corporate template layout skeletons, validation rules for 1280x720 slide documents."
 license: MIT
 compatibility: opencode
 ---

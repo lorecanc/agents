@@ -13,6 +13,11 @@ Repository state at start:
 
 Guidance (load `flow-testing`):
 1. Find the root cause, not just the symptom. Check whether the same mistake exists elsewhere.
-2. Reproduce with a failing test first, and confirm it fails for the reported reason. If a test is impossible, write down the manual reproduction.
+2. For a clear, localized, reproducible bug, write and run a focused failing test before changing
+   production code. If the bug is ambiguous, cross-cutting, or architectural enough to warrant
+   `flow_plan_enter`, make this the first implementation step after `flow_plan_exit` approval. If
+   automated testing is impossible, document the manual reproduction.
 3. Fix with the smallest correct change, then make the test pass and run the neighboring tests.
-4. Unless the fix is trivial, run the `flow-review` pass (correctness+security). Report the root cause in one or two lines.
+4. Follow `flow-build`'s proportional Review gate, using correctness + security as the primary lens
+   for bugs and adding the quality lens in parallel when the scope also crosses design. Report the
+   root cause in one or two lines.

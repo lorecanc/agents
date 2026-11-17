@@ -131,16 +131,16 @@ Load the correct skill with the `skill` tool based on the task:
 | Task | Skill |
 |---|---|
 | Browser automation, page interaction, network inspection | `chrome-devtools` |
-| Performance, LCP, Core Web Vitals | `debug-optimize-lcp` |
-| Accessibility, ARIA, contrast, screen readers | `a11y-debugging` |
-| Memory leaks, heap analysis | `memory-leak-debugging` |
-| MCP connection issues | `troubleshooting` |
+| Performance, LCP, Core Web Vitals | `chrome-devtools-debug-optimize-lcp` |
+| Accessibility, ARIA, contrast, screen readers | `chrome-devtools-a11y-debugging` |
+| Memory leaks, heap analysis | `chrome-devtools-memory-leak-debugging` |
+| MCP connection issues | `chrome-devtools-troubleshooting` |
 
 ## Getting a page to inspect
 
 The browser needs a reachable URL. In this order:
 1. A URL given by the orchestrator or the user. Open it; if it loads, use it and do not start anything.
-2. Otherwise, if the project defines how to run itself (a `serve` or `smoke` section in `.opencode/pipeline.json`, or a `dev`/`start` script in `package.json`), call `dev_serve` with `action: "start"`. It picks a free port, waits until the service is ready and returns the URL: use exactly that URL. If it was already running (`reused: true`), use it as is.
+2. Otherwise, if the project defines how to run itself (a `serve` or `smoke` section in `.opencode/pipeline.json`, or a `dev`/`start` script in `package.json`), call `dev_serve` with `action: "start"`. If `.opencode/pipeline.json` declares dependent `services`, pass `with_services: true`. It picks a free port, waits until the service is ready and returns the URL: use exactly that URL. If it was already running (`reused: true`), use it as is.
 3. When your inspection is finished (including after a failure), call `dev_serve` with `action: "stop"`, but only if you started it. It also stops by itself when the session ends or after its time limit, so never rely on that to skip the stop.
 4. If `dev_serve` returns a status other than `running` (`fail`, `blocked`, `inconclusive`, `error`), do not improvise another way to start the app. First, check with `dev_serve` `status` or by opening the expected URL whether a service is already listening. If not, report `BLOCKED` with its `status`, `failure_class_hint`, `reason`, and `log_tail`, so the orchestrator can classify it (`env` is not a code defect). If no URL and no contract exist, report `BLOCKED (no URL and no serve contract)`.
 

@@ -125,9 +125,17 @@ export function checkFlowBash(command, role, ctx) {
 
 /** Check a file path an edit/write tool would modify. Returns null when allowed, else a reason. */
 export function checkFlowWrite(target, role, ctx) {
-  const planFile = role === "plan" && isInside(path.join(ctx.info.top, ".opencode", "plans"), realpathLoose(target))
+  const resolved = realpathLoose(path.resolve(ctx.cwd || ctx.info.top, target))
+  const planFile = role === "plan" && isInside(path.join(ctx.info.top, ".opencode", "plans"), resolved)
   if (FLOW_READ_ONLY.has(role) && !planFile) return `flow-${role} is read-only and cannot edit files${role === "plan" ? " (only .opencode/plans/*.md)" : ""}.`
-  return checkWritePath(target, ctx)
+  const root = realpathLoose(ctx.info.top)
+  const scratchDirs = [ctx.scratch, ctx.info.scratchDir].filter((dir) => typeof dir === "string" && dir).map(realpathLoose)
+  const inScratch = scratchDirs.some((scratch) => isInside(scratch, resolved))
+  if (!isInside(root, resolved) && !inScratch) {
+    const scratch = scratchDirs[0]
+    return `"${target}" resolves outside the repository (${resolved}). Stay inside the repo; throwaway files go in $PIPELINE_SCRATCH${scratch ? ` (${scratch})` : ""}.`
+  }
+  return checkWritePath(target, { ...ctx, scratch: ctx.scratch || ctx.info.scratchDir })
 }
 
 const ENV_FILE_RE = /^\.env(?:\..+)?$/i

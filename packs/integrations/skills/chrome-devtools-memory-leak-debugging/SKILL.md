@@ -7,6 +7,10 @@ description: Diagnoses and resolves memory leaks in JavaScript/Node.js applicati
 
 This skill provides expert guidance and workflows for finding, diagnosing, and fixing memory leaks in JavaScript and Node.js applications.
 
+## Running Host CLI Commands
+
+If the active agent has `shell` access, it may run CLI commands in this skill directly. If `shell` is disabled, as for the read-only `chrome-devtools` diagnostic agent, use `chrome-devtools_*` MCP tools directly where applicable and provide any required host CLI command for the user or calling build/ops agent to execute.
+
 ## Core Principles
 
 - **Prefer `memlab`:** Do NOT attempt to read raw `.heapsnapshot` files directly, as they are extremely large and will consume too many tokens. Always recommend and use `memlab` to process snapshots and identify leak traces.
@@ -41,10 +45,10 @@ When you have found a leak trace (e.g., via `memlab` output), you must identify 
 
 If `memlab` is not available, you MUST use the fallback script in the references directory to compare two `.heapsnapshot` files and identify the top growing objects and common leak types.
 
-Run the script using Node.js:
+If the active agent has `shell` access, run the script with Node.js. Otherwise, provide this command for the user or calling build/ops agent to execute:
 
 ```bash
-node skills/memory-leak-debugging/references/compare_snapshots.js <baseline.heapsnapshot> <target.heapsnapshot>
+node skills/chrome-devtools-memory-leak-debugging/references/compare_snapshots.js <baseline.heapsnapshot> <target.heapsnapshot>
 ```
 
 The script will analyze and output the top growing objects by size and highlight the 3 most common types of memory leaks (e.g., Detached DOM nodes, closures, Contexts) if they are present.

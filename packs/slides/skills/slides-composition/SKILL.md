@@ -100,6 +100,12 @@ The writer agent selects the appropriate mode based on the `pptxCompatible` flag
 - `pptxCompatible: false` (default) → CSS-only mode, frame decorations before `z-safe`
 - `pptxCompatible: true` → PNG mode, frame decorations before `z-safe`
 
+## Visual Weight and Whitespace
+
+- `heavy` (data, multi-column comparisons, dashboards, hero covers with large visuals): **20–30% whitespace** (70–80% occupancy; split into two slides if text exceeds 80% occupancy).
+- `medium` (default standard content slides, including free-form content slides without a recipe): **25–35% whitespace** (65–75% occupancy; specific title + substantive items).
+- `light` (section dividers, pull quotes, closing/CTA slides): **40–60% whitespace** (intentional breathing room; explicitly exempt from the 35% empty-space cap and 4-item minimum).
+
 ## Decoration Vocabulary (`_preset.css`)
 
 All classes prefixed `deco-`. Two-tier usage rule:
@@ -162,9 +168,9 @@ COMPOSITION SELF-CHECK (verify all before returning):
 □ WEIGHT: Does the visual density match the target?
   Expected weight: "{recipe.slides[N].visualWeight}"
   Expected whitespace: "{recipe.slides[N].whitespaceTarget}"
-  If "light": ≥40% whitespace, large text, minimal items
-  If "heavy": ≤25% whitespace, dense grid, multiple items
-  If "medium": between the two
+  If "heavy": 20–30% whitespace (70–80% occupancy); split across two slides if text exceeds 80% occupancy.
+  If "medium": 25–35% whitespace (65–75% occupancy); use a specific title and substantive items.
+  If "light": 40–60% whitespace; preserve intentional breathing room and exempt the slide from the 35% empty-space cap and 4-item minimum.
 
 □ DECORATION FAMILY: Are all decorative elements from the correct family?
   Expected family: "{recipe.deckRules.decorationFamily}"

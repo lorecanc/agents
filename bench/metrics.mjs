@@ -8,7 +8,7 @@
 
 import path from "node:path"
 
-import { checkBash, checkWritePath, editTargets, FILE_WRITE_TOOLS } from "../.tree/tools/dev-tools/_bash_guard.js"
+import { checkBash, checkWritePath, editTargets, FILE_WRITE_TOOLS, isShellTool } from "../.tree/tools/dev-tools/_bash_guard.js"
 import { roleOf } from "../.tree/tools/pipeline/_pipeline_core.js"
 
 const MESSAGE_PART_KINDS_WITH_CONTENT = new Set(["text", "tool", "reasoning", "subtask", "file"])
@@ -32,11 +32,13 @@ export function toolParts(exp) {
   return out
 }
 
-/** Child session ids referenced by `task` tool calls (metadata.sessionId / sessionID). */
+const isDelegationTool = (t) => t === "subagent" || t === "task"
+
+/** Child session ids referenced by delegation tool calls (metadata.sessionId / sessionID). */
 export function childSessionIds(exp) {
   const ids = new Set()
   for (const { part } of toolParts(exp)) {
-    if (part.tool !== "task") continue
+    if (!isDelegationTool(part.tool)) continue
     const meta = { ...(part.metadata || {}), ...((part.state && part.state.metadata) || {}) }
     const id = meta.sessionId || meta.sessionID
     if (typeof id === "string" && id) ids.add(id)
@@ -65,7 +67,7 @@ const addTokens = (a, t) => {
   return a
 }
 
-const GUARD_RE = /\[pipeline-guard\]\s*Blocked/i
+const GUARD_RE = /\[(?:pipeline|flow)-guard\]\s*Blocked/i
 const PERMISSION_RE = /\b(permission|prevents you from using|denied|not allowed|rule)\b/i
 
 /**
@@ -122,8 +124,8 @@ export function summarizeSession(exp, repo = null) {
         if (GUARD_RE.test(err)) m.guard_blocks += 1
         else if (PERMISSION_RE.test(err)) m.permission_denials += 1
       }
-      if (p.tool === "task") {
-        const agent = String((st.input && (st.input.subagent_type || st.input.agent)) || "unknown")
+      if (isDelegationTool(p.tool)) {
+        const agent = String(st.input?.agent || st.input?.subagent_type || "unknown")
         m.delegations[agent] = (m.delegations[agent] || 0) + 1
         taskByMessage.set(p.messageID, (taskByMessage.get(p.messageID) || 0) + 1)
       }
@@ -146,7 +148,7 @@ function scanToolCall(part, msgInfo, repo, out) {
   const role = roleOf(msgInfo.agent || "") || null
   const ctx = { info: repo.info, cwd: repo.info.top, scratch: repo.scratch }
   const reasons = []
-  if (part.tool === "bash" && typeof input.command === "string") {
+  if (isShellTool(part.tool) && typeof input.command === "string") {
     const cwd = typeof input.workdir === "string" ? path.resolve(repo.info.top, input.workdir) : repo.info.top
     const r = checkBash(input.command, role, { ...ctx, cwd })
     if (r) reasons.push(r)
