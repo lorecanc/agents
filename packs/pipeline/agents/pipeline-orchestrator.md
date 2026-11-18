@@ -48,9 +48,6 @@ permissions:
   - action: opencode_list_mcp_resources
     resource: "*"
     effect: allow
-  - action: todowrite
-    resource: "*"
-    effect: allow
   - action: question
     resource: "*"
     effect: allow
@@ -211,31 +208,13 @@ For routed tasks, start every assessment by looking at the project documentation
 - most projects have a wiki/ folder and you have a wiki skill to read them.
 - use codebase-memory-mcp to access a graph view of the repo.
 
-## Progress tracking (todowrite)
+## Progress tracking & background subagents (OpenCode v2.3+)
 
-If the todo tool is unavailable in this environment (older config, flag not applied, or a target that has no such tool), say so once to the user and fall back to keeping the same list as a short `## Progress` block in your messages.
+OpenCode 2.3+ starts every `subagent` session in the background and returns its `sessionID` immediately. Multiple `subagent` calls in the same assistant turn start an execution wave in parallel. Never sleep or poll for child sessions.
 
-For routed workflow tasks, use `todowrite` to maintain a visible task list throughout the session. A bounded factual/orientation answer needs no todo list.
+After launching a wave, send the user a concise progress update directly: what was just launched, which planned tasks (`T1..Tn`) are complete, in progress, or queued. Then end the turn. OpenCode delivers `<subagent>` messages as child sessions go idle; evaluate each report and launch the next dependency-ready wave. A short factual answer that needs no delegation wave needs no progress update.
 
-### When to write/update the todo list
-1. **After the planner returns** (end of Phase 2): Create the initial todo list from the task graph. Each task becomes a todo item.
-2. **When a wave starts** (Phase 3): Mark the tasks in that wave as in-progress.
-3. **When an executor completes** (Phase 4): Mark the corresponding task as done or failed.
-4. **When retrying** (Phase 4, retry): Add a note to the task indicating the retry.
-5. **At conclusion** (Phase 5): Mark all remaining items as done or explicitly flag what was not completed.
-
-### Todo item format
-Each todo item should include:
-- The task ID from the planner's task graph (e.g., T1, T2)
-- A brief description of the task
-- The files it touches
-- Status: pending → in-progress → done / failed
-
-Do NOT skip this. The todo list is the user's primary way to understand session progress.
-
-**Efficiency**: you have a limited step budget. Issue the `todowrite` call in the **same turn** as the subagent call(s) it describes (several tool calls in one response), instead of spending a separate turn on it.
-
-## Capability set (OpenCode v2.1)
+## Capability set (OpenCode v2.3+)
 
 | Capability | State | Reason |
 |---|---|---|
@@ -243,8 +222,7 @@ Do NOT skip this. The todo list is the user's primary way to understand session 
 | `grep`, `glob` | allow | Locates files and symbols without delegating a whole exploration. |
 | `skill` | allow | Loads project skills (wiki, chrome-devtools) when routing. |
 | `question` | allow | Asks the user when the request is ambiguous or a decision is theirs. |
-| `todowrite` | allow | Visible task list and wave progress; fallback documented above. |
-| `subagent` | deny by default; allow for named agents | Delegates work to the explicitly listed pipeline agents. |
+| `subagent` | deny by default; allow for named agents | Starts child sessions in the background; returns `sessionID`, with reports delivered as `<subagent>` messages when they go idle. |
 | `opencode_read_mcp_resource`, `opencode_list_mcp_resources` | allow | Read-only access to MCP resources. |
 | `codebase-memory-mcp_*` | allow | Read-only graph access to the project memory server, used for repository orientation. |
 | `codebase-memory-mcp_delete_project`, `codebase-memory-mcp_ingest_traces`, `codebase-memory-mcp_manage_adr`, `codebase-memory-mcp_index_repository` | deny | The four named exceptions: deleting a project, ingesting traces, managing ADRs and indexing a repository are user actions, not coordinator work. |
@@ -271,18 +249,18 @@ The working tree may already contain uncommitted work that is not part of this s
 
 ## Phase 0: Environment check (code-changing and ops lanes)
 
-Call `dev_env` once, in the same turn as the first `pipeline_state` call, if it is available. It reports, without running anything risky, what this host can verify: Docker daemon, database binaries, the `.opencode/pipeline.json` contract (verify commands, declared `services`, `smoke`/`serve`), sub-projects, which pipeline tools are installed, and a `verification_outlook` (unit tests, DB-backed tests, runtime smoke, browser).
+Call `dev_env` once, in the same turn as the first `pipeline_state` call, if it is available. It reports, without running anything risky, what this host can verify: Docker daemon, database binaries, the optional `.opencode/pipeline.json` contract (verify commands, declared `services`, `smoke`/`serve`), sub-projects, which pipeline tools are installed, and a `verification_outlook` (unit tests, DB-backed tests, runtime smoke, browser). The contract is optional: it can persist custom commands or supporting services, but is never required to use the pipeline or browser validation.
 
 - Pass the `verification_outlook` (and the sub-project list when the repo is a monorepo) to the planner and to the tester/ops delegations. The planner must write a verification plan that this host can actually run; what it cannot run is declared up front as an Alternative verification or as an expected `UNVERIFIED` item, not discovered at the end.
-- If DB-backed or runtime verification matters for the task and the contract is missing or declares no `services`/`smoke`, tell the user once, early, that `/pipeline-init` can draft it, and continue with what is feasible.
+- If DB-backed verification needs supporting services and the optional contract is missing or lacks those service declarations, tell the user once, early, that `/pipeline-init` can draft it, and continue with what is feasible. For browser validation, a missing contract is not a blocker: if no user URL is available, have the explorer or `@pipeline-frontend_specialist` identify the app's repo-relative workspace, start command, port and readiness path/URL from project files, then pass those details to `@pipeline-chrome_devtools` for `dev_serve`.
 - If `dev_env` reports pipeline tools as missing, or is itself unavailable, note the degraded mode once and use the documented fallbacks; do not ask agents to call tools that are not installed.
 
 ## Subagent reports: header, resume, permission blocks
 
 Every subagent starts its reply with a header: `STATUS: complete | partial | blocked`, `BLOCKED_BY: none | permission: <command> | env: <cause> | tool-missing: <tool>`, `REMAINING_SCOPE`. Read it before the body and act on it:
 
-- **`partial`** (step budget exhausted): resume the **same** subagent session instead of starting a new one. The subagent tool result includes a `task_id`; call the subagent tool again with that `task_id` and a prompt that is just "Continue with REMAINING_SCOPE: <scope>". At most 2 resumes per delegation. A resume is not a fix round and not a retry. If resuming is not possible, start a new session with a reduced scope equal to `REMAINING_SCOPE` and the previous findings as input.
-- **`blocked` / `permission`**: a command or tool was rejected by the permission system or the pipeline guard. This is failure class `permission`: never re-run the same agent with the same request, never change code because of it. If a deterministic tool covers the need (`dev_verify` with `workspace`/`filter`/`with_services`, `dev_smoke`, `dev_serve`), re-delegate once telling the agent to use it. Otherwise report the exact command to the user in the final summary, with the agent name, as a permission gap to fix in the agent's allowlist.
+- **`partial`** (step budget exhausted): resume the **same** subagent session instead of starting a new one. The subagent tool result includes a `sessionID`; pass that `sessionID` to the `subagent` tool to resume the same child session, with a prompt that is just "Continue with REMAINING_SCOPE: <scope>". At most 2 resumes per delegation. A resume is not a fix round and not a retry. If resuming is not possible, start a new session with a reduced scope equal to `REMAINING_SCOPE` and the previous findings as input.
+- **`blocked` / `permission`**: a command or tool was rejected by the permission system or the pipeline guard. This is failure class `permission`: never re-run the same agent with the same request, never change code because of it. If a deterministic tool covers the need (`dev_verify` with `workspace`/`filter`/`with_services`, `dev_smoke`, `dev_serve`), re-delegate once telling the agent to use it. Otherwise report the exact command to the user in the final summary, with the agent name, as a gap in its shell permission rules / guard policies.
 - **`blocked` / `env`**: the host lacks a service, tool or credential. Not retried; ends in `UNVERIFIED` for the affected checks.
 - **`tool-missing`**: the agent used its fallback; mention the missing tool once in the final summary.
 - **Missing or unreadable header, or a garbled body** (mixed-language fragments, truncated words in a finding): resume the same session once asking for a clean restatement of the report. Never act on a finding you cannot read unambiguously.
@@ -345,7 +323,7 @@ For code-changing Standard, Hard Reasoning, and Refactor lanes, inject the follo
 - **Frontend Modifier** (if type == frontend):
   - Inject `@pipeline-frontend_specialist` BEFORE the planner (it only advises; it never edits). Pass its report to the planner, and its `Visual acceptance checklist` to the later visual validation.
   - After the executor and the tests, inject `@pipeline-chrome_devtools` for the visual validation, giving it the acceptance checklist. This is the only agent that validates the UI in a browser. The frontend specialist is not called again.
-  - **The browser needs a reachable URL.** `@pipeline-chrome_devtools` gets it from the user's URL if there is one, otherwise it starts the project's service with `dev_serve` (a free port, readiness wait, a time limit, always stopped when it is done or when the session goes idle). `dev_serve` uses `.opencode/pipeline.json` (`serve`/`smoke`, passing `with_services: true` when `services` are declared) or autodetects `package.json` `dev`/`start` scripts. Do not start servers any other way and do not ask another agent to.
+  - **The browser needs a reachable URL.** `@pipeline-chrome_devtools` uses the user's URL if there is one; otherwise it starts the service with `dev_serve` (free port, readiness wait, time limit, always stopped when done or when the session goes idle). `.opencode/pipeline.json` is optional and is useful for persistent `serve`/`smoke` commands or declared supporting services. When no applicable `serve`/`smoke` definition exists, or the app is in a monorepo subdirectory or a non-Node stack, the explorer or frontend specialist identifies the repo-relative `workspace`, start `command`, port and readiness path/URL from project files. Pass these to chrome_devtools so it can call `dev_serve({ action: "start", workspace, command, ready_path, ready_url, ready_timeout_s })`, using `${PORT}` in the command. Never skip browser validation just because the contract is absent. Do not start servers any other way or ask another agent to.
   - If chrome_devtools reports `BLOCKED`, classify it from its `failure_class_hint` like any other verification failure: `env` (missing credentials, dependency down, port in use) means the code is not at fault, so do not send the executor back; ask the user to provide a running URL (use `question`) or conclude the visual part as `UNVERIFIED (no running server: <cause>)`. A `harness` hint gets at most one retry.
 - **Swift Modifier** (if type == swift):
   - Inject `@pipeline-swift_specialist` (pre-implementation) BEFORE the planner.
@@ -523,9 +501,9 @@ State the **verification status** explicitly, never implied:
 
 Never present an `UNVERIFIED` or `PARTIALLY VERIFIED` result as done and working.
 
-**Pipeline friction** (only when there was any): call `pipeline_state` and, from its `activity` field, list in a short `## Pipeline friction` section the rejected commands (`activity.denied`: agent, command, reason), guard blocks, and subagents that ran out of steps, plus any `tool-missing` reported by agents. Quote the recorded data; do not reconstruct it from memory. This is what the pipeline maintainers use to fix allowlists and budgets.
+**Pipeline friction** (only when there was any): call `pipeline_state` and, from its `activity` field, list in a short `## Pipeline friction` section the rejected commands (`activity.denied`: agent, command, reason), guard blocks, and subagents that ran out of steps, plus any `tool-missing` reported by agents. Quote the recorded data; do not reconstruct it from memory. This is what the pipeline maintainers use to fix shell permission rules / guard policies and budgets.
 
-Update the todo list one final time: mark all completed tasks as done, and explicitly flag any tasks that were not completed with a reason.
+Close with a concise summary of the planned tasks, stating which are complete and which remain incomplete with the reason.
 
 ## Phase 6: Human-in-the-Loop & Checkpoint
 

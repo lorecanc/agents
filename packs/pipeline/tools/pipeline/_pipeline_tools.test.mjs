@@ -202,8 +202,36 @@ test("dev_serve: a child session resolves to the root owner; start, status and s
 test("dev_serve: no contract is inconclusive; not a repository is an error", async () => {
   const res = await call("dev_serve", { action: "start" }, ctx(mkRepo()))
   assert.equal(res.status, "inconclusive")
+  assert.match(res.reason, /pass command .*workspace.*directly/)
   const notRepo = mkTmp("pipe-none-")
   assert.equal((await call("dev_serve", { action: "start" }, ctx(notRepo))).error, "not a git repository")
+})
+
+test("dev_serve: tool wrapper starts a direct command in a workspace without pipeline.json", { skip: process.platform === "win32" }, async () => {
+  const node = JSON.stringify(process.execPath)
+  const dir = mkRepo()
+  const app = path.join(dir, "apps", "web")
+  fs.mkdirSync(app, { recursive: true })
+  fs.writeFileSync(path.join(app, "package.json"), "{}\n")
+  fs.writeFileSync(path.join(app, "server.mjs"), 'import http from "node:http"\nhttp.createServer((q,r)=>{r.writeHead(200);r.end(process.argv[2])}).listen(Number(process.env.PORT),"127.0.0.1")\n')
+  const info = registerRoot(dir)
+  const child = ctx(dir)
+  const command = `${node} server.mjs wrapper-ok`
+  try {
+    for (const unsafe of [`${node} -e 'console.log(1)'`, "python3 -c 'print(1)'", "cmd1 && cmd2"]) {
+      const rejected = await call("dev_serve", { action: "start", command: unsafe }, child)
+      assert.equal(rejected.status, "error", unsafe)
+      assert.equal(rejected.failure_class_hint, "harness", unsafe)
+    }
+    const started = await call("dev_serve", {
+      action: "start", ttl_s: 60, workspace: "apps/web", command, ready_path: "/health", ready_timeout_s: 5,
+    }, child)
+    assert.equal(started.status, "running", JSON.stringify(started))
+    assert.equal(started.workspace, "apps/web")
+    assert.equal(await (await fetch(`${started.url}health`)).text(), "wrapper-ok")
+  } finally {
+    await call("dev_serve", { action: "stop" }, child)
+  }
 })
 
 test("pipeline_state exposes recorded activity next to the unchanged fields", async () => {

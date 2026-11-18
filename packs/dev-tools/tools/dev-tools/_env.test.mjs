@@ -203,6 +203,22 @@ test("dev_env reads V1 and V2 MCP configs and detects the pipeline-guard plugin 
   assert.equal(packs.pipeline.guard_plugin_file, true)
 })
 
+test("browser outlook requires an enabled browser MCP and supports direct dev_serve commands without root smoke", async () => {
+  const cfgHome = mkTmp("pipe-env-browser-xdg-")
+  const withoutBrowser = await collectEnv({ directory: mkRepo(), env: { PATH: "", XDG_CONFIG_HOME: cfgHome } })
+  assert.equal(withoutBrowser.verification_outlook.runtime_smoke.feasible, false)
+  assert.equal(withoutBrowser.verification_outlook.browser.feasible, false)
+  assert.equal(withoutBrowser.verification_outlook.browser.reason, "no enabled browser MCP server (chrome/playwright/puppeteer) in the opencode config files read")
+
+  const dir = mkRepo({ "opencode.json": JSON.stringify({ mcp: { "chrome-devtools": { type: "local" } } }) })
+  const withBrowser = await collectEnv({ directory: dir, env: { PATH: "", XDG_CONFIG_HOME: cfgHome } })
+  assert.equal(withBrowser.verification_outlook.runtime_smoke.feasible, false)
+  assert.deepEqual(withBrowser.verification_outlook.browser, {
+    feasible: true,
+    reason: "MCP: chrome-devtools (no root serve/smoke autodetected; pass command/workspace to dev_serve or use an existing URL)",
+  })
+})
+
 test("env template parsing keeps names only", () => {
   const dir = mkTmp("pipe-env-tpl-")
   fs.writeFileSync(path.join(dir, ".env.sample"), "A=1\n  export B = 2\n#C=3\nnot a var\nA=dup\n")

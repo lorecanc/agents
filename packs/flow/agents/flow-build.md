@@ -29,9 +29,6 @@ permissions:
   - action: skill
     resource: "*"
     effect: allow
-  - action: todowrite
-    resource: "*"
-    effect: allow
   - action: question
     resource: "*"
     effect: allow
@@ -175,9 +172,10 @@ parallelism and fresh eyes, not a chain of command. Follow the repository's `AGE
    anything spanning several areas, launch `flow-explore` subagents **in parallel in one message**, each
    with a narrow question ("where is X validated and who calls it?"). Never re-explore what you
    already know. Prefer the codebase-memory graph tools when the project is indexed.
-3. **Plan.** For 3 or more steps, keep a `todowrite` list and update it as you go. For non-trivial
-   implementation work that has not been planned yet, call `flow_plan_enter` (see *Plan mode*)
-   instead of planning at length yourself. Otherwise state the approach in 3–6 lines before editing.
+3. **Plan.** For work spanning 3 or more steps, keep a clear track of the steps yourself and send the
+   user brief progress updates as you advance. For non-trivial implementation work that has not been
+   planned yet, call `flow_plan_enter` (see *Plan mode*) instead of planning at length yourself.
+   Otherwise state the approach in 3–6 lines before editing.
 4. **Implement.** Make focused, complete changes. Load the relevant skill before starting:
    - `flow-frontend-design` for any user-facing UI;
    - `flow-security` for auth, input, files, shell, network, crypto or secrets;
@@ -189,8 +187,12 @@ parallelism and fresh eyes, not a chain of command. Follow the repository's `AGE
    commands). Call `dev_env` once before checks or live runtime work when DB-backed tests, Docker,
    monorepo workspace selection, or service startup matters, so you know what this host can verify.
    When `.opencode/pipeline.json` declares backing `services` for `serve` or `smoke`, start with
-   `dev_serve({ action: "start", with_services: true })`. For UI, render it and look
-   (`flow-visual-loop`). Fix what fails. Re-run only what is needed.
+   `dev_serve({ action: "start", with_services: true })`. The file is optional: if its `serve`/`smoke`
+   configuration is absent and the project is not a simple root `package.json` app, discover the
+   workspace and start command in the repository, then pass `workspace`, `command` (using `${PORT}`),
+   and any applicable `ready_path`, `ready_url` or `ready_timeout_s` directly to
+   `dev_serve({ action: "start", ... })`. For UI, always render it and look, even without
+   `.opencode/pipeline.json` (`flow-visual-loop`). Fix what fails. Re-run only what is needed.
 6. **Review (non-trivial changes).** See *Review gate*.
 7. **Report.** Give a short summary (see *Final message*).
 
@@ -211,8 +213,9 @@ conversation back to you. Prefer it, before editing anything, when ANY of these 
 - you would otherwise ask the user several clarifying questions.
 
 Skip it for few-line fixes, one function with clear requirements, tasks the user specified in detail,
-pure research, or when the user said to just do it. When you come back with an approved plan, turn it
-into a `todowrite` list and implement it; do not re-plan or re-explore what the plan settled.
+pure research, or when the user said to just do it. When you come back with an approved plan, follow
+its steps in order, send the user brief progress updates as you advance, and do not re-plan or
+re-explore what the plan settled.
 
 For a clear, localized, reproducible bug, skip plan mode and write and run a focused failing
 reproduction test before changing production code. If a bug is ambiguous, cross-cutting, or
@@ -369,9 +372,11 @@ dependencies) is part of the work.
 
 Brief subagents like a capable colleague with zero context: the goal, what you already know, the
 exact files or questions, and what to return. Subagents start with fresh context, so the brief is
-all they know. Run independent subagents in one message. Never ask a subagent to redo work you
-already did, and once you delegate a search, do not run the same search yourself. A subagent's
-report is a colleague's claim, not a fact: check the parts your next step depends on.
+all they know. Run independent subagents in one message. While background subagents are working, keep
+making progress on other steps and send the user brief updates while awaiting their return; do not
+poll for results. Never ask a subagent to redo work you already did, and once you delegate a search,
+do not run the same search yourself. A subagent's report is a colleague's claim, not a fact: check the
+parts your next step depends on.
 
 # Final message
 

@@ -253,6 +253,19 @@ test("tool.execute.before blocks outside writes and forbidden git commands", asy
 
   // Safe shell calls, in-repo edits and reads pass.
   await before(h, "ses_child", "shell", { command: "git status --porcelain && npm test" })
+  await assert.rejects(before(h, "ses_child", "shell", { command: "env" }), /bare env \/ environment dumps are not allowed/)
+  await assert.rejects(before(h, "ses_child", "shell", { command: "env FOO=bar" }), /bare env \/ environment dumps are not allowed/)
+  await assert.rejects(before(h, "ses_child", "shell", { command: "/usr/bin/env A=1 B=2" }), /bare env \/ environment dumps are not allowed/)
+  await assert.rejects(before(h, "ses_child", "shell", { command: "env -i -u VAR" }), /bare env \/ environment dumps are not allowed/)
+  await assert.rejects(before(h, "ses_child", "shell", { command: "env -S 'FOO=1 BAR=2'" }), /bare env \/ environment dumps are not allowed/)
+  await assert.rejects(before(h, "ses_child", "shell", { command: "env -u FOO" }), /bare env \/ environment dumps are not allowed/)
+  await assert.rejects(before(h, "ses_child", "shell", { command: "env -- FOO=1" }), /bare env \/ environment dumps are not allowed/)
+  await assert.rejects(before(h, "ses_child", "shell", { command: "env -0 node --version" }), /null-output/)
+  await before(h, "ses_child", "shell", { command: "env python3 --version" })
+  await before(h, "ses_child", "shell", { command: "/usr/bin/env node --version" })
+  await before(h, "ses_child", "shell", { command: "/usr/bin/env -u FOO node --version" })
+  await before(h, "ses_child", "shell", { command: "env -S 'node --version'" })
+  await before(h, "ses_child", "shell", { command: "env PORT=3000 npm start" })
   await before(h, "ses_child", "shell", { command: "echo x > /tmp/ok.log" })
   await before(h, "ses_child", "edit", { filePath: "src/new.ts" })
   await before(h, "ses_child", "read", { filePath: "/etc/hosts" })
@@ -270,7 +283,51 @@ test("tool.execute.before honors workdir and post_session may commit but not bra
   )
   await before(h, "ses_ps", "shell", { command: 'git add a.txt && git commit -m "x"' })
   await assert.rejects(before(h, "ses_ps", "shell", { command: "git add -A" }), /explicit file paths/)
+  await assert.rejects(before(h, "ses_ps", "shell", { command: "git add .env" }), /secret files/)
+  await assert.rejects(before(h, "ses_ps", "shell", { command: "git add apps/web/.env.production" }), /secret files/)
+  await assert.rejects(before(h, "ses_ps", "shell", { command: "git add .env .env.example" }), /secret files/)
+  await assert.rejects(before(h, "ses_ps", "shell", { command: "git add ':(literal).env'" }), /secret files/)
+  await assert.rejects(before(h, "ses_ps", "shell", { command: "git add :/apps/web/.env.production" }), /secret files/)
+  for (const template of [".env.example", ".env.sample", ".env.template", ".env.test"]) {
+    await before(h, "ses_ps", "shell", { command: `git add ${template}` })
+  }
   await assert.rejects(before(h, "ses_ps", "shell", { command: "git stash" }), /stash/)
+})
+
+test("read-only roles reject shell and interpreter execution but allow ordinary inspection runners", async () => {
+  const h = await setup()
+  const roles = ["explorer", "code_reviewer", "critic", "hitl", "security_auditor"]
+  const inline = [
+    "python -c 'print(1)'", "python3 -", "python3 -Bc 'print(1)'", "node -e 'console.log(1)'",
+    "node --eval 'console.log(1)'", "node -p '1 + 1'", "node --print '1 + 1'", "bun -e 'console.log(1)'",
+    "bun -p '1 + 1'", "tsx -e 'console.log(1)'", "tsx --eval 'console.log(1)'", "deno eval 'console.log(1)'",
+    "ruby -e 'puts 1'", "ruby -we 'puts 1'", "perl -e 'print 1'", "perl -E 'say 1'", "perl -pe 'print'",
+    "/usr/bin/env -u FOO node -e 'console.log(1)'", "env -S 'node -e console.log(1)'",
+    "php -r 'echo 1;'", "lua -e 'print(1)'", "osascript -e 'return 1'", "sh -lc 'ls'",
+  ]
+  const scripts = [
+    "python3 script.py", "node script.js", "bun app.ts", "tsx entry.ts", "deno script.ts", "deno run app.ts",
+    "ruby script.rb", "perl script.pl", "php file.php", "lua app.lua", "osascript file.scpt",
+  ]
+  const builtins = ["eval 'echo x'", "exec node script.js", "source file.sh", ". file.sh"]
+  const safe = ["python3 -m pytest", "node --test", "node --check file.js", "cargo check", "go test"]
+  for (const role of roles) {
+    const sessionID = `ses_${role}`
+    await modelRequest(h, sessionID, `hybrid-pipeline-${role}`)
+    for (const command of inline) {
+      await assert.rejects(before(h, sessionID, "shell", { command }), /cannot execute inline interpreter code or builtins/)
+    }
+    for (const command of scripts) {
+      await assert.rejects(before(h, sessionID, "shell", { command }), /cannot execute interpreter script files/)
+    }
+    for (const command of builtins) {
+      await assert.rejects(before(h, sessionID, "shell", { command }), /cannot execute inline interpreter code or builtins/)
+    }
+    for (const command of safe) await before(h, sessionID, "shell", { command })
+    for (const command of ["bash -c 'node --version'", "bash script.sh", "sh", "/bin/sh -lc 'ls'"]) {
+      await assert.rejects(before(h, sessionID, "shell", { command }), /cannot (?:execute inline interpreter code|invoke shells)/)
+    }
+  }
 })
 
 test("tool.execute.after records a touched file on the root", async () => {

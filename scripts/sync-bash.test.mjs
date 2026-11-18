@@ -6,6 +6,80 @@ import test from "node:test"
 import { expandRole, rewriteShellRules, syncBash, validateProfiles } from "./sync-bash.mjs"
 
 const PROFILES = { version: 1, profiles: { base: { rules: [["*", "deny"], ["git *", "allow"]] }, rm: { rules: [["rm *", "ask"]] } }, roles: { executor: ["base", "rm"] } }
+const REAL_PROFILES = JSON.parse(fs.readFileSync(new URL("./bash-profiles.json", import.meta.url), "utf8"))
+const globRegex = (pattern) => new RegExp(`^${pattern.split("*").map(part => part.replace(/[|\\{}()[\]^$+?.]/g, "\\$&")).join(".*")}$`)
+const effectFor = (role, command) => {
+  let effect = null
+  for (const [pattern, candidate] of expandRole(validateProfiles(REAL_PROFILES), role)) {
+    if (globRegex(pattern).test(command)) effect = candidate
+  }
+  return effect
+}
+
+test("operational roles stay workspace-agnostic and read-only roles default to deny", () => {
+  const config = validateProfiles(REAL_PROFILES)
+  const operationalRoles = ["executor", "fast_lane", "refactorer", "tester", "ops"]
+  const readonlyRoles = ["explorer", "code_reviewer", "critic", "security_auditor", "hitl", "post_session"]
+
+  for (const role of operationalRoles) assert.deepEqual(config.profiles[config.roles[role][0]].rules, [["*", "allow"]], role)
+  for (const role of readonlyRoles) assert.deepEqual(config.profiles[config.roles[role][0]].rules, [["*", "deny"]], role)
+  for (const role of readonlyRoles) {
+    for (const command of ["python3 script.py", "node script.js", 'sh -c "ls"', "rm .env .env.example", "git add .env .env.example"]) {
+      assert.equal(effectFor(role, command), "deny", `${role}: ${command}`)
+    }
+  }
+  for (const role of readonlyRoles.slice(0, -1)) {
+    for (const command of ["ls", "pwd", "git status --short", "cat README.md"]) {
+      assert.equal(effectFor(role, command), "allow", `${role}: ${command}`)
+    }
+    for (const command of ["find . -exec node script.js", "fd . -x rm file", "sort input -o output", "yq -i '.x=1' file.yaml", "cat file > out"]) {
+      assert.equal(effectFor(role, command), "deny", `${role}: ${command}`)
+    }
+  }
+  assert.equal(effectFor("security_auditor", "gitleaks detect"), "allow")
+  assert.equal(effectFor("security_auditor", "npm audit --fix"), "deny")
+})
+
+test("environment dumps and real env files are denied without false positives", () => {
+  for (const role of Object.keys(REAL_PROFILES.roles)) {
+    assert.equal(effectFor(role, "rm .env .env.example"), "deny", `${role}: rm real env with template`)
+    assert.equal(effectFor(role, "git add .env .env.example"), "deny", `${role}: stage real env with template`)
+    assert.equal(effectFor(role, "cat .env.example"), "allow", `${role}: read safe template`)
+    assert.equal(effectFor(role, "cat /tmp/.env"), "deny", `${role}: read real env by path`)
+    assert.equal(effectFor(role, "cat /tmp/.env.local"), "deny", `${role}: read real env variant by path`)
+  }
+  assert.equal(effectFor("post_session", "git add .env.example"), "allow")
+
+  assert.equal(effectFor("executor", "env FOO=bar"), "deny")
+  assert.equal(effectFor("executor", "/usr/bin/env FOO=bar"), "deny")
+  assert.equal(effectFor("executor", "env python3 --version"), "allow")
+  assert.equal(effectFor("executor", "/usr/bin/env python3 --version"), "allow")
+  assert.equal(effectFor("executor", "FOO=bar python3 --version"), "allow")
+  assert.equal(effectFor("executor", "cp .env.example .env"), "deny")
+  assert.equal(effectFor("executor", "cp .env.example /tmp/.env"), "deny")
+  assert.equal(effectFor("executor", "cp .env.example .env.test-local"), "allow")
+  assert.equal(effectFor("executor", "node -e \"console.log(process.env.PORT)\""), "allow")
+  assert.equal(effectFor("ops", "node -e \"console.log(process.env.PORT)\""), "allow")
+  assert.equal(effectFor("executor", "npm publish"), "deny")
+})
+
+test("read-only roles deny inline code and nested shell interpreters", () => {
+  const readonlyRoles = ["explorer", "code_reviewer", "critic", "security_auditor", "hitl"]
+  const deniedCommands = [
+    "node -e \"fs.writeFileSync('a','b')\"",
+    "python3 -c \"open('a','w')\"",
+    "sh -c \"echo x\""
+  ]
+
+  for (const role of readonlyRoles) {
+    for (const command of deniedCommands) assert.equal(effectFor(role, command), "deny", `${role}: ${command}`)
+  }
+})
+
+test("deployment and infrastructure destruction require confirmation", () => {
+  assert.equal(effectFor("executor", "railway deploy"), "ask")
+  assert.equal(effectFor("executor", "pulumi destroy"), "ask")
+})
 
 test("roles expand to their profiles in order; duplicates and unknown profiles are rejected", () => {
   assert.deepEqual(expandRole(validateProfiles(PROFILES), "executor"), [["*", "deny"], ["git *", "allow"], ["rm *", "ask"]])

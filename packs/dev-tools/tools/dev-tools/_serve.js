@@ -14,9 +14,10 @@ import { spawn } from "node:child_process"
 
 import { ensureScratch, isInside, pidAlive, realpathLoose, redact, withLock } from "./_repo.js"
 import {
-  envHint, findFreePort, groupAlive, isPortFree, killTree, loadContract, parseEnvFile, portListening, runtimeEnv, waitReady,
+  envHint, findFreePort, groupAlive, isPortFree, killTree, loadContract, LOCAL_HOST, parseEnvFile, portListening, resolveWorkspace, runtimeEnv, waitReady,
 } from "./_run.js"
 import { startManagedServices, stopManagedServices, SUPERVISOR } from "./_services.js"
+import { checkBash, inlineCodeInvocation, tokenize } from "./_bash_guard.js"
 
 export const DEFAULT_TTL_S = 900
 export const MAX_TTL_S = 3600
@@ -73,21 +74,91 @@ function readTail(file, n = 3000) {
   }
 }
 
-/** The contract section used to serve: `serve`, `smoke`, or an autodetected script. */
-function serveSpec(info) {
-  const { contract, problems, smokeHint } = loadContract(info.top)
-  const raw = (() => {
-    try {
-      return JSON.parse(fs.readFileSync(path.join(info.top, ".opencode", "pipeline.json"), "utf8"))
-    } catch {
-      return null
+const validStart = (spec) => Boolean(spec && typeof spec.start === "string" && spec.start.trim())
+const normWs = (key) => String(key).replace(/^\.\//, "").replace(/\/+$/, "")
+const SERVE_WRAPPERS = new Set(["env", "command", "time", "nohup", "builtin", "nice", "setsid", "stdbuf", "timeout", "gtimeout"])
+
+function directCommandTokens(command) {
+  let tokens = tokenize(command).segments[0] || []
+  for (;;) {
+    while (tokens.length && /^[A-Za-z_][A-Za-z0-9_]*\+?=/.test(tokens[0])) tokens.shift()
+    const wrapper = path.basename(tokens[0] || "")
+    if (!SERVE_WRAPPERS.has(wrapper)) return tokens
+    tokens.shift()
+    if (wrapper === "env") {
+      while (tokens.length) {
+        const arg = tokens[0]
+        if (/^[A-Za-z_][A-Za-z0-9_]*\+?=/.test(arg) || ["-i", "--ignore-environment"].includes(arg)
+          || arg.startsWith("--unset=") || arg.startsWith("--chdir=")) {
+          tokens.shift()
+        } else if (arg === "-S" || arg === "--split-string" || /^-S.+/.test(arg) || arg.startsWith("--split-string=")) {
+          const value = arg === "-S" || arg === "--split-string" ? tokens[1] || "" : arg.startsWith("-S") ? arg.slice(2) : arg.slice("--split-string=".length)
+          const split = tokenize(value).segments.flat()
+          const consumed = arg === "-S" || arg === "--split-string" ? 2 : 1
+          tokens.splice(0, consumed, ...split)
+        } else if (["-u", "--unset", "-C", "--chdir", "--argv0"].includes(arg)) {
+          tokens.splice(0, 2)
+        } else if (arg.startsWith("-")) tokens.shift()
+        else break
+      }
+    } else {
+      while (tokens.length && (tokens[0].startsWith("-") || /^[A-Za-z_][A-Za-z0-9_]*\+?=/.test(tokens[0]))) tokens.shift()
+      if ((wrapper === "timeout" || wrapper === "gtimeout") && tokens.length) tokens.shift()
     }
-  })()
-  const spec = raw && raw.serve && typeof raw.serve.start === "string" ? raw.serve : contract.smoke
-  if (spec) return { spec, problems, smokeHint, from: raw && raw.serve && typeof raw.serve.start === "string" ? "serve" : "smoke", contract }
-  const auto = contract.autodetected_smoke || (smokeHint && typeof smokeHint.start === "string" && smokeHint.start.trim() ? smokeHint : null)
-  if (auto) return { spec: auto, problems, smokeHint, from: "autodetect", contract }
-  return { spec: null, problems, smokeHint, from: "smoke", contract }
+  }
+}
+
+function directCommandProblem(command) {
+  if (/[;&|`<>()\n\r]/.test(command) || command.includes("$(")) {
+    return "command must be a single server launch command without shell operators"
+  }
+  const [rawCmd, ...args] = directCommandTokens(command)
+  const cmd = path.basename(rawCmd || "")
+  if (inlineCodeInvocation(cmd, args)) return "inline interpreter or shell code is not allowed; pass a server script file instead"
+  return null
+}
+
+/** The contract section used to serve: `serve`, `smoke`, or an autodetected script. */
+function serveSpec(info, { workspace = null, command, withServices = false } = {}) {
+  const { contract, problems, smokeHint } = loadContract(info.top, { workspace })
+  let raw = null
+  try {
+    raw = JSON.parse(fs.readFileSync(path.join(info.top, ".opencode", "pipeline.json"), "utf8"))
+  } catch {
+    /* optional contract */
+  }
+  const wsMap = raw?.workspaces && typeof raw.workspaces === "object" ? raw.workspaces : {}
+  const wsKey = workspace ? Object.keys(wsMap).find((key) => normWs(key) === workspace) : null
+  const wsSection = wsKey ? wsMap[wsKey] : null
+  const configured = (section) => {
+    if (validStart(section?.serve)) return { spec: section.serve, from: "serve" }
+    if (validStart(section?.smoke)) return { spec: section.smoke, from: "smoke" }
+    return null
+  }
+  const workspaceConfigured = configured(wsSection)
+  const rootConfigured = configured(raw)
+  if (command !== undefined && command !== null) {
+    const base = workspace ? workspaceConfigured?.spec || contract.smoke || contract.autodetected_smoke : rootConfigured?.spec || contract.smoke || contract.autodetected_smoke
+    const services = Array.isArray(base?.services) ? base.services : withServices ? Object.keys(contract.services || {}) : undefined
+    return {
+      spec: { ...(base || {}), start: command.trim(), ...(services ? { services } : {}) },
+      problems, smokeHint, from: "args", contract,
+    }
+  }
+  if (workspace) {
+    if (workspaceConfigured) return { ...workspaceConfigured, problems, smokeHint, contract }
+    if (contract.smoke) return { spec: contract.smoke, problems, smokeHint, from: "smoke", contract }
+    const auto = contract.autodetected_smoke || (validStart(smokeHint) ? smokeHint : null)
+    return auto
+      ? { spec: auto, problems, smokeHint, from: "autodetect", contract }
+      : { spec: null, problems, smokeHint, from: "smoke", contract }
+  }
+  if (raw && raw.serve && typeof raw.serve.start === "string") return { spec: raw.serve, problems, smokeHint, from: "serve", contract }
+  if (contract.smoke) return { spec: contract.smoke, problems, smokeHint, from: "smoke", contract }
+  const auto = contract.autodetected_smoke || (validStart(smokeHint) ? smokeHint : null)
+  return auto
+    ? { spec: auto, problems, smokeHint, from: "autodetect", contract }
+    : { spec: null, problems, smokeHint, from: "smoke", contract }
 }
 
 function describe(info, rec) {
@@ -98,10 +169,25 @@ function describe(info, rec) {
     port: rec.port,
     expires_in_s: remaining,
     owner_session: rec.ownerRoot,
+    workspace: rec.workspace || null,
     started_at: new Date(rec.startedAt).toISOString(),
   }
   if (rec.servicesSummary !== undefined) out.services = rec.servicesSummary
   return out
+}
+
+function localHttpUrlProblem(value, label) {
+  if (typeof value !== "string") return `${label} url must be a string`
+  const resolved = value.replaceAll("${PORT}", "43000")
+  let url
+  try {
+    url = new URL(resolved)
+  } catch {
+    return `invalid ${label} url ${value}`
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") return `${label} url must use http or https (got ${url.protocol})`
+  if (!LOCAL_HOST.test(url.hostname)) return `${label} url must target localhost (got ${url.hostname})`
+  return null
 }
 
 export async function serviceStatus(info) {
@@ -123,20 +209,38 @@ export async function serviceStatus(info) {
  */
 export async function startService({
   info, ownerRoot, ownerPid = process.pid, ttlS = DEFAULT_TTL_S, signal,
-  withServices = false, serviceOptions,
+  withServices = false, serviceOptions, workspace, command, readyPath, readyUrl, readyTimeoutS,
 }) {
   const ttl = Math.min(MAX_TTL_S, Math.max(1, Math.round(Number(ttlS) || DEFAULT_TTL_S)))
-  const { spec, problems, smokeHint, from, contract } = serveSpec(info)
+  const ws = resolveWorkspace(info, workspace)
+  if (ws.error) return { status: "error", failure_class_hint: "harness", reason: ws.error }
+  const cwd = ws.rel ? path.join(info.top, ws.rel) : info.top
+  if (command !== undefined && command !== null && (typeof command !== "string" || !command.trim() || command.includes("\0"))) {
+    return { status: "error", failure_class_hint: "harness", reason: "command must be a non-empty string without NUL characters" }
+  }
+  if (readyTimeoutS !== undefined && readyTimeoutS !== null && (typeof readyTimeoutS !== "number" || !Number.isFinite(readyTimeoutS))) {
+    return { status: "error", failure_class_hint: "harness", reason: "ready_timeout_s must be a finite number" }
+  }
+  for (const [name, value] of [["ready_path", readyPath], ["ready_url", readyUrl]]) {
+    if (value !== undefined && value !== null && (typeof value !== "string" || !value.trim() || value.includes("\0"))) {
+      return { status: "error", failure_class_hint: "harness", reason: `${name} must be a non-empty string without NUL characters` }
+    }
+  }
+  const explicitCommand = command !== undefined && command !== null ? command.trim() : null
+  const { spec, problems, smokeHint, from, contract } = serveSpec(info, { workspace: ws.rel, command: explicitCommand, withServices })
   if (!spec) {
     return {
       status: "inconclusive",
       failure_class_hint: "harness",
-      reason: "no serve/smoke contract: add a `serve` (or `smoke`) section to .opencode/pipeline.json",
+      reason: "no serve/smoke contract: pass command (and optionally workspace) directly to dev_serve, or add an optional `serve` section to .opencode/pipeline.json",
       contract_problems: problems,
       suggested_serve: smokeHint,
     }
   }
   const serviceNames = Array.isArray(spec.services) ? spec.services : []
+  if (spec.services !== undefined && !Array.isArray(spec.services)) {
+    return { status: "error", failure_class_hint: "harness", reason: "serve.services must be an array of service names" }
+  }
   if (withServices && serviceNames.length) {
     const defs = contract?.services || {}
     const unknown = serviceNames.filter((name) => typeof name !== "string" || !Object.hasOwn(defs, name))
@@ -147,6 +251,39 @@ export async function startService({
         reason: `unknown service(s) ${unknown.join(", ")}; defined: ${Object.keys(defs).sort().join(", ") || "none"}`,
       }
     }
+    for (const name of serviceNames) {
+      const problem = defs[name]?.ready?.url === undefined ? null : localHttpUrlProblem(defs[name].ready.url, `services.${name}.ready`)
+      if (problem) return { status: "error", failure_class_hint: "harness", reason: problem }
+    }
+  }
+  const urlTemplate = typeof spec.url === "string" ? spec.url : "http://127.0.0.1:${PORT}/"
+  const serviceUrlProblem = localHttpUrlProblem(urlTemplate, "serve")
+  if (serviceUrlProblem) return { status: "error", failure_class_hint: "harness", reason: serviceUrlProblem }
+  if (spec.ready !== undefined && (!spec.ready || typeof spec.ready !== "object" || Array.isArray(spec.ready))) {
+    return { status: "error", failure_class_hint: "harness", reason: "serve.ready must be an object" }
+  }
+  const ready = { ...(spec.ready || {}) }
+  if (spec.ready_url !== undefined && ready.url === undefined) ready.url = spec.ready_url
+  if (readyUrl !== undefined && readyUrl !== null) ready.url = readyUrl
+  else if (readyPath !== undefined && readyPath !== null) ready.url = `http://127.0.0.1:\${PORT}${readyPath.startsWith("/") ? readyPath : `/${readyPath}`}`
+  const configuredTimeout = Number(spec.ready?.timeout_s) || 60
+  const timeoutS = Math.min(180, Math.max(1, readyTimeoutS ?? configuredTimeout))
+  ready.timeout_s = timeoutS
+  if (ready.url !== undefined) {
+    const readyUrlProblem = localHttpUrlProblem(ready.url, "ready")
+    if (readyUrlProblem) return { status: "error", failure_class_hint: "harness", reason: readyUrlProblem }
+  }
+  if (from === "args") {
+    const directProblem = directCommandProblem(spec.start)
+    if (directProblem) return { status: "error", failure_class_hint: "harness", reason: directProblem }
+    let scratch
+    try {
+      scratch = ensureScratch(info)
+    } catch (e) {
+      return { status: "error", failure_class_hint: "harness", reason: e.message }
+    }
+    const blocked = checkBash(spec.start.replaceAll("${PORT}", "43000"), "ops", { info, cwd, scratch })
+    if (blocked) return { status: "error", failure_class_hint: "harness", reason: blocked }
   }
   const body = async () => {
     let managedRecords = null
@@ -159,14 +296,23 @@ export async function startService({
     if (existing && (await reapIfEnding(info, existing))) {
       dropService(info, existing)
     } else if (existing && alive(existing)) {
-      if (withServices && serviceNames.length && !existing.dependentServices?.length) {
+      const optionsChanged = (existing.workspace || null) !== (ws.rel || null)
+        || (existing.from || null) !== from
+        || (from === "args" && (existing.command || null) !== (spec.start || null))
+      const needsServiceUpgrade = withServices && serviceNames.length && !existing.dependentServices?.length
+      if (optionsChanged || needsServiceUpgrade) {
         if (existing.ownerRoot !== ownerRoot && pidAlive(existing.ownerPid)) {
           return {
             status: "blocked", failure_class_hint: "harness",
-            reason: `the running service belongs to another active session (${existing.ownerRoot}) and cannot be upgraded to manage declared services`,
+            reason: optionsChanged
+              ? `the running service belongs to another active session (${existing.ownerRoot}) and cannot be replaced`
+              : `the running service belongs to another active session (${existing.ownerRoot}) and cannot be upgraded to manage declared services`,
           }
         }
-        await stopService({ info, callerRoot: ownerRoot, force: true })
+        const stopped = await stopService({ info, callerRoot: ownerRoot, force: true })
+        if (stopped.status !== "stopped" || stopped.port_free === false) {
+          return { status: "blocked", failure_class_hint: "harness", reason: "the previous service could not be stopped cleanly; refusing to replace it" }
+        }
       } else {
         return { ...describe(info, existing), reused: true, shared: existing.ownerRoot !== ownerRoot }
       }
@@ -180,28 +326,30 @@ export async function startService({
       }
     } else port = await findFreePort()
     const subst = (s) => String(s).replaceAll("${PORT}", String(port))
+    const startCommand = subst(spec.start)
+    let scratch
+    try {
+      scratch = ensureScratch(info)
+    } catch (e) {
+      return { status: "error", failure_class_hint: "harness", reason: e.message }
+    }
+    if (from === "args") {
+      const blocked = checkBash(startCommand, "ops", { info, cwd, scratch })
+      if (blocked) return { status: "error", failure_class_hint: "harness", reason: blocked }
+    }
 
     let fileEnv = {}
     if (spec.env_file) {
-      const abs = realpathLoose(path.resolve(info.top, spec.env_file))
+      const abs = realpathLoose(path.resolve(cwd, spec.env_file))
       if (!isInside(info.top, abs)) return { status: "error", failure_class_hint: "harness", reason: "env_file must be inside the repository" }
       fileEnv = parseEnvFile(abs)
     }
-    const urlTemplate = typeof spec.url === "string" ? spec.url : "http://127.0.0.1:${PORT}/"
     const url = subst(urlTemplate)
-    try {
-      if (!new URL(url).hostname.match(/^(localhost|127\.0\.0\.1|\[::1\]|::1)$/)) {
-        return { status: "error", failure_class_hint: "harness", reason: `serve url must target localhost (got ${url})` }
-      }
-    } catch {
-      return { status: "error", failure_class_hint: "harness", reason: `invalid serve url ${url}` }
-    }
-
     try {
       let managed = { env: {}, services: [], records: [] }
       if (withServices && serviceNames.length) {
         managed = await startManagedServices({
-          info, defs: contract.services, names: serviceNames, cwd: info.top,
+          info, defs: contract.services, names: serviceNames, cwd,
           signal, ttlS: ttl, minTtlS: 1, ownerPid, probe: serviceOptions || {},
         })
         if (!managed.ok) {
@@ -217,14 +365,13 @@ export async function startService({
       }
       const extra = {}
       for (const [k, v] of Object.entries(spec.env || {})) extra[k] = subst(v)
-      const env = { ...runtimeEnv(info, { ...fileEnv, ...managed.env, ...extra, PORT: String(port) }), PIPELINE_SERVE_CMD: subst(spec.start) }
+      const env = { ...runtimeEnv(info, { ...fileEnv, ...managed.env, ...extra, PORT: String(port) }), PIPELINE_SERVE_CMD: startCommand }
 
-      const scratch = ensureScratch(info)
       log = path.join(scratch, `serve-${Date.now()}.log`)
       let exited = false
       fd = fs.openSync(log, "a")
       child = spawn("sh", ["-c", SUPERVISOR, "pipeline-supervisor", String(ownerPid), String(ttl)], {
-        cwd: info.top,
+        cwd,
         env,
         detached: true,
         stdio: ["ignore", fd, fd],
@@ -240,16 +387,15 @@ export async function startService({
       fs.closeSync(fd)
       fd = undefined
       rec = {
-        name: SERVICE, supervisorPid: child.pid, ownerPid, ownerRoot, port, url, startedAt: Date.now(), expiresAt: Date.now() + ttl * 1000, ttlS: ttl, log, spec: from,
+        name: SERVICE, supervisorPid: child.pid, ownerPid, ownerRoot, port, url, workspace: ws.rel || null, command: spec.start, from, startedAt: Date.now(), expiresAt: Date.now() + ttl * 1000, ttlS: ttl, log, spec: from,
         ...(managedRecords?.length ? { dependentServices: managedRecords, servicesSummary: managed.services } : {}),
       }
       writeService(info, rec)
 
-      const timeoutS = Math.min(Number(spec.ready && spec.ready.timeout_s) || 60, 180)
-      const ready = await waitReady(spec.ready, {
+      const readiness = await waitReady(ready, {
         portNum: port, subst, readLog: () => { try { return fs.readFileSync(log, "utf8") } catch { return "" } }, isExited: () => exited, timeoutMs: timeoutS * 1000, signal,
       })
-      if (!ready.ok) {
+      if (!readiness.ok) {
         const text = readTail(log, 5000)
         await killTree(child.pid)
         serverPid = null
@@ -260,10 +406,10 @@ export async function startService({
         return {
           status: "fail",
           phase: "ready",
-          reason: ready.reason,
-          failure_class_hint: ready.harness ? "harness" : envHint(text) ? "env" : ready.exited ? "unclassified" : "harness",
+          reason: readiness.reason,
+          failure_class_hint: readiness.harness ? "harness" : envHint(text) ? "env" : readiness.exited ? "unclassified" : "harness",
           log_tail: text,
-          ...(ready.exited && !envHint(text) ? { note: "the service stopped at startup without an environment signature: read log_tail and decide between a code defect and an environment problem" } : {}),
+          ...(readiness.exited && !envHint(text) ? { note: "the service stopped at startup without an environment signature: read log_tail and decide between a code defect and an environment problem" } : {}),
         }
       }
       const deps = Array.isArray(spec.services) && spec.services.length && !managedRecords?.length
@@ -271,7 +417,7 @@ export async function startService({
         : ""
       return {
         ...describe(info, rec),
-        ready_ms: ready.ms,
+        ready_ms: readiness.ms,
         note: `Stops by itself in ${ttl}s, when this opencode process ends, or on dev_serve stop. Always call stop when you are done.${deps}`,
       }
     } catch (e) {

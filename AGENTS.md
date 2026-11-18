@@ -36,8 +36,8 @@ ammessa tra catalogo e motore.
   `commands/`, `skills/<id>/SKILL.md`, `plugins/<nome>/index.ts`, `tools/<pack>/`, `resources/<pack>/`,
   `opencode.json`, `AGENTS.md`). Sono l'unica fonte: niente viene generato dentro `packs/`.
   - Workflow: `flow`, `pipeline`, `docs`, `slides`, `wiki`, `general`.
-  - Pack condivisi, elencati nei `requires` di chi li usa: `common` (MCP `codebase-memory-mcp`,
-    `experimental.todo`, skill comuni), `code-review`, `dev-tools` (`dev_env`, `dev_verify`, `dev_smoke`,
+  - Pack condivisi, elencati nei `requires` di chi li usa: `common` (MCP `codebase-memory-mcp`, skill comuni),
+    `code-review`, `dev-tools` (`dev_env`, `dev_verify`, `dev_smoke`,
     `dev_serve` e gli helper `_repo.js`, `_sessions.js`, `_run.js`, ...), `office-tools` (tool `doc_*` e `slide_*`
     con gli script Python), `toolkit` e `integrations` (server MCP opzionali e LSP).
 - `scripts/`: strumenti del catalogo. `merge-packs.mjs` costruisce `.tree/`; `sync-bash.mjs` e `bash-profiles.json`

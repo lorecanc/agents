@@ -158,181 +158,31 @@ permissions:
     resource: "*"
     effect: allow
   - action: shell
-    resource: env
+    resource: sudo
     effect: deny
-  - action: shell
-    resource: env *
-    effect: deny
-  - action: shell
-    resource: printenv*
-    effect: deny
-  - action: shell
-    resource: "*.env*"
-    effect: deny
-  - action: shell
-    resource: "* .env *"
-    effect: deny
-  - action: shell
-    resource: cat .env.example
-    effect: allow
-  - action: shell
-    resource: cat .env.sample
-    effect: allow
-  - action: shell
-    resource: cat .env.template
-    effect: allow
-  - action: shell
-    resource: cat .env.test
-    effect: allow
-  - action: shell
-    resource: cp .env.example *
-    effect: allow
-  - action: shell
-    resource: cp .env.sample *
-    effect: allow
-  - action: shell
-    resource: cp .env.template *
-    effect: allow
-  - action: shell
-    resource: cp .env.test *
-    effect: allow
   - action: shell
     resource: sudo *
     effect: deny
   - action: shell
-    resource: psql *
-    effect: ask
-  - action: shell
-    resource: mysql *
-    effect: ask
-  - action: shell
-    resource: mongosh *
-    effect: ask
-  - action: shell
-    resource: redis-cli *
-    effect: ask
-  - action: shell
-    resource: rm *
-    effect: ask
-  - action: shell
-    resource: "* install*"
-    effect: ask
-  - action: shell
-    resource: "* deploy*"
-    effect: ask
-  - action: shell
-    resource: "* apply*"
-    effect: ask
-  - action: shell
-    resource: "* submit*"
-    effect: ask
-  - action: shell
-    resource: "* push*"
-    effect: ask
-  - action: shell
-    resource: "* release create*"
-    effect: ask
-  - action: shell
-    resource: "* workflow run*"
-    effect: ask
-  - action: shell
-    resource: "* upgrade*"
-    effect: ask
-  - action: shell
-    resource: "* rollback*"
-    effect: ask
-  - action: shell
-    resource: "* patch*"
-    effect: ask
-  - action: shell
-    resource: "* scale*"
-    effect: ask
-  - action: shell
-    resource: "* rollout*"
-    effect: ask
-  - action: shell
-    resource: vercel *
-    effect: ask
-  - action: shell
-    resource: ssh *
-    effect: ask
-  - action: shell
-    resource: scp *
-    effect: ask
-  - action: shell
-    resource: sftp *
-    effect: ask
-  - action: shell
-    resource: rsync *
-    effect: ask
-  - action: shell
-    resource: telnet *
-    effect: ask
-  - action: shell
-    resource: mosh *
-    effect: ask
-  - action: shell
-    resource: socat *
-    effect: ask
-  - action: shell
-    resource: nmap *
-    effect: ask
-  - action: shell
-    resource: "* rm *"
+    resource: doas
     effect: deny
   - action: shell
-    resource: "* delete*"
+    resource: doas *
     effect: deny
   - action: shell
-    resource: "*--delete*"
+    resource: su
     effect: deny
   - action: shell
-    resource: "* destroy*"
+    resource: su *
     effect: deny
   - action: shell
-    resource: "* prune*"
+    resource: pkexec
     effect: deny
   - action: shell
-    resource: "* uninstall*"
-    effect: deny
-  - action: shell
-    resource: "* down -v*"
-    effect: deny
-  - action: shell
-    resource: "* terminate*"
-    effect: deny
-  - action: shell
-    resource: terraform import*
-    effect: deny
-  - action: shell
-    resource: terraform * import*
-    effect: deny
-  - action: shell
-    resource: kubectl edit*
-    effect: deny
-  - action: shell
-    resource: kubectl * edit*
-    effect: deny
-  - action: shell
-    resource: set
-    effect: deny
-  - action: shell
-    resource: export -p*
-    effect: deny
-  - action: shell
-    resource: declare -p*
-    effect: deny
-  - action: shell
-    resource: /usr/bin/env*
-    effect: deny
-  - action: shell
-    resource: /usr/bin/printenv*
+    resource: pkexec *
     effect: deny
   - action: shell
     resource: shutdown*
-    effect: deny
-  - action: shell
-    resource: sudo shutdown*
     effect: deny
   - action: shell
     resource: reboot*
@@ -368,6 +218,243 @@ permissions:
     resource: systemctl hibernate*
     effect: deny
   - action: shell
+    resource: env
+    effect: deny
+  - action: shell
+    resource: /usr/bin/env
+    effect: deny
+  - action: shell
+    resource: env -*
+    effect: deny
+  - action: shell
+    resource: /usr/bin/env -*
+    effect: deny
+  - action: shell
+    resource: env *=*
+    effect: deny
+  - action: shell
+    resource: /usr/bin/env *=*
+    effect: deny
+  - action: shell
+    resource: printenv*
+    effect: deny
+  - action: shell
+    resource: /usr/bin/printenv*
+    effect: deny
+  - action: shell
+    resource: set
+    effect: deny
+  - action: shell
+    resource: export -p*
+    effect: deny
+  - action: shell
+    resource: declare -p*
+    effect: deny
+  - action: shell
+    resource: "* .env"
+    effect: deny
+  - action: shell
+    resource: "* .env *"
+    effect: deny
+  - action: shell
+    resource: "*/.env"
+    effect: deny
+  - action: shell
+    resource: "*/.env *"
+    effect: deny
+  - action: shell
+    resource: "* .env.*"
+    effect: deny
+  - action: shell
+    resource: "*/.env.*"
+    effect: deny
+  - action: shell
+    resource: cat .env.example
+    effect: allow
+  - action: shell
+    resource: cat .env.sample
+    effect: allow
+  - action: shell
+    resource: cat .env.template
+    effect: allow
+  - action: shell
+    resource: cat .env.test
+    effect: allow
+  - action: shell
+    resource: head .env.example
+    effect: allow
+  - action: shell
+    resource: head .env.sample
+    effect: allow
+  - action: shell
+    resource: head .env.template
+    effect: allow
+  - action: shell
+    resource: head .env.test
+    effect: allow
+  - action: shell
+    resource: cp .env.example *
+    effect: allow
+  - action: shell
+    resource: cp .env.sample *
+    effect: allow
+  - action: shell
+    resource: cp .env.template *
+    effect: allow
+  - action: shell
+    resource: cp .env.test *
+    effect: allow
+  - action: shell
+    resource: cp * .env
+    effect: deny
+  - action: shell
+    resource: cp * */.env
+    effect: deny
+  - action: shell
+    resource: psql *
+    effect: ask
+  - action: shell
+    resource: mysql *
+    effect: ask
+  - action: shell
+    resource: mongosh *
+    effect: ask
+  - action: shell
+    resource: redis-cli *
+    effect: ask
+  - action: shell
+    resource: rm *
+    effect: ask
+  - action: shell
+    resource: "* install*"
+    effect: ask
+  - action: shell
+    resource: "* submit*"
+    effect: ask
+  - action: shell
+    resource: "* push*"
+    effect: ask
+  - action: shell
+    resource: "* release create*"
+    effect: ask
+  - action: shell
+    resource: "* workflow run*"
+    effect: ask
+  - action: shell
+    resource: "* upgrade*"
+    effect: ask
+  - action: shell
+    resource: "* rollback*"
+    effect: ask
+  - action: shell
+    resource: "* patch*"
+    effect: ask
+  - action: shell
+    resource: "* scale*"
+    effect: ask
+  - action: shell
+    resource: "* rollout*"
+    effect: ask
+  - action: shell
+    resource: telnet *
+    effect: ask
+  - action: shell
+    resource: mosh *
+    effect: ask
+  - action: shell
+    resource: socat *
+    effect: ask
+  - action: shell
+    resource: nmap *
+    effect: ask
+  - action: shell
+    resource: "* rm *"
+    effect: deny
+  - action: shell
+    resource: "* delete*"
+    effect: deny
+  - action: shell
+    resource: "*--delete*"
+    effect: deny
+  - action: shell
+    resource: "* prune*"
+    effect: deny
+  - action: shell
+    resource: "* uninstall*"
+    effect: deny
+  - action: shell
+    resource: "* down -v*"
+    effect: deny
+  - action: shell
+    resource: "* terminate*"
+    effect: deny
+  - action: shell
+    resource: terraform import*
+    effect: deny
+  - action: shell
+    resource: terraform * import*
+    effect: deny
+  - action: shell
+    resource: kubectl edit*
+    effect: deny
+  - action: shell
+    resource: kubectl * edit*
+    effect: deny
+  - action: shell
+    resource: docker push*
+    effect: ask
+  - action: shell
+    resource: kubectl *
+    effect: ask
+  - action: shell
+    resource: helm *
+    effect: ask
+  - action: shell
+    resource: terraform *
+    effect: ask
+  - action: shell
+    resource: gcloud *
+    effect: ask
+  - action: shell
+    resource: aws *
+    effect: ask
+  - action: shell
+    resource: az *
+    effect: ask
+  - action: shell
+    resource: flyctl *
+    effect: ask
+  - action: shell
+    resource: vercel *
+    effect: ask
+  - action: shell
+    resource: wrangler deploy*
+    effect: ask
+  - action: shell
+    resource: ssh *
+    effect: ask
+  - action: shell
+    resource: scp *
+    effect: ask
+  - action: shell
+    resource: sftp *
+    effect: ask
+  - action: shell
+    resource: rsync *
+    effect: ask
+  - action: shell
+    resource: "* deploy*"
+    effect: ask
+  - action: shell
+    resource: "* apply*"
+    effect: ask
+  - action: shell
+    resource: "* destroy*"
+    effect: ask
+  - action: shell
+    resource: "* publish*"
+    effect: ask
+  - action: shell
     resource: npm publish*
     effect: deny
   - action: shell
@@ -384,6 +471,12 @@ permissions:
     effect: deny
   - action: shell
     resource: twine upload*
+    effect: deny
+  - action: shell
+    resource: gem push*
+    effect: deny
+  - action: shell
+    resource: dotnet nuget push*
     effect: deny
   - action: shell
     resource: rm -rf
@@ -407,6 +500,12 @@ permissions:
     resource: rm -r /*
     effect: deny
   - action: shell
+    resource: rm /*
+    effect: deny
+  - action: shell
+    resource: rm /
+    effect: deny
+  - action: shell
     resource: rm -rf ~*
     effect: deny
   - action: shell
@@ -414,6 +513,9 @@ permissions:
     effect: deny
   - action: shell
     resource: rm -r ~*
+    effect: deny
+  - action: shell
+    resource: rm ~*
     effect: deny
   - action: shell
     resource: rm -rf ..*
@@ -425,6 +527,9 @@ permissions:
     resource: rm -r ..*
     effect: deny
   - action: shell
+    resource: rm ..*
+    effect: deny
+  - action: shell
     resource: rm -rf .
     effect: deny
   - action: shell
@@ -432,6 +537,9 @@ permissions:
     effect: deny
   - action: shell
     resource: rm -r .
+    effect: deny
+  - action: shell
+    resource: rm .
     effect: deny
   - action: shell
     resource: rm -rf ./
@@ -443,6 +551,9 @@ permissions:
     resource: rm -r ./
     effect: deny
   - action: shell
+    resource: rm ./
+    effect: deny
+  - action: shell
     resource: rm -rf .*
     effect: deny
   - action: shell
@@ -450,6 +561,12 @@ permissions:
     effect: deny
   - action: shell
     resource: rm -r .*
+    effect: deny
+  - action: shell
+    resource: rm .*
+    effect: deny
+  - action: shell
+    resource: rm .git*
     effect: deny
   - action: shell
     resource: rm * .git*
@@ -492,14 +609,14 @@ REMAINING_SCOPE: none | <what is left, specific enough for a resumed session to 
 
 ## Shell rules (how bash permissions work here)
 
-Bash is broadly allowed — diagnostics, service lifecycles, infrastructure CLIs and general tooling need no enumeration. A few semantic gates still apply, each part of a compound command is checked separately, and the pipeline guard blocks writes outside the repository. To avoid needless rejections:
+Shell access is workspace-agnostic: diagnostics, project commands, runtimes, task runners, infrastructure CLIs and environment-prefixed commands (`VAR=value cmd`, `/usr/bin/env python3`) are allowed without a fixed stack allowlist. Privilege elevation, real `.env` files and catastrophic or recursive removals are blocked; remote/cloud and other high-impact operations ask for confirmation, and package publication is denied. The pipeline guard blocks repository writes; use `$PIPELINE_SCRATCH` or `/tmp` for temporary files.
 
-- **Secrets are off limits**: commands that touch `.env` files are denied, as are `env` and `printenv`; `.env.example` and `.env.sample` remain readable.
-- **Blocked**: `sudo` is blocked by the pipeline guard. The database shells (`psql`, `mysql`, `mongosh`, `redis-cli`), remote access (`ssh`, `rsync`) and deploy commands (`deploy`, `apply`, `submit`, `push`, `release create`, `workflow run`, `install`, `upgrade`, `rollback`, `patch`, `scale`, `rollout`, `vercel`) ask the user before running.
-- **Destructive operations are denied** (`delete`, `destroy`, `prune`, `uninstall`, `down -v`, `docker rm`, `terminate`, `terraform import`, `kubectl edit`, publishing/upload); a solitary `rm` asks, forced or recursive `rm` is denied, and host power (`shutdown`, `reboot`, `mkfs`) or env dumps (`set`, `declare -p`) are blocked.
+- **Secrets are off limits**: commands that read real `.env` files and environment dumps (`env`, `printenv`, `set`, `export -p`, `declare -p`) are denied. Safe `.env` templates remain readable and may be copied when needed. `VAR=value cmd` and `/usr/bin/env python3` are allowed.
+- **Confirmation required**: cloud and remote commands (including `kubectl`, `helm`, `terraform`, cloud CLIs, `ssh`, `scp`, `sftp`, and `rsync`) and other high-impact operations ask before running. Database shells (`psql`, `mysql`, `mongosh`, `redis-cli`) also ask.
+- **Blocked**: privilege elevation, package publishing/upload, catastrophic or recursive removals, destructive operations (`delete`, `destroy`, `prune`, `uninstall`, `down -v`, `terminate`, `terraform import`, `kubectl edit`), and host power or filesystem formatting commands.
 - One command per call. Avoid `&&`, `;`, `|` and subshells unless every part is a command you are allowed to run.
 - Set the directory with the bash tool's `workdir` parameter instead of `cd dir && ...`.
-- Do not prefix commands with variable assignments (`VAR=value cmd`). For checks that need a subdirectory, env or services (for example a database), use `dev_verify` (`workspace`, `filter`, `with_services`) when you have it.
+- Environment-prefixed commands are allowed. Use `dev_verify` with `workspace`, `filter`, and `with_services` for bounded checks when available.
 - Quote paths, especially ones starting with `.` or containing spaces: `git diff -- ".github/workflows/ci.yml"`.
 - Three identical tool calls in a row are rejected (`doom_loop`). Bound a wait inside one command instead of polling with repeated identical calls.
 - If a command is rejected: rewrite it once following these rules, or use the corresponding `dev_*` tool or `pipeline_state` when it covers the need. If it is still rejected, stop trying variations, report `BLOCKED_BY: permission: <exact command>` with the error text, and continue with what you can do without it.
@@ -516,17 +633,17 @@ Bash is broadly allowed — diagnostics, service lifecycles, infrastructure CLIs
 Starting, waiting for and stopping processes through raw bash is unreliable (background jobs, PID files and polling loops). Use the tools; they are bounded and always clean up.
 
 - **`dev_env`** (call it first, once): what the host offers (Docker daemon, database binaries, contract in `.opencode/pipeline.json`, declared services, sub-projects) and a `verification_outlook`. Use that outlook to choose a feasible startup path below; a missing runtime contract alone does not end validation if the repository defines a safe startup command.
-- **`dev_smoke`**: the whole empirical validation as one bounded operation from the `smoke` section of `.opencode/pipeline.json`. When the contract declares `services`, pass `with_services: true`; services start first and stop after. Its `failure_class_hint` (`code` | `env` | `harness` | `unclassified`) is evidence, not a verdict: confirm it before reporting.
+- **`dev_smoke`**: the whole empirical validation as one bounded operation from the `smoke` section when `.opencode/pipeline.json` provides one. When the contract declares `services`, pass `with_services: true`; services start first and stop after. Its `failure_class_hint` (`code` | `env` | `harness` | `unclassified`) is evidence, not a verdict: confirm it before reporting.
 - **`dev_verify`**: lint, typecheck, tests and build with timeouts. `workspace` runs them in a sub-project, `with_services: ["db"]` starts declared services (a throwaway Postgres: native if the binaries exist, otherwise Docker) and injects their env (`DATABASE_URL`, ...) into the checks.
-- **`dev_serve`**: keeps the configured service running for a bounded time (`start` / `status` / `stop`). When `.opencode/pipeline.json` declares dependent `services`, pass `with_services: true` when starting it.
+- **`dev_serve`**: keeps a service running for a bounded time (`start` / `status` / `stop`), using the configured `serve` section when present. `.opencode/pipeline.json` is optional; when its `serve` section is absent, pass `command`, `workspace`, `ready_path`, `ready_url`, and `ready_timeout_s` directly. When the contract declares dependent `services`, pass `with_services: true` when starting it.
 - **`pipeline_state`**: what this session changed.
 
 ## Running a service (empirical validation)
 
-1. **Use the pipeline tools first.** Run `dev_smoke` or start the service with `dev_serve`, then perform the required checks. If `.opencode/pipeline.json` declares dependent `services`, pass `with_services: true` to the applicable tool. If the tool returns a meaningful verdict, report it without starting a second service path.
+1. **Use the pipeline tools first.** Run `dev_smoke` when a `smoke` section exists, or start the service with `dev_serve` using the `serve` section or direct startup/readiness arguments when it does not. If `.opencode/pipeline.json` declares dependent `services`, pass `with_services: true` to the applicable tool. If the tool returns a meaningful verdict, report it without starting a second service path.
 2. **Use Docker Compose as the next fallback.** If the pipeline-tool path is unavailable or inconclusive, and the repository has a Compose configuration with a reachable Docker daemon, start only the required services with `docker compose up -d <services>`, run a bounded health check such as `curl --retry 15 --retry-connrefused --retry-delay 2 --max-time 5 -fsS <health url>` or `pg_isready -h 127.0.0.1 -p <port> -t 30`, then stop what you started with `docker compose down` (without `-v`).
-3. **Use a bounded shell fallback only for a clearly defined non-Docker service.** Only if the earlier paths are unavailable or inconclusive, `.opencode/pipeline.json` is absent, and no Compose path applies, proceed when the repository unambiguously defines a start command in `package.json`, `pyproject.toml`, `Procfile`, or `Makefile`. Run startup and checks in one self-cleaning `shell` call with a timeout of at most 60 seconds. In a subshell, start the service in the background, capture its PID, and register an `EXIT` trap such as `trap 'kill "$PID" 2>/dev/null || true' EXIT`; in that same call, probe readiness with `curl` and redirect logs to `$PIPELINE_SCRATCH/ops-service.log` or another permitted scratch path. Never leave a detached process running across shell calls.
-4. **Do not improvise beyond these paths.** If startup cannot be safely bounded because `.opencode/pipeline.json` lacks a runtime contract (`smoke`/`serve`), report `BLOCKED_BY: none` and verdict `INCONCLUSIVE` or `BLOCKED` with failure class `harness: no runtime contract`; identify `/pipeline-init` as the next step. Reserve `env` for unavailable credentials, missing binaries or daemons (for example, an unreachable Docker daemon), or unreachable external dependencies. If a port is already used by a process you did not start, do not stop it; report `BLOCKED (env: port in use)`. If the project's own service is already running, validate it without restarting it.
+3. **Use a bounded shell fallback only for a clearly defined non-Docker service.** Only if the earlier paths are unavailable or inconclusive and no Compose path applies, proceed when the repository unambiguously defines a start command in `package.json`, `pyproject.toml`, `Procfile`, or `Makefile`. Run startup and checks in one self-cleaning `shell` call with a timeout of at most 60 seconds. In a subshell, start the service in the background, capture its PID, and register an `EXIT` trap such as `trap 'kill "$PID" 2>/dev/null || true' EXIT`; in that same call, probe readiness with `curl` and redirect logs to `$PIPELINE_SCRATCH/ops-service.log` or another permitted scratch path. Never leave a detached process running across shell calls.
+4. **Do not improvise beyond these paths.** A missing `.opencode/pipeline.json` or `serve`/`smoke` section is not by itself a blocker: use `dev_serve` with `command`, `workspace`, `ready_path`, `ready_url`, and `ready_timeout_s` directly when a `serve` section is absent. Reserve `env` for unavailable credentials, missing binaries or daemons (for example, an unreachable Docker daemon), or unreachable external dependencies. If a port is already used by a process you did not start, do not stop it; report `BLOCKED (env: port in use)`. If the project's own service is already running, validate it without restarting it.
 5. Always stop what you started, even if a check fails, and verify that the port is free again.
 
 The orchestrator specifies your mode when calling you. Always state your mode at the top of your output.

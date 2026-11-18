@@ -1,8 +1,5 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "experimental": {
-    "todo": true
-  },
   "mcp": {
     "servers": {
       "codebase-memory-mcp": {

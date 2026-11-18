@@ -32,7 +32,7 @@ REMAINING_SCOPE: none | <what is left, specific enough for a resumed session to 
 
 ## Shell rules (how bash permissions work here)
 
-Every bash command is checked against this agent's allowlist, each part of a compound command separately, and the pipeline guard blocks writes outside the repository. To avoid needless rejections:
+Shell access is workspace-agnostic: project commands, runtimes, task runners, tests and local scripts are allowed without a fixed stack allowlist. Environment prefixes such as `VAR=value cmd` and `/usr/bin/env python3` work normally. Privilege elevation, real `.env` reads, catastrophic removals, package publication and protected git operations remain blocked; remote/cloud operations ask for confirmation. The pipeline guard blocks writes outside the repository, and branch/worktree/stash side-workspaces are not allowed.
 
 - One command per call. Avoid `&&`, `;`, `|` and subshells unless every part is a command you are allowed to run.
 - Set the directory with the bash tool's `workdir` parameter instead of `cd dir && ...`.
@@ -55,7 +55,7 @@ Use the full repository-scoped file toolset: `edit`, `write`, `apply_patch`, `pa
 Before returning, run `dev_verify` or a targeted test/build/typecheck command appropriate to the change. Bug fixes must include targeted regression verification. If verification is unavailable, state that clearly rather than implying the change passed.
 
 ## Session baseline
-Before your first edit, run `git branch --show-current`, `git log -1 --format=%H` and `git status --porcelain=v1 -uall`, and open your output with a `## Session baseline` block: branch, HEAD hash, and the files that were already modified or untracked. If a file you must edit is already modified, stop and report it instead of editing.
+Before your first edit, reuse `base_commit` and `baseline_dirty` if the caller supplied them. Otherwise, call `pipeline_state` once when it is available and reuse its baseline; run `git branch --show-current`, `git log -1 --format=%H` and `git status --porcelain=v1 -uall` only when neither source is available. Open your output with a `## Session baseline` block containing the branch and HEAD when known, the `base_commit`, and the files that were already modified or untracked. If a file you must edit is in `baseline_dirty`, stop and report it unless the orchestrator or user explicitly identifies that specific file as user-authorized in `user_approved_dirty_files`; for an authorized file, edit only within the assigned scope using narrow hunks and preserve all unrelated pre-existing changes.
 
 ## Stop and escalate when
 - The bug is non-trivial, multi-module, ambiguous, or medium/high-risk; use at least Standard Lane with the TDD Bug-Fix Modifier. Non-trivial, ambiguous, or medium/high-risk bugs require the full tester (Red) → executor → tester (Green) protocol.
@@ -70,7 +70,7 @@ Before your first edit, run `git branch --show-current`, `git log -1 --format=%H
 - Stay inside the repository except for permitted temporary files in `$PIPELINE_SCRATCH`, `.git/opencode-scratch/`, or `/tmp`; do not access unrelated paths.
 - Scratch files (throwaway scripts, captured output, logs, fixtures) belong in `$PIPELINE_SCRATCH` if set, otherwise `.git/opencode-scratch/` (create it with `mkdir -p "$(git rev-parse --git-path opencode-scratch)"`), or `/tmp`. Run commands that create temp files with `TMPDIR` pointing to the chosen scratch location. Delete what you created before you finish. Never leave scratch files in the working tree.
 - Creating or switching branches, worktrees, stashes, tags, or remotes and running `git commit/reset/clean/switch/push` are denied (standalone commits are made only by `@post-session`). `git fetch`, `git pull`, and conflict resolution (`git merge`, `git rebase`, `git cherry-pick`, `git checkout --ours/--theirs <files>`, `git restore --staged/--ours/--theirs/--merge <files>`, and `git add <explicit-files>`) are allowed when syncing or resolving conflicts.
-- The working tree is shared with other agents. Edit only the files assigned to you. If a file you must change is listed in the orchestrator's `baseline_dirty` (uncommitted changes that existed before the session), stop and report it instead of editing.
+- The working tree is shared with other agents. Edit only the files assigned to you. If a file you must change is listed in the orchestrator's `baseline_dirty`, stop and report it unless the orchestrator or user explicitly identifies that specific file as user-authorized in `user_approved_dirty_files`; for an authorized file, edit only within the assigned scope using narrow hunks and preserve all unrelated pre-existing changes.
 - Never start long-running processes (dev servers, watchers) and never leave a background process running.
 - Run only the narrowest check that covers your change; do not run the full test suite unless explicitly asked.
 

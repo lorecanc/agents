@@ -35,11 +35,13 @@ REMAINING_SCOPE: none | <what is left, specific enough for a resumed session to 
 
 ## Shell rules (how bash permissions work here)
 
-Every bash command is checked against this agent's allowlist, each part of a compound command separately, and the pipeline guard blocks writes outside the repository. To avoid needless rejections:
+Shell access is deny-by-default and limited to `cd`, read-only Git inspection, and standard file and text inspection commands. These primary permissions do not allow arbitrary executables, interpreters, repository scripts, shell wrappers, or workspace mutation; the pipeline guard adds checks for unsafe flags, redirects, and secret files.
 
 - One command per call. Avoid `&&`, `;`, `|` and subshells unless every part is a command you are allowed to run.
 - Set the directory with the bash tool's `workdir` parameter instead of `cd dir && ...`.
-- Do not prefix commands with variable assignments (`VAR=value cmd`). For checks that need a subdirectory, env or services (for example a database), use `dev_verify` (`workspace`, `filter`, `with_services`) when you have it.
+- Use only inspection commands from `shell-read` and read-only Git commands from `git-read`; no arbitrary executables, interpreters, repository scripts, or shell wrappers are permitted.
+- `code_reviewer`, `critic`, and `security_auditor` may run project checks with `dev_verify`; `explorer` and `hitl` do not have that tool permission. Only `security_auditor` has explicit shell permission for security scanners.
+- The operational roles `executor`, `fast_lane`, `refactorer`, `tester`, and `ops` keep workspace-agnostic shell access with separate safety profiles and guard checks.
 - Quote paths, especially ones starting with `.` or containing spaces: `git diff -- ".github/workflows/ci.yml"`.
 - Three identical tool calls in a row are rejected (`doom_loop`). Bound a wait inside one command instead of polling with repeated identical calls.
 - If a command is rejected: rewrite it once following these rules, or use the equivalent `pipeline_*` tool. If it is still rejected, stop trying variations, report `BLOCKED_BY: permission: <exact command>` with the error text, and continue with what you can do without it.

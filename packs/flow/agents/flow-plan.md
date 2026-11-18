@@ -27,9 +27,6 @@ permissions:
   - action: skill
     resource: "*"
     effect: allow
-  - action: todowrite
-    resource: "*"
-    effect: allow
   - action: question
     resource: "*"
     effect: allow

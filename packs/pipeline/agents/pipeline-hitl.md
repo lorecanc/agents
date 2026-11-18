@@ -1,5 +1,7 @@
 ---
-description: Human-in-the-loop checkpoint agent. Explains repository changes in plain Italian with the why, a visual Mermaid map, simple concrete examples, and essential diffs, without technical jargon. Informational and non-blocking.
+description: Human-in-the-loop checkpoint agent. Explains repository changes in
+  plain Italian with the why, a visual Mermaid map, simple concrete examples,
+  and essential diffs, without technical jargon. Informational and non-blocking.
 mode: subagent
 color: "#E67E22"
 steps: 50
@@ -68,279 +70,6 @@ permissions:
     resource: cd *
     effect: allow
   - action: shell
-    resource: pwd
-    effect: allow
-  - action: shell
-    resource: pwd *
-    effect: allow
-  - action: shell
-    resource: ls
-    effect: allow
-  - action: shell
-    resource: ls *
-    effect: allow
-  - action: shell
-    resource: tree
-    effect: allow
-  - action: shell
-    resource: tree *
-    effect: allow
-  - action: shell
-    resource: which *
-    effect: allow
-  - action: shell
-    resource: type *
-    effect: allow
-  - action: shell
-    resource: command -v *
-    effect: allow
-  - action: shell
-    resource: file *
-    effect: allow
-  - action: shell
-    resource: stat *
-    effect: allow
-  - action: shell
-    resource: du *
-    effect: allow
-  - action: shell
-    resource: df *
-    effect: allow
-  - action: shell
-    resource: cat *
-    effect: allow
-  - action: shell
-    resource: head *
-    effect: allow
-  - action: shell
-    resource: tail *
-    effect: allow
-  - action: shell
-    resource: wc *
-    effect: allow
-  - action: shell
-    resource: nl *
-    effect: allow
-  - action: shell
-    resource: find *
-    effect: allow
-  - action: shell
-    resource: fd *
-    effect: allow
-  - action: shell
-    resource: grep *
-    effect: allow
-  - action: shell
-    resource: egrep *
-    effect: allow
-  - action: shell
-    resource: fgrep *
-    effect: allow
-  - action: shell
-    resource: rg *
-    effect: allow
-  - action: shell
-    resource: sed *
-    effect: allow
-  - action: shell
-    resource: jq *
-    effect: allow
-  - action: shell
-    resource: cut *
-    effect: allow
-  - action: shell
-    resource: tr *
-    effect: allow
-  - action: shell
-    resource: sort *
-    effect: allow
-  - action: shell
-    resource: uniq *
-    effect: allow
-  - action: shell
-    resource: paste *
-    effect: allow
-  - action: shell
-    resource: column *
-    effect: allow
-  - action: shell
-    resource: comm *
-    effect: allow
-  - action: shell
-    resource: diff *
-    effect: allow
-  - action: shell
-    resource: cmp *
-    effect: allow
-  - action: shell
-    resource: echo
-    effect: allow
-  - action: shell
-    resource: echo *
-    effect: allow
-  - action: shell
-    resource: printf *
-    effect: allow
-  - action: shell
-    resource: "true"
-    effect: allow
-  - action: shell
-    resource: "false"
-    effect: allow
-  - action: shell
-    resource: test *
-    effect: allow
-  - action: shell
-    resource: "[ *"
-    effect: allow
-  - action: shell
-    resource: date
-    effect: allow
-  - action: shell
-    resource: date *
-    effect: allow
-  - action: shell
-    resource: uname
-    effect: allow
-  - action: shell
-    resource: uname *
-    effect: allow
-  - action: shell
-    resource: whoami
-    effect: allow
-  - action: shell
-    resource: id
-    effect: allow
-  - action: shell
-    resource: basename *
-    effect: allow
-  - action: shell
-    resource: dirname *
-    effect: allow
-  - action: shell
-    resource: realpath *
-    effect: allow
-  - action: shell
-    resource: readlink *
-    effect: allow
-  - action: shell
-    resource: shasum *
-    effect: allow
-  - action: shell
-    resource: sha256sum *
-    effect: allow
-  - action: shell
-    resource: md5 *
-    effect: allow
-  - action: shell
-    resource: md5sum *
-    effect: allow
-  - action: shell
-    resource: base64 *
-    effect: allow
-  - action: shell
-    resource: xxd *
-    effect: allow
-  - action: shell
-    resource: hexdump *
-    effect: allow
-  - action: shell
-    resource: lsof *
-    effect: allow
-  - action: shell
-    resource: ps
-    effect: allow
-  - action: shell
-    resource: ps *
-    effect: allow
-  - action: shell
-    resource: pgrep *
-    effect: allow
-  - action: shell
-    resource: find -exec*
-    effect: deny
-  - action: shell
-    resource: find * -exec*
-    effect: deny
-  - action: shell
-    resource: find -execdir*
-    effect: deny
-  - action: shell
-    resource: find * -execdir*
-    effect: deny
-  - action: shell
-    resource: find -ok*
-    effect: deny
-  - action: shell
-    resource: find * -ok*
-    effect: deny
-  - action: shell
-    resource: find -delete*
-    effect: deny
-  - action: shell
-    resource: find * -delete*
-    effect: deny
-  - action: shell
-    resource: find -fprint*
-    effect: deny
-  - action: shell
-    resource: find * -fprint*
-    effect: deny
-  - action: shell
-    resource: find -fls*
-    effect: deny
-  - action: shell
-    resource: find * -fls*
-    effect: deny
-  - action: shell
-    resource: find -fprintf*
-    effect: deny
-  - action: shell
-    resource: find * -fprintf*
-    effect: deny
-  - action: shell
-    resource: fd -x*
-    effect: deny
-  - action: shell
-    resource: fd * -x*
-    effect: deny
-  - action: shell
-    resource: fd -X*
-    effect: deny
-  - action: shell
-    resource: fd * -X*
-    effect: deny
-  - action: shell
-    resource: fd --exec*
-    effect: deny
-  - action: shell
-    resource: fd * --exec*
-    effect: deny
-  - action: shell
-    resource: sed -i*
-    effect: deny
-  - action: shell
-    resource: sed * -i*
-    effect: deny
-  - action: shell
-    resource: sed --in-place*
-    effect: deny
-  - action: shell
-    resource: sed * --in-place*
-    effect: deny
-  - action: shell
-    resource: sort -o*
-    effect: deny
-  - action: shell
-    resource: sort * -o*
-    effect: deny
-  - action: shell
-    resource: sort --output*
-    effect: deny
-  - action: shell
-    resource: sort * --output*
-    effect: deny
-  - action: shell
     resource: git status*
     effect: allow
   - action: shell
@@ -353,11 +82,11 @@ permissions:
     resource: git log*
     effect: allow
   - action: shell
-    resource: git show*
-    effect: allow
-  - action: shell
     resource: git log *--output*
     effect: deny
+  - action: shell
+    resource: git show*
+    effect: allow
   - action: shell
     resource: git show *--output*
     effect: deny
@@ -485,55 +214,184 @@ permissions:
     resource: git -C * rev-parse*
     effect: allow
   - action: shell
-    resource: git -C * branch*
+    resource: ls*
     effect: allow
   - action: shell
-    resource: git blame*
+    resource: pwd
     effect: allow
   - action: shell
-    resource: git branch --show-current*
+    resource: wc*
     effect: allow
   - action: shell
-    resource: git branch -l*
+    resource: head *
     effect: allow
   - action: shell
-    resource: git branch --list*
+    resource: tail *
     effect: allow
   - action: shell
-    resource: git branch -a*
+    resource: cat *
     effect: allow
   - action: shell
-    resource: git branch --all*
+    resource: stat *
     effect: allow
   - action: shell
-    resource: git branch -r*
+    resource: file *
     effect: allow
   - action: shell
-    resource: git branch --remotes*
+    resource: which *
     effect: allow
   - action: shell
-    resource: git branch -v*
+    resource: type *
     effect: allow
   - action: shell
-    resource: git branch -vv*
+    resource: uname*
     effect: allow
   - action: shell
-    resource: git branch --contains*
+    resource: whoami
     effect: allow
   - action: shell
-    resource: git branch --merged*
+    resource: id
     effect: allow
   - action: shell
-    resource: git branch --no-merged*
+    resource: date*
     effect: allow
+  - action: shell
+    resource: rg *
+    effect: allow
+  - action: shell
+    resource: grep *
+    effect: allow
+  - action: shell
+    resource: egrep *
+    effect: allow
+  - action: shell
+    resource: fgrep *
+    effect: allow
+  - action: shell
+    resource: find *
+    effect: allow
+  - action: shell
+    resource: fd *
+    effect: allow
+  - action: shell
+    resource: jq *
+    effect: allow
+  - action: shell
+    resource: yq *
+    effect: allow
+  - action: shell
+    resource: tree*
+    effect: allow
+  - action: shell
+    resource: du *
+    effect: allow
+  - action: shell
+    resource: df*
+    effect: allow
+  - action: shell
+    resource: diff *
+    effect: allow
+  - action: shell
+    resource: sort *
+    effect: allow
+  - action: shell
+    resource: uniq*
+    effect: allow
+  - action: shell
+    resource: cut *
+    effect: allow
+  - action: shell
+    resource: tr *
+    effect: allow
+  - action: shell
+    resource: awk *
+    effect: allow
+  - action: shell
+    resource: "* > *"
+    effect: deny
+  - action: shell
+    resource: "* >> *"
+    effect: deny
+  - action: shell
+    resource: "*>*"
+    effect: deny
+  - action: shell
+    resource: "*>>*"
+    effect: deny
+  - action: shell
+    resource: find *-exec*
+    effect: deny
+  - action: shell
+    resource: find *-execdir*
+    effect: deny
+  - action: shell
+    resource: find *-delete*
+    effect: deny
+  - action: shell
+    resource: find *-ok*
+    effect: deny
+  - action: shell
+    resource: fd *-x*
+    effect: deny
+  - action: shell
+    resource: fd *-X*
+    effect: deny
+  - action: shell
+    resource: fd *--exec*
+    effect: deny
+  - action: shell
+    resource: sort *-o *
+    effect: deny
+  - action: shell
+    resource: sort *--output*
+    effect: deny
+  - action: shell
+    resource: sort -o*
+    effect: deny
+  - action: shell
+    resource: sort --output=*
+    effect: deny
+  - action: shell
+    resource: yq *-i*
+    effect: deny
+  - action: shell
+    resource: yq *--inplace*
+    effect: deny
+  - action: shell
+    resource: rg *--pre*
+    effect: deny
+  - action: shell
+    resource: awk *-f*
+    effect: deny
+  - action: shell
+    resource: awk *system*
+    effect: deny
+  - action: shell
+    resource: awk *getline*
+    effect: deny
   - action: shell
     resource: env
     effect: deny
   - action: shell
-    resource: env *
+    resource: /usr/bin/env
+    effect: deny
+  - action: shell
+    resource: env -*
+    effect: deny
+  - action: shell
+    resource: /usr/bin/env -*
+    effect: deny
+  - action: shell
+    resource: env *=*
+    effect: deny
+  - action: shell
+    resource: /usr/bin/env *=*
     effect: deny
   - action: shell
     resource: printenv*
+    effect: deny
+  - action: shell
+    resource: /usr/bin/printenv*
     effect: deny
   - action: shell
     resource: set
@@ -545,13 +403,22 @@ permissions:
     resource: declare -p*
     effect: deny
   - action: shell
-    resource: /usr/bin/env*
+    resource: "* .env"
     effect: deny
   - action: shell
-    resource: /usr/bin/printenv*
+    resource: "* .env *"
     effect: deny
   - action: shell
-    resource: "*.env*"
+    resource: "*/.env"
+    effect: deny
+  - action: shell
+    resource: "*/.env *"
+    effect: deny
+  - action: shell
+    resource: "* .env.*"
+    effect: deny
+  - action: shell
+    resource: "*/.env.*"
     effect: deny
   - action: shell
     resource: cat .env.example
@@ -564,6 +431,18 @@ permissions:
     effect: allow
   - action: shell
     resource: cat .env.test
+    effect: allow
+  - action: shell
+    resource: head .env.example
+    effect: allow
+  - action: shell
+    resource: head .env.sample
+    effect: allow
+  - action: shell
+    resource: head .env.template
+    effect: allow
+  - action: shell
+    resource: head .env.test
     effect: allow
 ---
 
@@ -593,11 +472,13 @@ REMAINING_SCOPE: none | <what is left, specific enough for a resumed session to 
 
 ## Shell rules (how bash permissions work here)
 
-Every bash command is checked against this agent's allowlist, each part of a compound command separately, and the pipeline guard blocks writes outside the repository. To avoid needless rejections:
+Shell access is deny-by-default and limited to `cd`, read-only Git inspection, and standard file and text inspection commands. These primary permissions do not allow arbitrary executables, interpreters, repository scripts, shell wrappers, or workspace mutation; the pipeline guard adds checks for unsafe flags, redirects, and secret files.
 
 - One command per call. Avoid `&&`, `;`, `|` and subshells unless every part is a command you are allowed to run.
 - Set the directory with the bash tool's `workdir` parameter instead of `cd dir && ...`.
-- Do not prefix commands with variable assignments (`VAR=value cmd`). For checks that need a subdirectory, env or services (for example a database), use `dev_verify` (`workspace`, `filter`, `with_services`) when you have it.
+- Use only inspection commands from `shell-read` and read-only Git commands from `git-read`; no arbitrary executables, interpreters, repository scripts, or shell wrappers are permitted.
+- `code_reviewer`, `critic`, and `security_auditor` may run project checks with `dev_verify`; `explorer` and `hitl` do not have that tool permission. Only `security_auditor` has explicit shell permission for security scanners.
+- The operational roles `executor`, `fast_lane`, `refactorer`, `tester`, and `ops` keep workspace-agnostic shell access with separate safety profiles and guard checks.
 - Quote paths, especially ones starting with `.` or containing spaces: `git diff -- ".github/workflows/ci.yml"`.
 - Three identical tool calls in a row are rejected (`doom_loop`). Bound a wait inside one command instead of polling with repeated identical calls.
 - If a command is rejected: rewrite it once following these rules, or use the equivalent `pipeline_*` tool. If it is still rejected, stop trying variations, report `BLOCKED_BY: permission: <exact command>` with the error text, and continue with what you can do without it.

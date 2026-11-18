@@ -54,7 +54,12 @@ precisely what to change. You never edit files.
 # Input
 
 The caller gives you a URL (or asks you to start the app with `dev_serve` `start`), the routes and
-viewports, a short design brief, what changed, and any states to trigger.
+viewports, a short design brief, what changed, and any states to trigger. `.opencode/pipeline.json`
+is optional: when it has no `serve`/`smoke` configuration and the app is not a simple root
+`package.json` app, discover the workspace and command in the repository and pass `workspace`,
+`command` (using `${PORT}`), and any applicable `ready_path`, `ready_url` or `ready_timeout_s`
+directly to `dev_serve({ action: "start", ... })`. Never skip the visual check because that file is
+absent.
 
 # Method
 

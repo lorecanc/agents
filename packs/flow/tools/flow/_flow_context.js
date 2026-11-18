@@ -1,11 +1,9 @@
-// Pure logic for the flow-context plugin: the session-start git snapshot and the todo reminder that
-// flow agents receive as extra system text.
+// Pure logic for the flow-context plugin: the session-start git snapshot flow agents receive as
+// extra system text.
 
 import { gitT } from "../dev-tools/_repo.js"
 
 export const STATUS_MAX_CHARS = 2000
-/** Tool calls without a `todowrite` before an open todo list earns a reminder. */
-export const TODO_REMINDER_EVERY = 10
 
 function mainBranch(cwd) {
   const remoteHead = gitT(cwd, ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], { allowFail: true })
@@ -32,19 +30,5 @@ export function gitSnapshotText(cwd) {
     status || "(clean)",
     "Recent commits:",
     commits,
-  ].join("\n")
-}
-
-/** Open items of a `todowrite` input: everything not completed or cancelled. */
-export function openTodos(todos) {
-  if (!Array.isArray(todos)) return []
-  return todos.filter((t) => t && typeof t.content === "string" && !["completed", "cancelled"].includes(t.status))
-}
-
-export function todoReminderText(open) {
-  return [
-    `You have not updated the todo list for ${TODO_REMINDER_EVERY} or more tool calls. If the work has moved on, update it with \`todowrite\`: mark finished items completed and drop the ones that no longer apply. Ignore this if the list is current.`,
-    "Open items:",
-    ...open.map((t) => `- [${t.status || "pending"}] ${t.content}`),
   ].join("\n")
 }

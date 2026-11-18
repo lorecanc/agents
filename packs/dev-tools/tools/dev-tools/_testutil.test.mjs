@@ -7,8 +7,13 @@ import path from "node:path"
 
 const created = new Set()
 
+function isSafeTmpRoot(root, cwd) {
+  const relative = path.relative(cwd, root)
+  const insideCwd = relative === "" || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))
+  return !insideCwd && !root.split(path.sep).includes(".git")
+}
+
 process.once("exit", () => {
-  const root = os.tmpdir()
   for (const dir of created) {
     try {
       const base = path.basename(dir)
@@ -19,11 +24,19 @@ process.once("exit", () => {
       /* best effort */
     }
   }
-  void root
 })
 
 export function mkTmp(prefix) {
-  const dir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), prefix)))
+  const cwd = fs.realpathSync.native(process.cwd())
+  let tmpRoot = fs.realpathSync.native(os.tmpdir())
+  if (!isSafeTmpRoot(tmpRoot, cwd)) {
+    if (process.platform === "win32") throw new Error("No safe system temporary directory is available")
+    tmpRoot = fs.realpathSync.native("/tmp")
+    fs.accessSync(tmpRoot, fs.constants.W_OK | fs.constants.X_OK)
+    if (!isSafeTmpRoot(tmpRoot, cwd)) throw new Error("No safe system temporary directory is available")
+  }
+
+  const dir = fs.realpathSync.native(fs.mkdtempSync(path.join(tmpRoot, prefix)))
   created.add(dir)
   return dir
 }

@@ -474,10 +474,10 @@ function deriveOutlook(r) {
   // browser
   const mcp = r.mcp && Array.isArray(r.mcp.servers) ? r.mcp.servers : null
   const browserMcp = mcp ? mcp.filter((s) => s.enabled && /chrome|browser|playwright|puppeteer/i.test(s.name)) : []
-  if (outlook.runtime_smoke.feasible !== true) outlook.browser = { feasible: false, reason: "nothing to serve (see runtime_smoke)" }
-  else if (!mcp) outlook.browser = { feasible: "unknown", reason: "opencode MCP configuration not readable" }
+  if (!mcp) outlook.browser = { feasible: "unknown", reason: "opencode MCP configuration not readable" }
   else if (!browserMcp.length) outlook.browser = { feasible: false, reason: "no enabled browser MCP server (chrome/playwright/puppeteer) in the opencode config files read" }
-  else outlook.browser = { feasible: true, reason: `MCP: ${browserMcp.map((s) => s.name).join(", ")}` }
+  else if (outlook.runtime_smoke.feasible === true) outlook.browser = { feasible: true, reason: `MCP: ${browserMcp.map((s) => s.name).join(", ")}` }
+  else outlook.browser = { feasible: true, reason: `MCP: ${browserMcp.map((s) => s.name).join(", ")} (no root serve/smoke autodetected; pass command/workspace to dev_serve or use an existing URL)` }
 
   return outlook
 }

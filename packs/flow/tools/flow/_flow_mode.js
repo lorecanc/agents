@@ -109,7 +109,7 @@ export function enteredMessage(reason) {
 export function approvedMessage(planFile) {
   return [
     `The user approved the plan in ${planFile}. Plan mode is off: you are flow-build again, with write access.`,
-    "Start by turning the plan into a todo list (todowrite), then implement it, verify, and report.",
+    "Follow the approved plan in order, send the user brief progress updates as you advance, then verify and report.",
   ].join(" ")
 }
 

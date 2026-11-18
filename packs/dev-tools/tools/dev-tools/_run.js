@@ -84,9 +84,12 @@ export function autodetect(top) {
     const startScript = scripts.dev ? "dev" : scripts.start ? "start" : null
     if (startScript) {
       const start = scripts[startScript]
-      const addPort = /\b(?:vite|astro)\b/.test(start) && !/(?:^|\s)--port(?:\s|=|$)/.test(start)
+      const serves = /\b(?:vite|astro|next|nuxt|nuxi|parcel)\b|\bng\s+serve\b|\bwebpack\s+serve\b|\breact-router\s+dev\b/.test(start)
+      const hasPort = /(?:^|\s)(?:--port(?:\s|=|$)|-p(?:\s|=|$))/.test(start)
+      const addPort = serves && !hasPort
+      const portArg = addPort ? (pm === "npm" ? " -- --port ${PORT}" : " --port ${PORT}") : ""
       smokeHint = {
-        start: `PORT=\${PORT} ${run(startScript)}${addPort ? " -- --port ${PORT}" : ""}`,
+        start: `PORT=\${PORT} ${run(startScript)}${portArg}`,
         ready: { port: "${PORT}", timeout_s: 60 },
         checks: [{ name: "root responds", url: "http://127.0.0.1:${PORT}/", expect_status: 200 }],
         note: "Draft only: many dev servers ignore PORT (e.g. pass --port). Review before saving to .opencode/pipeline.json.",
@@ -569,17 +572,53 @@ export function parseEnvFile(file) {
 
 export const LOCAL_HOST = /^(localhost|127\.0\.0\.1|\[::1\]|::1)$/
 
+async function fetchLocal(url, options = {}) {
+  let target
+  try {
+    target = new URL(url)
+  } catch {
+    return { problem: `invalid url ${url}` }
+  }
+  const isLocalHttp = (candidate) => ["http:", "https:"].includes(candidate.protocol) && LOCAL_HOST.test(candidate.hostname)
+  if (!isLocalHttp(target)) return { problem: `smoke checks may only target localhost over http or https (got ${target.hostname})` }
+
+  let redirects = 0
+  for (;;) {
+    const response = await fetch(target.href, { ...options, redirect: "manual" })
+    const location = [301, 302, 303, 307, 308].includes(response.status) ? response.headers?.get?.("location") : null
+    if (!location) return { response }
+    if (redirects >= 3) return { response, blockedRedirect: true }
+    let next
+    try {
+      next = new URL(location, target)
+    } catch {
+      return { response, blockedRedirect: true }
+    }
+    if (!isLocalHttp(next)) return { response, blockedRedirect: true }
+    try {
+      await response.body?.cancel()
+    } catch {
+      /* response body is best-effort cleanup */
+    }
+    target = next
+    redirects++
+  }
+}
+
 async function checkUrl(spec, subst, timeoutMs) {
   const url = subst(spec.url)
-  let parsed
   try {
-    parsed = new URL(url)
-  } catch {
-    return { status: "error", detail: `invalid url ${url}` }
-  }
-  if (!LOCAL_HOST.test(parsed.hostname)) return { status: "error", detail: `smoke checks may only target localhost (got ${parsed.hostname})` }
-  try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) })
+    const fetched = await fetchLocal(url, { signal: AbortSignal.timeout(timeoutMs) })
+    if (fetched.problem) return { status: "error", detail: fetched.problem }
+    if (fetched.blockedRedirect) {
+      try {
+        await fetched.response.body?.cancel()
+      } catch {
+        /* response body is best-effort cleanup */
+      }
+      return { status: "error", detail: "smoke check redirects must stay on localhost over http or https (maximum 3 redirects)" }
+    }
+    const res = fetched.response
     const body = await res.text()
     const wanted = Array.isArray(spec.expect_status) ? spec.expect_status : [spec.expect_status ?? 200]
     if (!wanted.includes(res.status)) return { status: "fail", detail: `expected status ${wanted.join("|")}, got ${res.status}`, body_excerpt: redact(body.slice(0, 500)) }
@@ -605,10 +644,37 @@ export async function waitReady(ready, { portNum, subst, readLog, isExited, time
       try {
         const u = subst(spec.url)
         if (!LOCAL_HOST.test(new URL(u).hostname)) return { ok: false, reason: "ready.url must target localhost", ms: 0, harness: true }
-        const res = await fetch(u, { signal: AbortSignal.timeout(2000) })
-        await res.arrayBuffer()
-        const okStatus = spec.status ? res.status === spec.status : res.status < 500
-        if (okStatus) return { ok: true, ms: Date.now() - t0 }
+        let target = u
+        let redirects = 0
+        let blockedRedirect = false
+        let res
+        for (;;) {
+          res = await fetch(target, { redirect: "manual", signal: AbortSignal.timeout(2000) })
+          const location = [301, 302, 303, 307, 308].includes(res.status) ? res.headers?.get?.("location") : null
+          if (!location) break
+          if (redirects >= 3) {
+            blockedRedirect = true
+            break
+          }
+          let next
+          try {
+            next = new URL(location, target)
+          } catch {
+            blockedRedirect = true
+            break
+          }
+          if (!(["http:", "https:"].includes(next.protocol) && LOCAL_HOST.test(next.hostname))) {
+            blockedRedirect = true
+            break
+          }
+          target = next.href
+          redirects++
+        }
+        if (!blockedRedirect) {
+          await res.arrayBuffer()
+          const okStatus = spec.status ? res.status === spec.status : res.status < 500
+          if (okStatus) return { ok: true, ms: Date.now() - t0 }
+        }
       } catch {
         /* not up yet */
       }

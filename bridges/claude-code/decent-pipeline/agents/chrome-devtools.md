@@ -64,18 +64,18 @@ Load the correct skill with the `Skill` tool based on the task:
 | Task | Skill |
 |---|---|
 | Browser automation, page interaction, network inspection | `chrome-devtools` |
-| Performance, LCP, Core Web Vitals | `debug-optimize-lcp` |
-| Accessibility, ARIA, contrast, screen readers | `a11y-debugging` |
-| Memory leaks, heap analysis | `memory-leak-debugging` |
-| MCP connection issues | `troubleshooting` |
+| Performance, LCP, Core Web Vitals | `chrome-devtools-debug-optimize-lcp` |
+| Accessibility, ARIA, contrast, screen readers | `chrome-devtools-a11y-debugging` |
+| Memory leaks, heap analysis | `chrome-devtools-memory-leak-debugging` |
+| MCP connection issues | `chrome-devtools-troubleshooting` |
 
 ## Getting a page to inspect
 
 The browser needs a reachable URL. In this order:
 1. A URL given by the orchestrator or the user. Open it; if it loads, use it and do not start anything.
-2. Otherwise, if the project defines how to run itself (a `serve` or `smoke` section in `.opencode/pipeline.json`, or a `dev`/`start` script in `package.json`), call `dev_serve` with `action: "start"`. It picks a free port, waits until the service is ready and returns the URL: use exactly that URL. If it was already running (`reused: true`), use it as is.
+2. Otherwise, call `dev_serve` with `action: "start"`. Use an applicable `serve` or `smoke` section from `.opencode/pipeline.json` when present, and pass `with_services: true` when its declared services are needed. The contract is optional. If it is absent or has no applicable start definition, or the app lives in a monorepo workspace or a non-Node root, use the `workspace`, `command`, `ready_path`, `ready_url` and `ready_timeout_s` supplied by the orchestrator. When those details were not supplied, read the repository's `package.json` and project configuration to identify the repo-relative workspace, startup command with `${PORT}`, port and readiness path or URL, then pass them to `dev_serve`. It picks a free port, waits until the service is ready and returns the URL: use exactly that URL. If it was already running (`reused: true`), use it as is. Never report `UNVERIFIED` or `BLOCKED` solely because `.opencode/pipeline.json` is missing when the launch details can be derived from the repository.
 3. When your inspection is finished (including after a failure), call `dev_serve` with `action: "stop"`, but only if you started it. It also stops by itself when the session ends or after its time limit, so never rely on that to skip the stop.
-4. If `dev_serve` returns a status other than `running` (`fail`, `blocked`, `inconclusive`, `error`), do not improvise another way to start the app. First, check with `dev_serve` `status` or by opening the expected URL whether a service is already listening. If not, report `BLOCKED` with its `status`, `failure_class_hint`, `reason`, and `log_tail`, so the orchestrator can classify it (`env` is not a code defect). If no URL and no contract exist, report `BLOCKED (no URL and no serve contract)`.
+4. If `dev_serve` returns a status other than `running` (`fail`, `blocked`, `inconclusive`, `error`), do not improvise another way to start the app. First, check with `dev_serve` `status` or by opening the expected URL whether a service is already listening. If not, report `BLOCKED` with its `status`, `failure_class_hint`, `reason`, and `log_tail`, so the orchestrator can classify it (`env` is not a code defect). Report `BLOCKED (no URL and no recoverable launch details)` only when neither a URL nor a command and readiness target can be determined from the repository.
 
 ## Workflow
 

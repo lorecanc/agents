@@ -3,10 +3,10 @@ description: Pipeline: draft and validate the .opencode/pipeline.json verificati
 agent: pipeline-orchestrator
 ---
 
-Task (pipeline setup): draft the repository's verification contract `.opencode/pipeline.json`. $ARGUMENTS
+Task (pipeline setup): optionally draft the repository's verification contract `.opencode/pipeline.json`. The pipeline works out of the box in any workspace; this file is useful for projects that want to declare supporting services (for example Postgres or Redis) or persist custom commands. $ARGUMENTS
 
 ## Preset
-- Goal: give `dev_verify`, `dev_smoke` and `dev_serve` explicit commands, so tester and ops never improvise starts, ports or test commands through raw bash.
+- Goal: where useful, give `dev_verify`, `dev_smoke` and `dev_serve` explicit commands, so tester and ops never improvise starts, ports or test commands through raw bash.
 - Phase 0: call `dev_env` and keep its `contract`, `workspaces_detected`, `binaries`, `docker` and `verification_outlook`.
 - Delegate `@pipeline-explorer` to collect, with file evidence (README, `AGENTS.md`, `package.json`, `pyproject.toml`, `Makefile`, `docker-compose.yml`, CI workflows, `.env.example` variable names only): per sub-project the lint, typecheck, targeted-test, single-test-by-name, fast-test, full-test and build commands; the dev/start command, its port flag and health URL; the services tests need (databases, caches) and the env variable names they read.
 - Draft the contract from that evidence only. If a command is not evidenced, leave it out (a missing check is reported as `skipped`, which is honest; a guessed one is not).

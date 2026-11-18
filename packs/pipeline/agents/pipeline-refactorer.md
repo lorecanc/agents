@@ -1,5 +1,6 @@
 ---
-description: Performs behavior-preserving simplification and cleanup. No new features, no speculative architecture.
+description: Performs behavior-preserving simplification and cleanup. No new
+  features, no speculative architecture.
 mode: subagent
 color: "#E67E22"
 steps: 100
@@ -69,925 +70,214 @@ permissions:
     effect: allow
   - action: shell
     resource: "*"
+    effect: allow
+  - action: shell
+    resource: sudo
     effect: deny
   - action: shell
-    resource: cd *
-    effect: allow
-  - action: shell
-    resource: node *
-    effect: allow
-  - action: shell
-    resource: npm *
-    effect: allow
-  - action: shell
-    resource: npx *
-    effect: allow
-  - action: shell
-    resource: pnpm *
-    effect: allow
-  - action: shell
-    resource: yarn *
-    effect: allow
-  - action: shell
-    resource: bun *
-    effect: allow
-  - action: shell
-    resource: deno *
-    effect: allow
-  - action: shell
-    resource: python *
-    effect: allow
-  - action: shell
-    resource: python3 *
-    effect: allow
-  - action: shell
-    resource: pytest*
-    effect: allow
-  - action: shell
-    resource: uv *
-    effect: allow
-  - action: shell
-    resource: poetry *
-    effect: allow
-  - action: shell
-    resource: pip *
-    effect: allow
-  - action: shell
-    resource: pip3 *
-    effect: allow
-  - action: shell
-    resource: go *
-    effect: allow
-  - action: shell
-    resource: cargo *
-    effect: allow
-  - action: shell
-    resource: rustc *
-    effect: allow
-  - action: shell
-    resource: make*
-    effect: allow
-  - action: shell
-    resource: cmake *
-    effect: allow
-  - action: shell
-    resource: gradle *
-    effect: allow
-  - action: shell
-    resource: ./gradlew*
-    effect: allow
-  - action: shell
-    resource: mvn *
-    effect: allow
-  - action: shell
-    resource: ./mvnw*
-    effect: allow
-  - action: shell
-    resource: dotnet *
-    effect: allow
-  - action: shell
-    resource: bundle *
-    effect: allow
-  - action: shell
-    resource: rake*
-    effect: allow
-  - action: shell
-    resource: rspec*
-    effect: allow
-  - action: shell
-    resource: composer *
-    effect: allow
-  - action: shell
-    resource: php *
-    effect: allow
-  - action: shell
-    resource: swift *
-    effect: allow
-  - action: shell
-    resource: xcodebuild *
-    effect: allow
-  - action: shell
-    resource: xcrun *
-    effect: allow
-  - action: shell
-    resource: .venv/bin/*
-    effect: allow
-  - action: shell
-    resource: venv/bin/*
-    effect: allow
-  - action: shell
-    resource: ./node_modules/.bin/*
-    effect: allow
-  - action: shell
-    resource: node_modules/.bin/*
-    effect: allow
-  - action: shell
-    resource: tsc*
-    effect: allow
-  - action: shell
-    resource: tsx *
-    effect: allow
-  - action: shell
-    resource: ts-node *
-    effect: allow
-  - action: shell
-    resource: vitest*
-    effect: allow
-  - action: shell
-    resource: jest*
-    effect: allow
-  - action: shell
-    resource: mocha*
-    effect: allow
-  - action: shell
-    resource: ava*
-    effect: allow
-  - action: shell
-    resource: eslint*
-    effect: allow
-  - action: shell
-    resource: prettier*
-    effect: allow
-  - action: shell
-    resource: biome*
-    effect: allow
-  - action: shell
-    resource: oxlint*
-    effect: allow
-  - action: shell
-    resource: turbo *
-    effect: allow
-  - action: shell
-    resource: nx *
-    effect: allow
-  - action: shell
-    resource: corepack *
-    effect: allow
-  - action: shell
-    resource: ruff *
-    effect: allow
-  - action: shell
-    resource: black *
-    effect: allow
-  - action: shell
-    resource: isort *
-    effect: allow
-  - action: shell
-    resource: flake8*
-    effect: allow
-  - action: shell
-    resource: mypy*
-    effect: allow
-  - action: shell
-    resource: pyright*
-    effect: allow
-  - action: shell
-    resource: basedpyright*
-    effect: allow
-  - action: shell
-    resource: pylint*
-    effect: allow
-  - action: shell
-    resource: tox*
-    effect: allow
-  - action: shell
-    resource: nox*
-    effect: allow
-  - action: shell
-    resource: alembic *
-    effect: allow
-  - action: shell
-    resource: uvicorn *
-    effect: allow
-  - action: shell
-    resource: gunicorn *
-    effect: allow
-  - action: shell
-    resource: flask *
-    effect: allow
-  - action: shell
-    resource: django-admin *
-    effect: allow
-  - action: shell
-    resource: pdm *
-    effect: allow
-  - action: shell
-    resource: hatch *
-    effect: allow
-  - action: shell
-    resource: pipenv *
-    effect: allow
-  - action: shell
-    resource: conda *
-    effect: allow
-  - action: shell
-    resource: gofmt*
-    effect: allow
-  - action: shell
-    resource: golangci-lint*
-    effect: allow
-  - action: shell
-    resource: rustfmt*
-    effect: allow
-  - action: shell
-    resource: rustup *
-    effect: allow
-  - action: shell
-    resource: gcc *
-    effect: allow
-  - action: shell
-    resource: g++ *
-    effect: allow
-  - action: shell
-    resource: clang *
-    effect: allow
-  - action: shell
-    resource: clang++ *
-    effect: allow
-  - action: shell
-    resource: ninja*
-    effect: allow
-  - action: shell
-    resource: ctest*
-    effect: allow
-  - action: shell
-    resource: bazel *
-    effect: allow
-  - action: shell
-    resource: kotlinc*
-    effect: allow
-  - action: shell
-    resource: ktlint*
-    effect: allow
-  - action: shell
-    resource: detekt*
-    effect: allow
-  - action: shell
-    resource: flutter *
-    effect: allow
-  - action: shell
-    resource: dart *
-    effect: allow
-  - action: shell
-    resource: pod *
-    effect: allow
-  - action: shell
-    resource: fastlane *
-    effect: allow
-  - action: shell
-    resource: mix *
-    effect: allow
-  - action: shell
-    resource: elixir *
-    effect: allow
-  - action: shell
-    resource: zig *
-    effect: allow
-  - action: shell
-    resource: protoc*
-    effect: allow
-  - action: shell
-    resource: buf *
-    effect: allow
-  - action: shell
-    resource: prisma *
-    effect: allow
-  - action: shell
-    resource: drizzle-kit *
-    effect: allow
-  - action: shell
-    resource: sh *
-    effect: allow
-  - action: shell
-    resource: bash *
-    effect: allow
-  - action: shell
-    resource: zsh *
-    effect: allow
-  - action: shell
-    resource: ./*.sh*
-    effect: allow
-  - action: shell
-    resource: scripts/*
-    effect: allow
-  - action: shell
-    resource: ./scripts/*
-    effect: allow
-  - action: shell
-    resource: bin/*
-    effect: allow
-  - action: shell
-    resource: ./bin/*
-    effect: allow
-  - action: shell
-    resource: NODE_ENV=* *
-    effect: allow
-  - action: shell
-    resource: CI=* *
-    effect: allow
-  - action: shell
-    resource: PYTHONPATH=* *
-    effect: allow
-  - action: shell
-    resource: PYTHONDONTWRITEBYTECODE=* *
-    effect: allow
-  - action: shell
-    resource: TMPDIR=* *
-    effect: allow
-  - action: shell
-    resource: TZ=* *
-    effect: allow
-  - action: shell
-    resource: LANG=* *
-    effect: allow
-  - action: shell
-    resource: LC_ALL=* *
-    effect: allow
-  - action: shell
-    resource: RUST_BACKTRACE=* *
-    effect: allow
-  - action: shell
-    resource: RUSTFLAGS=* *
-    effect: allow
-  - action: shell
-    resource: CGO_ENABLED=* *
-    effect: allow
-  - action: shell
-    resource: GOFLAGS=* *
-    effect: allow
-  - action: shell
-    resource: GOOS=* *
-    effect: allow
-  - action: shell
-    resource: GOARCH=* *
-    effect: allow
-  - action: shell
-    resource: PORT=* *
-    effect: allow
-  - action: shell
-    resource: FORCE_COLOR=* *
-    effect: allow
-  - action: shell
-    resource: NO_COLOR=* *
-    effect: allow
-  - action: shell
-    resource: pwd
-    effect: allow
-  - action: shell
-    resource: pwd *
-    effect: allow
-  - action: shell
-    resource: ls
-    effect: allow
-  - action: shell
-    resource: ls *
-    effect: allow
-  - action: shell
-    resource: tree
-    effect: allow
-  - action: shell
-    resource: tree *
-    effect: allow
-  - action: shell
-    resource: which *
-    effect: allow
-  - action: shell
-    resource: type *
-    effect: allow
-  - action: shell
-    resource: command -v *
-    effect: allow
-  - action: shell
-    resource: file *
-    effect: allow
-  - action: shell
-    resource: stat *
-    effect: allow
-  - action: shell
-    resource: du *
-    effect: allow
-  - action: shell
-    resource: df *
-    effect: allow
-  - action: shell
-    resource: cat *
-    effect: allow
-  - action: shell
-    resource: head *
-    effect: allow
-  - action: shell
-    resource: tail *
-    effect: allow
-  - action: shell
-    resource: wc *
-    effect: allow
-  - action: shell
-    resource: nl *
-    effect: allow
-  - action: shell
-    resource: find *
-    effect: allow
-  - action: shell
-    resource: fd *
-    effect: allow
-  - action: shell
-    resource: grep *
-    effect: allow
-  - action: shell
-    resource: egrep *
-    effect: allow
-  - action: shell
-    resource: fgrep *
-    effect: allow
-  - action: shell
-    resource: rg *
-    effect: allow
-  - action: shell
-    resource: sed *
-    effect: allow
-  - action: shell
-    resource: jq *
-    effect: allow
-  - action: shell
-    resource: cut *
-    effect: allow
-  - action: shell
-    resource: tr *
-    effect: allow
-  - action: shell
-    resource: sort *
-    effect: allow
-  - action: shell
-    resource: uniq *
-    effect: allow
-  - action: shell
-    resource: paste *
-    effect: allow
-  - action: shell
-    resource: column *
-    effect: allow
-  - action: shell
-    resource: comm *
-    effect: allow
-  - action: shell
-    resource: diff *
-    effect: allow
-  - action: shell
-    resource: cmp *
-    effect: allow
-  - action: shell
-    resource: echo
-    effect: allow
-  - action: shell
-    resource: echo *
-    effect: allow
-  - action: shell
-    resource: printf *
-    effect: allow
-  - action: shell
-    resource: "true"
-    effect: allow
-  - action: shell
-    resource: "false"
-    effect: allow
-  - action: shell
-    resource: test *
-    effect: allow
-  - action: shell
-    resource: "[ *"
-    effect: allow
-  - action: shell
-    resource: date
-    effect: allow
-  - action: shell
-    resource: date *
-    effect: allow
-  - action: shell
-    resource: uname
-    effect: allow
-  - action: shell
-    resource: uname *
-    effect: allow
-  - action: shell
-    resource: whoami
-    effect: allow
-  - action: shell
-    resource: id
-    effect: allow
-  - action: shell
-    resource: basename *
-    effect: allow
-  - action: shell
-    resource: dirname *
-    effect: allow
-  - action: shell
-    resource: realpath *
-    effect: allow
-  - action: shell
-    resource: readlink *
-    effect: allow
-  - action: shell
-    resource: shasum *
-    effect: allow
-  - action: shell
-    resource: sha256sum *
-    effect: allow
-  - action: shell
-    resource: md5 *
-    effect: allow
-  - action: shell
-    resource: md5sum *
-    effect: allow
-  - action: shell
-    resource: base64 *
-    effect: allow
-  - action: shell
-    resource: xxd *
-    effect: allow
-  - action: shell
-    resource: hexdump *
-    effect: allow
-  - action: shell
-    resource: lsof *
-    effect: allow
-  - action: shell
-    resource: ps
-    effect: allow
-  - action: shell
-    resource: ps *
-    effect: allow
-  - action: shell
-    resource: pgrep *
-    effect: allow
-  - action: shell
-    resource: awk *
-    effect: allow
-  - action: shell
-    resource: perl *
-    effect: allow
-  - action: shell
-    resource: yq *
-    effect: allow
-  - action: shell
-    resource: patch *
-    effect: allow
-  - action: shell
-    resource: xargs *
-    effect: allow
-  - action: shell
-    resource: tee *
-    effect: allow
-  - action: shell
-    resource: sleep *
-    effect: allow
-  - action: shell
-    resource: timeout *
-    effect: allow
-  - action: shell
-    resource: gtimeout *
-    effect: allow
-  - action: shell
-    resource: time *
-    effect: allow
-  - action: shell
-    resource: tar *
-    effect: allow
-  - action: shell
-    resource: unzip *
-    effect: allow
-  - action: shell
-    resource: zip *
-    effect: allow
-  - action: shell
-    resource: gzip *
-    effect: allow
-  - action: shell
-    resource: gunzip *
-    effect: allow
-  - action: shell
-    resource: curl *
-    effect: allow
-  - action: shell
-    resource: mkdir *
-    effect: allow
-  - action: shell
-    resource: rmdir *
-    effect: allow
-  - action: shell
-    resource: touch *
-    effect: allow
-  - action: shell
-    resource: chmod *
-    effect: allow
-  - action: shell
-    resource: mktemp*
-    effect: allow
-  - action: shell
-    resource: rm *
-    effect: allow
-  - action: shell
-    resource: cp *
-    effect: allow
-  - action: shell
-    resource: mv *
-    effect: allow
-  - action: shell
-    resource: ln *
-    effect: allow
-  - action: shell
-    resource: git status*
-    effect: allow
-  - action: shell
-    resource: git diff*
-    effect: allow
-  - action: shell
-    resource: git diff *--output*
+    resource: sudo *
     effect: deny
   - action: shell
-    resource: git log*
-    effect: allow
-  - action: shell
-    resource: git show*
-    effect: allow
-  - action: shell
-    resource: git log *--output*
+    resource: doas
     effect: deny
   - action: shell
-    resource: git show *--output*
+    resource: doas *
     effect: deny
   - action: shell
-    resource: git ls-files*
-    effect: allow
-  - action: shell
-    resource: git grep*
-    effect: allow
-  - action: shell
-    resource: git shortlog*
-    effect: allow
-  - action: shell
-    resource: git describe*
-    effect: allow
-  - action: shell
-    resource: git reflog show*
-    effect: allow
-  - action: shell
-    resource: git stash list*
-    effect: allow
-  - action: shell
-    resource: git stash show*
-    effect: allow
-  - action: shell
-    resource: git worktree list*
-    effect: allow
-  - action: shell
-    resource: git tag -l*
-    effect: allow
-  - action: shell
-    resource: git tag --list*
-    effect: allow
-  - action: shell
-    resource: git remote -v*
-    effect: allow
-  - action: shell
-    resource: git config --get*
-    effect: allow
-  - action: shell
-    resource: git config --list*
-    effect: allow
-  - action: shell
-    resource: git check-ignore*
-    effect: allow
-  - action: shell
-    resource: git check-attr*
-    effect: allow
-  - action: shell
-    resource: git --no-pager status*
-    effect: allow
-  - action: shell
-    resource: git --no-pager diff*
-    effect: allow
-  - action: shell
-    resource: git --no-pager diff *--output*
+    resource: su
     effect: deny
   - action: shell
-    resource: git --no-pager log*
-    effect: allow
-  - action: shell
-    resource: git --no-pager log *--output*
+    resource: su *
     effect: deny
   - action: shell
-    resource: git --no-pager show*
-    effect: allow
-  - action: shell
-    resource: git --no-pager show *--output*
+    resource: pkexec
     effect: deny
   - action: shell
-    resource: git --no-pager blame*
-    effect: allow
-  - action: shell
-    resource: git --no-pager branch*
-    effect: allow
-  - action: shell
-    resource: git --no-pager grep*
-    effect: allow
-  - action: shell
-    resource: git --no-pager ls-files*
-    effect: allow
-  - action: shell
-    resource: git -P status*
-    effect: allow
-  - action: shell
-    resource: git -P diff*
-    effect: allow
-  - action: shell
-    resource: git -P diff *--output*
+    resource: pkexec *
     effect: deny
   - action: shell
-    resource: git -P log*
-    effect: allow
-  - action: shell
-    resource: git -P log *--output*
+    resource: shutdown*
     effect: deny
   - action: shell
-    resource: git -P show*
-    effect: allow
-  - action: shell
-    resource: git -P show *--output*
+    resource: reboot*
     effect: deny
   - action: shell
-    resource: git -C * status*
-    effect: allow
-  - action: shell
-    resource: git -C * diff*
-    effect: allow
-  - action: shell
-    resource: git -C * diff *--output*
+    resource: poweroff*
     effect: deny
   - action: shell
-    resource: git -C * log*
-    effect: allow
-  - action: shell
-    resource: git -C * log *--output*
+    resource: halt*
     effect: deny
   - action: shell
-    resource: git -C * show*
-    effect: allow
-  - action: shell
-    resource: git -C * show *--output*
+    resource: init 0*
     effect: deny
   - action: shell
-    resource: git -C * rev-parse*
-    effect: allow
-  - action: shell
-    resource: git -C * branch*
-    effect: allow
-  - action: shell
-    resource: git blame*
-    effect: allow
-  - action: shell
-    resource: git branch --show-current*
-    effect: allow
-  - action: shell
-    resource: git branch -l*
-    effect: allow
-  - action: shell
-    resource: git branch --list*
-    effect: allow
-  - action: shell
-    resource: git branch -a*
-    effect: allow
-  - action: shell
-    resource: git branch --all*
-    effect: allow
-  - action: shell
-    resource: git branch -r*
-    effect: allow
-  - action: shell
-    resource: git branch --remotes*
-    effect: allow
-  - action: shell
-    resource: git branch -v*
-    effect: allow
-  - action: shell
-    resource: git branch -vv*
-    effect: allow
-  - action: shell
-    resource: git branch --contains*
-    effect: allow
-  - action: shell
-    resource: git branch --merged*
-    effect: allow
-  - action: shell
-    resource: git branch --no-merged*
-    effect: allow
-  - action: shell
-    resource: git fetch*
-    effect: allow
-  - action: shell
-    resource: git fetch *--upload-pack*
+    resource: init 6*
     effect: deny
   - action: shell
-    resource: git fetch *ext::*
+    resource: mkfs*
     effect: deny
   - action: shell
-    resource: git pull*
+    resource: systemctl reboot*
+    effect: deny
+  - action: shell
+    resource: systemctl poweroff*
+    effect: deny
+  - action: shell
+    resource: systemctl halt*
+    effect: deny
+  - action: shell
+    resource: systemctl suspend*
+    effect: deny
+  - action: shell
+    resource: systemctl hibernate*
+    effect: deny
+  - action: shell
+    resource: env
+    effect: deny
+  - action: shell
+    resource: /usr/bin/env
+    effect: deny
+  - action: shell
+    resource: env -*
+    effect: deny
+  - action: shell
+    resource: /usr/bin/env -*
+    effect: deny
+  - action: shell
+    resource: env *=*
+    effect: deny
+  - action: shell
+    resource: /usr/bin/env *=*
+    effect: deny
+  - action: shell
+    resource: printenv*
+    effect: deny
+  - action: shell
+    resource: /usr/bin/printenv*
+    effect: deny
+  - action: shell
+    resource: set
+    effect: deny
+  - action: shell
+    resource: export -p*
+    effect: deny
+  - action: shell
+    resource: declare -p*
+    effect: deny
+  - action: shell
+    resource: "* .env"
+    effect: deny
+  - action: shell
+    resource: "* .env *"
+    effect: deny
+  - action: shell
+    resource: "*/.env"
+    effect: deny
+  - action: shell
+    resource: "*/.env *"
+    effect: deny
+  - action: shell
+    resource: "* .env.*"
+    effect: deny
+  - action: shell
+    resource: "*/.env.*"
+    effect: deny
+  - action: shell
+    resource: cat .env.example
     effect: allow
   - action: shell
-    resource: git pull *--upload-pack*
-    effect: deny
-  - action: shell
-    resource: git pull *ext::*
-    effect: deny
-  - action: shell
-    resource: git merge*
+    resource: cat .env.sample
     effect: allow
   - action: shell
-    resource: git rebase*
+    resource: cat .env.template
     effect: allow
   - action: shell
-    resource: git rebase *-i*
-    effect: deny
-  - action: shell
-    resource: git rebase *--interactive*
-    effect: deny
-  - action: shell
-    resource: git rebase *-x*
-    effect: deny
-  - action: shell
-    resource: git rebase *--exec*
-    effect: deny
-  - action: shell
-    resource: git cherry-pick*
+    resource: cat .env.test
     effect: allow
   - action: shell
-    resource: git checkout --ours *
+    resource: head .env.example
     effect: allow
   - action: shell
-    resource: git checkout --theirs *
+    resource: head .env.sample
     effect: allow
   - action: shell
-    resource: git restore --ours *
+    resource: head .env.template
     effect: allow
   - action: shell
-    resource: git restore --theirs *
+    resource: head .env.test
     effect: allow
   - action: shell
-    resource: git restore --merge *
+    resource: cp .env.example *
     effect: allow
   - action: shell
-    resource: git restore --staged *
+    resource: cp .env.sample *
     effect: allow
   - action: shell
-    resource: git add *
+    resource: cp .env.template *
     effect: allow
   - action: shell
-    resource: git add .
-    effect: deny
-  - action: shell
-    resource: git add ./
-    effect: deny
-  - action: shell
-    resource: git add -A*
-    effect: deny
-  - action: shell
-    resource: git add --all*
-    effect: deny
-  - action: shell
-    resource: git add -u*
-    effect: deny
-  - action: shell
-    resource: git add --update*
-    effect: deny
-  - action: shell
-    resource: git mv *
+    resource: cp .env.test *
     effect: allow
   - action: shell
-    resource: git rm *
-    effect: allow
-  - action: shell
-    resource: git rm -r .
+    resource: cp * .env
     effect: deny
   - action: shell
-    resource: git rm -rf .
+    resource: cp * */.env
     effect: deny
   - action: shell
-    resource: git rm -r ./
-    effect: deny
+    resource: docker push*
+    effect: ask
   - action: shell
-    resource: git rm -rf ./
-    effect: deny
+    resource: kubectl *
+    effect: ask
   - action: shell
-    resource: git rm -r ..*
-    effect: deny
+    resource: helm *
+    effect: ask
   - action: shell
-    resource: git rm -rf ..*
-    effect: deny
+    resource: terraform *
+    effect: ask
   - action: shell
-    resource: git rm -r /*
-    effect: deny
+    resource: gcloud *
+    effect: ask
   - action: shell
-    resource: git rm -rf /*
-    effect: deny
+    resource: aws *
+    effect: ask
+  - action: shell
+    resource: az *
+    effect: ask
+  - action: shell
+    resource: flyctl *
+    effect: ask
+  - action: shell
+    resource: vercel *
+    effect: ask
+  - action: shell
+    resource: wrangler deploy*
+    effect: ask
+  - action: shell
+    resource: ssh *
+    effect: ask
+  - action: shell
+    resource: scp *
+    effect: ask
+  - action: shell
+    resource: sftp *
+    effect: ask
+  - action: shell
+    resource: rsync *
+    effect: ask
+  - action: shell
+    resource: "* deploy*"
+    effect: ask
+  - action: shell
+    resource: "* apply*"
+    effect: ask
+  - action: shell
+    resource: "* destroy*"
+    effect: ask
+  - action: shell
+    resource: "* publish*"
+    effect: ask
   - action: shell
     resource: npm publish*
     effect: deny
@@ -1005,6 +295,12 @@ permissions:
     effect: deny
   - action: shell
     resource: twine upload*
+    effect: deny
+  - action: shell
+    resource: gem push*
+    effect: deny
+  - action: shell
+    resource: dotnet nuget push*
     effect: deny
   - action: shell
     resource: rm -rf
@@ -1028,6 +324,12 @@ permissions:
     resource: rm -r /*
     effect: deny
   - action: shell
+    resource: rm /*
+    effect: deny
+  - action: shell
+    resource: rm /
+    effect: deny
+  - action: shell
     resource: rm -rf ~*
     effect: deny
   - action: shell
@@ -1035,6 +337,9 @@ permissions:
     effect: deny
   - action: shell
     resource: rm -r ~*
+    effect: deny
+  - action: shell
+    resource: rm ~*
     effect: deny
   - action: shell
     resource: rm -rf ..*
@@ -1046,6 +351,9 @@ permissions:
     resource: rm -r ..*
     effect: deny
   - action: shell
+    resource: rm ..*
+    effect: deny
+  - action: shell
     resource: rm -rf .
     effect: deny
   - action: shell
@@ -1053,6 +361,9 @@ permissions:
     effect: deny
   - action: shell
     resource: rm -r .
+    effect: deny
+  - action: shell
+    resource: rm .
     effect: deny
   - action: shell
     resource: rm -rf ./
@@ -1064,6 +375,9 @@ permissions:
     resource: rm -r ./
     effect: deny
   - action: shell
+    resource: rm ./
+    effect: deny
+  - action: shell
     resource: rm -rf .*
     effect: deny
   - action: shell
@@ -1073,59 +387,158 @@ permissions:
     resource: rm -r .*
     effect: deny
   - action: shell
+    resource: rm .*
+    effect: deny
+  - action: shell
+    resource: rm .git*
+    effect: deny
+  - action: shell
     resource: rm * .git*
     effect: deny
   - action: shell
-    resource: env
+    resource: git push*
     effect: deny
   - action: shell
-    resource: env *
+    resource: git commit*
     effect: deny
   - action: shell
-    resource: printenv*
+    resource: git reset*
     effect: deny
   - action: shell
-    resource: set
+    resource: git clean*
     effect: deny
   - action: shell
-    resource: export -p*
+    resource: git switch*
     effect: deny
   - action: shell
-    resource: declare -p*
+    resource: git checkout -b*
     effect: deny
   - action: shell
-    resource: /usr/bin/env*
+    resource: git checkout -B*
     effect: deny
   - action: shell
-    resource: /usr/bin/printenv*
+    resource: git checkout --orphan*
     effect: deny
   - action: shell
-    resource: "*.env*"
+    resource: git stash
     effect: deny
   - action: shell
-    resource: cat .env.example
-    effect: allow
+    resource: git stash push*
+    effect: deny
   - action: shell
-    resource: cat .env.sample
-    effect: allow
+    resource: git stash save*
+    effect: deny
   - action: shell
-    resource: cat .env.template
-    effect: allow
+    resource: git stash pop*
+    effect: deny
   - action: shell
-    resource: cat .env.test
-    effect: allow
+    resource: git stash apply*
+    effect: deny
   - action: shell
-    resource: cp .env.example *
-    effect: allow
+    resource: git stash drop*
+    effect: deny
   - action: shell
-    resource: cp .env.sample *
-    effect: allow
+    resource: git stash clear*
+    effect: deny
   - action: shell
-    resource: cp .env.template *
-    effect: allow
+    resource: git stash branch*
+    effect: deny
   - action: shell
-    resource: cp .env.test *
-    effect: allow
+    resource: git worktree add*
+    effect: deny
+  - action: shell
+    resource: git worktree remove*
+    effect: deny
+  - action: shell
+    resource: git worktree move*
+    effect: deny
+  - action: shell
+    resource: git worktree prune*
+    effect: deny
+  - action: shell
+    resource: git branch -d*
+    effect: deny
+  - action: shell
+    resource: git branch -D*
+    effect: deny
+  - action: shell
+    resource: git branch -m*
+    effect: deny
+  - action: shell
+    resource: git branch -M*
+    effect: deny
+  - action: shell
+    resource: git branch --delete*
+    effect: deny
+  - action: shell
+    resource: git branch --move*
+    effect: deny
+  - action: shell
+    resource: git tag -a*
+    effect: deny
+  - action: shell
+    resource: git tag -d*
+    effect: deny
+  - action: shell
+    resource: git tag -f*
+    effect: deny
+  - action: shell
+    resource: git tag -s*
+    effect: deny
+  - action: shell
+    resource: git rebase -i*
+    effect: deny
+  - action: shell
+    resource: git rebase --interactive*
+    effect: deny
+  - action: shell
+    resource: git rebase -x*
+    effect: deny
+  - action: shell
+    resource: git rebase --exec*
+    effect: deny
+  - action: shell
+    resource: git fetch *--upload-pack*
+    effect: deny
+  - action: shell
+    resource: git pull *--upload-pack*
+    effect: deny
+  - action: shell
+    resource: "*ext::*"
+    effect: deny
+  - action: shell
+    resource: git add .
+    effect: deny
+  - action: shell
+    resource: git add ./
+    effect: deny
+  - action: shell
+    resource: git add -- .
+    effect: deny
+  - action: shell
+    resource: git add -A*
+    effect: deny
+  - action: shell
+    resource: git add --all*
+    effect: deny
+  - action: shell
+    resource: git add -u*
+    effect: deny
+  - action: shell
+    resource: git add --update*
+    effect: deny
+  - action: shell
+    resource: git add -p*
+    effect: deny
+  - action: shell
+    resource: git add --patch*
+    effect: deny
+  - action: shell
+    resource: git add -i*
+    effect: deny
+  - action: shell
+    resource: git add --interactive*
+    effect: deny
 ---
 
 # pipeline-refactorer
@@ -1152,7 +565,7 @@ REMAINING_SCOPE: none | <what is left, specific enough for a resumed session to 
 
 ## Shell rules (how bash permissions work here)
 
-Every bash command is checked against this agent's allowlist, each part of a compound command separately, and the pipeline guard blocks writes outside the repository. To avoid needless rejections:
+Shell access is workspace-agnostic: project commands, runtimes, task runners, tests and local scripts are allowed without a fixed stack allowlist. Environment prefixes such as `VAR=value cmd` and `/usr/bin/env python3` work normally. Privilege elevation, real `.env` reads, catastrophic removals, package publication and protected git operations remain blocked; remote/cloud operations ask for confirmation. The pipeline guard blocks writes outside the repository, and branch/worktree/stash side-workspaces are not allowed.
 
 - One command per call. Avoid `&&`, `;`, `|` and subshells unless every part is a command you are allowed to run.
 - Set the directory with the bash tool's `workdir` parameter instead of `cd dir && ...`.

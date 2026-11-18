@@ -20,7 +20,7 @@ installed into `~/.config/opencode/`:
 |------|------|---------|
 | `plugins/pipeline-guard/index.ts` | `pipeline` | Hooks: scratch env, write/git guards, session registry, activity log, git-state check, compaction context |
 | `plugins/pipeline-tools/index.ts` | `pipeline` | Registers the two pipeline-only tools, `pipeline_state` and `pipeline_commit` |
-| `plugins/flow-guard/index.ts`, `plugins/flow-context/index.ts`, `plugins/flow-mode/index.ts` | `flow` | Flow guard, git/todo session context, and `flow_plan_enter` / `flow_plan_exit` |
+| `plugins/flow-guard/index.ts`, `plugins/flow-context/index.ts`, `plugins/flow-mode/index.ts` | `flow` | Flow guard, git session context, and `flow_plan_enter` / `flow_plan_exit` |
 | `plugins/dev-tools/index.ts` | `dev-tools` | Registers the four `dev_*` tools, shared by the `pipeline` and `flow` packs |
 | `plugins/doc-tools/index.ts`, `plugins/slide-tools/index.ts` | `office-tools` | Registers the seven `doc_*` tools and the nine `slide_*` tools |
 | `tools/toolkit/_tool.ts` | `toolkit` | Adapter from the tool definition shape to a V2 definition (`toV2Tool`) and JSON Schema builder |
@@ -147,8 +147,8 @@ session hook. Nothing is persisted: the text is rebuilt for every model call. Th
 - `flow-build` and `flow-plan` get the git snapshot taken at the session's first model call: current
   branch, main branch, `git status --short` (truncated at 2000 characters) and the last 5 commits,
   labelled as a snapshot that does not update.
-- `flow-build` gets a todo reminder when its latest `todowrite` list has open items and 10 tool calls
-  passed without an update. The reminder then waits for another 10 calls.
+- The plugin injects only the initial git snapshot; progress tracking is handled by the agent and
+  OpenCode's background subagent messages.
 
 Switch: `OPENCODE_FLOW_CONTEXT=off`.
 
@@ -293,10 +293,10 @@ It never modifies anything and never throws: a failing probe becomes
 
 ## Project contract: `.opencode/pipeline.json`
 
-Optional, committed in the target repository. Without it, `dev_verify` autodetects commands
-(npm/pnpm/yarn/bun scripts, `tsc`, go, cargo, pytest). If it contains no `smoke`/`serve` section,
-`dev_smoke` and `dev_serve` automatically fall back to autodetected `package.json`
-`dev`/`start` scripts when available.
+Optional, committed in the target repository. It is useful for projects that need declared supporting
+services or persistent custom commands. Without it, `dev_verify` autodetects commands (npm/pnpm/yarn/bun
+scripts, `tsc`, go, cargo, pytest), while `dev_smoke` and `dev_serve` can use autodetected
+`package.json` `dev`/`start` scripts when available. The pipeline works out of the box without this file.
 
 ```json
 {
@@ -360,6 +360,15 @@ Optional, committed in the target repository. Without it, `dev_verify` autodetec
 browser. `dev_serve` is for the visual validation done by `chrome_devtools`: `start` returns a
 localhost URL on a free port, `stop` ends it. A start never leaves anything behind: the first of
 these ends the service.
+
+Alongside `action`, `start` accepts optional `workspace`, `command`, `ready_path`, `ready_url` and
+`ready_timeout_s` arguments. Use `workspace` for a repository subdirectory, `command` for a custom
+start command with `${PORT}`, and the readiness arguments to tell the tool how to detect when the
+service is ready. These allow browser validation when `.opencode/pipeline.json` has no applicable
+`serve`/`smoke` section or when the app is in a monorepo or non-Node project. Before launching, the
+command is checked with `checkBash`; readiness URLs must use loopback (`localhost`, `127.0.0.1` or
+`::1`). The tool substitutes a free port, bounds the readiness wait and service lifetime, and stops
+the service when requested or when its owning session goes idle.
 
 1. `stop` by the owner (a service of another live session is refused), or the idle of the owning
    root session.

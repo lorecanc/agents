@@ -377,13 +377,129 @@ function checkSecretEnvArgs(cmd, args, role) {
   const templateCopy = cmd === "cp" && ENV_TEMPLATE_COPY_ROLES.has(role) && positional.length === 2
     && ENV_TEMPLATE_FILES.has(path.basename(positional[0].replace(/\[([^\]]{1})\]/g, "$1")).toLowerCase())
   for (let i = 0; i < positional.length; i++) {
-    const basename = path.basename(positional[i].replace(/\[([^\]]{1})\]/g, "$1"))
-    if (/^\.env(?:\..+)?$/i.test(basename) && !/^\.env\.(?:example|sample|template|test)$/i.test(basename)
-      && !(templateCopy && i === 1)) {
+    if (isSecretEnvFile(positional[i]) && !(templateCopy && i === 1)) {
       return "Guard: reading or accessing '.env' secret files is blocked."
     }
   }
   return null
+}
+
+function isSecretEnvFile(file) {
+  const basename = path.basename(file.replace(/\[([^\]]{1})\]/g, "$1"))
+  return /^\.env(?:\..+)?$/i.test(basename) && !/^\.env\.(?:example|sample|template|test)$/i.test(basename)
+}
+
+function envSplitTokens(arg, value) {
+  const command = arg === "-S" || arg === "--split-string" ? value || ""
+    : arg.startsWith("-S") ? arg.slice(2)
+      : arg.startsWith("--split-string=") ? arg.slice("--split-string=".length) : null
+  if (!command) return []
+  return tokenize(command).segments.flat()
+}
+
+function bareEnvProblem(tokens) {
+  const t = tokens.slice()
+  for (;;) {
+    while (t.length && /^[A-Za-z_][A-Za-z0-9_]*\+?=/.test(t[0])) t.shift()
+    const wrapper = path.basename(t[0] || "")
+    if (!WRAPPERS.has(wrapper)) return null
+    if (wrapper === "env") {
+      t.shift()
+      let i = 0
+      while (i < t.length) {
+        const arg = t[i]
+        if (arg === "-0" || arg === "--null") return "Guard: env null-output and environment dumps are not allowed."
+        if (arg === "--") {
+          i++
+          break
+        }
+        if (arg === "-i" || arg === "--ignore-environment" || arg.startsWith("--unset=") || arg.startsWith("--chdir=")) {
+          i++
+          continue
+        }
+        if (arg === "-S" || arg === "--split-string" || /^-S.+/.test(arg) || arg.startsWith("--split-string=")) {
+          const split = envSplitTokens(arg, t[i + 1])
+          const consumed = arg === "-S" || arg === "--split-string" ? 2 : 1
+          t.splice(i, consumed, ...split)
+          continue
+        }
+        if (["-u", "--unset", "-C", "--chdir", "--argv0"].includes(arg)) {
+          i += 2
+          continue
+        }
+        if (/^-[uCS].+/.test(arg) || /^[A-Za-z_][A-Za-z0-9_]*\+?=/.test(arg)) {
+          i++
+          continue
+        }
+        if (arg.startsWith("-")) {
+          i++
+          continue
+        }
+        break
+      }
+      while (i < t.length && /^[A-Za-z_][A-Za-z0-9_]*\+?=/.test(t[i])) i++
+      if (i >= t.length) return "Guard: bare env / environment dumps are not allowed; provide a command to run."
+      if (path.basename(t[i]) === "env") {
+        t.splice(0, i)
+        continue
+      }
+      return null
+    }
+    t.shift()
+    while (t.length && (t[0].startsWith("-") || /^[A-Za-z_][A-Za-z0-9_]*\+?=/.test(t[0]))) t.shift()
+    if ((wrapper === "timeout" || wrapper === "gtimeout") && t.length) t.shift()
+  }
+}
+
+export function inlineCodeInvocation(cmd, args) {
+  const flags = (pattern) => args.some((arg) => pattern.test(arg))
+  if (["eval", "exec", "source", "."].includes(cmd)) return true
+  if (SHELLS.has(cmd) && flags(/^-[A-Za-z]*c/)) return true
+  if (["python", "python3"].includes(cmd) && flags(/^(?:-[A-Za-z]*c|-)$/)) return true
+  if (["node", "bun", "tsx"].includes(cmd) && (args.includes("-") || flags(/^(?:-[A-Za-z]*[ep]|--(?:eval|print)(?:=|$))/))) return true
+  if (cmd === "deno" && args.includes("eval")) return true
+  if (cmd === "ruby" && flags(/^-[A-Za-z]*e/)) return true
+  if (cmd === "perl" && flags(/^-[A-Za-z]*[eE]/)) return true
+  if (cmd === "php" && flags(/^-[A-Za-z]*r/)) return true
+  if (["lua", "osascript"].includes(cmd) && flags(/^-[A-Za-z]*e/)) return true
+  return false
+}
+
+function interpreterScriptInvocation(cmd, args) {
+  const valueOptions = {
+    python: new Set(["-W", "-X"]),
+    python3: new Set(["-W", "-X"]),
+    node: new Set(["-r", "--require", "--import", "--loader", "--experimental-loader", "--conditions", "--inspect-port", "--input-type", "--test-reporter", "--test-reporter-destination", "--test-name-pattern"]),
+    bun: new Set(["--preload", "--define", "--conditions", "--env-file"]),
+    tsx: new Set(["--tsconfig", "--conditions"]),
+    deno: new Set(["--config", "--import-map", "--lock", "--cert", "--ext", "--seed", "--v8-flags"]),
+    ruby: new Set(["-I", "-r", "-W", "-E", "--encoding", "--external-encoding", "--internal-encoding", "--disable", "--enable"]),
+    perl: new Set(["-I", "-M", "-m", "-F", "-C"]),
+    php: new Set(["-d", "-z", "-c"]),
+    lua: new Set(["-l"]),
+    osascript: new Set(["-l"]),
+  }[cmd]
+  if (!valueOptions) return false
+  if (["python", "python3"].includes(cmd) && args.includes("-m")) return false
+  if (cmd === "node" && args.includes("--check")) return false
+  if (cmd === "deno" && ["check", "fmt", "lint", "doc", "info", "help", "types"].includes(args[0])) return false
+  let denoCommand = false
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]
+    if (arg === "--") return i + 1 < args.length
+    if (arg.startsWith("--") && arg.includes("=")) continue
+    if (arg.startsWith("-")) {
+      if (valueOptions.has(arg)) i++
+      continue
+    }
+    if (cmd === "deno" && !denoCommand && ["run", "test", "bench"].includes(arg)) {
+      denoCommand = true
+      continue
+    }
+    if (cmd === "deno" && !denoCommand) return true
+    return true
+  }
+  return false
 }
 
 function isAllowedTemplateEnvCopy(cmd, args, role) {
@@ -408,12 +524,31 @@ function shellCommandArg(cmd, args) {
   return null
 }
 
-function stripWrappers(tokens) {
+function stripWrappers(tokens, { preserveExec = false } = {}) {
   const t = tokens.slice()
   for (;;) {
     while (t.length && /^[A-Za-z_][A-Za-z0-9_]*\+?=/.test(t[0])) t.shift()
-    if (t.length && WRAPPERS.has(t[0])) {
-      const wrapper = t.shift()
+    const wrapper = path.basename(t[0] || "")
+    if (t.length && WRAPPERS.has(wrapper)) {
+      if (preserveExec && wrapper === "exec") break
+      t.shift()
+      if (wrapper === "env") {
+        while (t.length) {
+          const arg = t[0]
+          if (/^[A-Za-z_][A-Za-z0-9_]*\+?=/.test(arg) || ["-i", "--ignore-environment"].includes(arg)
+            || arg.startsWith("--unset=") || arg.startsWith("--chdir=")) {
+            t.shift()
+          } else if (arg === "-S" || arg === "--split-string" || /^-S.+/.test(arg) || arg.startsWith("--split-string=")) {
+            const split = envSplitTokens(arg, t[1])
+            const consumed = arg === "-S" || arg === "--split-string" ? 2 : 1
+            t.splice(0, consumed, ...split)
+          } else if (["-u", "--unset", "-C", "--chdir", "--argv0"].includes(arg)) {
+            t.splice(0, 2)
+          } else if (arg.startsWith("-")) t.shift()
+          else break
+        }
+        continue
+      }
       while (t.length && (t[0].startsWith("-") || /^[A-Za-z_][A-Za-z0-9_]*\+?=/.test(t[0]))) t.shift()
       if ((wrapper === "timeout" || wrapper === "gtimeout") && t.length) t.shift()
       continue
@@ -815,6 +950,7 @@ export function checkGitCommand(args, role, ctx) {
     case "add": {
       if (role !== "post_session" && !GIT_SYNC_ROLES.has(role)) return deny("add")
       const files = gitFileArgs(rest)
+       if (files.some((file) => isSecretEnvFile(file.replace(/^:\([^)]*\)/, "").replace(/^:\//, "")))) return "Guard: reading or accessing '.env' secret files is blocked."
       if (rest.some((r) => ["-A", "--all", "--no-ignore-removal", "-u", "--update", "-p", "--patch", "-i", "--interactive"].includes(r) || (/^-[a-zA-Z]+$/.test(r) && /[Aupi]/.test(r))) || !files.length || files.some((f) => !isGitExplicitFile(f, gitCtx))) {
         return "git add requires explicit file paths (no -A, -u, -p, or .)"
       }
@@ -866,7 +1002,10 @@ function checkSegment(tokens, role, ctx, depth = 0, rawSeg = []) {
       return "Guard: dangerous environment variable assignments are blocked."
     }
   }
-  const t = stripWrappers(tokens)
+  const envProblem = bareEnvProblem(tokens)
+  if (envProblem) return envProblem
+  const readOnly = READ_ONLY_BASH_ROLES.has(role)
+  const t = stripWrappers(tokens, { preserveExec: readOnly })
   if (!t.length) return null
   const cmd = path.basename(t[0])
   const args = t.slice(1)
@@ -876,6 +1015,15 @@ function checkSegment(tokens, role, ctx, depth = 0, rawSeg = []) {
         return `Guard: dangerous environment override '${assignment.split(/\+?=/, 1)[0]}' is blocked.`
       }
     }
+  }
+  if (readOnly && inlineCodeInvocation(cmd, args)) {
+    return `Guard: role '${role}' cannot execute inline interpreter code or builtins.`
+  }
+  if (readOnly && SHELLS.has(cmd)) {
+    return `Guard: role '${role}' cannot invoke shells or shell scripts.`
+  }
+  if (readOnly && interpreterScriptInvocation(cmd, args)) {
+    return `Guard: role '${role}' cannot execute interpreter script files.`
   }
   if (SHELLS.has(cmd)) {
     const subcmd = shellCommandArg(cmd, args)

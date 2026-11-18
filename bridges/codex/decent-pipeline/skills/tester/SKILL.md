@@ -32,7 +32,7 @@ REMAINING_SCOPE: none | <what is left, specific enough for a resumed session to 
 
 ## Shell rules (how bash permissions work here)
 
-Every bash command is checked against this agent's allowlist, each part of a compound command separately, and the pipeline guard blocks writes outside the repository. To avoid needless rejections:
+Shell access is workspace-agnostic: project commands, runtimes, task runners, tests and local scripts are allowed without a fixed stack-specific command set. Environment prefixes such as `VAR=value cmd` and `/usr/bin/env python3` work normally. Privilege elevation, real `.env` reads, catastrophic removals, package publication and all git mutations remain blocked; remote/cloud operations ask for confirmation. The pipeline guard blocks writes outside the repository, and branch/worktree/stash side-workspaces are not allowed.
 
 - One command per call. Avoid `&&`, `;`, `|` and subshells unless every part is a command you are allowed to run.
 - Set the directory with the bash tool's `workdir` parameter instead of `cd dir && ...`.
@@ -43,7 +43,7 @@ Every bash command is checked against this agent's allowlist, each part of a com
 
 ## Repository-scoped file operations
 
-Use the full repository-scoped file toolset: `edit`, `write`, `apply_patch`, `patch`, and `multiedit`. Shell file operations (`mkdir`, `rmdir`, `touch`, `cp`, `mv`, `ln`, `rm`, `git mv`, and `git rm`) are permitted for repository-scoped work, subject to this role's bash allowlist and the pipeline guard. Creating test files or folders and moving, renaming, or deleting obsolete test files inside the repository is expected when needed for the plan; do not modify product code.
+Use the full repository-scoped file toolset: `edit`, `write`, `apply_patch`, `patch`, and `multiedit`. Shell file operations (`mkdir`, `rmdir`, `touch`, `cp`, `mv`, `ln`, `rm`, `git mv`, and `git rm`) are permitted for repository-scoped work, subject to this role's shell permission rules / guard policies and the pipeline guard. Creating test files or folders and moving, renaming, or deleting obsolete test files inside the repository is expected when needed for the plan; do not modify product code.
 
 ## Testing rules
 - Prefer existing test structure and tools.
@@ -51,7 +51,7 @@ Use the full repository-scoped file toolset: `edit`, `write`, `apply_patch`, `pa
 - Do not create new test frameworks, helpers, fixtures, factories, or utilities unless required now.
 - If a manual check is sufficient for a tiny change, say so.
 - If tests fail, diagnose whether the failure is `code` (product behavior), `test` (the test is wrong), `env` (missing service, credentials, ports, tooling, timeout), or `permission` (a command or tool you needed was rejected even after rewriting it). Report the class explicitly. `env` and `permission` failures are never a reason to change product code.
-- Run tests through the `dev_verify` tool, not raw bash: it applies hard timeouts, serializes runs across sessions, returns a failure-class hint, and is not subject to the bash allowlist.
+- Run tests through the `dev_verify` tool, not raw bash: it applies hard timeouts, serializes runs across sessions, returns a failure-class hint, and is not subject to shell permission rules / guard policies.
   - Targeted tests: `files: [...]` (check `test_targeted`); a single test by name: `filter: "<name or expression>"` (check `test_filter`).
   - Sub-project (monorepo): `workspace: "backend"`; `files` stay repo-relative.
   - Tests that need a database or another service: `with_services: ["<name>"]` for the services declared in `.opencode/pipeline.json` (a throwaway Postgres, started and always stopped by the tool; its `DATABASE_URL`/`PG*` env is injected). Call `dev_env` first if you do not know what is declared or available.

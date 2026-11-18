@@ -21,7 +21,7 @@ registerHooks({
   },
 })
 
-import { STATUS_MAX_CHARS, TODO_REMINDER_EVERY, gitSnapshotText, openTodos, todoReminderText } from "./_flow_context.js"
+import { STATUS_MAX_CHARS, gitSnapshotText } from "./_flow_context.js"
 
 const plugin = (await import("../../plugins/flow-context/index.ts")).default
 
@@ -39,14 +39,14 @@ function mkRepo() {
 }
 
 function makeContext(directory) {
-  const handlers = { session: {}, tool: {} }
-  const hookFor = (kind) => (name, callback) => {
-    handlers[kind][name] = callback
-    return () => { delete handlers[kind][name] }
+  const handlers = {}
+  const hook = (name, callback) => {
+    handlers[name] = callback
+    return () => { delete handlers[name] }
   }
   return {
     handlers,
-    ctx: { location: { directory }, session: { hook: hookFor("session") }, tool: { hook: hookFor("tool") } },
+    ctx: { location: { directory }, session: { hook } },
   }
 }
 
@@ -70,29 +70,15 @@ test("git snapshot: long status is truncated", () => {
   assert.ok(text.length < STATUS_MAX_CHARS + 600)
 })
 
-test("open todos skip completed and cancelled items", () => {
-  const open = openTodos([
-    { content: "a", status: "completed" },
-    { content: "b", status: "in_progress" },
-    { content: "c", status: "cancelled" },
-    { content: "d", status: "pending" },
-    null,
-  ])
-  assert.deepEqual(open.map((t) => t.content), ["b", "d"])
-  assert.deepEqual(openTodos(undefined), [])
-  assert.match(todoReminderText(open), /\[in_progress\] b/)
-})
-
-test("plugin: snapshot for flow-build and flow-plan, todo reminder after idle tool calls", async () => {
+test("plugin: initial git snapshot is per session and limited to flow-build and flow-plan", async () => {
   const repo = mkRepo()
   const h = makeContext(repo)
   const cleanup = await plugin.setup(h.ctx)
   const context = async (sessionID, agent) => {
-    const event = { sessionID, agent, system: [{ type: "text", text: "base" }], messages: [] }
-    await h.handlers.session.context(event)
+    const event = { sessionID, agent, system: [{ type: "text", text: "base" }] }
+    await h.handlers.context(event)
     return event.system.slice(1).map((p) => p.text)
   }
-  const tool = (sessionID, agent, name, input = {}) => h.handlers.tool["execute.after"]({ sessionID, agent, tool: name, input, status: "completed" })
 
   const first = await context("s1", "flow-build")
   assert.equal(first.length, 1)
@@ -101,28 +87,33 @@ test("plugin: snapshot for flow-build and flow-plan, todo reminder after idle to
   assert.doesNotMatch((await context("s1", "flow-build"))[0], /later\.txt/, "the snapshot is taken once per session")
 
   assert.equal((await context("s2", "flow-plan")).length, 1)
-  assert.equal((await context("s3", "flow-explore")).length, 0)
-  assert.equal((await context("s4", "build")).length, 0)
-
-  await tool("s1", "flow-build", "todowrite", { todos: [{ content: "wire the hook", status: "in_progress" }] })
-  for (let i = 0; i < TODO_REMINDER_EVERY - 1; i++) await tool("s1", "flow-build", "read")
-  assert.equal((await context("s1", "flow-build")).length, 1)
-  await tool("s1", "flow-build", "edit")
-  const reminded = await context("s1", "flow-build")
-  assert.equal(reminded.length, 2)
-  assert.match(reminded[1], /wire the hook/)
-  assert.equal((await context("s1", "flow-build")).length, 1, "the reminder waits for another round of idle calls")
-
-  await tool("s1", "flow-build", "todowrite", { todos: [{ content: "wire the hook", status: "completed" }] })
-  for (let i = 0; i < TODO_REMINDER_EVERY; i++) await tool("s1", "flow-build", "read")
-  assert.equal((await context("s1", "flow-build")).length, 1, "no reminder without open items")
+  assert.match((await context("s3", "flow-build"))[0], /later\.txt/, "a new session gets its own initial snapshot")
+  for (const [sessionID, agent] of [
+    ["s4", "flow-explore"],
+    ["s5", "flow-review"],
+    ["s6", "flow-eye"],
+    ["s7", "build"],
+  ]) {
+    assert.equal((await context(sessionID, agent)).length, 0, `${agent} receives no snapshot`)
+  }
 
   cleanup()
-  assert.equal(h.handlers.session.context, undefined)
+  assert.equal(h.handlers.context, undefined)
 })
 
-test("plugin: OPENCODE_FLOW_CONTEXT=off disables every hook", async () => {
+test("plugin: OPENCODE_FLOW_CONTEXT=off disables the context hook", async () => {
   const h = makeContext(mkRepo())
-  await plugin.setup(h.ctx, { disabled: true })
-  assert.equal(h.handlers.session.context, undefined)
+  const original = process.env.OPENCODE_FLOW_CONTEXT
+  process.env.OPENCODE_FLOW_CONTEXT = "off"
+  try {
+    await plugin.setup(h.ctx)
+    assert.equal(h.handlers.context, undefined)
+  } finally {
+    if (original === undefined) delete process.env.OPENCODE_FLOW_CONTEXT
+    else process.env.OPENCODE_FLOW_CONTEXT = original
+  }
+
+  const explicitlyDisabled = makeContext(mkRepo())
+  await plugin.setup(explicitlyDisabled.ctx, { disabled: true })
+  assert.equal(explicitlyDisabled.handlers.context, undefined)
 })

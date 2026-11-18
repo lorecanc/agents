@@ -7,7 +7,7 @@ import { execFileSync, spawn } from "node:child_process"
 
 import { mkTmp } from "./_testutil.test.mjs"
 import { repoInfo } from "./_repo.js"
-import { isPortFree, findFreePort } from "./_run.js"
+import { isPortFree, findFreePort, waitReady } from "./_run.js"
 import { readService, serviceStatus, startService, stopService, stopServicesOwnedBy } from "./_serve.js"
 
 const node = JSON.stringify(process.execPath)
@@ -17,6 +17,11 @@ const SERVER = (label = "app") => `
 const http = require("http")
 http.createServer((req, res) => { res.writeHead(200); res.end(${JSON.stringify(label)}) }).listen(Number(process.env.PORT), "127.0.0.1")
 `
+const SERVER_MJS = `
+import http from "node:http"
+http.createServer((req, res) => { res.writeHead(200); res.end(process.env.APP_MODE || process.argv[2] || "app") }).listen(Number(process.env.PORT), "127.0.0.1")
+`
+const commandServer = (label) => `${node} server.mjs ${label}`
 
 function mkRepo(files = {}, contract = null) {
   const dir = mkTmp("pipe-serve-")
@@ -109,6 +114,134 @@ test("startService: autodetects a package start script when no pipeline contract
   assert.equal(stopped.status, "stopped")
   assert.equal(stopped.process_stopped, true)
   assert.equal(stopped.port_free, true)
+})
+
+test("startService: accepts a direct command without a pipeline contract and waits on ready_path", { skip: process.platform === "win32" }, async () => {
+  const info = mkRepo({ "server.mjs": SERVER_MJS })
+  const started = await startService({ info, ownerRoot: "ses_args", command: commandServer("from-args"), readyPath: "/health", readyTimeoutS: 5 })
+  assert.equal(started.status, "running", JSON.stringify(started))
+  assert.equal(readService(info).spec, "args")
+  assert.equal(readService(info).from, "args")
+  assert.equal(await get(`${started.url}health`), "from-args")
+  const stopped = await stopService({ info, callerRoot: "ses_args" })
+  assert.equal(stopped.port_free, true)
+})
+
+test("startService: direct command runs in a validated workspace and expands PORT", { skip: process.platform === "win32" }, async () => {
+  const info = mkRepo(
+    { "apps/web/.env.serve": "APP_MODE=workspace\n", "apps/web/server.mjs": SERVER_MJS },
+    { workspaces: { "apps/web": { smoke: { start: "unused", env_file: ".env.serve" } } } },
+  )
+  const command = `${node} server.mjs`
+  const started = await startService({ info, ownerRoot: "ses_ws", workspace: "apps/web", command, readyPath: "health" })
+  assert.equal(started.status, "running", JSON.stringify(started))
+  assert.equal(started.workspace, "apps/web")
+  assert.equal(readService(info).workspace, "apps/web")
+  assert.equal(await get(`${started.url}health`), "workspace")
+  await stopService({ info, callerRoot: "ses_ws" })
+})
+
+test("startService: replaces changed command/workspace for its owner but never replaces another session's service", { skip: process.platform === "win32" }, async () => {
+  const info = mkRepo({ "server.mjs": SERVER_MJS, "apps/web/package.json": "{}", "apps/web/server.mjs": SERVER_MJS })
+  const first = await startService({ info, ownerRoot: "ses_replace", command: commandServer("first") })
+  assert.equal(first.status, "running", JSON.stringify(first))
+  const firstPid = readService(info).supervisorPid
+  const repeated = await startService({ info, ownerRoot: "ses_replace", command: commandServer("first") })
+  assert.equal(repeated.reused, true)
+  assert.equal(readService(info).supervisorPid, firstPid)
+  const second = await startService({ info, ownerRoot: "ses_replace", command: commandServer("second") })
+  assert.equal(second.status, "running", JSON.stringify(second))
+  assert.equal(second.reused, undefined)
+  assert.equal(await pidGoneSoon(firstPid), true)
+  assert.equal(await get(`${second.url}health`), "second")
+
+  const third = await startService({ info, ownerRoot: "ses_replace", workspace: "apps/web", command: commandServer("third") })
+  assert.equal(third.status, "running", JSON.stringify(third))
+  assert.equal(third.workspace, "apps/web")
+  assert.equal((await serviceStatus(info)).workspace, "apps/web")
+  assert.equal(await get(`${third.url}health`), "third")
+
+  const thirdPid = readService(info).supervisorPid
+  const root = await startService({ info, ownerRoot: "ses_replace", command: commandServer("root") })
+  assert.equal(root.status, "running", JSON.stringify(root))
+  assert.equal(root.workspace, null)
+  assert.equal(readService(info).workspace, null)
+  assert.equal(await pidGoneSoon(thirdPid), true)
+  assert.equal(await get(`${root.url}health`), "root")
+
+  const rec = readService(info)
+  const foreign = await startService({ info, ownerRoot: "ses_other", command: commandServer("foreign") })
+  assert.equal(foreign.status, "blocked")
+  assert.equal(readService(info).supervisorPid, rec.supervisorPid)
+  assert.equal(await get(`${root.url}health`), "root")
+  await stopService({ info, callerRoot: "ses_replace" })
+})
+
+test("startService: replaces an args service when the same command changes to its contract source", { skip: process.platform === "win32" }, async () => {
+  const command = commandServer("contract")
+  const info = mkRepo({ "server.mjs": SERVER_MJS }, { serve: { start: command } })
+  const argsStart = await startService({ info, ownerRoot: "ses_source", command })
+  assert.equal(argsStart.status, "running", JSON.stringify(argsStart))
+  const oldPid = readService(info).supervisorPid
+
+  const contractStart = await startService({ info, ownerRoot: "ses_source" })
+  assert.equal(contractStart.status, "running", JSON.stringify(contractStart))
+  assert.equal(contractStart.reused, undefined)
+  assert.equal(readService(info).from, "serve")
+  assert.equal(await pidGoneSoon(oldPid), true)
+  await stopService({ info, callerRoot: "ses_source" })
+})
+
+test("startService: rejects escaped workspaces and non-loopback readiness URLs", { skip: process.platform === "win32" }, async () => {
+  const info = mkRepo()
+  const escaped = await startService({ info, ownerRoot: "ses_bad", workspace: "../outside", command: commandServer("nope") })
+  assert.equal(escaped.status, "error")
+  assert.equal(escaped.failure_class_hint, "harness")
+  assert.match(escaped.reason, /outside the repository/)
+
+  const remote = await startService({ info, ownerRoot: "ses_bad", command: commandServer("nope"), readyUrl: "https://example.test/health" })
+  assert.equal(remote.status, "error")
+  assert.equal(remote.failure_class_hint, "harness")
+  assert.match(remote.reason, /must target localhost/)
+  assert.equal(readService(info), null)
+})
+
+test("startService: direct commands blocked by the ops bash guard never start", { skip: process.platform === "win32" }, async () => {
+  for (const command of [
+    "rm -rf ./owned", "cat .env", "echo unsafe > owned.txt", "sudo echo unsafe",
+    `${node} -e 'console.log(1)'`, "python3 -c 'print(1)'", "cmd1 && cmd2",
+    "python3 -Bc 'print(1)'", "ruby -we 'puts 1'", "perl -pe 'print'", "bun -p '1 + 1'", "tsx --eval '1 + 1'",
+    "deno eval '1 + 1'", "php -r 'echo 1;'", "lua -e 'print(1)'", "osascript -e 'return 1'", "sh -lc 'echo x'",
+    "FOO=1 /usr/bin/env python3 -Bc 'print(1)'", "env -S 'FOO=1 python3 -Bc print(1)'",
+    "eval 'echo x'", "exec node server.mjs", "source start.sh", ". start.sh",
+  ]) {
+    const info = mkRepo()
+    const result = await startService({ info, ownerRoot: "ses_guard", command })
+    assert.equal(result.status, "error", command)
+    assert.equal(result.failure_class_hint, "harness", command)
+    assert.ok(result.reason, command)
+    assert.equal(readService(info), null, command)
+  }
+})
+
+test("readiness does not follow redirects to non-loopback hosts", async () => {
+  const originalFetch = globalThis.fetch
+  const requested = []
+  globalThis.fetch = async (url, options) => {
+    requested.push(String(url))
+    assert.equal(options.redirect, "manual")
+    return { status: 302, headers: { get: (name) => name.toLowerCase() === "location" ? "https://example.test/" : null } }
+  }
+  try {
+    const result = await waitReady(
+      { url: "http://127.0.0.1:${PORT}/" },
+      { portNum: 43000, subst: (value) => value.replaceAll("${PORT}", "43000"), readLog: () => "", isExited: () => false, timeoutMs: 1 },
+    )
+    assert.equal(result.ok, false)
+    assert.deepEqual(requested, ["http://127.0.0.1:43000/"])
+  } finally {
+    globalThis.fetch = originalFetch
+  }
 })
 
 test("start is idempotent and only the owner can stop a live service of another live session", { skip: process.platform === "win32" }, async () => {

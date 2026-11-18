@@ -60,6 +60,26 @@ test("autodetect: node scripts, go, cargo, python; never invents a smoke command
   assert.equal(autodetect(mkRepo({ "pytest.ini": "[pytest]" })).verify.test_fast, "python3 -m pytest -q -x")
 })
 
+test("autodetect: adds framework port flags with package-manager-specific syntax", () => {
+  const frameworks = ["vite", "astro", "next dev", "nuxt dev", "nuxi dev", "ng serve", "webpack serve", "parcel", "react-router dev"]
+  for (const script of frameworks) {
+    const dir = mkRepo({ "package.json": JSON.stringify({ scripts: { dev: script } }) })
+    assert.equal(autodetect(dir).smokeHint.start, `PORT=\${PORT} npm run dev -- --port \${PORT}`, script)
+  }
+  for (const [manager, lockfile, args] of [
+    ["pnpm", "pnpm-lock.yaml", " --port ${PORT}"],
+    ["yarn", "yarn.lock", " --port ${PORT}"],
+    ["bun", "bun.lock", " --port ${PORT}"],
+  ]) {
+    const dir = mkRepo({ [lockfile]: "", "package.json": JSON.stringify({ scripts: { dev: "vite" } }) })
+    assert.equal(autodetect(dir).smokeHint.start, `PORT=\${PORT} ${manager} run dev${args}`, manager)
+  }
+  for (const script of ["vite --port 3000", "next dev -p 3000", "vite -p=3000"]) {
+    const dir = mkRepo({ "package.json": JSON.stringify({ scripts: { dev: script } }) })
+    assert.equal(autodetect(dir).smokeHint.start, "PORT=${PORT} npm run dev", script)
+  }
+})
+
 test("loadContract: file wins over autodetect, problems are reported, lockfile picks the package manager", () => {
   const dir = mkRepo(
     { "package.json": JSON.stringify({ scripts: { lint: "x", test: "y" } }), "pnpm-lock.yaml": "" },
@@ -401,6 +421,49 @@ test("runSmoke: log-pattern readiness, local-only URLs, missing contract", { ski
   const none = await runSmoke({ info: repoInfo(mkRepo({ "package.json": JSON.stringify({ scripts: { build: "vite build" } }) })) })
   assert.equal(none.status, "inconclusive")
   assert.equal(none.suggested_smoke, null)
+})
+
+test("runSmoke URL checks use manual redirects and stop before external hosts or a fourth hop", { skip: process.platform === "win32" }, async () => {
+  const dir = mkRepo({}, {
+    smoke: {
+      start: "echo smoke-ready; sleep 30",
+      ready: { log: "smoke-ready", timeout_s: 5 },
+      checks: [
+        { name: "external redirect", url: "http://127.0.0.1:${PORT}/offsite" },
+        { name: "redirect limit", url: "http://127.0.0.1:${PORT}/chain" },
+      ],
+    },
+  })
+  const originalFetch = globalThis.fetch
+  const requests = []
+  globalThis.fetch = async (rawUrl, options) => {
+    const url = new URL(String(rawUrl))
+    requests.push({ url, redirect: options.redirect })
+    const location = url.pathname === "/offsite"
+      ? `http://localhost:${url.port}/offsite-hop`
+      : url.pathname === "/offsite-hop"
+        ? "https://example.test/"
+        : url.pathname === "/chain-3"
+          ? `http://127.0.0.1:${url.port}/chain-4`
+          : `http://127.0.0.1:${url.port}/chain-${Number(url.pathname.slice("/chain-".length) || 0) + 1}`
+    return {
+      status: 302,
+      headers: { get: (name) => name.toLowerCase() === "location" ? location : null },
+      body: { cancel: async () => {} },
+    }
+  }
+  let res
+  try {
+    res = await runSmoke({ info: repoInfo(dir) })
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+  assert.equal(res.status, "fail")
+  assert.deepEqual(res.checks.map((check) => check.status), ["error", "error"])
+  assert.ok(res.checks.every((check) => /redirects must stay on localhost/.test(check.detail)))
+  assert.deepEqual(requests.map(({ redirect }) => redirect), Array(requests.length).fill("manual"))
+  assert.deepEqual(requests.map(({ url }) => url.hostname), ["127.0.0.1", "localhost", "127.0.0.1", "127.0.0.1", "127.0.0.1", "127.0.0.1"])
+  assert.equal(requests.length, 6)
 })
 
 test("killTree is safe on pids that are gone or invalid", async () => {

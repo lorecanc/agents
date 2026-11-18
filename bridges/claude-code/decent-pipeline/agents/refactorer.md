@@ -35,7 +35,7 @@ REMAINING_SCOPE: none | <what is left, specific enough for a resumed session to 
 
 ## Shell rules (how bash permissions work here)
 
-Every bash command is checked against this agent's allowlist, each part of a compound command separately, and the pipeline guard blocks writes outside the repository. To avoid needless rejections:
+Shell access is workspace-agnostic: project commands, runtimes, task runners, tests and local scripts are allowed without a fixed stack allowlist. Environment prefixes such as `VAR=value cmd` and `/usr/bin/env python3` work normally. Privilege elevation, real `.env` reads, catastrophic removals, package publication and protected git operations remain blocked; remote/cloud operations ask for confirmation. The pipeline guard blocks writes outside the repository, and branch/worktree/stash side-workspaces are not allowed.
 
 - One command per call. Avoid `&&`, `;`, `|` and subshells unless every part is a command you are allowed to run.
 - Set the directory with the bash tool's `workdir` parameter instead of `cd dir && ...`.

@@ -12,9 +12,12 @@ Writing UI without rendering it is guessing. This loop closes the gap between th
 1. Run `dev_serve` with `action: "start"`. If `.opencode/pipeline.json` declares backing `services`
    (such as Postgres or Redis) for `serve` or `smoke`, pass `with_services: true` as in
    `dev_serve({ action: "start", with_services: true })`. This lets full-stack pages use live
-   dependencies during browser checks; `dev_serve` cleans them up on stop or idle. Otherwise, it reads
-   the `serve` or `smoke` section, or the `dev`/`start` script, and returns a localhost URL.
-2. If it cannot start (`env` or `harness` class), try once to fix the obvious cause (a missing install, the wrong workspace). Otherwise, for static HTML, open the file with a `file://` URL.
+   dependencies during browser checks; `dev_serve` cleans them up on stop or idle. The file is
+   optional: without a usable `serve`/`smoke` section, a simple root `package.json` app can use its
+   `dev`/`start` script; otherwise discover the workspace and command in the repository and pass
+   `workspace`, `command` (using `${PORT}`), and any applicable `ready_path`, `ready_url` or
+   `ready_timeout_s` directly to `dev_serve({ action: "start", ... })`.
+2. If it cannot start (`env` or `harness` class), try once to fix the obvious cause (a missing install, the wrong workspace). Otherwise, for static HTML, open the file with a `file://` URL. Never skip browser verification because `.opencode/pipeline.json` is absent.
 3. If nothing can render, stop the loop and report `UNVERIFIED: <reason>`. Do not pretend.
 4. Do not start dev servers with raw `npm run dev &`; they outlive the session.
 

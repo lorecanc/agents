@@ -110,7 +110,7 @@ test("plugin: flow_plan_exit needs the plan file, asks for approval, switches ba
   assert.deepEqual(approved.asked[0].resources, [plan])
   assert.equal(approved.asked[0].save, undefined, "approval is never saved as always-allow")
   assert.deepEqual(approved.switched, [{ sessionID: "s1", agent: "flow-build" }])
-  assert.match(textOf(ok), /approved the plan.*todo list/s)
+  assert.match(textOf(ok), /approved the plan.*progress updates/s)
 
   const corrected = makeContext(dir, () => { throw { _tag: "Permission.CorrectedError", feedback: "use sessions, not JWT" } })
   await plugin.setup(corrected.ctx)

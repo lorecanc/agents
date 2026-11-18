@@ -1,5 +1,6 @@
 ---
-description: Creates final or checkpoint commits for completed pipeline work. Does not update wiki or codebase memory.
+description: Creates final or checkpoint commits for completed pipeline work.
+  Does not update wiki or codebase memory.
 mode: subagent
 color: "#E67E22"
 steps: 50
@@ -68,11 +69,11 @@ permissions:
     resource: git log*
     effect: allow
   - action: shell
-    resource: git show*
-    effect: allow
-  - action: shell
     resource: git log *--output*
     effect: deny
+  - action: shell
+    resource: git show*
+    effect: allow
   - action: shell
     resource: git show *--output*
     effect: deny
@@ -200,7 +201,7 @@ permissions:
     resource: git -C * rev-parse*
     effect: allow
   - action: shell
-    resource: git -C * branch*
+    resource: git blame*
     effect: allow
   - action: shell
     resource: git branch --show-current*
@@ -237,9 +238,6 @@ permissions:
     effect: allow
   - action: shell
     resource: git branch --no-merged*
-    effect: allow
-  - action: shell
-    resource: git restore --staged *
     effect: allow
   - action: shell
     resource: git add *
@@ -287,6 +285,9 @@ permissions:
     resource: git rm --cached *
     effect: allow
   - action: shell
+    resource: git commit*
+    effect: deny
+  - action: shell
     resource: git commit -m "*"
     effect: allow
   - action: shell
@@ -305,16 +306,28 @@ permissions:
     resource: git commit * --all*
     effect: deny
   - action: shell
-    resource: git push*
-    effect: ask
-  - action: shell
     resource: env
     effect: deny
   - action: shell
-    resource: env *
+    resource: /usr/bin/env
+    effect: deny
+  - action: shell
+    resource: env -*
+    effect: deny
+  - action: shell
+    resource: /usr/bin/env -*
+    effect: deny
+  - action: shell
+    resource: env *=*
+    effect: deny
+  - action: shell
+    resource: /usr/bin/env *=*
     effect: deny
   - action: shell
     resource: printenv*
+    effect: deny
+  - action: shell
+    resource: /usr/bin/printenv*
     effect: deny
   - action: shell
     resource: set
@@ -326,13 +339,22 @@ permissions:
     resource: declare -p*
     effect: deny
   - action: shell
-    resource: /usr/bin/env*
+    resource: "* .env"
     effect: deny
   - action: shell
-    resource: /usr/bin/printenv*
+    resource: "* .env *"
     effect: deny
   - action: shell
-    resource: "*.env*"
+    resource: "*/.env"
+    effect: deny
+  - action: shell
+    resource: "*/.env *"
+    effect: deny
+  - action: shell
+    resource: "* .env.*"
+    effect: deny
+  - action: shell
+    resource: "*/.env.*"
     effect: deny
   - action: shell
     resource: cat .env.example
@@ -345,6 +367,30 @@ permissions:
     effect: allow
   - action: shell
     resource: cat .env.test
+    effect: allow
+  - action: shell
+    resource: head .env.example
+    effect: allow
+  - action: shell
+    resource: head .env.sample
+    effect: allow
+  - action: shell
+    resource: head .env.template
+    effect: allow
+  - action: shell
+    resource: head .env.test
+    effect: allow
+  - action: shell
+    resource: git add .env.example
+    effect: allow
+  - action: shell
+    resource: git add .env.sample
+    effect: allow
+  - action: shell
+    resource: git add .env.template
+    effect: allow
+  - action: shell
+    resource: git add .env.test
     effect: allow
 ---
 
