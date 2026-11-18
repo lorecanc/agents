@@ -14,6 +14,7 @@ function mkRepo(extra = {}) {
   sh("init", "-q", "-b", "main")
   sh("config", "user.email", "t@example.com")
   sh("config", "user.name", "T")
+  sh("config", "core.autocrlf", "false")
   fs.writeFileSync(path.join(dir, "a.txt"), "a\n")
   for (const [name, content] of Object.entries(extra)) {
     fs.mkdirSync(path.dirname(path.join(dir, name)), { recursive: true })
@@ -42,7 +43,7 @@ test("start: worktree lives under .git, invisible to the main checkout, with cop
   fs.writeFileSync(path.join(dir, ".env.local"), "SECRET=1\n") // untracked, not committed
   const r = await startWorktree(dir, "Fix login")
   assert.equal(r.slug, "fix-login")
-  assert.equal(r.path, path.join(fs.realpathSync(dir), ".git", "opencode-worktrees", "fix-login"))
+  assert.equal(r.path, path.join(fs.realpathSync.native(dir), ".git", "opencode-worktrees", "fix-login"))
   assert.equal(r.branch, "pipeline/fix-login")
   assert.deepEqual(r.copied, [".env.local"])
   assert.equal(r.setupResult.exitCode, 0)

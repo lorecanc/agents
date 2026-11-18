@@ -15,6 +15,7 @@ function mkRepo(files = {}) {
   sh("init", "-q", "-b", "main")
   sh("config", "user.email", "t@example.com")
   sh("config", "user.name", "T")
+  sh("config", "core.autocrlf", "false")
   fs.writeFileSync(path.join(dir, "a.txt"), "a\n")
   for (const [rel, body] of Object.entries(files)) {
     fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true })

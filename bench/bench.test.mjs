@@ -109,6 +109,7 @@ function initRepo(dir) {
   run("init", "-q", "-b", "main")
   run("config", "user.email", "t@e.c")
   run("config", "user.name", "t")
+  run("config", "core.autocrlf", "false")
   fs.writeFileSync(path.join(dir, "f.txt"), "x")
   run("add", "-A")
   run("commit", "-qm", "i")

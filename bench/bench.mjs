@@ -43,13 +43,14 @@ export function loadTasks(file = path.join(HERE, "tasks.json")) {
 export function prepareWorkspace(task, { root = os.tmpdir() } = {}) {
   const src = path.join(HERE, "fixtures", task.fixture)
   if (!fs.existsSync(src)) throw new Error(`unknown fixture "${task.fixture}"`)
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(root, `bench-${task.id}-`)))
+  const dir = fs.realpathSync.native(fs.mkdtempSync(path.join(root, `bench-${task.id}-`)))
   fs.cpSync(src, dir, { recursive: true })
   const run = (...a) => execFileSync("git", a, { cwd: dir, stdio: "ignore" })
   run("init", "-q", "-b", "main")
   run("config", "user.email", "bench@example.com")
   run("config", "user.name", "bench")
   run("config", "commit.gpgsign", "false")
+  run("config", "core.autocrlf", "false")
   run("add", "-A")
   run("commit", "-qm", "fixture")
   return dir
@@ -353,7 +354,7 @@ export async function main(argv) {
 
 const isMain = (() => {
   try {
-    return Boolean(process.argv[1]) && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url))
+    return Boolean(process.argv[1]) && fs.realpathSync.native(process.argv[1]) === fs.realpathSync.native(fileURLToPath(import.meta.url))
   } catch {
     return false
   }

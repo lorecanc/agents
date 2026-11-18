@@ -20,6 +20,7 @@ function mkRepo(files = {}, contract = null) {
   sh("init", "-q", "-b", "main")
   sh("config", "user.email", "t@example.com")
   sh("config", "user.name", "T")
+  sh("config", "core.autocrlf", "false")
   fs.writeFileSync(path.join(dir, "README.md"), "x\n")
   for (const [name, content] of Object.entries(files)) {
     fs.mkdirSync(path.dirname(path.join(dir, name)), { recursive: true })
@@ -367,7 +368,7 @@ test("runSmoke: occupied fixed port is an env block and the foreign process is l
   foreign.close()
 })
 
-test("runSmoke: startup crash with an env signature is classified env, otherwise unclassified", async () => {
+test("runSmoke: startup crash with an env signature is classified env, otherwise unclassified", { skip: process.platform === "win32" }, async () => {
   const envCrash = mkRepo({}, { smoke: { start: `echo "Error: connect ECONNREFUSED 127.0.0.1:5432"; exit 1`, ready: { port: "${PORT}", timeout_s: 10 }, checks: [] } })
   const a = await runSmoke({ info: repoInfo(envCrash) })
   assert.equal(a.status, "fail")

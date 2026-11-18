@@ -38,6 +38,7 @@ function mkRepo(contract = null) {
   sh("init", "-q", "-b", "main")
   sh("config", "user.email", "t@example.com")
   sh("config", "user.name", "T")
+  sh("config", "core.autocrlf", "false")
   fs.writeFileSync(path.join(dir, "a.txt"), "a\n")
   fs.writeFileSync(path.join(dir, "b.txt"), "b\n")
   if (contract) {
@@ -122,14 +123,17 @@ test("pipeline_commit: scoped commit with trailers; pre-existing and stray chang
   fs.writeFileSync(path.join(dir, "stray.txt"), "stray\n")
   const args = { mode: "checkpoint", message: "wire feature", expected_files: ["new.ts", "a.txt"], validation: "unverified", validation_note: "smoke blocked: DATABASE_URL missing" }
   const preview = await call("pipeline_commit", { ...args, dry_run: true }, ctx(dir))
-  assert.deepEqual(preview.plan.commit, ["b.txt", "new.ts"])
+  assert.deepEqual(preview.plan.commit, ["new.ts"])
   assert.deepEqual(preview.plan.conflicts, ["a.txt"])
   assert.deepEqual(preview.plan.unattributed, ["stray.txt"])
+  assert.deepEqual(preview.plan.claimedOnly, ["b.txt"])
+  assert.deepEqual(preview.excluded_claimed_files, ["b.txt"])
   assert.equal(execFileSync("git", ["log", "--oneline"], { cwd: dir, encoding: "utf8" }).trim().split("\n").length, 1, "dry run must not commit")
   const res = await call("pipeline_commit", args, ctx(dir))
   assert.equal(res.status, "committed")
   assert.equal(res.subject, "chore(checkpoint): wire feature")
-  assert.deepEqual(res.committed, ["b.txt", "new.ts"])
+  assert.deepEqual(res.committed, ["new.ts"])
+  assert.deepEqual(res.excluded_claimed_files, ["b.txt"])
   assert.deepEqual(res.unexpected, [])
   const body = execFileSync("git", ["log", "-1", "--format=%B"], { cwd: dir, encoding: "utf8" })
   assert.match(body, /Pipeline-Checkpoint: true/)
@@ -137,7 +141,8 @@ test("pipeline_commit: scoped commit with trailers; pre-existing and stray chang
   const status = execFileSync("git", ["status", "--porcelain"], { cwd: dir, encoding: "utf8" })
   assert.match(status, / M a\.txt/)
   assert.match(status, /\?\? stray\.txt/)
-  assert.doesNotMatch(status, /b\.txt|new\.ts/)
+  assert.match(status, / M b\.txt/)
+  assert.doesNotMatch(status, /new\.ts/)
 })
 
 test("pipeline_commit: without a registered baseline it still protects files the caller declares dirty", async () => {

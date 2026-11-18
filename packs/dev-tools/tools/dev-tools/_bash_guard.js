@@ -301,17 +301,49 @@ function expandArg(arg, ctx) {
   return a
 }
 
+export function isPosixTempAlias(rawArg) {
+  if (typeof rawArg !== "string") return false
+  const slash = rawArg.replaceAll("\\", "/")
+  if (!slash.startsWith("/") || slash.startsWith("//")) return false
+  const norm = path.posix.normalize(slash).replace(/\/+$/, "")
+  for (const prefix of ["/tmp/", "/private/tmp/"]) {
+    if (norm.startsWith(prefix)) {
+      const first = norm.slice(prefix.length).split("/")[0]
+      return Boolean(first) && !first.startsWith("pipe-")
+    }
+  }
+  return false
+}
+
 function isSystemTempPath(rawArg, absPath, top) {
   if (typeof rawArg !== "string" || !path.isAbsolute(rawArg) || rawArg.trim().startsWith("~")) return false
   if (isInside(top, path.resolve(top, rawArg))) return false
   if (isInside(top, absPath)) return false
-  const tempRoots = ["/tmp", "/private/tmp", os.tmpdir(), realpathLoose("/tmp"), realpathLoose(os.tmpdir())]
+  if (process.platform === "win32" && isPosixTempAlias(rawArg)) return true
+  const tempRoots = process.platform === "win32"
+    ? [os.tmpdir(), realpathLoose(os.tmpdir())]
+    : ["/tmp", "/private/tmp", os.tmpdir(), realpathLoose("/tmp"), realpathLoose("/private/tmp"), realpathLoose(os.tmpdir())]
   return tempRoots.some((root) => {
     const tempRoot = realpathLoose(root)
     if (!isInside(tempRoot, absPath) || absPath === tempRoot) return false
     if (isInside(tempRoot, top) && (isInside(absPath, top) || path.relative(tempRoot, absPath).split(path.sep)[0].startsWith("pipe-"))) return false
     return true
   })
+}
+
+function isOpsRepositoryWritePath(rawArg, ctx) {
+  if (typeof rawArg !== "string" || !rawArg || !ctx?.info?.top) return false
+  let expanded = expandArg(rawArg, ctx)
+  if (expanded.includes("$")) return false
+  const glob = expanded.search(/[*?[]/)
+  if (glob >= 0) expanded = expanded.slice(0, glob) || "."
+  const abs = realpathLoose(path.resolve(ctx.cwd || ctx.info.top, expanded))
+  const scratchPaths = [ctx.scratch, ctx.info.scratchDir, scratchDir(ctx.info), path.join(ctx.info.top, ".git", "opencode-scratch")]
+    .filter(Boolean)
+    .map(realpathLoose)
+  if (scratchPaths.some((scratch) => isInside(scratch, abs))) return false
+  if (isSystemTempPath(String(rawArg).trim().startsWith("~") ? "" : expanded, abs, ctx.info.top)) return false
+  return isInside(realpathLoose(ctx.info.top), abs)
 }
 
 /** Returns null if the path is acceptable (or unresolvable), else a reason string. */
@@ -352,6 +384,15 @@ function checkSecretEnvArgs(cmd, args, role) {
     }
   }
   return null
+}
+
+function isAllowedTemplateEnvCopy(cmd, args, role) {
+  if (cmd !== "cp" || !ENV_TEMPLATE_COPY_ROLES.has(role)) return false
+  const positional = nonFlags(args)
+  if (positional.length !== 2) return false
+  const source = path.basename(positional[0].replace(/\[([^\]]{1})\]/g, "$1")).toLowerCase()
+  const destination = path.basename(positional[1].replace(/\[([^\]]{1})\]/g, "$1"))
+  return ENV_TEMPLATE_FILES.has(source) && /^\.env(?:\..+)?$/i.test(destination)
 }
 
 function shellCommandArg(cmd, args) {
@@ -433,6 +474,116 @@ function inPlaceEdit(cmd, args) {
   return inPlaceTargets(cmd, args).length > 0
 }
 
+function downloadWritePaths(cmd, args) {
+  const paths = []
+  const addPath = (value) => {
+    if (typeof value === "string" && value && value !== "-") paths.push(value)
+  }
+  if (cmd === "curl") {
+    let outputDir = null
+    let remoteName = false
+    let stdout = false
+    for (let k = 0; k < args.length; k++) {
+      const arg = args[k]
+      if (["-O", "--remote-name", "--remote-name-all"].includes(arg)) remoteName = true
+      else if (arg === "--output-dir") outputDir = args[++k]
+      else if (arg.startsWith("--output-dir=")) outputDir = arg.slice("--output-dir=".length)
+      else if (["-o", "--output", "-D", "--dump-header", "-c", "--cookie-jar"].includes(arg)) {
+        const value = args[++k]
+        if (value === "-") stdout = true
+        else addPath(value)
+      } else if (["--output", "--dump-header", "--cookie-jar"].some((flag) => arg.startsWith(`${flag}=`))) {
+        const value = arg.slice(arg.indexOf("=") + 1)
+        if (value === "-") stdout = true
+        else addPath(value)
+      } else if (/^-[oDc].+/.test(arg)) {
+        const value = arg.slice(2)
+        if (value === "-") stdout = true
+        else addPath(value)
+      }
+    }
+    if (remoteName) addPath(outputDir || ".")
+    else if (outputDir && !stdout) addPath(outputDir)
+  } else if (cmd === "wget") {
+    let outputDocument
+    let directoryPrefix = null
+    let hasOutputDocument = false
+    const spider = args.includes("--spider")
+    for (let k = 0; k < args.length; k++) {
+      const arg = args[k]
+      if (["-O", "--output-document"].includes(arg)) {
+        hasOutputDocument = true
+        outputDocument = args[++k]
+      } else if (arg.startsWith("--output-document=")) {
+        hasOutputDocument = true
+        outputDocument = arg.slice("--output-document=".length)
+      } else if (arg.startsWith("--directory-prefix=")) {
+        directoryPrefix = arg.slice("--directory-prefix=".length)
+      } else if (arg === "-P" || arg === "--directory-prefix") {
+        directoryPrefix = args[++k]
+      } else if (arg.startsWith("-") && !arg.startsWith("--") && /[OP]/.test(arg.slice(1))) {
+        const outputIndex = arg.indexOf("O", 1)
+        const prefixIndex = arg.indexOf("P", 1)
+        if (outputIndex >= 0) {
+          hasOutputDocument = true
+          outputDocument = arg.slice(outputIndex + 1) || args[++k]
+        } else if (prefixIndex >= 0) {
+          directoryPrefix = arg.slice(prefixIndex + 1) || args[++k]
+        }
+      }
+    }
+    if (hasOutputDocument) {
+      if (outputDocument !== "-") addPath(directoryPrefix && outputDocument ? path.join(directoryPrefix, outputDocument || "") : outputDocument)
+    } else if (!spider && args.some((arg) => /^https?:\/\//i.test(arg) || /^ftp:\/\//i.test(arg))) {
+      addPath(directoryPrefix || ".")
+    }
+  }
+  return paths
+}
+
+function curlToStdout(args) {
+  return args.some((arg, i) => ["-o", "--output", "-D", "--dump-header", "-c", "--cookie-jar"].includes(arg) && args[i + 1] === "-"
+    || ["--output=-", "--dump-header=-", "--cookie-jar=-", "-o-", "-D-", "-c-"].includes(arg))
+}
+
+function wgetToStdout(args) {
+  return args.some((arg, i) => arg === "-O" && args[i + 1] === "-"
+    || arg === "--output-document" && args[i + 1] === "-"
+    || arg === "--output-document=-"
+    || /^-[a-zA-Z]*O-$/.test(arg))
+}
+
+function tarExtracts(args) {
+  return args.some((arg) => arg === "--extract" || arg === "--get"
+    || (!arg.startsWith("--") && /^-[a-zA-Z]*x[a-zA-Z]*$/.test(arg)))
+}
+
+function tarToStdout(args) {
+  return args.some((arg) => arg === "--to-stdout"
+    || (!arg.startsWith("--") && /^-[a-zA-Z]*O[a-zA-Z]*$/.test(arg)))
+}
+
+function tarLists(args) {
+  return args.some((arg) => arg === "--list" || (!arg.startsWith("--") && /^-[a-zA-Z]*t[a-zA-Z]*$/.test(arg)))
+}
+
+function unzipStreamsOrLists(args) {
+  return args.some((arg) => ["-l", "-t", "-p", "-c", "-Z"].includes(arg)
+    || /^-[a-zA-Z]*[ltpc][a-zA-Z]*$/.test(arg)
+    || /^-Z/.test(arg))
+}
+
+function readOnlyStdoutCommand(cmd, args, cwd) {
+  if (["curl", "wget", "tar", "unzip", "tee"].includes(cmd)
+    && segmentWritePaths([cmd, ...args], cwd).rawPaths.length) return false
+  if (cmd === "curl") return curlToStdout(args)
+  if (cmd === "wget") return wgetToStdout(args) || args.includes("--spider")
+  if (cmd === "tee") return nonFlags(args).length === 0
+  if (cmd === "tar") return tarToStdout(args) || tarLists(args)
+  if (cmd === "unzip") return unzipStreamsOrLists(args)
+  return false
+}
+
 function hasOutputRedirect(rawSeg) {
   return Array.isArray(rawSeg) && rawSeg.length > 0
 }
@@ -468,22 +619,31 @@ function segmentWritePaths(tokens, cwd = process.cwd()) {
       for (const a of args) if (a.startsWith("of=")) rawPaths.push(a.slice(3))
       break
     case "curl":
-      for (let k = 0; k < args.length; k++) {
-        if (["-o", "--output", "-D", "--dump-header", "-c", "--cookie-jar"].includes(args[k])) rawPaths.push(args[k + 1])
-        else if (["--output", "--dump-header", "--cookie-jar"].some((flag) => args[k].startsWith(`${flag}=`))) rawPaths.push(args[k].slice(args[k].indexOf("=") + 1))
-      }
+      rawPaths.push(...downloadWritePaths(cmd, args))
       break
     case "wget":
-      for (let k = 0; k < args.length; k++) {
-        if (args[k] === "-O" || args[k] === "--output-document") rawPaths.push(args[k + 1])
-        else if (args[k].startsWith("--output-document=")) rawPaths.push(args[k].slice(18))
-      }
+      rawPaths.push(...downloadWritePaths(cmd, args))
       break
     case "tar":
-      for (let k = 0; k < args.length; k++) if (args[k] === "-C" || args[k] === "--directory") rawPaths.push(args[k + 1])
+      if (tarExtracts(args) && !tarToStdout(args)) {
+        const directories = []
+        for (let k = 0; k < args.length; k++) {
+          if (args[k] === "-C" || args[k] === "--directory") directories.push(args[++k])
+          else if (args[k].startsWith("--directory=")) directories.push(args[k].slice("--directory=".length))
+          else if (args[k].startsWith("-C") && args[k].length > 2) directories.push(args[k].slice(2))
+        }
+        rawPaths.push(...(directories.length ? directories : ["."]))
+      }
       break
     case "unzip":
-      for (let k = 0; k < args.length; k++) if (args[k] === "-d") rawPaths.push(args[k + 1])
+      if (!unzipStreamsOrLists(args)) {
+        const directories = []
+        for (let k = 0; k < args.length; k++) {
+          if (args[k] === "-d") directories.push(args[++k])
+          else if (args[k].startsWith("-d") && args[k].length > 2) directories.push(args[k].slice(2))
+        }
+        rawPaths.push(...(directories.length ? directories : ["."]))
+      }
       break
     case "sed": case "perl":
       rawPaths.push(...inPlaceTargets(cmd, args))
@@ -522,6 +682,19 @@ function segmentWritePaths(tokens, cwd = process.cwd()) {
     }
   }
   return { rawPaths, subcommands, cwdChange }
+}
+
+function isOutputDirectoryArg(cmd, args, target) {
+  if (cmd === "curl") return args.some((arg, i) => arg === "--output-dir" && args[i + 1] === target || arg.startsWith("--output-dir=") && arg.slice("--output-dir=".length) === target)
+  if (cmd === "wget") return args.some((arg, i) => ["-P", "--directory-prefix"].includes(arg) && args[i + 1] === target
+    || arg.startsWith("--directory-prefix=") && arg.slice("--directory-prefix=".length) === target
+    || arg.startsWith("-P") && arg.length > 2 && arg.slice(2) === target)
+  if (cmd === "tar") return args.some((arg, i) => ["-C", "--directory"].includes(arg) && args[i + 1] === target
+    || arg.startsWith("--directory=") && arg.slice("--directory=".length) === target
+    || arg.startsWith("-C") && arg.length > 2 && arg.slice(2) === target)
+  if (cmd === "unzip") return args.some((arg, i) => arg === "-d" && args[i + 1] === target
+    || arg.startsWith("-d") && arg.length > 2 && arg.slice(2) === target)
+  return false
 }
 
 function isGitExplicitFile(file, ctx) {
@@ -711,11 +884,18 @@ function checkSegment(tokens, role, ctx, depth = 0, rawSeg = []) {
   if (NEVER.has(cmd)) return `${cmd} is not allowed.`
   const secretEnvErr = checkSecretEnvArgs(cmd, args, role)
   if (secretEnvErr) return secretEnvErr
-  if (READ_ONLY_BASH_ROLES.has(role) && (hasOutputRedirect(rawSeg) || WRITE_CMDS.has(cmd) || inPlaceEdit(cmd, args)
+  const readonlyWrite = WRITE_CMDS.has(cmd) && !readOnlyStdoutCommand(cmd, args, ctx?.cwd || ctx?.info?.top || process.cwd())
+  if (READ_ONLY_BASH_ROLES.has(role) && (hasOutputRedirect(rawSeg) || readonlyWrite || inPlaceEdit(cmd, args)
     || (cmd === "find" && args.some((a) => /^-(?:exec|execdir|ok|okdir|delete|fprint0?|fls|fprintf)$/.test(a)))
     || (cmd === "fd" && args.some((a) => /^(?:-[xX]|--exec(?:-batch)?)(?:=|$)/.test(a)))
     || (cmd === "sort" && args.some((a) => /^(?:-o|--output)(?:=|$)/.test(a))))) {
     return `Guard: role '${role}' is read-only and cannot modify files.`
+  }
+  if (role === "ops" && cmd !== "git" && !isAllowedTemplateEnvCopy(cmd, args, role)) {
+    const write = segmentWritePaths(tokens, ctx?.cwd || ctx?.info?.top || process.cwd())
+    if (write.rawPaths.some((p) => isOpsRepositoryWritePath(p, ctx))) {
+      return "Guard: role 'ops' cannot modify repository files; write temporary files to $PIPELINE_SCRATCH or /tmp."
+    }
   }
   if (cmd === "rm" || cmd === "rmdir") {
     const hasRecursiveOrForce = cmd === "rm" && args.some((a) => /^--(?:recursive|force)$/.test(a) || (/^-[^-]/.test(a) && /[rRfF]/.test(a)))
@@ -769,16 +949,10 @@ function checkSegment(tokens, role, ctx, depth = 0, rawSeg = []) {
       for (const a of args) if (a.startsWith("of=")) paths.push(a.slice(3))
       break
     case "curl":
-      for (let k = 0; k < args.length; k++) {
-        if (args[k] === "-o" || args[k] === "--output" || args[k] === "--output-dir") paths.push(args[k + 1])
-        else if (args[k].startsWith("--output=")) paths.push(args[k].slice(9))
-      }
+      paths.push(...downloadWritePaths(cmd, args))
       break
     case "wget":
-      for (let k = 0; k < args.length; k++) {
-        if (args[k] === "-O" || args[k] === "-P" || args[k] === "--directory-prefix") paths.push(args[k + 1])
-        else if (args[k].startsWith("--output-document=")) paths.push(args[k].slice(18))
-      }
+      paths.push(...downloadWritePaths(cmd, args))
       break
     case "tar":
       for (let k = 0; k < args.length; k++) if (args[k] === "-C" || args[k] === "--directory") paths.push(args[k + 1])
@@ -793,7 +967,8 @@ function checkSegment(tokens, role, ctx, depth = 0, rawSeg = []) {
       break
   }
   for (const p of paths) {
-    const reason = checkWritePath(p, ctx)
+    const probe = isOutputDirectoryArg(cmd, args, p) ? path.join(p, "__pipeline_output__") : p
+    const reason = checkWritePath(probe, ctx)
     if (reason) return `${cmd}: ${reason}`
   }
   return null
@@ -819,6 +994,9 @@ export function checkBash(command, role, ctx, depth = 0) {
   for (let i = 0; i < parsed.segments.length; i++) {
     const segmentCtx = { ...ctx, cwd }
     for (const target of parsed.segmentRedirects[i] || []) {
+      if (role === "ops" && isOpsRepositoryWritePath(target, segmentCtx)) {
+        return "Guard: role 'ops' cannot modify repository files; write temporary files to $PIPELINE_SCRATCH or /tmp."
+      }
       const reason = checkWritePath(target, segmentCtx)
       if (reason) return `output redirection to ${reason}`
     }
@@ -868,7 +1046,7 @@ export function bashWriteTargets(command, ctx, depth = 0) {
       if (isInside(realpathLoose(scratchPath), abs)) continue
       if (info.gitDir && isInside(realpathLoose(info.gitDir), abs)) continue
       const rel = toRel(info, abs)
-      if (rel && rel !== "") targets.add(rel)
+      if (rel !== null) targets.add(rel || ".")
     }
   }
   for (let i = 0; i < parsed.segments.length; i++) {

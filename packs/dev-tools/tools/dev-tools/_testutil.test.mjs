@@ -23,7 +23,7 @@ process.once("exit", () => {
 })
 
 export function mkTmp(prefix) {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)))
+  const dir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), prefix)))
   created.add(dir)
   return dir
 }

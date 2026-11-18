@@ -34,6 +34,7 @@ function mkRepo() {
   sh(dir, "config", "user.email", "t@example.com")
   sh(dir, "config", "user.name", "Test")
   sh(dir, "config", "commit.gpgsign", "false")
+  sh(dir, "config", "core.autocrlf", "false")
   fs.writeFileSync(path.join(dir, "a.txt"), "a\n")
   fs.writeFileSync(path.join(dir, "b.txt"), "b\n")
   sh(dir, "add", ".")
@@ -346,6 +347,55 @@ test("checkBash: read-only roles cannot modify files and secret .env paths are b
   assert.equal(checkBash("cp .[e]nv .env", "executor", ctx), "Guard: reading or accessing '.env' secret files is blocked.")
 })
 
+test("checkBash: ops cannot write repository files but can use scratch, system temp, template env copy and git", () => {
+  const ctx = ctxFor(mkRepo())
+  for (const command of [
+    "echo x > a.txt", "sed -i 's/a/b/' a.txt", "cp a.txt b.txt", "curl https://example.com -D headers.txt",
+    "curl -c cookies.txt https://example.com", "curl --output-dir downloads https://example.com",
+    "wget -P downloads https://example.com", "wget --directory-prefix=downloads https://example.com",
+  ]) {
+    assert.equal(
+      checkBash(command, "ops", ctx),
+      "Guard: role 'ops' cannot modify repository files; write temporary files to $PIPELINE_SCRATCH or /tmp.",
+      command,
+    )
+  }
+  for (const command of [
+    "echo x > $PIPELINE_SCRATCH/out.log", "echo x > /tmp/out.log", "cp .env.example .env", "git status", "git add a.txt",
+  ]) {
+    assert.equal(checkBash(command, "ops", ctx), null, command)
+  }
+})
+
+test("checkBash: ops detect implicit downloader and archive extraction writes", () => {
+  const ctx = ctxFor(mkRepo())
+  for (const command of [
+    "curl -O https://example.com/a.tgz",
+    "wget https://example.com/a.tgz",
+    "tar -xf archive.tar",
+    "unzip archive.zip",
+  ]) {
+    assert.match(checkBash(command, "ops", ctx), /cannot modify repository files/, command)
+  }
+  for (const command of [
+    "curl -O --output-dir /tmp https://example.com/a.tgz",
+    "wget -P /tmp https://example.com/a.tgz",
+    "tar -xf archive.tar -C /tmp",
+    "unzip archive.zip -d /tmp",
+    "curl -o - https://example.com",
+    "curl -s -o - https://example.com",
+    "wget -O - https://example.com",
+    "wget -O- https://example.com",
+    "wget -qO- https://example.com",
+  ]) {
+    assert.equal(checkBash(command, "ops", ctx), null, command)
+  }
+  for (const command of ["curl -o - https://example.com", "wget -O - https://example.com", "wget -qO- https://example.com", "tee -"]) {
+    assert.equal(checkBash(command, "explorer", ctx), null, command)
+  }
+  assert.ok(checkBash("curl -O https://example.com/a.tgz", "explorer", ctx))
+})
+
 test("checkBash: git mv and rm are limited to sync roles and explicit repo paths", () => {
   const dir = mkRepo()
   fs.mkdirSync(path.join(dir, "sub"))
@@ -455,6 +505,15 @@ test("bashWriteTargets extracts repo-relative targets from redirects, file comma
   assert.ok(!targets("echo hi > $PIPELINE_SCRATCH/tmp.txt").includes("$PIPELINE_SCRATCH/tmp.txt"))
 })
 
+test("bashWriteTargets includes the working directory for implicit downloads and extraction", () => {
+  const ctx = ctxFor(mkRepo())
+  for (const command of ["curl -O https://example.com/a.tgz", "wget https://example.com/a.tgz", "tar -xf archive.tar", "unzip archive.zip"]) {
+    assert.ok(guard.bashWriteTargets(command, ctx).includes("."), command)
+  }
+  assert.deepEqual(guard.bashWriteTargets("curl -o - https://example.com", ctx), [])
+  assert.deepEqual(guard.bashWriteTargets("wget -O - https://example.com", ctx), [])
+})
+
 test("bashWriteTargets resolves redirects after cd from that segment's working directory", () => {
   const dir = mkRepo()
   fs.mkdirSync(path.join(dir, "sub"))
@@ -468,6 +527,26 @@ test("checkWritePath resolves symlinks before comparing roots", { skip: process.
   const ctx = ctxFor(dir)
   assert.ok(checkWritePath("escape/file.txt", ctx))
   assert.equal(checkWritePath("regular/file.txt", ctx), null)
+})
+
+test("checkWritePath allows files under /tmp and os.tmpdir() while blocking temp roots, outside paths, and .git", () => {
+  const ctx = ctxFor(mkRepo())
+  assert.equal(checkWritePath("/tmp/explicit-temp-ok.txt", ctx), null)
+  assert.equal(checkWritePath(path.join(os.tmpdir(), "explicit-temp-ok.txt"), ctx), null)
+  assert.ok(checkWritePath("/tmp", ctx))
+  assert.ok(checkWritePath(os.tmpdir(), ctx))
+  assert.ok(checkWritePath("/etc/outside-test.txt", ctx))
+  assert.ok(checkWritePath(".git/config", ctx))
+  assert.deepEqual(guard.bashWriteTargets("echo hi > /tmp/explicit-temp-ok.txt", ctx), [])
+  assert.equal(guard.isPosixTempAlias("/tmp/ok.log"), true)
+  assert.equal(guard.isPosixTempAlias("/private/tmp/sub/ok.log"), true)
+  for (const bad of ["/tmp", "/tmp/", "/private/tmp", "/tmp/../etc/passwd", "/tmp/a\\..\\..\\Windows\\x", "C:\\tmp\\victim", "E:/tmp/victim", "//server/tmp/x", "/tmp/pipe-other/a.txt"]) {
+    assert.equal(guard.isPosixTempAlias(bad), false, bad)
+  }
+  if (process.platform === "win32") {
+    assert.ok(checkWritePath("C:\\tmp\\victim", ctx))
+    assert.ok(checkWritePath("E:/tmp/victim", ctx))
+  }
 })
 
 test("editTargets extracts paths from edit/write/apply_patch calls", () => {
@@ -509,7 +588,7 @@ test("linked worktree under .git: scratch stays inside it and nothing is flagged
   sh(dir, "worktree", "add", "-q", wt, "-b", "pipeline/s1")
   const info = repoInfo(wt)
   assert.equal(info.isLinked, true)
-  assert.equal(info.top, fs.realpathSync(wt))
+  assert.equal(info.top, fs.realpathSync.native(wt))
   const scratch = ensureScratch(info)
   assert.equal(scratch, path.join(info.top, ".opencode-scratch"))
   assert.ok(fs.readFileSync(path.join(info.common, "info", "exclude"), "utf8").includes(".opencode-scratch/"))
@@ -544,6 +623,19 @@ test("session registry: roots, children, liveness and claim conflicts", () => {
   writeSession(info, { sessionId: "ses_A", rootId: "ses_A", pid: 2 ** 22 + 12345, busy: true, updatedAt: now, files: { "a.txt": now } })
   assert.equal(isLive(readSession(info, "ses_A"), now), false)
   assert.throws(() => writeSession(info, { sessionId: "../evil", rootId: "x" }), /Invalid session id/)
+})
+
+test("conflictingClaims detects live sibling child sessions only for a child caller", () => {
+  const info = repoInfo(mkRepo())
+  const now = Date.now()
+  writeSession(info, { sessionId: "ses_root", rootId: "ses_root", pid: process.pid, busy: true, updatedAt: now, files: {} })
+  writeSession(info, { sessionId: "ses_c1", rootId: "ses_root", pid: process.pid, busy: true, updatedAt: now, files: { "src/a.ts": now } })
+  writeSession(info, { sessionId: "ses_c2", rootId: "ses_root", pid: process.pid, busy: true, updatedAt: now, files: {} })
+
+  assert.deepEqual(conflictingClaims(info, "ses_root", "src/a.ts", now), [])
+  assert.deepEqual(conflictingClaims(info, "ses_root", "src/a.ts", now, "ses_c2").map((claim) => claim.sessionId), ["ses_c1"])
+  writeSession(info, { sessionId: "ses_c1", rootId: "ses_root", pid: process.pid, busy: false, updatedAt: now, files: { "src/a.ts": now } })
+  assert.deepEqual(conflictingClaims(info, "ses_root", "src/a.ts", now, "ses_c2"), [])
 })
 
 test("writeSession does not recreate the state of a repository that no longer exists", () => {
@@ -638,12 +730,23 @@ test("planCommit: baseline-dirty files are conflicts, other changes are unattrib
   fs.writeFileSync(path.join(dir, "stray.txt"), "someone else\n")
   const root = { sessionId: "ses_X", rootId: "ses_X", baseline, files: { "b.txt": 1 } }
   const plan = planCommit(info, root, ["new.ts", "a.txt", "ghost.txt", "../outside", ".git/config"])
-  assert.deepEqual(plan.commit, ["b.txt", "new.ts"])
+  assert.deepEqual(plan.commit, ["new.ts"])
   assert.deepEqual(plan.conflicts, ["a.txt"])
   assert.deepEqual(plan.notChanged, ["ghost.txt"])
   assert.deepEqual(plan.unattributed, ["stray.txt"])
   assert.deepEqual(plan.rejected.sort(), ["../outside", ".git/config"].sort())
   assert.deepEqual(plan.claimedOnly, ["b.txt"])
+})
+
+test("planCommit: empty expected_files falls back to claimed files", () => {
+  const dir = mkRepo()
+  const info = repoInfo(dir)
+  const baseline = snapshot(info)
+  fs.writeFileSync(path.join(dir, "b.txt"), "session edit\n")
+  const plan = planCommit(info, { sessionId: "ses_X", rootId: "ses_X", baseline, files: { "b.txt": 1 } }, [])
+  assert.deepEqual(plan.commit, ["b.txt"])
+  assert.deepEqual(plan.claimedOnly, [])
+  assert.deepEqual(plan.unattributed, [])
 })
 
 test("executeCommit commits only the plan and leaves other staged content staged", () => {
@@ -723,4 +826,15 @@ test("removeStaleSessions also removes the activity logs of stale roots and old 
   assert.equal(fs.existsSync(activityLogPath(info, "ses_live")), true)
   assert.equal(fs.existsSync(activityLogPath(info, "ses_orphan_old")), false)
   assert.equal(fs.existsSync(activityLogPath(info, "ses_orphan_new")), true)
+})
+
+test("removeStaleSessions immediately removes inactive child records with missing roots", () => {
+  const info = repoInfo(mkRepo())
+  const now = Date.now()
+  writeSession(info, { sessionId: "ses_orphan_child", rootId: "ses_missing", pid: process.pid, busy: false, updatedAt: now, files: {} })
+  writeSession(info, { sessionId: "ses_live_orphan_child", rootId: "ses_missing", pid: process.pid, busy: true, updatedAt: now, files: {} })
+
+  core.removeStaleSessions(info)
+  assert.equal(readSession(info, "ses_orphan_child"), null)
+  assert.equal(readSession(info, "ses_live_orphan_child").busy, true)
 })

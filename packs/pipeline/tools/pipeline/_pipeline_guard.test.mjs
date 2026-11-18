@@ -43,6 +43,7 @@ function mkRepo() {
   sh("init", "-q", "-b", "main")
   sh("config", "user.email", "t@example.com")
   sh("config", "user.name", "T")
+  sh("config", "core.autocrlf", "false")
   fs.writeFileSync(path.join(dir, "a.txt"), "a\n")
   fs.writeFileSync(path.join(dir, "b.txt"), "b\n")
   sh("add", "-A")
@@ -150,7 +151,28 @@ test("session.get resolves the parent chain and registers a child under its root
   assert.equal(root.busy, true)
   assert.equal(root.baseline.branch, "main")
   assert.deepEqual(root.baseline.dirty, [])
-  assert.equal(readSession(h.info, "ses_child").rootId, "ses_root")
+  const child = readSession(h.info, "ses_child")
+  assert.equal(child.rootId, "ses_root")
+  assert.equal(child.agent, EXEC)
+  assert.equal(child.role, "executor")
+  assert.equal(child.pid, process.pid)
+  assert.equal(child.busy, true)
+  assert.ok(child.startedAt)
+})
+
+test("ending a root removes inactive child records without touching another live root", async () => {
+  const h = await setup({ parents: { ses_child: "ses_root", ses_live_child: "ses_live_root" } })
+  await modelRequest(h, "ses_root", ORCH)
+  await modelRequest(h, "ses_child", EXEC)
+  await modelRequest(h, "ses_live_root", ORCH)
+  await modelRequest(h, "ses_live_child", EXEC)
+
+  await emit(h, { type: "session.deleted", properties: { sessionID: "ses_root" } })
+
+  assert.equal(readSession(h.info, "ses_root").busy, false)
+  assert.equal(readSession(h.info, "ses_child"), null)
+  assert.equal(readSession(h.info, "ses_live_root").busy, true)
+  assert.equal(readSession(h.info, "ses_live_child").busy, true)
 })
 
 test("internal agents (title, summary, compaction) do not switch the guard off", async () => {
@@ -260,6 +282,7 @@ test("tool.execute.after records a touched file on the root", async () => {
   await after(h, "ses_child", "write", { filePath: "src/x.ts" }, "2")
   await after(h, "ses_child", "read", { filePath: "b.txt" }, "3")
   assert.deepEqual(Object.keys(readSession(h.info, "ses_root").files).sort(), ["a.txt", "src/x.ts"])
+  assert.deepEqual(Object.keys(readSession(h.info, "ses_child").files).sort(), ["a.txt", "src/x.ts"])
 })
 
 test("a second LIVE root cannot edit files claimed by the first; an idle root stops blocking", async () => {
@@ -303,6 +326,24 @@ test("shell writes claim files on the root and conflict with another live sessio
   )
   await after(h, "ses_c1", "shell", { command: "cd sub && echo hi > file.txt" }, "b2")
   assert.ok(readSession(h.info, "ses_r1").files["sub/file.txt"])
+})
+
+test("live sibling executors conflict, then an idle sibling releases its claims for the next wave", async () => {
+  const h = await setup({ parents: { ses_c1: "ses_root", ses_c2: "ses_root" } })
+  await modelRequest(h, "ses_root", ORCH)
+  await modelRequest(h, "ses_c1", EXEC)
+  await modelRequest(h, "ses_c2", EXEC)
+
+  await before(h, "ses_c1", "edit", { filePath: "src/a.ts" }, "c1-edit")
+  await assert.rejects(before(h, "ses_c2", "edit", { filePath: "src/a.ts" }, "c2-overlap"), /being modified by another active opencode session \(ses_c1\)/)
+  await after(h, "ses_c1", "edit", { filePath: "src/a.ts" }, "c1-edit")
+  assert.ok(readSession(h.info, "ses_root").files["src/a.ts"])
+  assert.ok(readSession(h.info, "ses_c1").files["src/a.ts"])
+  await assert.rejects(before(h, "ses_c2", "edit", { filePath: "src/a.ts" }, "c2-claimed"), /being modified by another active opencode session \(ses_c1\)/)
+
+  await emit(h, { type: "session.idle", properties: { sessionID: "ses_c1" } })
+  assert.equal(readSession(h.info, "ses_c1").busy, false)
+  await before(h, "ses_c2", "edit", { filePath: "src/a.ts" }, "c2-wave2")
 })
 
 test("permission.evaluate records an ask in the activity log", async () => {
@@ -435,23 +476,53 @@ test("activity logging failures never block a tool call", async () => {
   assert.deepEqual(readActivity(h.info, "ses_root"), [])
 })
 
-test("the third consecutive identical tool call is rejected with an actionable message", async () => {
+test("read inspection calls get a six-call doom_loop threshold", async () => {
   const h = await setup({ parents: { ses_child: "ses_root" } })
   await modelRequest(h, "ses_root", ORCH)
   await modelRequest(h, "ses_child", EXEC)
 
-  await before(h, "ses_child", "read", { filePath: "a.txt" }, "c1")
-  await before(h, "ses_child", "read", { filePath: "a.txt" }, "c2")
+  for (let i = 1; i < 6; i++) await before(h, "ses_child", "read", { filePath: "a.txt" }, `c${i}`)
   await assert.rejects(
-    before(h, "ses_child", "read", { filePath: "a.txt" }, "c3"),
+    before(h, "ses_child", "read", { filePath: "a.txt" }, "c6"),
     (error) => {
-      assert.match(error.message, /\[pipeline-guard\] Blocked: read was called 3 times in a row with identical input \(doom_loop\)\./)
-      assert.match(error.message, /Bound the wait inside one command instead of polling with the same call/)
+      assert.match(error.message, /\[pipeline-guard\] Blocked: read was called 6 times in a row with identical input \(doom_loop\)\./)
+      assert.match(error.message, /Reuse prior read output instead of re-reading identically/)
       return true
     },
   )
   // Staying in the loop keeps being rejected.
-  await assert.rejects(before(h, "ses_child", "read", { filePath: "a.txt" }, "c4"), /doom_loop/)
+  await assert.rejects(before(h, "ses_child", "read", { filePath: "a.txt" }, "c7"), /doom_loop/)
+})
+
+test("only read-only codebase-memory tools get the six-call doom_loop threshold", async () => {
+  const h = await setup({ parents: { ses_child: "ses_root" } })
+  await modelRequest(h, "ses_root", ORCH)
+  await modelRequest(h, "ses_child", EXEC)
+
+  for (const tool of ["codebase-memory-mcp_index_repository", "codebase-memory-mcp_delete_project"]) {
+    const input = { project: "repo" }
+    await before(h, "ses_child", tool, input, `${tool}-1`)
+    await before(h, "ses_child", tool, input, `${tool}-2`)
+    await assert.rejects(before(h, "ses_child", tool, input, `${tool}-3`), /was called 3 times.*doom_loop/)
+  }
+
+  const input = { query: "session lifecycle" }
+  for (let i = 1; i < 6; i++) await before(h, "ses_child", "codebase-memory-mcp_search_graph", input, `search-${i}`)
+  await assert.rejects(
+    before(h, "ses_child", "codebase-memory-mcp_search_graph", input, "search-6"),
+    /codebase-memory-mcp_search_graph was called 6 times.*doom_loop/,
+  )
+})
+
+test("shell and edit calls retain the three-call doom_loop threshold", async () => {
+  const h = await setup({ parents: { ses_child: "ses_root" } })
+  await modelRequest(h, "ses_root", ORCH)
+  await modelRequest(h, "ses_child", EXEC)
+
+  for (let i = 1; i < 3; i++) await before(h, "ses_child", "shell", { command: "ls" }, `shell-${i}`)
+  await assert.rejects(before(h, "ses_child", "shell", { command: "ls" }, "shell-3"), /shell was called 3 times.*doom_loop/)
+  for (let i = 1; i < 3; i++) await before(h, "ses_child", "edit", { filePath: "src/a.ts" }, `edit-${i}`)
+  await assert.rejects(before(h, "ses_child", "edit", { filePath: "src/a.ts" }, "edit-3"), /edit was called 3 times.*doom_loop/)
 })
 
 test("a different call in between resets the repetition streak", async () => {
@@ -462,8 +533,7 @@ test("a different call in between resets the repetition streak", async () => {
   await before(h, "ses_child", "read", { filePath: "a.txt" })
   await before(h, "ses_child", "read", { filePath: "a.txt" })
   await before(h, "ses_child", "read", { filePath: "b.txt" })
-  await before(h, "ses_child", "read", { filePath: "a.txt" })
-  await before(h, "ses_child", "read", { filePath: "a.txt" })
+  for (let i = 0; i < 5; i++) await before(h, "ses_child", "read", { filePath: "a.txt" })
   await assert.rejects(before(h, "ses_child", "read", { filePath: "a.txt" }), /doom_loop/)
 })
 
@@ -472,10 +542,11 @@ test("the same input with keys in a different order counts as identical", async 
   await modelRequest(h, "ses_root", ORCH)
   await modelRequest(h, "ses_child", EXEC)
 
-  await before(h, "ses_child", "read", { filePath: "a.txt", options: { limit: 10, offset: 0 } })
-  await before(h, "ses_child", "read", { options: { offset: 0, limit: 10 }, filePath: "a.txt" })
+  for (let i = 0; i < 5; i++) {
+    await before(h, "ses_child", "read", { filePath: "a.txt", options: { limit: 10, offset: 0 } })
+  }
   await assert.rejects(
-    before(h, "ses_child", "read", { filePath: "a.txt", options: { limit: 10, offset: 0 } }),
+    before(h, "ses_child", "read", { options: { offset: 0, limit: 10 }, filePath: "a.txt" }),
     /doom_loop/,
   )
 })
@@ -488,11 +559,10 @@ test("different sessions do not share the repetition streak", async () => {
   await modelRequest(h, "ses_c2", EXEC)
 
   for (const sessionID of ["ses_c1", "ses_c2"]) {
-    await before(h, sessionID, "read", { filePath: "a.txt" })
-    await before(h, sessionID, "read", { filePath: "a.txt" })
+    for (let i = 0; i < 5; i++) await before(h, sessionID, "read", { filePath: "a.txt" })
   }
   await assert.rejects(before(h, "ses_c1", "read", { filePath: "a.txt" }), /doom_loop/)
-  // The other session's own streak is independent and still at two.
+  // The other session's own streak is independent and also reaches its own limit.
   await assert.rejects(before(h, "ses_c2", "read", { filePath: "a.txt" }), /doom_loop/)
 })
 
@@ -501,16 +571,14 @@ test("an idle or session-end event clears the repetition state", async () => {
   await modelRequest(h, "ses_root", ORCH)
   await modelRequest(h, "ses_child", EXEC)
 
-  await before(h, "ses_child", "read", { filePath: "a.txt" })
-  await before(h, "ses_child", "read", { filePath: "a.txt" })
+  for (let i = 0; i < 5; i++) await before(h, "ses_child", "read", { filePath: "a.txt" })
   await emit(h, { type: "session.idle", properties: { sessionID: "ses_child" } })
-  await before(h, "ses_child", "read", { filePath: "a.txt" })
-  await before(h, "ses_child", "read", { filePath: "a.txt" })
+  for (let i = 0; i < 5; i++) await before(h, "ses_child", "read", { filePath: "a.txt" })
   await assert.rejects(before(h, "ses_child", "read", { filePath: "a.txt" }), /doom_loop/)
 
   await emit(h, { type: "session.deleted", properties: { sessionID: "ses_child" } })
-  await before(h, "ses_child", "read", { filePath: "a.txt" })
-  await before(h, "ses_child", "read", { filePath: "a.txt" })
+  assert.equal(readSession(h.info, "ses_child").busy, false)
+  for (let i = 0; i < 5; i++) await before(h, "ses_child", "read", { filePath: "a.txt" })
 })
 
 test("a call blocked by the path or shell check does not increment the streak", async () => {

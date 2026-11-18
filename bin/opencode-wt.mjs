@@ -281,7 +281,7 @@ export async function main(argv, cwd = process.cwd()) {
 // Compare real paths: when invoked through a symlink, argv[1] is the link, import.meta.url the target.
 const isMain = (() => {
   try {
-    return Boolean(process.argv[1]) && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url))
+    return Boolean(process.argv[1]) && fs.realpathSync.native(process.argv[1]) === fs.realpathSync.native(fileURLToPath(import.meta.url))
   } catch {
     return false
   }
