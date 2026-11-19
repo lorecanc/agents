@@ -22,7 +22,7 @@ source_files:
   - ".agent-manager/categories/pipeline.json"
   - "src/bench/README.md"
 created: "2026-10-16"
-last_updated: "2026-11-09"
+last_updated: "2026-11-19"
 ---
 
 # Agent Catalog
@@ -79,7 +79,7 @@ The 21 `pipeline-*` files are the canonical agents of the `pipeline` archetype, 
 | `pipeline-multimodal` | Handles visual inputs such as screenshots, mockups, and diagrams before planning or implementation. |
 | `pipeline-ops` | Operational diagnostics and runtime verification via bash. Cannot modify repository files. |
 | `pipeline-hitl` | Human-in-the-loop checkpoint that explains changes in plain language. Informational and non-blocking. |
-| `pipeline-post_session` | Creates final or checkpoint commits for completed pipeline work. |
+| `pipeline-post_session` | Creates final or checkpoint commits for completed pipeline work. For files mixing pre-existing and session changes it commits only the session hunks through `pipeline_commit`'s `staging_patch` (a text parameter, not a file). In OpenCode, where post_session has no channel to write a patch file, such files stay `CONFLICT`; the index-only `git apply --cached` fallback serves bridge runtimes that can write the patch to `$PIPELINE_SCRATCH`. |
 
 ## Public API
 

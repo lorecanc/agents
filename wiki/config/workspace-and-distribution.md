@@ -19,7 +19,7 @@ source_files:
   - "manage-agents/src/utils/sharedSync.ts"
   - "manage-agents/src/utils/agentRouting.ts"
 created: "2026-10-16"
-last_updated: "2026-11-09"
+last_updated: "2026-11-19"
 ---
 
 # Workspace and Distribution Configuration
@@ -95,16 +95,21 @@ The file defines 29 profiles:
 | Guards | `publish-guard`, `rm-guard`, `ops-rm-guard`, `ops-trusted-shell`, `secrets-guard`, `secrets-copy` |
 | Post-session | `post-session-stage`, `post-session-commit` |
 
-`git-rev-parse`, `git-merge-base`, `git-resolve-checkout`, and `git-resolve-restore` are defined but not referenced by any role.
+`git-rev-parse`, `git-merge-base`, `git-resolve-checkout`, and `git-resolve-restore` are defined but not referenced by any role. In the current file, `git-read` also grants the read-only plumbing commands (`git rev-parse`, `git ls-tree`, `git cat-file`, `git merge-base`, `git for-each-ref`) plus their `git -C *` variants, `sed` stays denied for read-only roles (read-only commands fail by default and no sed allow exists), and `security-scanners` grants `trivy image*` with its dangerous flags (`--output`, `--server`, `--cache-dir`) denied. The bash guard adds a second layer on top: it still recognizes sed's write targets (`w`/`W` commands and the `s/…/…/w` flag, blankless forms included) to bound coding roles' writes to the repository, rejects sed `e` scripts as inline code, and blocks `r`/`R` reads of `.env` as secret access.
 
 Examples from the file:
 
 ```json
 "post-session-commit": {
   "rules": [
+    ["git commit*", "deny"],
     ["git commit -m \"*\"", "allow"],
+    ["git commit -m '*'", "allow"],
     ["git commit -a*", "deny"],
-    ["git push*", "ask"]
+    ["git commit --all*", "deny"],
+    ["git commit * --amend*", "deny"],
+    ["git commit * --no-verify*", "deny"],
+    ["git commit * --all*", "deny"]
   ]
 }
 ```
@@ -121,7 +126,9 @@ Each role maps to the profiles listed below, in this order.
 | `executor`, `fast_lane`, `refactorer` | `deny-all`, `cd`, `build-tools`, `shell-read`, `shell-build-utils`, `fs-basic`, `fs-move`, `git-read`, `git-blame`, `git-branch-name`, `git-sync`, `git-conflict`, `git-unstage`, `git-stage`, `publish-guard`, `rm-guard`, `secrets-guard`, `secrets-copy` |
 | `tester` | As `executor`, without `git-sync`, `git-conflict`, `git-unstage`, and `git-stage` |
 | `ops` | `ops-trusted-shell`, `publish-guard`, `rm-guard`, `ops-rm-guard` (no `deny-all`) |
-| `post_session` | `deny-all`, `cd`, `git-read`, `git-branch-name`, `git-unstage`, `post-session-stage`, `post-session-commit`, `secrets-guard` |
+| `post_session` | `deny-all`, `cd`, `git-read`, `git-blame`, `git-branch-name`, `post-session-stage`, `post-session-commit`, `secrets-guard`, `post-session-template-stage` |
+
+`post-session-stage` now also allows index-only repair for `post_session`: `git restore --staged` / `git restore -S` (unstage) and `git apply --cached` with its `--check` combinations (apply a patch to the index without touching the worktree). This backs `pipeline_commit`'s `staging_patch` argument, which commits only the session hunks of files that also carry pre-existing changes, leaving those edits uncommitted; a patch that touches undeclared files, non-dirty files, out-of-repo paths, or malformed or non-applicable hunks is refused. Coding roles get the opposite tightening: `pipeline-git-coding-guard` denies `git apply*` outright (previously it only hit the generic `* apply*` confirmation).
 
 ### Applying and checking
 

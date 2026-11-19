@@ -76,6 +76,56 @@ test("read-only roles deny inline code and nested shell interpreters", () => {
   }
 })
 
+test("census fixes: staged apply/restore, single-quoted commit, git inspection, sed denied, trivy image", () => {
+  assert.equal(effectFor("post_session", "git restore --staged a.txt"), "allow")
+  assert.equal(effectFor("post_session", "git restore -S a.txt"), "allow")
+  assert.equal(effectFor("post_session", "git apply --cached p.diff"), "allow")
+  assert.equal(effectFor("post_session", "git apply --cached --check p.diff"), "allow")
+  assert.equal(effectFor("post_session", "git apply --check --cached p.diff"), "allow")
+  assert.equal(effectFor("post_session", "git apply p.diff"), "deny")
+  assert.equal(effectFor("post_session", "git apply --index p.diff"), "deny")
+  assert.equal(effectFor("post_session", "git commit -m 'chore(checkpoint): x'"), "allow")
+  assert.equal(effectFor("post_session", 'git commit -m "x"'), "allow")
+  assert.equal(effectFor("post_session", 'git commit -m "x" --amend'), "deny")
+  assert.equal(effectFor("post_session", "git commit -m 'x' --allow-empty"), "deny", "single-quote pattern requires the closing quote")
+
+  assert.equal(effectFor("explorer", "git rev-parse HEAD"), "allow")
+  assert.equal(effectFor("explorer", "git ls-tree HEAD"), "allow")
+  assert.equal(effectFor("explorer", "git -C /repo ls-tree HEAD"), "allow")
+  // sed stays denied for read-only roles: without a sed allow in shell-read, every form
+  // fails by default. The sed-specific write/exec/secret denies live in the bash guard tests.
+  for (const command of [
+    "sed -n 1,20p a.txt",
+    "sed -n 's/a/b/g' f",
+    "sed -n 's/a/b/pg' f",
+    "sed -n 's/a/b/2' f",
+    "sed -n 's#x#y#g' f",
+    "sed -n 'w /etc/x' f",
+    "sed -n '1w out.txt' f",
+    "sed -n 's/a/b/w out.txt' f",
+    "sed -ne 'e id' f",
+    "sed -n 's/a/b/e' f",
+    "sed -n 's/.*/touch x/ge' f",
+    "sed -n 's/a/b/g e' f",
+    "sed -n 'r .env' f",
+    "sed -n -f script.sed f",
+  ]) {
+    assert.equal(effectFor("explorer", command), "deny", command)
+  }
+  assert.equal(effectFor("explorer", "git add x"), "deny")
+
+  assert.equal(effectFor("executor", "git apply p.diff"), "deny")
+  assert.equal(effectFor("tester", "git apply p.diff"), "deny")
+
+  assert.equal(effectFor("security_auditor", "trivy image x:1"), "allow")
+  assert.equal(effectFor("security_auditor", "trivy image --output /Users/lore/x img"), "deny")
+  assert.equal(effectFor("security_auditor", "trivy image --server https://evil img"), "deny")
+  assert.equal(effectFor("security_auditor", "trivy fs --cache-dir /Users/lore/x ."), "deny")
+  assert.equal(effectFor("security_auditor", "trivy image --config /tmp/c.yml img"), "deny", "trivy config templates are denied (custom rules from untrusted files)")
+  assert.equal(effectFor("security_auditor", "trivy image --config=/tmp/c.yml img"), "deny", "trivy --config= form is denied too")
+  assert.equal(effectFor("security_auditor", "trivy fs ."), "allow", "legitimate trivy use stays allowed")
+})
+
 test("deployment and infrastructure destruction require confirmation", () => {
   assert.equal(effectFor("executor", "railway deploy"), "ask")
   assert.equal(effectFor("executor", "pulumi destroy"), "ask")

@@ -381,6 +381,11 @@ function checkSecretEnvArgs(cmd, args, role) {
       return "Guard: reading or accessing '.env' secret files is blocked."
     }
   }
+  if (cmd === "sed") {
+    for (const target of sedReadTargets(args)) {
+      if (isSecretEnvFile(target)) return "Guard: reading or accessing '.env' secret files is blocked."
+    }
+  }
   return null
 }
 
@@ -462,6 +467,7 @@ export function inlineCodeInvocation(cmd, args) {
   if (cmd === "perl" && flags(/^-[A-Za-z]*[eE]/)) return true
   if (cmd === "php" && flags(/^-[A-Za-z]*r/)) return true
   if (["lua", "osascript"].includes(cmd) && flags(/^-[A-Za-z]*e/)) return true
+  if (cmd === "sed" && sedScriptArgs(args).some((script) => sedScriptExec(script))) return true
   return false
 }
 
@@ -606,7 +612,231 @@ function inPlaceTargets(cmd, args) {
 }
 
 function inPlaceEdit(cmd, args) {
-  return inPlaceTargets(cmd, args).length > 0
+  return inPlaceTargets(cmd, args).length > 0 || sedWriteTargets(cmd, args).length > 0
+}
+
+// sed commands that touch files or execute: the target of "w file"/"W file" and the "s/…/…/w file"
+// flag are write targets, "r file"/"R file" reads a file, and "e command"/"s/…/…/e" runs a shell command.
+const SED_WRITE_TARGET_RE = /(?:^|[^A-Za-z])[wW][ \t]+([^;{}]+)/g
+const SED_READ_TARGET_RE = /(?:^|[^A-Za-z])[rR][ \t]+([^;{}]+)/g
+// Backstop for the exec forms the procedural scan does not own: `e cmd`, the address form
+// `/regex/e`, an `e` command at a command position (a bare `e` executes the pattern space,
+// anything after it on the line is its shell text). Matches overlapping a literal span
+// recorded by sedScriptScan are ignored: GNU sed executes nothing from those positions.
+const SED_EXEC_RE = /(?:^|[^A-Za-z])e[ \t]|\/e(?:[ \t;\n}]|$)|\/[ \t]+e(?:[ \t;\n}]|$)|(?:(?:^|[;{}!$\n])[ \t]*)e/g
+
+/** True when position i starts a sed command: not inside a word, escape or label context. */
+function sedCommandStart(script, i) {
+  return i === 0 || !/[A-Za-z\\:]/.test(script[i - 1])
+}
+
+function inSedLiteralSpan(spans, start, end) {
+  return spans.some(([from, to]) => start < to && from < end)
+}
+
+/**
+ * Procedural scan of a sed script, following GNU sed's compile.c. Collects:
+ * - exec: a flag group of an `s` command containing `e`; mark_subst_opts reads the flags
+ *   as blank-separated alphanumeric runs, so `ge`, `g e`, `s;a;b;ge`, `sXaXbXge` all
+ *   shell-execute the substituted pattern space;
+ * - writeTargets: the file name of an `s` `w` flag and of a `w`/`W` command, read to the
+ *   end of the line (GNU read_filename does not stop at `;` and needs no blank after the
+ *   command letter, so `s/a/b/wout.txt` and `w/etc/x` are targets too);
+ * - readTargets: the file name of an `r`/`R` command, same read_filename semantics
+ *   (`r.env` reads `.env`);
+ * - literalSpans: text GNU treats as literal (regex/replacement of `s`/`y`, `s` flag
+ *   groups, a/i/c text, comments, w/r file names), used to keep the regex backstops
+ *   from firing on it.
+ */
+function sedScriptScan(script) {
+  const result = { exec: false, writeTargets: [], readTargets: [], literalSpans: [] }
+  if (typeof script !== "string") return result
+  for (let i = 0; i < script.length; i++) {
+    const ch = script[i]
+    if (!sedCommandStart(script, i)) continue
+    if (ch === "#") {
+      // comment to end of line
+      const end = script.indexOf("\n", i)
+      const stop = end < 0 ? script.length : end
+      result.literalSpans.push([i, stop])
+      i = stop - 1
+      continue
+    }
+    if (ch === "a" || ch === "i" || ch === "c") {
+      // a/i/c: the text runs to the end of the line (backslash-newline continues it)
+      let end = script.indexOf("\n", i)
+      while (end > 0 && script[end - 1] === "\\") end = script.indexOf("\n", end + 1)
+      const stop = end < 0 ? script.length : end
+      result.literalSpans.push([i + 1, stop])
+      i = stop - 1
+      continue
+    }
+    if (ch === "/") {
+      // /regex/ address: the body is literal; GNU aborts the script when the closing
+      // delimiter is missing, so an unterminated address makes the rest inert too
+      let j = i + 1
+      while (j < script.length && script[j] !== "\n") {
+        if (script[j] === "\\") { j += 2; continue }
+        if (script[j] === "/") break
+        j++
+      }
+      const stop = j < script.length && script[j] === "/" ? j : script.length
+      result.literalSpans.push([i + 1, stop])
+      i = stop
+      continue
+    }
+    if (ch === "w" || ch === "W" || ch === "r" || ch === "R") {
+      // w/W/r/R command: GNU read_filename takes the file name to the end of the line,
+      // with no blank required after the command letter
+      const nl = script.indexOf("\n", i)
+      const stop = nl < 0 ? script.length : nl
+      const file = script.slice(i + 1, stop).trim()
+      if (file) {
+        if (ch === "w" || ch === "W") result.writeTargets.push(file)
+        else result.readTargets.push(file)
+        result.literalSpans.push([i + 1, stop])
+      }
+      i = stop - 1
+      continue
+    }
+    if (ch !== "s" && ch !== "y") continue
+    // any character but backslash and newline is a valid delimiter (POSIX, compile.c)
+    const delim = script[i + 1]
+    if (!delim || delim === "\\" || delim === "\n") continue
+    const closeDelim = (from) => {
+      for (let j = from; j < script.length; j++) {
+        if (script[j] === "\\") { j++; continue }
+        if (script[j] === delim) return j + 1
+      }
+      return null
+    }
+    const afterRegex = closeDelim(i + 2) // regex part of the s/y command
+    if (afterRegex === null) continue
+    const afterRepl = closeDelim(afterRegex) // replacement part; ends at the last unescaped delimiter
+    if (afterRepl === null) continue
+    result.literalSpans.push([i + 2, afterRepl])
+    if (ch === "y") {
+      i = afterRepl - 1
+      continue
+    }
+    // s flag group, following mark_subst_opts: skip blanks, consume one alphanumeric run, repeat
+    let j = afterRepl
+    for (;;) {
+      while (j < script.length && (script[j] === " " || script[j] === "\t")) j++
+      let run = ""
+      while (j < script.length && /[0-9A-Za-z]/.test(script[j])) run += script[j++]
+      if (!run) break
+      if (run.includes("e")) result.exec = true
+      if (run.includes("w")) {
+        // GNU reads the w flag file name to the end of the line; the flag group ends there
+        const nl = script.indexOf("\n", j)
+        const stop = nl < 0 ? script.length : nl
+        const file = script.slice(j, stop).trim()
+        if (file) {
+          result.writeTargets.push(file)
+          result.literalSpans.push([j, stop])
+        }
+        j = stop
+        break
+      }
+    }
+    if (j >= script.length) break
+    if (!/[;}\n]/.test(script[j])) {
+      // unknown option: GNU aborts the whole script, nothing after it can run
+      result.literalSpans.push([j, script.length])
+      break
+    }
+    i = j - 1 // resume at the ;, } or newline that closed the command
+  }
+  return result
+}
+
+/**
+ * True when a sed script runs shell code: an `e command`, an address in exec form
+ * (`/regex/e`), an `e` command at a command position (including a bare `e`, which
+ * executes the pattern space), or an `s` command whose flag group contains `e` —
+ * in any order, and with any delimiter but backslash and newline.
+ */
+function sedScriptExec(script) {
+  if (typeof script !== "string") return false
+  const { exec, literalSpans } = sedScriptScan(script)
+  if (exec) return true
+  for (const m of script.matchAll(SED_EXEC_RE)) {
+    if (!inSedLiteralSpan(literalSpans, m.index, m.index + m[0].length)) return true
+  }
+  return false
+}
+
+/** Inline script strings of a sed invocation: -e/--expression values and the first positional script. */
+function sedScriptArgs(args) {
+  const scripts = []
+  let haveScript = false
+  let endOfFlags = false
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]
+    if (arg === "--") { endOfFlags = true; continue } // `--` ends the flags: parsing continues, the next positional is the script
+    if (!endOfFlags) {
+      if (arg === "-e" || arg === "--expression") {
+        scripts.push(args[i + 1] ?? "")
+        haveScript = true
+        i++
+      } else if (/^-e.+/.test(arg)) {
+        scripts.push(arg.slice(2))
+        haveScript = true
+      } else if (arg.startsWith("--expression=")) {
+        scripts.push(arg.slice("--expression=".length))
+        haveScript = true
+      } else if (arg === "-f" || arg === "--file") {
+        haveScript = true // script file: its content is not visible to the guard
+        i++
+      } else if (/^-f.+/.test(arg) || arg.startsWith("--file=")) {
+        haveScript = true
+      } else if (arg === "-i" && args[i + 1] === "") {
+        i++ // BSD in-place suffix argument
+        continue
+      } else if (arg.startsWith("-")) {
+        continue
+      }
+    }
+    if (!haveScript && arg !== "") {
+      scripts.push(arg)
+      haveScript = true
+    }
+  }
+  return scripts
+}
+
+/** Write targets of a sed script: `w file`, `W file`, the `s/…/…/w file` flag, and their blankless forms. */
+function sedWriteTargets(cmd, args) {
+  if (cmd !== "sed") return []
+  const targets = new Set()
+  for (const script of sedScriptArgs(args)) {
+    if (typeof script !== "string") continue
+    const { writeTargets, literalSpans } = sedScriptScan(script)
+    for (const target of writeTargets) targets.add(target)
+    for (const m of script.matchAll(SED_WRITE_TARGET_RE)) {
+      if (inSedLiteralSpan(literalSpans, m.index, m.index + m[0].length)) continue
+      const target = m[1].replace(/\s+$/, "")
+      if (target) targets.add(target)
+    }
+  }
+  return [...targets]
+}
+
+/** Read targets of a sed script: `r file`, `R file`, and their blankless forms (`r.env`). */
+function sedReadTargets(args) {
+  const targets = new Set()
+  for (const script of sedScriptArgs(args)) {
+    if (typeof script !== "string") continue
+    const { readTargets, literalSpans } = sedScriptScan(script)
+    for (const target of readTargets) targets.add(target)
+    for (const m of script.matchAll(SED_READ_TARGET_RE)) {
+      if (inSedLiteralSpan(literalSpans, m.index, m.index + m[0].length)) continue
+      const target = m[1].replace(/\s+$/, "")
+      if (target) targets.add(target)
+    }
+  }
+  return [...targets]
 }
 
 function downloadWritePaths(cmd, args) {
@@ -781,7 +1011,7 @@ function segmentWritePaths(tokens, cwd = process.cwd()) {
       }
       break
     case "sed": case "perl":
-      rawPaths.push(...inPlaceTargets(cmd, args))
+      rawPaths.push(...inPlaceTargets(cmd, args), ...sedWriteTargets(cmd, args))
       break
     case "git": {
       let i = 0
@@ -857,6 +1087,21 @@ function gitFileArgs(args) {
   return separator >= 0 ? args.slice(separator + 1) : args.filter((r) => !r.startsWith("-"))
 }
 
+/** Patch location allowed to post_session 'git apply': inside the repository, or a scratch directory. */
+function isApplyPatchPath(arg, ctx) {
+  if (typeof arg !== "string" || !arg || !ctx || !ctx.info || !ctx.info.top) return false
+  if (arg.startsWith(":") || /[*?\[\]]/.test(arg)) return false
+  const expanded = expandArg(arg, ctx)
+  if (expanded.includes("$") || expanded.startsWith("~")) return false
+  const abs = realpathLoose(path.resolve(ctx.cwd || ctx.info.top, expanded))
+  const scratchPaths = [ctx.scratch, ctx.info.scratchDir, scratchDir(ctx.info), path.join(ctx.info.top, ".git", "opencode-scratch")]
+    .filter(Boolean)
+    .map(realpathLoose)
+  if (scratchPaths.some((scratch) => isInside(scratch, abs))) return true
+  if (ctx.info.gitDir && isInside(realpathLoose(ctx.info.gitDir), abs)) return false
+  return isInside(realpathLoose(ctx.info.top), abs)
+}
+
 export function checkGitCommand(args, role, ctx) {
   let effectiveCwd = (ctx && ctx.cwd) || (ctx && ctx.info && ctx.info.top) || process.cwd()
   let gitDirError = null
@@ -894,7 +1139,7 @@ export function checkGitCommand(args, role, ctx) {
   const sub = args[i]
   if (sub === undefined) return gitDirError
   const gitCtx = ctx ? { ...ctx, cwd: effectiveCwd } : { cwd: effectiveCwd }
-  if (["fetch", "mv", "rm", "add", "checkout", "restore", "commit", "pull", "merge", "rebase", "cherry-pick"].includes(sub)
+  if (["fetch", "mv", "rm", "add", "apply", "checkout", "restore", "commit", "pull", "merge", "rebase", "cherry-pick"].includes(sub)
     && ctx && ctx.info && !isInside(realpathLoose(ctx.info.top), realpathLoose(effectiveCwd))) {
     return "Guard: 'git -C' for mutating git commands must stay inside the repository root."
   }
@@ -967,7 +1212,7 @@ export function checkGitCommand(args, role, ctx) {
     case "restore": {
       const flags = rest.filter((r) => r.startsWith("-"))
       const files = gitFileArgs(rest)
-      if (role === "post_session") return flags.some((f) => f === "--staged" || f === "-S") && files.length && files.every((f) => isGitExplicitFile(f, gitCtx)) ? null : "git restore is only allowed with --staged and explicit file paths."
+      if (role === "post_session") return flags.length && flags.every((f) => f === "--staged" || f === "-S") && files.length && files.every((f) => isGitExplicitFile(f, gitCtx)) ? null : "git restore is only allowed with --staged and explicit file paths."
       if (GIT_SYNC_ROLES.has(role)) {
         const conflictFlags = rest.some((r) => r === "--staged" || r === "-S" || r === "--ours" || r === "--theirs" || r === "--merge" || r === "-m" || r.startsWith("--conflict="))
         return conflictFlags && files.length && files.every((f) => isGitExplicitFile(f, gitCtx)) ? null : deny("restore (working-tree discard)")
@@ -987,6 +1232,17 @@ export function checkGitCommand(args, role, ctx) {
       if (!files.length || files.some((f) => !(recursive && GIT_SYNC_ROLES.has(role) ? isGitExplicitPath(f, gitCtx) : isGitExplicitFile(f, gitCtx)))) {
         return "git rm requires explicit file paths (or explicit directories with -r)."
       }
+      return null
+    }
+    case "apply": {
+      if (role !== "post_session") return deny("apply")
+      const flags = rest.filter((r) => r.startsWith("-") && r !== "--")
+      const badFlag = flags.find((f) => f !== "--cached" && f !== "--check")
+      if (badFlag) return `git apply flag '${badFlag}' is not permitted: post_session may only use --cached and --check.`
+      if (!flags.includes("--cached")) return "git apply requires --cached."
+      const files = gitFileArgs(rest)
+      if (files.length !== 1) return "git apply requires exactly one explicit patch file (no stdin, pipes, or multiple files)."
+      if (!isApplyPatchPath(files[0], gitCtx)) return `"${files[0]}" is not a permitted patch location: patches must be inside the repository or the scratch directory.`
       return null
     }
     default:
@@ -1109,7 +1365,7 @@ function checkSegment(tokens, role, ctx, depth = 0, rawSeg = []) {
       for (let k = 0; k < args.length; k++) if (args[k] === "-d") paths.push(args[k + 1])
       break
     case "sed": case "perl":
-      paths.push(...inPlaceTargets(cmd, args))
+      paths.push(...inPlaceTargets(cmd, args), ...sedWriteTargets(cmd, args))
       break
     default:
       break

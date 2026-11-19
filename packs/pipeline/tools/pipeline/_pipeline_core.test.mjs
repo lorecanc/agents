@@ -135,6 +135,185 @@ test("checkBash: unsafe git mutations remain blocked for executor", () => {
   }
 })
 
+test("checkBash: sed write, exec and secret-read forms are blocked; plain inspection stays allowed", () => {
+  const dir = mkRepo()
+  const ctx = ctxFor(dir)
+  for (const cmd of [
+    "sed -n 'w /etc/x' f",
+    "sed -n 'W /etc/x' f",
+    "sed -n '1w out.txt' f",
+    "sed -n 's/a/b/w out.txt' f",
+    "sed -n 'e cmd' f",
+    "sed -ne 'e id' f",
+    "sed -n 's/a/b/e' f",
+    "sed -n 'r .env' f",
+    "sed -n '1r .env' f",
+    "sed -n '/re/e' f",
+  ]) {
+    assert.ok(checkBash(cmd, "explorer", ctx), `should block for explorer: ${cmd}`)
+    assert.ok(checkBash(cmd, "code_reviewer", ctx), `should block for code_reviewer: ${cmd}`)
+  }
+  // GNU sed accepts the s/// flag group in any order: e anywhere in it executes the replacement
+  for (const cmd of [
+    "sed -n 's/a/b/ge' f",
+    "sed -n 's/a/b/eg' f",
+    "sed -n 's/.*/touch x/eg' f",
+    "sed -n 's/a/b/ep' f",
+    "sed -n 's/a/b/pge' f",
+    'sed -n "s/.*/x/ge" f',
+  ]) {
+    assert.ok(checkBash(cmd, "explorer", ctx), `combined e flag group should block for explorer: ${cmd}`)
+    assert.ok(checkBash(cmd, "code_reviewer", ctx), `combined e flag group should block for code_reviewer: ${cmd}`)
+  }
+  // guard-level checks: the profile layer denies every sed form for read-only roles
+  // (fail-by-default); the guard itself only owns the write/exec/secret denies, so it
+  // must not over-deny benign scripts
+  assert.equal(checkBash("sed -n 1,20p a.txt", "explorer", ctx), null)
+  assert.equal(checkBash("sed -n '/^error/p' log.txt", "explorer", ctx), null)
+  assert.equal(checkBash("sed -ne 's/foo/bar/p' a.txt", "critic", ctx), null)
+  assert.equal(checkBash("sed -n 's/a/b/g' f", "explorer", ctx), null, "g stays allowed")
+  assert.equal(checkBash("sed -n 's/a/b/pg' f", "explorer", ctx), null, "pg stays allowed")
+  assert.equal(checkBash("sed -n 's/a/b/2' f", "explorer", ctx), null, "numeric flag stays allowed")
+  assert.equal(checkBash("sed -n 's/a/b/gp' f", "explorer", ctx), null, "gp stays allowed")
+  assert.equal(checkBash("sed -n 's/a/b/Gp' f", "explorer", ctx), null, "Gp stays allowed")
+  assert.equal(checkBash("sed -n 's/a/b/gi' f", "explorer", ctx), null, "gi stays allowed")
+  assert.equal(checkBash("sed -n 's#x#y#g' f", "explorer", ctx), null, "# delimiters stay allowed")
+  assert.equal(checkBash('sed -n "s/a/b/g" f', "explorer", ctx), null)
+  // executor is not read-only: s///e is guard-allowed for it, write targets stay repo-bounded
+  assert.equal(checkBash("sed -n 's/.*/touch x/eg' f", "executor", ctx), null, "executor may run sed s///e (it can run the shell command directly)")
+  assert.equal(checkBash("sed -n 's/a/b/Gp' f", "executor", ctx), null)
+  assert.ok(checkBash("sed -n '$w /etc/x' f", "executor", ctx), "should bound the executor to the repository")
+  assert.equal(checkBash("sed -n 's/a/b/w out.txt' f", "executor", ctx), null, "in-repo write target stays allowed")
+})
+
+test("checkBash: `--` does not hide sed write/exec/read targets", () => {
+  const dir = mkRepo()
+  const ctx = ctxFor(dir)
+  for (const cmd of [
+    "sed -- 'w /etc/x' f",
+    "sed -- 'e cmd' f",
+    "sed -- 'r .env' f",
+    "sed -- 's/a/b/w out.txt' f",
+  ]) {
+    assert.ok(checkBash(cmd, "explorer", ctx), `should block for explorer: ${cmd}`)
+  }
+  assert.ok(checkBash("sed -- 'w /etc/x' f", "executor", ctx), "should bound the executor to the repository")
+  assert.equal(checkBash("sed -- 's/a/b/w out.txt' f", "executor", ctx), null, "in-repo write target stays allowed")
+})
+
+test("checkBash: blanks between the s/// flags follow GNU mark_subst_opts and execute", () => {
+  const dir = mkRepo()
+  const ctx = ctxFor(dir)
+  // GNU skips spaces and tabs between the flag runs, so `g e` and ` e` are exec flag groups
+  for (const cmd of [
+    "sed -n 's/a/b/g e' f",
+    "sed -n 's/a/b/ e' f",
+    "sed -n 's/a/b/pg e' f",
+    "sed -n 's/a/b/2 e' f",
+    'sed -n "s/a/b/g e" f',
+    "sed -ne 's/a/b/g e' f",
+    `sed -n "s/a/b/g\t e" f`,
+  ]) {
+    assert.ok(checkBash(cmd, "explorer", ctx), `should block for explorer: ${cmd}`)
+    assert.ok(checkBash(cmd, "code_reviewer", ctx), `should block for code_reviewer: ${cmd}`)
+  }
+  assert.equal(checkBash("sed -n 's/a/b/g e' f", "executor", ctx), null, "executor may run sed s///e")
+})
+
+test("checkBash: any non-backslash, non-newline character delimits an s command", () => {
+  const dir = mkRepo()
+  const ctx = ctxFor(dir)
+  for (const script of [
+    "s;a;b;ge",
+    "s a b ge",
+    "sXaXbXge",
+    "s\ta\tb\tge",
+  ]) {
+    assert.ok(checkBash(`sed -n '${script}' f`, "explorer", ctx), `should block for explorer: ${script}`)
+    assert.ok(checkBash(`sed -n '${script}' f`, "code_reviewer", ctx), `should block for code_reviewer: ${script}`)
+    assert.ok(checkBash(`sed -n "${script}" f`, "explorer", ctx), `should block for explorer (double quotes): ${script}`)
+  }
+  assert.equal(checkBash("sed -n 's a b ge' f", "executor", ctx), null, "executor may run sed s///e")
+  assert.ok(checkBash("sed -n '2s/a/b/e' f", "explorer", ctx), "address-prefixed s///e executes")
+  // e inside the regex/replacement body is literal text, not an exec flag
+  for (const cmd of [
+    "sed -n 's#x#e y#g' f",
+    "sed -n 's/a\\/e x/b/g' f",
+    "sed -n 's/a/e x/b/g' f",
+  ]) {
+    assert.equal(checkBash(cmd, "explorer", ctx), null, `body text is not an exec flag: ${cmd}`)
+  }
+  // a bare e command after a separator executes the pattern space (GNU extension)
+  for (const cmd of [
+    "sed -n 's/a/b/;e' f",
+    "sed -n '2,3{e}' f",
+    "sed -n 'e' f",
+  ]) {
+    assert.ok(checkBash(cmd, "explorer", ctx), `should block for explorer: ${cmd}`)
+    assert.ok(checkBash(cmd, "code_reviewer", ctx), `should block for code_reviewer: ${cmd}`)
+  }
+  assert.equal(checkBash("sed -n 's/a/b/;e' f", "executor", ctx), null, "executor may run sed e")
+  // branch label text starting with e is not an e command
+  assert.equal(checkBash("sed -ne ':e;b e' f", "explorer", ctx), null)
+})
+
+test("checkBash: the s/// w flag file name reaches the write-target validation", () => {
+  const dir = mkRepo()
+  const ctx = ctxFor(dir)
+  // GNU reads the w flag file name to the end of the line, also attached to the flag group
+  for (const cmd of [
+    "sed -n 's/a/b/gw /etc/x' f",
+    "sed -n 's/a/b/pgw\t/etc/cron.d/x' f",
+    "sed -n 's/a/b/2w /etc/cron.d/x' f",
+    'sed -n "s/a/b/gw /etc/x" f',
+  ]) {
+    assert.ok(checkBash(cmd, "explorer", ctx), `should block read-only for explorer: ${cmd}`)
+    assert.ok(checkBash(cmd, "executor", ctx), `should bound the executor to the repository: ${cmd}`)
+  }
+  assert.ok(checkBash("sed -n 's/a/b/gw /etc/x' f", "code_reviewer", ctx))
+  // in-repo w flag targets stay allowed for the executor
+  for (const cmd of [
+    "sed -n 's/a/b/gw out.txt' f",
+    "sed -n 's/a/b/pgw out.txt' f",
+    "sed -n 's/a/b/2w out/of/repo' f",
+  ]) {
+    assert.equal(checkBash(cmd, "executor", ctx), null, `in-repo w flag target stays allowed: ${cmd}`)
+  }
+})
+
+test("checkBash: bare w/W/r/R commands without a blank reach the write and secret validation", () => {
+  const dir = mkRepo()
+  const ctx = ctxFor(dir)
+  // GNU read_filename takes the file name without requiring a blank after the command
+  // letter, so `w/etc/x` and `1wout.txt` are write commands too (B5)
+  for (const cmd of [
+    "sed 'w/etc/x' f",
+    "sed -n '1w/etc/x' f",
+    "sed -n '$w/etc/cron.d/x' f",
+  ]) {
+    assert.ok(checkBash(cmd, "explorer", ctx), `should block read-only for explorer: ${cmd}`)
+    assert.ok(checkBash(cmd, "code_reviewer", ctx), `should block read-only for code_reviewer: ${cmd}`)
+    assert.ok(checkBash(cmd, "executor", ctx), `should bound the executor to the repository: ${cmd}`)
+  }
+  // in-repo targets stay allowed for the executor, blankless or not
+  for (const cmd of [
+    "sed 'w out.txt' f",
+    "sed 'wout.txt' f",
+    "sed -n '1wout.txt' f",
+    "sed -n 's/a/b/wout.txt' f",
+  ]) {
+    assert.equal(checkBash(cmd, "executor", ctx), null, `in-repo write target stays allowed: ${cmd}`)
+  }
+  // a blankless write to the system temp space is validated and stays allowed for the
+  // executor, while read-only roles deny any sed write target
+  assert.equal(checkBash("sed -n 'w/tmp/x' f", "executor", ctx), null, "temp write target stays allowed for the executor")
+  assert.ok(checkBash("sed -n 'w/tmp/x' f", "explorer", ctx), "read-only roles deny any sed write target")
+  // r/R without a blank still reaches the secret-file check
+  for (const cmd of ["sed 'r .env' f", "sed 'r.env' f", "sed 'R .env.local' f", "sed -n '1r.env' f"]) {
+    assert.ok(checkBash(cmd, "executor", ctx), `should block secret reads: ${cmd}`)
+  }
+})
+
 test("checkBash: ops, fast_lane and executor may fetch, pull and resolve conflicts while unsafe flags remain blocked", () => {
   const ctx = ctxFor(mkRepo())
   const assertAllowed = (roles, commands) => {
@@ -203,6 +382,52 @@ test("checkBash: post_session may add explicit files and commit, nothing broader
   ]) {
     assert.ok(checkBash(cmd, "post_session", ctx), `should block: ${cmd}`)
   }
+})
+
+test("checkBash: post_session may stage hunks with git apply --cached and restore stays --staged only", () => {
+  const dir = mkRepo()
+  const ctx = ctxFor(dir)
+  fs.mkdirSync(ctx.scratch, { recursive: true })
+  fs.writeFileSync(path.join(ctx.scratch, "hunk.patch"), "--- a\n+++ b\n")
+  assert.equal(checkBash("git apply --cached local.patch", "post_session", ctx), null)
+  assert.equal(checkBash("git apply --cached $PIPELINE_SCRATCH/hunk.patch", "post_session", ctx), null)
+  assert.equal(checkBash("git apply --cached .git/opencode-scratch/hunk.patch", "post_session", ctx), null)
+  assert.equal(checkBash("git apply --cached --check local.patch", "post_session", ctx), null)
+  assert.equal(checkBash("git apply --check --cached $PIPELINE_SCRATCH/hunk.patch", "post_session", ctx), null)
+  assert.equal(checkBash("git restore --staged a.txt", "post_session", ctx), null)
+  assert.equal(checkBash("git restore -S a.txt", "post_session", ctx), null)
+  for (const cmd of [
+    "git apply local.patch",
+    "git apply --check local.patch",
+    "git apply --cached --index local.patch",
+    "git apply --index --cached local.patch",
+    "git apply --cached -3 local.patch",
+    "git apply --cached --3way local.patch",
+    "git apply --cached -R local.patch",
+    "git apply --cached --reverse local.patch",
+    "git apply --cached --exclude=a.txt local.patch",
+    "git apply --cached --include=a.txt local.patch",
+    "git apply --cached --unsafe-paths local.patch",
+    "git apply --cached /tmp/elsewhere.patch",
+    "git apply --cached ../outside.patch",
+    "git apply --cached ~/x.patch",
+    "git apply --cached",
+    "git apply --cached -",
+    "git apply --cached local.patch local.patch",
+    "git apply --cached < local.patch",
+    "cat local.patch | git apply --cached",
+    "git restore --staged --worktree a.txt",
+    "git restore -S -W a.txt",
+    "git restore -SW a.txt",
+    "git restore --staged --source=x a.txt",
+  ]) {
+    assert.ok(checkBash(cmd, "post_session", ctx), `should block: ${cmd}`)
+  }
+  assert.ok(checkBash("git apply --cached local.patch", "executor", ctx), "should block apply for executor")
+  assert.match(checkBash("git apply --cached --index local.patch", "post_session", ctx), /--index/)
+  assert.match(checkBash("git apply local.patch", "post_session", ctx), /requires --cached/)
+  assert.match(checkBash("git apply --cached", "post_session", ctx), /exactly one/)
+  assert.match(checkBash("git apply --cached ../outside.patch", "post_session", ctx), /not a permitted patch location/)
 })
 
 test("checkBash: rm allows scoped targets and blocks unsafe paths", () => {
@@ -749,7 +974,7 @@ test("planCommit: empty expected_files falls back to claimed files", () => {
   assert.deepEqual(plan.unattributed, [])
 })
 
-test("executeCommit commits only the plan and leaves other staged content staged", () => {
+test("executeCommit commits only the plan and leaves other staged content staged", async () => {
   const dir = mkRepo()
   const info = repoInfo(dir)
   const baseline = snapshot(info)
@@ -758,16 +983,16 @@ test("executeCommit commits only the plan and leaves other staged content staged
   fs.writeFileSync(path.join(dir, "a.txt"), "user staged change\n")
   sh(dir, "add", "a.txt") // someone else's staged work
   const plan = planCommit(info, { sessionId: "s", rootId: "s", baseline, files: {} }, ["b.txt", "new.ts"])
-  const res = executeCommit(info, plan, "feat(x): thing", ["Pipeline-Checkpoint: true"])
+  const res = await executeCommit(info, plan, "feat(x): thing", ["Pipeline-Checkpoint: true"])
   assert.deepEqual(res.committed, ["b.txt", "new.ts"])
   assert.deepEqual(res.unexpected, [])
   assert.match(sh(dir, "log", "-1", "--format=%B"), /Pipeline-Checkpoint: true/)
   assert.equal(sh(dir, "diff", "--cached", "--name-only"), "a.txt")
   assert.equal(sh(dir, "branch", "--list").split("\n").length, 1)
-  assert.throws(() => executeCommit(info, { commit: [] }, "x"), /nothing to commit/)
+  await assert.rejects(() => executeCommit(info, { commit: [] }, "x"), /nothing to commit/)
 })
 
-test("executeCommit handles deletions and renames", () => {
+test("executeCommit handles deletions and renames", async () => {
   const dir = mkRepo()
   const info = repoInfo(dir)
   const baseline = snapshot(info)
@@ -775,7 +1000,7 @@ test("executeCommit handles deletions and renames", () => {
   fs.rmSync(path.join(dir, "b.txt"))
   const plan = planCommit(info, { sessionId: "s", rootId: "s", baseline, files: {} }, ["a2.txt", "b.txt"])
   assert.deepEqual(plan.commit, ["a.txt", "a2.txt", "b.txt"])
-  const res = executeCommit(info, plan, "chore: rename and delete")
+  const res = await executeCommit(info, plan, "chore: rename and delete")
   assert.deepEqual(res.committed, ["a.txt", "a2.txt", "b.txt"])
   assert.equal(sh(dir, "status", "--porcelain"), "")
 })

@@ -98,6 +98,7 @@
         ["git stash pop*", "deny"], ["git stash apply*", "deny"], ["git stash drop*", "deny"],
         ["git stash clear*", "deny"], ["git stash branch*", "deny"],
         ["git worktree add*", "deny"], ["git worktree remove*", "deny"], ["git worktree move*", "deny"], ["git worktree prune*", "deny"],
+        ["git apply*", "deny"],
         ["git branch -d*", "deny"], ["git branch -D*", "deny"], ["git branch -m*", "deny"], ["git branch -M*", "deny"],
         ["git branch --delete*", "deny"], ["git branch --move*", "deny"],
         ["git tag -a*", "deny"], ["git tag -d*", "deny"], ["git tag -f*", "deny"], ["git tag -s*", "deny"],
@@ -197,7 +198,11 @@
         ["git -P log*", "allow"], ["git -P log *--output*", "deny"], ["git -P show*", "allow"], ["git -P show *--output*", "deny"],
         ["git -C * status*", "allow"], ["git -C * diff*", "allow"], ["git -C * diff *--output*", "deny"],
         ["git -C * log*", "allow"], ["git -C * log *--output*", "deny"],
-        ["git -C * show*", "allow"], ["git -C * show *--output*", "deny"], ["git -C * rev-parse*", "allow"]
+        ["git -C * show*", "allow"], ["git -C * show *--output*", "deny"], ["git -C * rev-parse*", "allow"],
+        ["git rev-parse*", "allow"], ["git ls-tree*", "allow"], ["git cat-file*", "allow"],
+        ["git merge-base*", "allow"], ["git for-each-ref*", "allow"],
+        ["git -C * ls-tree*", "allow"], ["git -C * cat-file*", "allow"],
+        ["git -C * merge-base*", "allow"], ["git -C * for-each-ref*", "allow"]
       ]
     },
     "shell-read": {
@@ -229,6 +234,9 @@
         ["bandit*", "allow"], ["cargo audit*", "allow"], ["gitleaks*", "allow"], ["govulncheck*", "allow"],
         ["npm audit*", "allow"], ["osv-scanner scan*", "allow"], ["pip-audit*", "allow"], ["pnpm audit*", "allow"],
         ["semgrep scan*", "allow"], ["snyk test*", "allow"], ["trivy config*", "allow"], ["trivy fs*", "allow"],
+        ["trivy image*", "allow"],
+        ["trivy * --output*", "deny"], ["trivy * --server*", "deny"], ["trivy * --cache-dir*", "deny"],
+        ["trivy * --config*", "deny"],
         ["yarn npm audit*", "allow"], ["bun audit*", "allow"],
         ["npm audit --fix*", "deny"], ["pnpm audit --fix*", "deny"], ["yarn npm audit --fix*", "deny"], ["bun audit --fix*", "deny"]
       ]
@@ -250,7 +258,10 @@
         ["git add -u*", "deny"], ["git add --update*", "deny"], ["git add -p*", "deny"],
         ["git add --patch*", "deny"], ["git add -i*", "deny"], ["git add --interactive*", "deny"],
         ["git add .", "deny"], ["git add ./", "deny"], ["git add -- .", "deny"],
-        ["git add */", "deny"], ["git add *.", "deny"], ["git rm --cached *", "allow"]
+        ["git add */", "deny"], ["git add *.", "deny"], ["git rm --cached *", "allow"],
+        ["git restore --staged *", "allow"], ["git restore -S *", "allow"],
+        ["git apply --cached *", "allow"], ["git apply --check --cached *", "allow"],
+        ["git apply --cached --check *", "allow"]
       ]
     },
     "post-session-template-stage": {
@@ -263,7 +274,7 @@
     "post-session-commit": {
       "description": "Allow only a quoted-message local commit; reject amend, all, and verification bypasses.",
       "rules": [
-        ["git commit*", "deny"], ["git commit -m \"*\"", "allow"],
+        ["git commit*", "deny"], ["git commit -m \"*\"", "allow"], ["git commit -m '*'", "allow"],
         ["git commit -a*", "deny"], ["git commit --all*", "deny"],
         ["git commit * --amend*", "deny"], ["git commit * --no-verify*", "deny"], ["git commit * --all*", "deny"]
       ]

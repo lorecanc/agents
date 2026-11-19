@@ -34,7 +34,7 @@ source_files:
   - "src/plugins/agent-router/index.ts"
   - "src/opencode.json"
 created: "2026-10-16"
-last_updated: "2026-11-09"
+last_updated: "2026-11-19"
 ---
 
 # OpenCode Tools and Plugin Hooks
@@ -50,7 +50,7 @@ In OpenCode V2, `tools/*.ts` is not discovered automatically: every tool is regi
 | Documents | `doc_create`, `doc_list`, `doc_view`, `doc_modify`, `doc_restore`, `doc_convert`, `doc_compile_theme` | Create and edit canonical document sources, inspect project outputs, restore a DOCX snapshot, convert formats, and compile document CSS themes. |
 | Slides | `slide_analyze_template`, `slide_assemble_pptx`, `slide_build_pptx`, `slide_compile_composition`, `slide_compile_theme`, `slide_create_thumbnails`, `slide_download_image`, `slide_generate_image`, `slide_screenshot` | Analyze templates, generate and assemble presentations, prepare themes/assets, and capture slide or deck previews. |
 | Development (`dev-tools`, shared by `pipeline` and `flow`) | `dev_env`, `dev_verify`, `dev_smoke`, `dev_serve` | Probe the machine's verification capabilities (read-only), run configured validation and smoke checks, and manage a bounded local service. |
-| Pipeline (`pipeline-tools`, pipeline only) | `pipeline_state`, `pipeline_commit` | Inspect session changes and create a scoped local commit. |
+| Pipeline (`pipeline-tools`, pipeline only) | `pipeline_state`, `pipeline_commit` | Inspect session changes and create a scoped local commit. `pipeline_commit` also accepts an optional `staging_patch` (a unified diff holding only the session hunks of `baseline_dirty` files, a hunk-level subset of `git diff HEAD -- <files>`): it is applied to the index with `git apply --cached`, only those hunks are committed, and the pre-existing edits stay in the worktree; without it, a file mixing pre-existing and session changes stays a `conflict`. |
 
 Arguments are tool-specific. For example, `dev_verify` accepts an ordered `checks` array, optional `files` for targeted tests, and `continue_on_fail`; `dev_serve` accepts `action` (`start`, `status`, or `stop`) and an optional `ttl_s`. `dev_env` takes no arguments beyond an optional `workspace` (a repo-relative sub-project directory). Tools commonly return human-readable text or JSON-encoded results rather than HTTP response objects.
 

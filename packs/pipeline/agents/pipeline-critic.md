@@ -216,6 +216,33 @@ permissions:
     resource: git -C * rev-parse*
     effect: allow
   - action: shell
+    resource: git rev-parse*
+    effect: allow
+  - action: shell
+    resource: git ls-tree*
+    effect: allow
+  - action: shell
+    resource: git cat-file*
+    effect: allow
+  - action: shell
+    resource: git merge-base*
+    effect: allow
+  - action: shell
+    resource: git for-each-ref*
+    effect: allow
+  - action: shell
+    resource: git -C * ls-tree*
+    effect: allow
+  - action: shell
+    resource: git -C * cat-file*
+    effect: allow
+  - action: shell
+    resource: git -C * merge-base*
+    effect: allow
+  - action: shell
+    resource: git -C * for-each-ref*
+    effect: allow
+  - action: shell
     resource: ls*
     effect: allow
   - action: shell

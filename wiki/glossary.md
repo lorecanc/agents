@@ -8,7 +8,7 @@
 | Agent router | OpenCode plugin (`src/plugins/agent-router`) that sets a subagent's model from the archetype model configuration matching the caller's provider or model. | [Tools and Plugins](./modules/tools-and-plugins.md) |
 | Agent Manager | CLI and TUI for managing agents, categories, model configurations, and exports. | [Agent Manager](./modules/agent-manager.md) |
 | Archetype | Agent family installed once as canonical agents (`flow`, `pipeline`), with subagent models chosen by model configurations. See `ARCHETIPI.md`. | [Agent Manager](./modules/agent-manager.md) |
-| Bash profile | Named, reusable set of `permission.bash` rules in `.agent-manager/bash-profiles.json`, composed per agent role and applied with `pipeline sync-bash`. | [Workspace and Distribution Configuration](./config/workspace-and-distribution.md) |
+| Bash profile | Named, reusable set of `permission.bash` rules in `scripts/bash-profiles.json`, composed per agent role and applied with `npm run sync-bash`. | [Workspace and Distribution Configuration](./config/workspace-and-distribution.md) |
 | Bridge | Generated translation layer for Claude Code or Codex. | [Workspace and Distribution Configuration](./config/workspace-and-distribution.md) |
 | Bridge check | Read-only validation (`bridge check`) that generated bridge outputs match a fresh regeneration from the current sources. | [Bridges](./modules/bridges.md) |
 | Canonical source | Maintained content under `src/`; generated exports should be regenerated from it rather than edited directly. | [Agent Catalog](./modules/agent-catalog.md) |

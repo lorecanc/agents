@@ -159,6 +159,224 @@ test("pipeline_commit: without a registered baseline it still protects files the
   assert.equal(safe.warning, undefined)
 })
 
+const manyLineFile = (n) => Array.from({ length: n }, (_, i) => `line ${i}\n`).join("")
+
+/** Build a mixed a.txt: HEAD base commit, user edit at the top, session edit appended at the bottom. */
+function mkMixedRepo() {
+  const dir = mkRepo()
+  const sh = (...a) => execFileSync("git", a, { cwd: dir, stdio: "ignore" })
+  fs.writeFileSync(path.join(dir, "a.txt"), manyLineFile(20))
+  sh("add", "--", "a.txt")
+  sh("commit", "-qm", "base")
+  const tail19 = Array.from({ length: 19 }, (_, i) => `line ${i + 1}\n`).join("")
+  fs.writeFileSync(path.join(dir, "a.txt"), `user's earlier uncommitted work\n${tail19}`)
+  registerRoot(dir, { "a.txt": 1 })
+  fs.appendFileSync(path.join(dir, "a.txt"), "session tail\n")
+  return dir
+}
+
+/** Keep only the LAST hunk of `git diff HEAD -- <file>` (the session hunk of a mixed file). */
+function lastHunkOnly(dir, file) {
+  const full = execFileSync("git", ["diff", "HEAD", "--", file], { cwd: dir, encoding: "utf8" })
+  const at = full.indexOf("@@")
+  assert.ok(at > 0, `expected at least one hunk in the diff of ${file}`)
+  const parts = full.slice(at).split("\n@@ ")
+  let last = parts[parts.length - 1]
+  if (!last.startsWith("@@")) last = `@@ ${last}`
+  const head = full.slice(0, at)
+  return `${head}${last}${last.endsWith("\n") ? "" : "\n"}`
+}
+
+test("pipeline_commit: staging_patch commits only the session hunks of a dirty file, the rest stays in the worktree", async () => {
+  const dir = mkMixedRepo()
+  const args = {
+    mode: "checkpoint", message: "split dirty file", expected_files: ["a.txt"],
+    validation: "unverified", validation_note: "wave test", staging_patch: lastHunkOnly(dir, "a.txt"),
+  }
+  const preview = await call("pipeline_commit", { ...args, dry_run: true }, ctx(dir))
+  assert.equal(preview.status, "dry_run")
+  assert.deepEqual(preview.plan.commit, [])
+  assert.deepEqual(preview.plan.patched, ["a.txt"])
+  assert.deepEqual(preview.plan.conflicts, [])
+  const res = await call("pipeline_commit", args, ctx(dir))
+  assert.equal(res.status, "committed")
+  assert.equal(res.subject, "chore(checkpoint): split dirty file")
+  assert.deepEqual(res.committed, ["a.txt"])
+  assert.deepEqual(res.unexpected, [])
+  // the commit holds the HEAD content plus the session hunk, WITHOUT the user's edit
+  const inCommit = execFileSync("git", ["show", "HEAD:a.txt"], { cwd: dir, encoding: "utf8" })
+  assert.ok(inCommit.includes("session tail"))
+  assert.ok(!inCommit.includes("user's earlier"))
+  // the pre-existing edit stays uncommitted in the worktree and the index is clean
+  const status = execFileSync("git", ["status", "--porcelain"], { cwd: dir, encoding: "utf8" })
+  assert.match(status, /^ M a\.txt/m)
+  assert.equal(execFileSync("git", ["diff", "--cached", "--name-only"], { cwd: dir, encoding: "utf8" }), "")
+  const leftover = execFileSync("git", ["diff", "--", "a.txt"], { cwd: dir, encoding: "utf8" })
+  assert.match(leftover, /user's earlier/)
+  assert.doesNotMatch(leftover, /session tail/)
+})
+
+test("pipeline_commit: a staging_patch out of scope is refused with a reason", async () => {
+  const dir = mkRepo()
+  fs.writeFileSync(path.join(dir, "a.txt"), "user's earlier uncommitted work\n")
+  registerRoot(dir, { "a.txt": 1, "b.txt": 1 })
+  fs.writeFileSync(path.join(dir, "a.txt"), "user's earlier uncommitted work\nsession\n")
+  fs.writeFileSync(path.join(dir, "b.txt"), "session\n")
+  const base = { mode: "checkpoint", message: "wire feature", expected_files: ["a.txt", "b.txt"], validation: "passed" }
+  // b.txt is declared but NOT baseline_dirty: no reason to be in the patch
+  const cleanFilePatch = execFileSync("git", ["diff", "HEAD", "--", "b.txt"], { cwd: dir, encoding: "utf8" })
+  const notDirty = await call("pipeline_commit", { ...base, staging_patch: cleanFilePatch }, ctx(dir))
+  assert.equal(notDirty.status, "refused")
+  assert.match(notDirty.reason, /not baseline_dirty/)
+  // a file not declared in expected_files at all
+  const undeclared = await call("pipeline_commit", { ...base, expected_files: ["a.txt"], staging_patch: cleanFilePatch }, ctx(dir))
+  assert.equal(undeclared.status, "refused")
+  assert.match(undeclared.reason, /expected_files/)
+  // refusals never stage anything
+  assert.equal(execFileSync("git", ["diff", "--cached", "--name-only"], { cwd: dir, encoding: "utf8" }), "")
+})
+
+test("pipeline_commit: a malformed staging_patch is refused and the index stays clean", async () => {
+  const dir = mkRepo()
+  fs.writeFileSync(path.join(dir, "a.txt"), "user's earlier uncommitted work\n")
+  registerRoot(dir, { "a.txt": 1 })
+  fs.writeFileSync(path.join(dir, "a.txt"), "user's earlier uncommitted work\nsession\n")
+  const base = { mode: "checkpoint", message: "wire feature", expected_files: ["a.txt"], validation: "passed" }
+  const garbage = await call("pipeline_commit", { ...base, staging_patch: "this is not a unified diff" }, ctx(dir))
+  assert.equal(garbage.status, "refused")
+  assert.match(garbage.reason, /malformed/)
+  // headers for a declared dirty file, but hunk content that does not apply to the index
+  const broken = "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-wrong context\n+new content\n"
+  const badHunks = await call("pipeline_commit", { ...base, staging_patch: broken }, ctx(dir))
+  assert.equal(badHunks.status, "refused")
+  assert.match(badHunks.reason, /staging_patch/)
+  assert.equal(execFileSync("git", ["diff", "--cached", "--name-only"], { cwd: dir, encoding: "utf8" }), "")
+})
+
+test("pipeline_commit: without staging_patch a mixed file stays a conflict (current behavior)", async () => {
+  const dir = mkMixedRepo()
+  const args = { mode: "checkpoint", message: "wire feature", expected_files: ["a.txt"], validation: "passed" }
+  const preview = await call("pipeline_commit", { ...args, dry_run: true }, ctx(dir))
+  assert.deepEqual(preview.plan.commit, [])
+  assert.deepEqual(preview.plan.conflicts, ["a.txt"])
+  const res = await call("pipeline_commit", args, ctx(dir))
+  assert.equal(res.status, "refused")
+  assert.match(res.reason, /nothing to commit/)
+  assert.equal(execFileSync("git", ["log", "--oneline"], { cwd: dir, encoding: "utf8" }).trim().split("\n").length, 2)
+})
+
+test("pipeline_commit: when the hunk commit fails the index is restored", async () => {
+  const dir = mkMixedRepo()
+  const hook = path.join(dir, ".git", "hooks", "pre-commit")
+  fs.writeFileSync(hook, "#!/bin/sh\nexit 1\n")
+  fs.chmodSync(hook, 0o755)
+  const args = {
+    mode: "checkpoint", message: "split dirty file", expected_files: ["a.txt"],
+    validation: "passed", staging_patch: lastHunkOnly(dir, "a.txt"),
+  }
+  const res = await call("pipeline_commit", args, ctx(dir))
+  assert.equal(res.status, "error")
+  assert.match(res.error, /failed/)
+  // the index is clean again and the worktree still holds both edits
+  assert.equal(execFileSync("git", ["diff", "--cached", "--name-only"], { cwd: dir, encoding: "utf8" }), "")
+  assert.equal(execFileSync("git", ["log", "--oneline"], { cwd: dir, encoding: "utf8" }).trim().split("\n").length, 2)
+  const body = fs.readFileSync(path.join(dir, "a.txt"), "utf8")
+  assert.match(body, /user's earlier/)
+  assert.match(body, /session tail/)
+})
+
+test("pipeline_commit: a failed post-commit assertion rolls the checkpoint back", async () => {
+  const dir = mkMixedRepo()
+  fs.writeFileSync(path.join(dir, "extra.txt"), "snuck in by the pre-commit hook\n")
+  const hook = path.join(dir, ".git", "hooks", "pre-commit")
+  fs.writeFileSync(hook, "#!/bin/sh\ngit add extra.txt\n")
+  fs.chmodSync(hook, 0o755)
+  const args = {
+    mode: "checkpoint", message: "split dirty file", expected_files: ["a.txt"],
+    validation: "passed", staging_patch: lastHunkOnly(dir, "a.txt"),
+  }
+  const res = await call("pipeline_commit", args, ctx(dir))
+  assert.equal(res.status, "error")
+  assert.match(res.error, /post-commit assertion failed/)
+  assert.match(res.error, /extra\.txt/)
+  // the checkpoint commit is gone, the index is clean, the worktree keeps both edits
+  assert.equal(execFileSync("git", ["log", "--oneline"], { cwd: dir, encoding: "utf8" }).trim().split("\n").length, 2)
+  assert.equal(execFileSync("git", ["diff", "--cached", "--name-only"], { cwd: dir, encoding: "utf8" }), "")
+  const body = fs.readFileSync(path.join(dir, "a.txt"), "utf8")
+  assert.match(body, /user's earlier/)
+  assert.match(body, /session tail/)
+})
+
+test("pipeline_commit: a rename-only section without headers is refused explicitly", async () => {
+  const dir = mkRepo()
+  registerRoot(dir)
+  const base = { mode: "checkpoint", message: "wire feature", expected_files: ["a.txt"], validation: "passed" }
+  const ren = await call("pipeline_commit", {
+    ...base,
+    staging_patch: "diff --git a/old.txt b/new.txt\nsimilarity index 100%\nrename from old.txt\nrename to new.txt\n",
+  }, ctx(dir))
+  assert.equal(ren.status, "refused")
+  assert.match(ren.reason, /rename-only/)
+  assert.equal(execFileSync("git", ["diff", "--cached", "--name-only"], { cwd: dir, encoding: "utf8" }), "")
+})
+
+test("pipeline_commit: a rename in the plan plus patched hunks commits without a staged-set mismatch", async () => {
+  const dir = mkMixedRepo()
+  registerRoot(dir, { "a.txt": 1, "b.txt": 1, "newb.txt": 1 }) // snapshot taken while only a.txt is dirty
+  fs.rmSync(path.join(dir, "b.txt"))
+  fs.writeFileSync(path.join(dir, "newb.txt"), "b\n") // same content: rename detection would collapse the pair
+  const args = {
+    mode: "checkpoint", message: "rename plus hunks", expected_files: ["a.txt", "b.txt", "newb.txt"],
+    validation: "passed", staging_patch: lastHunkOnly(dir, "a.txt"),
+  }
+  const res = await call("pipeline_commit", args, ctx(dir))
+  assert.equal(res.status, "committed")
+  assert.deepEqual(res.unexpected, [])
+  assert.equal(execFileSync("git", ["show", "HEAD:newb.txt"], { cwd: dir, encoding: "utf8" }), "b\n")
+  assert.equal(execFileSync("git", ["diff", "--cached", "--name-only"], { cwd: dir, encoding: "utf8" }), "")
+})
+
+test("pipeline_commit: a plain commit also serializes on the commit lock", async () => {
+  const dir = mkRepo()
+  registerRoot(dir, { "b.txt": 1 })
+  fs.writeFileSync(path.join(dir, "b.txt"), "session\n")
+  const info = repoInfo(dir)
+  // hold the commit lock exactly like a parallel session in its hunk commit would
+  const lockDir = path.join(info.stateDir, "locks", "commit.lock")
+  fs.mkdirSync(lockDir, { recursive: true })
+  fs.writeFileSync(path.join(lockDir, "owner.json"), JSON.stringify({ pid: process.pid, owner: "other", at: Date.now(), identity: "other" }))
+  let completed = false
+  const pending = call("pipeline_commit", { mode: "final", message: "feat(x): y", expected_files: ["b.txt"], validation: "passed" }, ctx(dir))
+    .then((r) => { completed = true; return r })
+  await new Promise((r) => setTimeout(r, 300))
+  assert.equal(completed, false, "the plain commit must wait for the commit lock")
+  fs.rmSync(lockDir, { recursive: true, force: true })
+  assert.equal((await pending).status, "committed")
+})
+
+test("pipeline_commit: a moved HEAD during a failed post-commit assertion skips the rollback", async () => {
+  const dir = mkMixedRepo()
+  fs.writeFileSync(path.join(dir, "extra.txt"), "snuck in by the pre-commit hook\n")
+  const pre = path.join(dir, ".git", "hooks", "pre-commit")
+  fs.writeFileSync(pre, "#!/bin/sh\ngit add extra.txt\n")
+  fs.chmodSync(pre, 0o755)
+  const post = path.join(dir, ".git", "hooks", "post-commit")
+  fs.writeFileSync(post, "#!/bin/sh\nprintf 'raced\\n' > raced.txt\ngit add raced.txt\ngit commit -q --no-verify -m raced\n")
+  fs.chmodSync(post, 0o755)
+  const args = {
+    mode: "checkpoint", message: "split dirty file", expected_files: ["a.txt"],
+    validation: "passed", staging_patch: lastHunkOnly(dir, "a.txt"),
+  }
+  const res = await call("pipeline_commit", args, ctx(dir))
+  assert.equal(res.status, "error")
+  assert.match(res.error, /post-commit assertion failed/)
+  assert.match(res.error, /HEAD moved/)
+  // no reset: the checkpoint stays in history, with the raced commit on top of it
+  const log = execFileSync("git", ["log", "--oneline"], { cwd: dir, encoding: "utf8" }).trim().split("\n")
+  assert.equal(log.length, 4)
+  assert.match(log[0], /raced/)
+})
+
 test("dev_verify: runs the contract and returns structured results", async () => {
   const dir = mkRepo({ verify: { lint: "echo ok", test_fast: "echo boom >&2; exit 4" } })
   const res = await call("dev_verify", { checks: ["lint", "test_fast"] }, ctx(dir))

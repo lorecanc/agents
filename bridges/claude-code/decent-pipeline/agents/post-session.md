@@ -89,7 +89,9 @@ If the `pipeline_commit` tool is available, use it instead of raw git:
 
 1. Call `pipeline_state` to see `changed.session`, `pre_existing`, `unattributed`, and `anomalies`.
 2. Call `pipeline_commit` with `mode`, `message` (subject only; the `chore(checkpoint): ` prefix and the `Pipeline-Checkpoint: true` trailer are added for you), `expected_files`, `validation`, `validation_note` (required when `unverified`), and the caller's `baseline_dirty`. Use `dry_run: true` first whenever anything is `unattributed` or in conflict.
-3. Report the tool's `committed`, `conflicts`, `unattributed`, and `notChanged` lists in your output. Never work around a refusal with raw git.
+3. If the dry run shows a `baseline_dirty` file in `conflicts` and its session hunks are separable from the pre-existing ones, split it with `staging_patch`: build a unified diff holding ONLY the session hunks, as a hunk-level subset of `git diff HEAD -- <files>`, and pass its text directly as the `staging_patch` parameter — it is a text argument of `pipeline_commit`, there is no patch file to create. Pass it together with the usual `expected_files`: the tool validates the patch (every file in it must be declared in both `expected_files` and `baseline_dirty`, paths must be inside the repo, hunks must apply to the index), applies it to the index with `git apply --cached`, and commits only the session hunks without a pathspec. The worktree is never touched and the pre-existing edits stay uncommitted. Never include a pre-existing hunk in the patch; `baseline_dirty` files not covered by the patch remain in `conflicts`. The index must be clean before the commit runs.
+4. If the hunks cannot be isolated (overlapping context, binary content, ambiguous attribution), do not force a split: leave the file out of the patch, let it stay in `conflicts`, exclude it, and report it as `CONFLICT` for the user to decide.
+5. Report the tool's `committed`, `patched`, `conflicts`, `unattributed`, and `notChanged` lists in your output. Never work around a refusal with raw git.
 
 The manual workflow below is the fallback when the tool is not available.
 
@@ -99,10 +101,22 @@ Applies to both modes.
 
 1. Run `git status --porcelain=v1 -uall` and `git diff --stat`.
 2. Compute the **commit set**: files in `expected files` that are actually changed (modified, deleted, or untracked). Every other changed file is **excluded** and must never be staged.
-3. If a file in the commit set is also in `baseline_dirty`, its diff mixes pre-existing and session changes and cannot be split safely: exclude it and report it as `CONFLICT`.
+3. If a file in the commit set is also in `baseline_dirty`, its diff mixes pre-existing and session changes. By default exclude it and report it as `CONFLICT`. The mix is no longer unsplittable, though: when only its session hunks can be isolated, commit them through `pipeline_commit`'s `staging_patch` (preferred path above) or the `git apply --cached` fallback below. If the hunks cannot be isolated (overlapping context, binary content, ambiguous attribution), stay on the default: exclude the file, report it as `CONFLICT`, and leave the decision to the user.
 4. If anything outside the commit set is already staged, unstage it with `git restore --staged <path>`. This touches the index only, never the working tree.
 5. Stage the commit set **one explicit file path at a time**, quoted (`git add "<path>"`, e.g. `git add ".github/workflows/ci.yml"`). Never stage directories, `.`, `-A`, `--all`, `-u`, `-p`, or `-i`: these are denied.
 6. Verify `git diff --staged --name-only` equals the commit set. If it does not, unstage the extras and re-verify; if it still differs, abort and report.
+
+For a mixed file (in both the commit set and `baseline_dirty`), whole-file `git add` would drag the pre-existing hunks in. When the session hunks are isolable, stage them index-only with a patch instead:
+
+- Generate the patch from `git diff HEAD -- <file>` — never from a diff of the worktree against a non-HEAD state — and keep ONLY the session hunks in it.
+- Verify it before use: `git apply --check --cached "<patch>"`.
+- Keep the patch file in `$PIPELINE_SCRATCH` — that is the recommended location; the guard additionally accepts repo-relative and `.git/opencode-scratch` paths, but never the `opencode-pipeline` state directory or anywhere else under `.git`.
+- With the index clean, apply it index-only: `git apply --cached "<patch>"`. The worktree is never touched, so HEAD stays unchanged and the pre-existing edits are not staged.
+- Verify with `git diff --cached` (or `git diff --staged`) that only the session hunks of the mixed file are staged; if anything extra is staged, remove it selectively with `git restore --staged <path>` and re-verify.
+- Typical case: the session produced five hunks across two mixed files, HEAD is unchanged and the index is clean — the patch is exactly those five hunks, applied with `git apply --cached`.
+- This fallback needs a runtime write channel to create the patch file. OpenCode's `post_session` has none (no file-write tools, and no sed/awk/printf/tee allowed): when that is the case do NOT force the split — leave the mixed file in `conflicts`, report it as `CONFLICT`, and leave the decision to the user. The `git apply --cached` fallback is for bridge runtimes that can write a file into `$PIPELINE_SCRATCH`.
+- After the commit (step 8), confirm the pre-existing changes are still in the worktree and report them as leftover changes.
+
 7. If `mode: final` and `validation status: failed`, do not commit; report why.
 8. Commit with `git commit -m "<message>"` (add the trailer with a second `-m`). Do not use `--no-verify`, `--amend`, or `-a`. If a hook fails, report the failure; do not bypass it.
 9. Run `git status --porcelain=v1 -uall` again and report any leftover changed files.

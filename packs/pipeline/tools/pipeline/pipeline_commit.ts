@@ -1,11 +1,11 @@
 import { tool } from "../toolkit/_tool.js"
 import { repoInfo } from "../dev-tools/_repo.js"
 import { rootRecordFor } from "../dev-tools/_sessions.js"
-import { executeCommit, planCommit } from "./_pipeline_core.js"
+import { executeCommit, executeHunkCommit, planCommit, validateStagingPatch } from "./_pipeline_core.js"
 
 export default tool({
   description:
-    "Create a local commit containing ONLY changed files listed in `expected_files`; claimed files omitted from that list are excluded and reported. Never includes files that were already modified before the session or anything staged by someone else. Never pushes, amends, branches or stashes. Prefer this over raw git add/commit. Use dry_run to preview the commit scope.",
+    "Create a local commit containing ONLY changed files listed in `expected_files`; claimed files omitted from that list are excluded and reported. Never includes pre-existing changes or anything staged by someone else: a file that mixes pre-existing and session changes is normally a CONFLICT, but when `staging_patch` carries ONLY its session hunks those hunks are staged to the index and committed without dragging the pre-existing ones (the worktree is never touched and the pre-existing edits stay uncommitted). Never pushes, amends, branches or stashes. Prefer this over raw git add/commit. Use dry_run to preview the commit scope.",
   args: {
     mode: tool.schema.enum(["final", "checkpoint"]).describe("final: conventional commit message; checkpoint: `chore(checkpoint): ...`"),
     message: tool.schema.string().describe("Commit subject, one line. For checkpoint the `chore(checkpoint): ` prefix is added if missing."),
@@ -13,6 +13,15 @@ export default tool({
     validation: tool.schema.enum(["passed", "failed", "unverified", "skipped", "unknown"]).describe("Validation status of the work."),
     validation_note: tool.schema.string().optional().describe("Required context when validation is `unverified` (the cause)."),
     baseline_dirty: tool.schema.array(tool.schema.string()).optional().describe("Files that were already modified before the session. Only needed if no session baseline is registered."),
+    staging_patch: tool.schema.string().optional().describe(
+      "Optional unified diff holding ONLY the session hunks of files that are both in expected_files and baseline_dirty " +
+      "(a hunk-level subset of `git diff HEAD -- <files>` with the pre-existing hunks removed). Pass it only when a dry_run " +
+      "shows a baseline_dirty file in `conflicts` and its hunks can be split: the patch is applied to the index with " +
+      "`git apply --cached` (the worktree is untouched) and committed without pathspec, so only the patched hunks are " +
+      "committed and the pre-existing edits stay in the worktree. Every file in the patch must be declared in " +
+      "expected_files AND baseline_dirty (files not in conflict have no reason to be in the patch), otherwise the call " +
+      "is refused; baseline_dirty files expected but not covered by the patch remain conflicts.",
+    ),
     dry_run: tool.schema.boolean().optional().describe("Return the scope without committing."),
   },
   async execute(args, context) {
@@ -32,18 +41,26 @@ export default tool({
     let root: any = rootRecordFor(info, context.sessionID)
     const degraded = !root || !root.baseline
     if (degraded) root = { sessionId: context.sessionID, rootId: context.sessionID, files: {}, baseline: { dirty: args.baseline_dirty || [] } }
-    const plan = planCommit(info, root, args.expected_files)
+    let plan = planCommit(info, root, args.expected_files)
     const base: any = { degraded, plan, excluded_claimed_files: plan.claimedOnly }
+    if (args.staging_patch !== undefined) {
+      const check = validateStagingPatch(info, args.staging_patch, { expected: args.expected_files, baselineDirty: root.baseline.dirty })
+      if (!check.ok) return JSON.stringify({ ...base, status: "refused", reason: check.reason })
+      plan = planCommit(info, root, args.expected_files, check.files)
+      base.plan = plan
+    }
     if (degraded && !args.baseline_dirty) {
       base.warning = "No session baseline registered and no baseline_dirty given: files that were already modified before the session cannot be detected."
     }
-    if (!plan.commit.length) return JSON.stringify({ ...base, status: "refused", reason: "nothing to commit: no listed file is changed (or all are pre-existing/conflicting)" })
+    if (!plan.commit.length && !plan.patched.length) return JSON.stringify({ ...base, status: "refused", reason: "nothing to commit: no listed file is changed (or all are pre-existing/conflicting)" })
     if (args.dry_run) return JSON.stringify({ ...base, status: "dry_run" }, null, 2)
     const finalSubject = args.mode === "checkpoint" && !subject.startsWith("chore(checkpoint):") ? `chore(checkpoint): ${subject}` : subject
     const trailers = ["Pipeline-Checkpoint: true"]
     if (args.validation === "unverified") trailers.push(`Validation: unverified (${String(args.validation_note).replace(/\s+/g, " ").trim()})`)
     try {
-      const result = executeCommit(info, plan, finalSubject, trailers)
+      const result = plan.patched.length
+        ? await executeHunkCommit(info, plan, String(args.staging_patch), finalSubject, trailers)
+        : await executeCommit(info, plan, finalSubject, trailers)
       return JSON.stringify({ ...base, status: "committed", subject: finalSubject, ...result }, null, 2)
     } catch (e: any) {
       return JSON.stringify({ ...base, status: "error", error: String(e && e.message ? e.message : e) }, null, 2)

@@ -43,7 +43,7 @@ source_files:
   - "src/plugins/agent-router/index.ts"
   - "src/plugins/README.md"
 created: "2026-10-16"
-last_updated: "2026-11-09"
+last_updated: "2026-11-19"
 ---
 
 # Tools and Plugins
@@ -79,10 +79,12 @@ The TypeScript tool modules keep the `tool({ description, args, execute })` defi
 | Documents | `doc_compile_theme`, `doc_create`, `doc_view`, `doc_modify`, `doc_list`, `doc_convert`, `doc_restore` |
 | Slides | `slide_analyze_template`, `slide_assemble_pptx`, `slide_build_pptx`, `slide_compile_composition`, `slide_compile_theme`, `slide_create_thumbnails`, `slide_download_image`, `slide_generate_image`, `slide_screenshot` |
 | Development (pipeline and flow) | `dev_env`, `dev_verify`, `dev_smoke`, `dev_serve` |
-| Pipeline only | `pipeline_state`, `pipeline_commit` |
+| Pipeline only | `pipeline_state`, `pipeline_commit` (optional `staging_patch` argument for mixed `baseline_dirty` files) |
 | Plugin | `setupPipelineGuard` creates the hooks; the default export is a `Plugin.define` descriptor for plugin id `pipeline-guard`. |
 
 The document tools use safe project/document path segments and delegate document operations to Python scripts under the OpenCode `docx/scripts` directory. Theme compilers produce `_theme.css`; slide builds write versioned PPTX outputs. Pipeline tools return structured JSON, with verification and service operations bounded by configured timeouts and lifecycle handling.
+
+For `pipeline_commit`, a file that mixes pre-existing and session changes is normally a `conflict`: when its session hunks can be isolated, the optional `staging_patch` (a unified diff that is a hunk-level subset of `git diff HEAD -- <files>`, holding only the session hunks) is applied to the index with `git apply --cached`, the file is committed in the `patched` bucket, and the pre-existing edits stay in the worktree. Without the patch, the file stays in `conflicts`, and a patch that touches undeclared files, non-dirty files, out-of-repo paths, or malformed hunks is refused.
 
 `dev_env` is the Phase 0 probe: it takes an optional `workspace` (repo-relative sub-project) and never modifies anything. The `docker info` call is capped at 3 s and the whole probe is raced against a budget of about 4.5 s. It reads the MCP server names, types, and enabled flags from the opencode config files, never their commands, URLs, or headers. It checks `.env.example` / `.env.sample` for variable names and reports only whether each is set; `.env` itself is not read.
 

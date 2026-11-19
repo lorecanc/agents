@@ -456,6 +456,9 @@ permissions:
     resource: git worktree prune*
     effect: deny
   - action: shell
+    resource: git apply*
+    effect: deny
+  - action: shell
     resource: git branch -d*
     effect: deny
   - action: shell
