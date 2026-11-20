@@ -357,7 +357,10 @@ scripts, `tsc`, go, cargo, pytest), while `dev_smoke` and `dev_serve` can use au
 ## Serving for the browser: `dev_serve`
 
 `dev_smoke` starts a service, checks it and always stops it, so nothing is left running for a
-browser. `dev_serve` is for the visual validation done by `chrome_devtools`: `start` returns a
+browser. Its optional `checks` argument appends HTTP GET assertions for this run to the project
+checks. Give each assertion a local `path` and the expected `expect_status` or literal
+`body_contains` drawn from the behavior under test. After successful readiness, an empty set of
+assertions yields `inconclusive`. `dev_serve` is for the visual validation done by `chrome_devtools`: `start` returns a
 localhost URL on a free port, `stop` ends it. A start never leaves anything behind: the first of
 these ends the service.
 

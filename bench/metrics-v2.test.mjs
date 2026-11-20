@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 
 import { repoInfo, scratchDir } from "../.tree/tools/dev-tools/_repo.js"
-import { childSessionIds, summarizeSession } from "./metrics.mjs"
+import { childSessionIds, parseExport, summarizeSession } from "./metrics.mjs"
 
 const tool = (messageID, name, input = {}, state = {}) => ({
   type: "tool",
@@ -65,4 +65,19 @@ test("safety scan checks forbidden commands from V2 shell calls", () => {
   assert.equal(summary.violations.attempted.length, 1)
   assert.equal(summary.violations.executed.length, 1)
   assert.match(summary.violations.attempted[0].reason, /not allowed/)
+})
+
+test("native V2 assistant content keeps tool metadata, structured errors, parallel calls and patch paths", () => {
+  const exp = parseExport(JSON.stringify({
+    info: { id: "ses_root", agent: "flow-build" },
+    messages: [{ id: "msg_one", type: "assistant", agent: "flow-build", snapshot: { files: ["src/a.js"] }, content: [
+      { type: "tool", id: "t1", name: "subagent", state: { status: "completed", input: { agent: "flow-review" }, metadata: { sessionID: "ses_child" } } },
+      { type: "tool", id: "t2", name: "subagent", state: { status: "error", input: { agent: "flow-explore" }, error: { type: "Block", message: "[flow-guard] Blocked: denied" } } },
+    ] }],
+  }))
+  const summary = summarizeSession(exp)
+  assert.deepEqual(childSessionIds(exp), ["ses_child"])
+  assert.equal(summary.guard_blocks, 1)
+  assert.equal(summary.max_parallel, 2)
+  assert.deepEqual(summary.patched_files, ["src/a.js"])
 })

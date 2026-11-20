@@ -71,8 +71,8 @@ ammessa tra catalogo e motore.
 - Il plugin di routing (`plugins/manage-agents-router`) e il suo `routing.json` appartengono al motore, che li
   installa e li rigenera a ogni reconcile. Non vanno aggiunti a un pack.
 - Un subagent con `model` nel frontmatter è fisso e il routing lo salta: si fissa solo quando serve davvero (per
-  esempio un modello con input immagini per `flow-eye`). Tra i chiamanti, solo `pipeline-orchestrator` fissa `model`,
-  come modello di partenza. I subagent di un archetipo non vanno nascosti con `hidden: true`, altrimenti spariscono
+  esempio un modello con input immagini per `flow-eye`). I chiamanti degli archetipi non fissano `model` nel pack.
+  I subagent di un archetipo non vanno nascosti con `hidden: true`, altrimenti spariscono
   dall'elenco del tool `subagent`.
 - `flow` è la v2 della pipeline in stile Claude Code: l'agente di lavoro `flow-build`, la plan mode `flow-plan`
   nella stessa conversazione (Shift+Tab, `/flow-plan`, oppure `flow_plan_enter`, con approvazione tramite

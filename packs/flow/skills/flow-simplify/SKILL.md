@@ -16,7 +16,7 @@ whole codebase unless the user asked for it.
 ## Checklist, in priority order
 
 1. **Reuse.** For each new function, type or constant, search the codebase for an existing equivalent (same name family, same signature, same regex or constant). Use it and delete the new one.
-2. **Duplication.** If the same 3 or more lines appear twice in the diff, or once in the diff and once elsewhere, extract them, or call the existing copy. Two similar lines are fine. Do not extract for a single use.
+2. **Duplication.** When two paths encode the same domain rule, trace their callers and consider a shared implementation. Keep superficially similar code separate when the rules have different owners or reasons to change.
 3. **Needless abstraction.** Look for an interface with one implementation, a factory for one class, an options object for one flag, a wrapper that only forwards, config for values that never change, or a layer the rest of the codebase does not have. Inline it.
 4. **Defensive noise.** Remove null checks on values that cannot be null, try/catch blocks that rethrow or swallow, and re-validation of data already validated at the boundary.
 5. **Dead code.** Remove unused imports, variables, parameters and branches, commented-out code, and leftover debug output.
@@ -30,4 +30,4 @@ whole codebase unless the user asked for it.
 - Make one logical cleanup at a time and re-run the targeted tests after a meaningful batch.
 - Do not change public APIs, file layout or formatting style unless the cleanup requires it.
 - Skip a cleanup that would change intended behavior, reach well outside the diff, or that you judge a false positive. Note the skip in one line instead of arguing with it; list behavior changes as suggestions.
-- In the summary, say what you removed or reused and how many lines changed in each direction.
+- In the summary, identify the simplification and the checks that demonstrate behavior was preserved.

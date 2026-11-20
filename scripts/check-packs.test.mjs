@@ -70,6 +70,19 @@ test("command agent references must resolve locally or through direct requires",
   assert.equal(result.errors.filter((item) => item.rule === "command-agent-resolution").length, 3)
 })
 
+test("malformed headers report their file while plain Markdown commands are valid", (t) => {
+  const root = baseFixture(t)
+  write(root, "app/commands/bad.md", agent("description: Pipeline: run\nagent: helper"))
+  write(root, "app/agents/bad.md", "---\nmode: primary\n")
+  write(root, "app/commands/no-header.md", "Explain the changes.")
+
+  const result = checkPacks({ root })
+  assert.deepEqual(result.errors.map(({ file, rule }) => [file, rule]), [
+    ["packs/app/agents/bad.md", "invalid-frontmatter"],
+    ["packs/app/commands/bad.md", "invalid-frontmatter"],
+  ])
+})
+
 test("hidden subagents and unresolved allowed subagents are rejected", (t) => {
   const root = fixture(t)
   write(root, "app/opencode-pack.json", manifest("app"))
@@ -167,6 +180,11 @@ test("calling a declared MCP denied by the final matching permission is rejected
     "    resource: \"*\"",
     "    effect: allow",
   ].join("\n"), "Via Chrome DevTools MCP, inspect the page."))
+  write(root, "app/agents/narrow.md", agent([
+    "permissions:",
+    '  - { action: "*", resource: "*", effect: deny }',
+    '  - { action: chrome-devtools_snapshot, resource: "*", effect: allow }',
+  ].join("\n"), "Use `chrome-devtools_snapshot`. Then use `chrome-devtools_click`."))
   write(root, "app/agents/unavailable.md", agent([
     "permissions:",
     "  - action: \"*\"",
@@ -178,6 +196,9 @@ test("calling a declared MCP denied by the final matching permission is rejected
   assert.ok(result.errors.some((item) => item.rule === "mcp-permission-alignment" && item.message.includes("chrome-devtools_probe")))
   assert.ok(result.errors.some((item) => item.rule === "mcp-permission-alignment" && item.message.includes("phantom_*")))
   assert.ok(!result.errors.some((item) => item.file.endsWith("allowed.md")))
+  assert.deepEqual(result.errors.filter((item) => item.file.endsWith("narrow.md")).map((item) => item.message), [
+    "prompt calls 'chrome-devtools' but permission rules deny 'chrome-devtools_click'",
+  ])
   assert.ok(!result.errors.some((item) => item.file.endsWith("unavailable.md")))
 })
 

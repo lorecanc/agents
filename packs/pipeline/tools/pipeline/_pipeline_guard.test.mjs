@@ -436,6 +436,8 @@ test("session.compaction injects state into an existing array field and otherwis
   assert.match(context.context[0], /base_commit=[0-9a-f]{40}/)
   assert.match(context.context[0], /"a.txt"/)
   assert.match(context.context[0], /UNVERIFIED/)
+  assert.match(context.context[0], /FAILED/)
+  assert.match(context.context[0], /preview/)
 
   const messages = { sessionID: "ses_child", messages: [] }
   await compact(h, messages)
@@ -518,6 +520,21 @@ test("activity log records tool calls, guard blocks and step counts", async () =
   assert.doesNotMatch(blocks[0].reason, /^\[pipeline-guard\]/)
   const steps = events.filter((e) => e.type === "steps")
   assert.deepEqual(steps.map((e) => [e.sessionId, e.agent, e.tool_calls, e.llm_calls]), [["ses_child", EXEC, 3, 2]])
+})
+
+test("a completed shell call preserves its nonzero exit in pipeline_state activity", async () => {
+  const h = await setup({ parents: { ses_child: "ses_root" } })
+  await modelRequest(h, "ses_root", ORCH)
+  await modelRequest(h, "ses_child", EXEC)
+  await h.handlers.tool["execute.after"]({
+    tool: "shell", sessionID: "ses_child", id: "failed-check", input: { command: "npm test" },
+    status: "completed", result: { metadata: { exit: 1 } },
+  })
+  const events = readActivity(h.info, "ses_root")
+  const call = events.find((e) => e.callId === "failed-check")
+  assert.equal(call.ok, false)
+  assert.equal(call.exit, 1)
+  assert.equal(summarizeActivity(events).errors.by_tool.shell, 1)
 })
 
 test("activity logging failures never block a tool call", async () => {

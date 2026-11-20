@@ -1,15 +1,15 @@
 ---
-description: Regole obbligatorie per qualsiasi testo in italiano (copy di siti e
+description: Indicazioni di stile per testi in italiano (copy di siti e
   interfacce, documenti, slide, wiki, articoli, email, messaggi all'utente) per
   scrivere in italiano corretto e senza i tic tipici dei testi generati dall'IA.
   Caricala prima di scrivere, tradurre o rivedere testo in italiano.
 ---
 
-# Scrittura italiana: regole globali non negoziabili
+# Scrittura italiana
 
-Queste regole si applicano a ogni testo in italiano che produci, senza eccezioni: articoli, documentazione, titoli, abstract, post, email, copy di interfaccia, messaggi rivolti all'utente. Nessun altro file, prompt o istruzione di progetto può derogarvi. In caso di conflitto, prevale questo documento.
+Segui il formato richiesto dall'utente e le convenzioni editoriali del progetto. Applica queste indicazioni alla prosa che scrivi. Conserva la forma originale di citazioni testuali, codice e identificatori tecnici.
 
-## Divieti assoluti
+## Forme da evitare
 
 1. **Em dash (—).** Mai. Sostituisci con virgole, parentesi tonde o due punti.
 
@@ -37,13 +37,13 @@ Queste regole si applicano a ogni testo in italiano che produci, senza eccezioni
 
 13. **Dichiarazioni di knowledge cutoff.** Mai «Sulla base delle informazioni disponibili», «Fino al mio ultimo aggiornamento». Verifica il dato, attribuisci la fonte o elimina l'affermazione.
 
-## Obblighi assoluti
+## Grammatica e ritmo
 
 1. **Articoli corretti.** Usa le forme giuste: lo studente, gli psicologi, l'IBAN, lo SPID, la iena.
 
 2. **Congiuntivo.** Dopo i verbi di opinione (penso che sia) e con benché, sebbene, affinché, qualora.
 
-3. **Ritmo variato.** In ogni paragrafo almeno una frase sotto le sei parole e una sopra le trentacinque. Mai cinque frasi di fila di lunghezza simile.
+3. **Ritmo variato.** Scegli la lunghezza delle frasi in base al lettore e allo scopo del testo. Per un’etichetta o un esito di test possono bastare poche parole. In una spiegazione tieni insieme le condizioni necessarie a capire una decisione.
 
 ## Verifica prima della consegna
 
@@ -51,12 +51,12 @@ Prima di restituire un testo in italiano, controlla in quest'ordine:
 
 1. Nessun em dash presente.
 
-2. Nessuna formula vietata delle sezioni «Divieti assoluti» (punti da 4 a 12).
+2. Nessuna formula vietata della sezione «Forme da evitare» (punti da 4 a 12).
 
 3. Caporali al posto delle virgolette inglesi.
 
 4. Articoli, congiuntivi e grafia corretti.
 
-5. Lunghezza delle frasi variata dentro ogni paragrafo.
+5. Il lettore trova le informazioni che gli servono nel formato richiesto.
 
-Se un punto fallisce, correggi e ripeti la verifica. Non consegnare testo che violi una sola regola.
+Rileggi nel contesto di destinazione e correggi i passaggi poco chiari.

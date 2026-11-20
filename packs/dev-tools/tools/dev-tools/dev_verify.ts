@@ -7,7 +7,7 @@ export default tool({
     "Run the project's verification checks (lint, typecheck, targeted tests, tests by name, fast tests, full tests, build) with hard timeouts, serialized across sessions, and return a structured result with a failure-class hint (`env` | `timeout` | `unclassified`). Commands come from `.opencode/pipeline.json` (verify.*, or workspaces.<dir>.verify) or are autodetected (pytest, vitest, jest, go, cargo, npm scripts). Use this instead of running test commands in bash: it handles the working directory, env vars and throwaway services for you. " +
     "`workspace` runs everything inside a subdirectory (e.g. `backend`) of a monorepo. `filter` runs only the tests whose name matches (check `test_filter`: pytest -k, vitest/jest -t, go -run, cargo test <name>), optionally limited to `files`. " +
     "`with_services` starts services declared in the contract's `services` section (e.g. a throwaway PostgreSQL: native initdb, else docker), exports their env (DATABASE_URL, PGHOST, PGPORT, PGUSER...) to every check, and ALWAYS stops them and deletes their data afterwards; if a service cannot run the result is `blocked` with the exact reason. " +
-    "Missing commands are reported as skipped, never as passed. Stops at the first failure unless continue_on_fail is set.",
+    "Missing commands and unsupported file selections are skipped. Rejected files are listed; checking only part of a requested selection returns partial. Stops at the first failure unless continue_on_fail is set.",
   args: {
     checks: tool.schema
       .array(tool.schema.enum(CHECKS as [string, ...string[]]))

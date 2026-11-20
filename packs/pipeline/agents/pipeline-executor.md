@@ -652,7 +652,7 @@ Use the full repository-scoped file toolset: `edit`, `write`, `apply_patch`, `pa
 
 ## Execution rules
 - Follow planner/reasoner output exactly unless it is clearly wrong.
-- Make the smallest change that satisfies acceptance criteria.
+- Implement the acceptance criteria through the existing entry point. Derive variable decisions from the input, current repository or tool results. If a plan supplies a literal, check whether it is a contractual constant or merely an example before encoding it.
 - Do not add abstractions, helpers, files, packages, services, configs, or dependencies unless strictly required now.
 - Prefer editing existing code.
 - Preserve existing style and conventions.

@@ -1,10 +1,6 @@
-// Pure metric extraction for benchmark runs. No I/O, no spawning: everything here takes the JSON
-// produced by `opencode export <session>` (root and child sessions) and returns plain objects.
-//
-// Written against the official SDK types: ToolPart { tool, state: pending|running|completed|error },
-// StepFinishPart { cost, tokens }, PatchPart { files }, AssistantMessage { agent, tokens, cost }.
-// Tool-part parsing is not verified against a real export of a tool-using session; the unit tests use
-// documented-shape fixtures. Re-check after the first real run.
+// Normalize OpenCode session exports before deriving benchmark metrics. V2 fields follow the
+// SessionTransfer.Data and Session.Message.Assistant schemas in the local 2.3.2 OpenAPI document.
+// V1 exports carry the assistant message info and parts separately.
 
 import path from "node:path"
 
@@ -21,7 +17,23 @@ export function parseExport(raw) {
   if (!data || typeof data !== "object" || !data.info || !Array.isArray(data.messages)) {
     throw new Error("unexpected export shape (expected { info, messages })")
   }
-  return data
+  if (typeof data.info.id !== "string") throw new Error("session export has no id")
+  const messages = data.messages.map((msg) => {
+    if (msg?.info?.role && Array.isArray(msg.parts)) return msg
+    if (typeof msg?.type !== "string") throw new Error("unexpected message in session export")
+    if (msg.type !== "assistant") return { info: { ...msg, role: msg.type }, parts: [] }
+    if (!Array.isArray(msg.content)) throw new Error("assistant export has no content array")
+    const parts = msg.content.map((content) => {
+      if (content.type !== "tool") return content
+      if (typeof content.name !== "string" || !content.state?.status) throw new Error("invalid exported tool call")
+      return { ...content, messageID: msg.id, tool: content.name }
+    })
+    if (msg.snapshot?.files) parts.push({ type: "patch", files: msg.snapshot.files })
+    parts.push({ type: "step-finish", tokens: msg.tokens, cost: msg.cost })
+    const { content, ...info } = msg
+    return { info: { ...info, role: "assistant" }, parts }
+  })
+  return { ...data, messages }
 }
 
 export function toolParts(exp) {
@@ -120,7 +132,7 @@ export function summarizeSession(exp, repo = null) {
       if (st.status === "error") {
         m.tools[key].error += 1
         m.tool_errors += 1
-        const err = String(st.error || "")
+        const err = String(st.error?.message || st.error || "")
         if (GUARD_RE.test(err)) m.guard_blocks += 1
         else if (PERMISSION_RE.test(err)) m.permission_denials += 1
       }

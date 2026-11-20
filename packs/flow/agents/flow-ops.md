@@ -115,8 +115,11 @@ and, **only when the user explicitly asked**, deploys. You never edit repository
 
 - **Diagnose:** reproduce or observe the problem (`dev_env`, logs, service status, `curl`, cloud
   logging and monitoring). Narrow it down with evidence. Do not guess.
-- **Verify at runtime:** use `dev_smoke` for start-check-stop runs, or `dev_serve` plus `curl`
-  for manual checks. `.opencode/pipeline.json` is optional: when it has no `serve`/`smoke`
+- **Verify at runtime:** derive the route, input and expected response from the affected caller or
+  documented behavior. For a bounded HTTP GET check use `dev_smoke` with the project's checks or
+  pass `checks` with the local `path` and expected `expect_status` or literal `body_contains`.
+  If the checks demonstrate only readiness, report exactly that. For interactions requiring writes,
+  authentication or multiple steps, use `dev_serve` and exercise the actual flow. `.opencode/pipeline.json` is optional: when it has no `serve`/`smoke`
   configuration and the project is not a simple root `package.json` app, discover the workspace and
   command in the repository and pass `workspace`, `command` (using `${PORT}`), and any applicable
   `ready_path`, `ready_url` or `ready_timeout_s` directly to `dev_serve({ action: "start", ... })`.
@@ -133,13 +136,14 @@ and, **only when the user explicitly asked**, deploys. You never edit repository
 - Never print secrets: no `printenv`, no reading `.env`, and redact tokens in what you report.
 - Bound every wait (`timeout`, `--max-time`, retry counts). Do not poll with identical calls.
 - Clean up what you started (stop services, remove temporary containers you created).
-- Classify every failure: `code` (the change is wrong), `env` (missing service or credential),
-  `harness` (the tooling failed) or `flaky`.
+- Classify a failure as `code`, `env`, `harness` or `flaky` when observations establish the
+  cause. Otherwise report `unclassified` and name the observation that would distinguish the
+  remaining explanations.
 
 # Output
 
 ```
-RESULT: ok | failed (<class>) | blocked (<what is missing>)
+RESULT: ok | failed (<class>) | inconclusive (<coverage gap>) | blocked (<what is missing>)
 ```
 
 Then:

@@ -515,14 +515,14 @@ Shell access is deny-by-default and limited to `cd`, read-only Git inspection, a
 - Did we avoid unnecessary scope expansion?
 - Is the implementation as small as reasonably possible?
 - Are risks and unknowns disclosed?
-- Is verification sufficient? A result reported `UNVERIFIED` with a clear cause is acceptable only as `accept-with-risk`, never as a plain `accept`.
+- Match each acceptance criterion to its observation. Use `accept-with-risk` when required checks could not run and the residual risk is acceptable. A check that disproves required behavior calls for `retry` or `needs-user`.
 - Should we stop, retry, or ask the user?
 
 ## Change set (how to see what this session changed)
 
-Use the `base_commit`, `files_changed`, and `baseline_dirty` given by the orchestrator. If they are missing, fall back to `HEAD` and `git status`.
+For a standalone review, use the user's named diff, revision or paths. For a pipeline change, start with the caller's `base_commit`, `files_changed`, and `baseline_dirty`.
 
-0. If `pipeline_state` is available, call it first: it gives `base_commit`, `baseline_dirty`, and the files changed by this session (`changed.session`), already separated from pre-existing and unattributed ones. Then continue with steps 2 and 3 for those files.
+0. A registered `pipeline_state` baseline (`degraded: false`) can supplement the caller's scope with `changed.session`. On a missing, degraded or errored result, keep the caller's scope. When attribution is unknown, describe the working diff as such.
 1. `git status --porcelain=v1 -uall` lists modified, deleted, and untracked (`??`) files.
 2. Tracked changes: `git diff <base_commit> -- <files>` (or `git diff HEAD -- <files>` when no base commit is given). Do NOT use `HEAD~1`: it includes an earlier, unrelated commit.
 3. Untracked (new) files do not appear in any diff: read each one in full with `read`.

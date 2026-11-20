@@ -5,11 +5,7 @@ agent: flow-build
 
 Bug report: $ARGUMENTS
 
-Repository state at start:
-- Branch: !`git branch --show-current 2>/dev/null || echo "NO_GIT"`
-- HEAD: !`git rev-parse --short HEAD 2>/dev/null || echo "NO_GIT"`
-- Uncommitted files (first 40):
-!`git status --short 2>/dev/null | head -40 || true`
+Before editing in a Git repository, record the base commit (if present) and existing changes with `git status --short --untracked-files=all`. Pass the relevant baseline to review.
 
 Guidance (load `flow-testing`):
 1. Find the root cause, not just the symptom. Check whether the same mistake exists elsewhere.

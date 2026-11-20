@@ -179,7 +179,7 @@ test("runVerify: env hint, timeout hint, targeted files are quoted and confined 
     assert.equal(slow.results[0].failure_class_hint, "timeout")
   }
   const targeted = await runVerify({ info, checks: ["test_targeted"], files: ["src/a b.ts", "../escape.ts", "/etc/passwd"] })
-  assert.equal(targeted.status, "pass")
+  assert.equal(targeted.status, "partial")
   assert.match(targeted.results[0].output_tail, /ARGS:src\/a b\.ts/)
   assert.deepEqual(targeted.rejected_files, ["../escape.ts", "/etc/passwd"])
   const none = await runVerify({ info, checks: ["test_targeted"] })
@@ -225,19 +225,31 @@ test("runSmoke: starts, checks, stops, and leaves the port free", { skip: proces
   assert.deepEqual(fs.readdirSync(scratch).filter((f) => f.startsWith("smoke-")), [])
 })
 
-test("runSmoke: autodetects a package start script when no pipeline contract exists", { skip: process.platform === "win32" }, async () => {
+test("runSmoke: autodetected startup needs task-specific assertions for a verdict", { skip: process.platform === "win32" }, async () => {
   const dir = mkRepo({
     "package.json": JSON.stringify({ scripts: { start: "node server.js" } }),
-    "server.js": `
-const http = require("http")
-http.createServer((req, res) => { res.writeHead(200); res.end("ok") }).listen(Number(process.env.PORT), "127.0.0.1")
-`,
+    "server.js": SERVER,
   })
-  const res = await runSmoke({ info: repoInfo(dir) })
-  assert.equal(res.status, "pass", JSON.stringify(res))
-  assert.equal(res.contract_source, "autodetect")
-  assert.equal(res.cleanup.process_stopped, true)
-  assert.equal(res.cleanup.port_free, true)
+  const info = repoInfo(dir)
+  const ready = await runSmoke({ info })
+  assert.equal(ready.status, "inconclusive", JSON.stringify(ready))
+  assert.deepEqual(ready.checks, [])
+  assert.equal(ready.contract_source, "autodetect")
+  assert.equal(ready.cleanup.port_free, true)
+  const checked = await runSmoke({ info, checks: [{ path: "/teapot", expect_status: 418, body_contains: "short and stout" }] })
+  assert.equal(checked.status, "pass", JSON.stringify(checked))
+  assert.equal(checked.checks[0].detail, "HTTP 418")
+  assert.equal(checked.cleanup.process_stopped, true)
+})
+
+test("runSmoke: per-run checks preserve project assertions and expose content mismatches", { skip: process.platform === "win32" }, async () => {
+  const info = repoInfo(mkRepo({ "server.js": SERVER }, smokeContract()))
+  const result = await runSmoke({ info, checks: [{ path: "/health", name: "response text", body_contains: "unexpected" }] })
+  assert.equal(result.status, "fail", JSON.stringify(result))
+  assert.deepEqual(result.checks.map((c) => [c.name, c.status]), [["health", "pass"], ["response text", "fail"]])
+  assert.equal(result.cleanup.port_free, true)
+  const invalid = await runSmoke({ info, checks: [{ path: "health" }] })
+  assert.equal(invalid.status, "error")
 })
 
 test("runSmoke: a real expectation mismatch is a code failure and the service is still stopped", { skip: process.platform === "win32" }, async () => {
@@ -509,6 +521,16 @@ test("runVerify filter: test_filter is the default check, the filter is quoted, 
   const pk = await runVerify({ info, files: ["pkg/a/x.go", "pkg/a/y.go", "main.go"] })
   assert.equal(pk.results[0].check, "test_targeted")
   assert.match(pk.results[0].output_tail, /^\.\/pkg\/a\|\.\|$/m)
+  const literal = await runVerify({ info, filter: "{files} $&", files: ["literal/{packages}.go"] })
+  assert.equal(literal.results[0].output_tail.trim(), "literal/{packages}.go|-k|{files} $&|")
+  const outside = await runVerify({ info, filter: "example", files: ["../wrong.go"] })
+  assert.equal(outside.status, "inconclusive")
+  assert.equal(outside.results[0].status, "skipped")
+  const unscoped = await runVerify({
+    info: repoInfo(mkRepo({}, { verify: { test_filter: "echo {filter}" } })),
+    filter: "example", files: ["single.go"],
+  })
+  assert.equal(unscoped.results[0].status, "skipped")
   const noFilter = await runVerify({ info, checks: ["test_filter"] })
   assert.equal(noFilter.results[0].status, "skipped")
   const multi = await runVerify({ info, filter: "a\nb" })
@@ -525,7 +547,7 @@ test("runVerify workspace: cwd is the subdirectory, contract or autodetect per w
   )
   const info = repoInfo(dir)
   const res = await runVerify({ info, workspace: "backend", checks: ["test_targeted"], files: ["backend/tests/test_x.py", "frontend/src/a.ts"] })
-  assert.equal(res.status, "pass", JSON.stringify(res))
+  assert.equal(res.status, "partial", JSON.stringify(res))
   assert.equal(res.workspace, "backend")
   assert.match(res.results[0].output_tail, /(?:^|[/\\])backend\r?\n/)
   assert.match(res.results[0].output_tail, /FILES:tests\/test_x\.py\r?\n/)

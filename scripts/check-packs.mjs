@@ -57,15 +57,19 @@ function packNames(root) {
 function readFrontmatter(file) {
   const text = fs.readFileSync(file, "utf8")
   const match = FRONTMATTER_RE.exec(text)
-  if (!match) return { body: text, frontmatter: null }
+  if (!match) return {
+    body: text,
+    frontmatter: null,
+    parseError: /^---[ \t]*\r?\n/.test(text) ? "missing closing ---" : null,
+  }
   try {
     const parsed = parseYaml(match[1])
-    return {
-      body: text.slice(match[0].length),
-      frontmatter: parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null,
+    if (parsed !== null && (typeof parsed !== "object" || Array.isArray(parsed))) {
+      return { body: text.slice(match[0].length), frontmatter: null, parseError: "expected a YAML mapping" }
     }
-  } catch {
-    return { body: text.slice(match[0].length), frontmatter: null }
+    return { body: text.slice(match[0].length), frontmatter: parsed }
+  } catch (err) {
+    return { body: text.slice(match[0].length), frontmatter: null, parseError: err.message.split("\n")[0] }
   }
 }
 
@@ -255,7 +259,11 @@ export function checkPacks({ root = ROOT } = {}) {
 
   for (const pack of packs) {
     for (const file of commandFiles(pack)) {
-      const { frontmatter } = readFrontmatter(file)
+      const { frontmatter, parseError } = readFrontmatter(file)
+      if (parseError) {
+        errors.push(error(pack.name, relative(absoluteRoot, file), "invalid-frontmatter", parseError))
+        continue
+      }
       const agent = frontmatter?.agent
       if (agent === undefined) continue
       if (typeof agent !== "string" || !isConcreteName(agent) || !agentTarget(absoluteRoot, packsByName, pack, agent)) {
@@ -270,7 +278,11 @@ export function checkPacks({ root = ROOT } = {}) {
     }
 
     for (const file of agentFiles(pack)) {
-      const { body, frontmatter } = readFrontmatter(file)
+      const { body, frontmatter, parseError } = readFrontmatter(file)
+      if (parseError) {
+        errors.push(error(pack.name, relative(absoluteRoot, file), "invalid-frontmatter", parseError))
+        continue
+      }
       const permissions = permissionRules(frontmatter)
       const sourceFile = relative(absoluteRoot, file)
 
@@ -302,8 +314,15 @@ export function checkPacks({ root = ROOT } = {}) {
       }
 
       for (const server of allServers) {
-        if (explicitlyCallsServer(body, server) && evaluatedEffect(permissions, `${server}_probe`) === "deny" && !explicitlyUnavailable(body, server)) {
-          errors.push(error(pack.name, sourceFile, "mcp-permission-alignment", `prompt calls '${server}' but permission rules deny '${server}_probe'`))
+        const probe = `${server}_probe`
+        if (!explicitlyCallsServer(body, server) || evaluatedEffect(permissions, probe) !== "deny" || explicitlyUnavailable(body, server)) continue
+        // A deny-by-default agent may be granted individual tools from the namespace.
+        const concrete = new RegExp("`(" + escapeRegex(server) + "_[A-Za-z0-9_-]+)`", "g")
+        const referenced = [...new Set(Array.from(body.matchAll(concrete), (match) => match[1]))]
+        for (const action of referenced.length ? referenced : [probe]) {
+          if (evaluatedEffect(permissions, action) === "deny") {
+            errors.push(error(pack.name, sourceFile, "mcp-permission-alignment", `prompt calls '${server}' but permission rules deny '${action}'`))
+          }
         }
       }
 

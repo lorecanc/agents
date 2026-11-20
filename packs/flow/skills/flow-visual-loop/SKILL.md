@@ -1,6 +1,6 @@
 ---
 name: flow-visual-loop
-description: Render-and-iterate loop for UI changes. Start the project's dev server with dev_serve, capture screenshots at mobile/tablet/desktop with chrome-devtools (or delegate to flow-eye when your model cannot see images), compare with the design brief and rubric, fix, repeat (max 3 rounds), then check console and accessibility. Load after the first UI implementation pass.
+description: Render-and-iterate loop for UI changes. Start the project's dev server with dev_serve, capture screenshots at relevant breakpoints with chrome-devtools (or delegate to flow-eye when your model cannot see images), compare with the design brief and rubric, verify fixes, then check console and accessibility. Load after the first UI implementation pass.
 ---
 
 # Visual loop
@@ -25,7 +25,9 @@ Writing UI without rendering it is guessing. This loop closes the gap between th
 
 **If your model accepts images**, use chrome-devtools directly:
 - `new_page` or `navigate_page` to the route.
-- For each viewport `375x812`, `768x1024` and `1280x800`: run `resize_page`, then `take_screenshot` (full page when it is long).
+- Pick sizes from the request, supported devices, container constraints and actual breakpoints.
+  Check both sides of a layout transition the change could break. At each selected size run
+  `resize_page`, exercise the state under review, then `take_screenshot`.
 - Run `take_snapshot` when you need the DOM or accessibility tree, and `list_console_messages` for errors.
 
 **If it does not** (or you are unsure), delegate to `flow-eye` with:
@@ -35,7 +37,9 @@ Writing UI without rendering it is guessing. This loop closes the gap between th
 - what changed;
 - any states to trigger (hover, an open menu, an error).
 
-`flow-eye` returns rubric scores and concrete fixes. Several routes can be checked by parallel `flow-eye` calls in one message.
+Give the reviewer a separate browser page for each independent route or run the routes in sequence
+if page selection or viewport state is shared. If the reviewer reports `NO_VISION` or an unavailable
+browser, carry that visual coverage gap into the final report.
 
 ## 2. Judge
 
@@ -47,7 +51,7 @@ hierarchy or spacing rather than colors.
 
 - Fix the highest-impact items first, and prefer token-level fixes over one-off overrides.
 - Re-render only the affected viewports.
-- Stop after **3 rounds** or when the rubric passes. Report the remaining items honestly.
+- Recheck a fix in the state that exposed it. Stop when the requested states meet the brief, or when a concrete blocker prevents further verification. Report the observed result and any remaining gap.
 
 ## 4. Final checks
 
@@ -57,4 +61,4 @@ hierarchy or spacing rather than colors.
 - Use the feature, not just the screenshot: click through the golden path, trigger the edge cases (empty input, long text, an error response) and glance at the neighbouring features the change could have broken.
 - Run `dev_serve` with `action: "stop"` when done.
 
-In the final summary, include the viewports checked, the rounds used, what was fixed and what is left.
+In the final summary, include the routes, viewports and states checked, what was fixed and what is left.

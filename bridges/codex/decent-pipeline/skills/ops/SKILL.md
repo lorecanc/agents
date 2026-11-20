@@ -55,15 +55,15 @@ Shell access is workspace-agnostic: diagnostics, project commands, runtimes, tas
 Starting, waiting for and stopping processes through raw bash is unreliable (background jobs, PID files and polling loops). Use the tools; they are bounded and always clean up.
 
 - **`dev_env`** (call it first, once): what the host offers (Docker daemon, database binaries, contract in `.opencode/pipeline.json`, declared services, sub-projects) and a `verification_outlook`. Use that outlook to choose a feasible startup path below; a missing runtime contract alone does not end validation if the repository defines a safe startup command.
-- **`dev_smoke`**: the whole empirical validation as one bounded operation from the `smoke` section when `.opencode/pipeline.json` provides one. When the contract declares `services`, pass `with_services: true`; services start first and stop after. Its `failure_class_hint` (`code` | `env` | `harness` | `unclassified`) is evidence, not a verdict: confirm it before reporting.
+- **`dev_smoke`**: the whole empirical validation as one bounded operation using the contract's `smoke` section or a detected start command. It starts and stops services named in `smoke.services` automatically. For behavior the configured checks do not exercise, supply `checks` with a local GET `path` and an explicit `expect_status` or literal `body_contains` derived from the requested behavior. Confirm which assertions actually ran. Its `failure_class_hint` (`code` | `env` | `harness` | `unclassified`) is evidence, not a verdict: confirm it before reporting.
 - **`dev_verify`**: lint, typecheck, tests and build with timeouts. `workspace` runs them in a sub-project, `with_services: ["db"]` starts declared services (a throwaway Postgres: native if the binaries exist, otherwise Docker) and injects their env (`DATABASE_URL`, ...) into the checks.
 - **`dev_serve`**: keeps a service running for a bounded time (`start` / `status` / `stop`), using the configured `serve` section when present. `.opencode/pipeline.json` is optional; when its `serve` section is absent, pass `command`, `workspace`, `ready_path`, `ready_url`, and `ready_timeout_s` directly. When the contract declares dependent `services`, pass `with_services: true` when starting it.
 - **`pipeline_state`**: what this session changed.
 
 ## Running a service (empirical validation)
 
-1. **Use the pipeline tools first.** Run `dev_smoke` when a `smoke` section exists, or start the service with `dev_serve` using the `serve` section or direct startup/readiness arguments when it does not. If `.opencode/pipeline.json` declares dependent `services`, pass `with_services: true` to the applicable tool. If the tool returns a meaningful verdict, report it without starting a second service path.
-2. **Use Docker Compose as the next fallback.** If the pipeline-tool path is unavailable or inconclusive, and the repository has a Compose configuration with a reachable Docker daemon, start only the required services with `docker compose up -d <services>`, run a bounded health check such as `curl --retry 15 --retry-connrefused --retry-delay 2 --max-time 5 -fsS <health url>` or `pg_isready -h 127.0.0.1 -p <port> -t 30`, then stop what you started with `docker compose down` (without `-v`).
+1. **Use the pipeline tools first.** Use `dev_smoke` for bounded checks when a root smoke definition or detected start command applies. Use `dev_serve` for a specific workspace, explicit startup/readiness arguments, or a check that needs a running service. Use `with_services: true` only with `dev_serve` to start its declared backing services. A ready server proves startup; verify the requested runtime behavior separately if the smoke assertions do not cover it. If the tool returns a meaningful verdict, report it without starting a second service path.
+2. **Use Docker Compose as the next fallback.** If the pipeline-tool path is unavailable or inconclusive, and the repository has a Compose configuration with a reachable Docker daemon, inspect its current services before starting anything. Reuse healthy services. Start only missing services needed for the check if their dependencies and cleanup scope are known. Probe the actual health URL or ready port and stop only services started for this run.
 3. **Use a bounded shell fallback only for a clearly defined non-Docker service.** Only if the earlier paths are unavailable or inconclusive and no Compose path applies, proceed when the repository unambiguously defines a start command in `package.json`, `pyproject.toml`, `Procfile`, or `Makefile`. Run startup and checks in one self-cleaning `shell` call with a timeout of at most 60 seconds. In a subshell, start the service in the background, capture its PID, and register an `EXIT` trap such as `trap 'kill "$PID" 2>/dev/null || true' EXIT`; in that same call, probe readiness with `curl` and redirect logs to `$PIPELINE_SCRATCH/ops-service.log` or another permitted scratch path. Never leave a detached process running across shell calls.
 4. **Do not improvise beyond these paths.** A missing `.opencode/pipeline.json` or `serve`/`smoke` section is not by itself a blocker: use `dev_serve` with `command`, `workspace`, `ready_path`, `ready_url`, and `ready_timeout_s` directly when a `serve` section is absent. Reserve `env` for unavailable credentials, missing binaries or daemons (for example, an unreachable Docker daemon), or unreachable external dependencies. If a port is already used by a process you did not start, do not stop it; report `BLOCKED (env: port in use)`. If the project's own service is already running, validate it without restarting it.
 5. Always stop what you started, even if a check fails, and verify that the port is free again.
@@ -120,14 +120,14 @@ The orchestrator calls you after the executor's changes have been tested and rev
    - Unexpected behavior in adjacent features.
 
 5. **Cleanup** — Stop any services you started (unless they were already running):
-   - `docker compose down` if you brought containers up; `dev_serve` `stop` if you started it.
+   - Stop only the Compose services you started. Use `dev_serve` with `action: stop` for a service you started through that tool.
    - Confirm the port is free; delete scratch files.
 
 6. **Classify and report** — Pass or fail with evidence, and for any non-PASS verdict a failure class (below).
 
 ## Failure classification (mandatory for every non-PASS verdict)
 
-Decide the class from evidence before reporting. Re-run the failing check **once** to rule out `harness` and `flaky`.
+Decide the class from evidence before reporting. Repeat a check once only when a changed setup or second observation would distinguish plausible causes.
 
 | Class | Meaning | What the orchestrator does |
 |-------|---------|----------------------------|
@@ -191,14 +191,14 @@ What the executor or user should do to fix it (description only — no code patc
 Brief description of what was changed (from orchestrator context).
 
 ## Service startup
-- Command: `docker compose up -d`
-- Status: **HEALTHY** | **FAILED** (with error details)
+- Startup command or tool and its actual workspace:
+- Readiness observation or startup failure:
 - Time to ready: N seconds
 
 ## Validation checks
 ### Check 1: description
-- Command: `curl -s http://localhost:3000/api/endpoint`
-- Expected: 200 OK with correct response
+- Command or tool arguments actually used:
+- Expected observation and the requirement it comes from:
 - Actual: (what happened)
 - Result: **PASS** | **FAIL**
 

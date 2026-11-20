@@ -16,7 +16,7 @@ Google Developer Knowledge MCP (`google-developer-knowledge_*`):
 - Start with `search_documents(query)` using one specific English question that names the product, for example "How to collect flows lifecycle-aware in Jetpack Compose Kotlin".
 - Use `get_documents(names)` only on the 1 or 2 parent documents that answer the question.
 - `answer_query(query)` is for a grounded synthesis. On HTTP 429, fall back to `search_documents`.
-- If the server times out, stop calling it this session and rely on static analysis. Say so in the summary.
+- If the server is disabled or unavailable, check the installed SDK, versioned library sources or official documentation. State what remains uncertain.
 
 ## 3. Modern defaults
 
@@ -47,5 +47,5 @@ Google Developer Knowledge MCP (`google-developer-knowledge_*`):
 
 ## 6. Build and test
 
-- Run `./gradlew :<module>:assembleDebug`, `./gradlew :<module>:testDebugUnitTest --tests '<pattern>'`, and `./gradlew lint` when the project has lint configured.
+- Discover the affected module, variants and verification tasks from the wrapper, build files and CI. Run its matching assemble, unit-test and lint tasks with the same variant and test selection.
 - For instrumented or Compose UI tests, use `connectedDebugAndroidTest` only when an emulator is running. Otherwise report `PARTIALLY VERIFIED`.

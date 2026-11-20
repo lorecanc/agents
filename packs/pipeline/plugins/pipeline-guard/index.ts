@@ -715,14 +715,14 @@ export async function setupPipelineGuard(ctx, options = {}) {
       if (s && s.pipeline && !(callId && loggedCalls.has(callId))) {
         markLogged(callId)
         const subject = callSubject(tool, args)
-        const failed = event?.status === "error"
         const meta = event?.result?.metadata && typeof event.result.metadata === "object" ? event.result.metadata : {}
         const exit = Number.isInteger(meta.exit) ? meta.exit : Number.isInteger(meta.exitCode) ? meta.exitCode : undefined
+        const failed = event?.status === "error" || (isShellTool(tool) && exit !== undefined && exit !== 0)
         record(id, {
           type: "tool", tool, callId, ok: !failed,
           ...(subject !== undefined ? { command: subject } : {}),
           ...(exit !== undefined ? { exit } : {}),
-          ...(failed ? { error: clipText(event.error) } : {}),
+          ...(failed ? { error: clipText(event.error ?? (exit !== undefined ? `exit ${exit}` : undefined)) } : {}),
           ...(failed && isDenialText(event.error) ? { denied: true } : {}),
         })
       }
@@ -854,10 +854,11 @@ export async function setupPipelineGuard(ctx, options = {}) {
       if (!s || !s.pipeline || !rec) return
       const files = Object.keys(rec.files || {})
       const lines = [
-        "## Pipeline session state (must survive compaction, copy verbatim)",
-        "Keep in the summary, unchanged: the Phase 1 assessment (Size/Risk/Clarity/Type), the chosen lane and the remaining agents of it, the planner task graph and per-task status, retry/fix-round counters, every verification result with its failure class, and the current verification status (VERIFIED / PARTIALLY VERIFIED / UNVERIFIED).",
-        rec.baseline ? `Session baseline: base_commit=${rec.baseline.head}, branch=${rec.baseline.branch}, baseline_dirty=${JSON.stringify((rec.baseline.dirty || []).slice(0, 40))}` : "Session baseline: not registered",
-        `Files edited by this session so far (${files.length}): ${JSON.stringify(files.slice(0, 60))}`,
+        "## Pipeline session state",
+        "Preserve the user's requested outcomes and constraints, the chosen route and why, delegated work, file owners, open dependencies and retry counts. For each acceptance criterion, keep the observed check and result, or the reason it remains open. Carry forward the actual verdict (VERIFIED / PARTIALLY VERIFIED / UNVERIFIED / FAILED) when one exists.",
+        rec.baseline ? `Session baseline: base_commit=${rec.baseline.head}, branch=${rec.baseline.branch}, baseline_dirty (${rec.baseline.dirty?.length || 0} total): ${JSON.stringify((rec.baseline.dirty || []).slice(0, 40))}` : "Session baseline: not registered",
+        `Files claimed by this session (${files.length} total): ${JSON.stringify(files.slice(0, 60))}`,
+        "Path lists above are previews. Consult pipeline_state for the full baseline and current changes before reviewing or committing.",
         "Workspace rules still apply: repo-only paths, scratch in $PIPELINE_SCRATCH, no branches/worktrees/stashes.",
       ]
       const field = ["context", "messages", "parts"].find((name) => Array.isArray(event[name]))

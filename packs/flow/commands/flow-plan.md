@@ -5,11 +5,7 @@ agent: flow-plan
 
 Plan this change: $ARGUMENTS
 
-Repository state at start:
-- Branch: !`git branch --show-current 2>/dev/null || echo "NO_GIT"`
-- HEAD: !`git rev-parse --short HEAD 2>/dev/null || echo "NO_GIT"`
-- Uncommitted files (first 40):
-!`git status --short 2>/dev/null | head -40 || true`
+Reuse the branch, base commit and pre-existing changes already found by flow-build. Read current Git state when it matters to the plan.
 
 Guidance:
 - You are in plan mode: read, explore and ask, but do not modify the codebase.

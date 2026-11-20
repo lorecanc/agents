@@ -26,7 +26,7 @@ L'unione avviene durante l'installazione. Siccome `flow`, `pipeline` e `general`
 | `shadcn` | Integrazione componenti UI shadcn | Node.js (`npx`) | `true` |
 | `magic` | Generazione e ricerca componenti 21st.dev | Node.js, richiede `TWENTYFIRST_API_KEY` | `true` |
 | `axiom` | Integrazione log e osservabilità Axiom | Node.js (`npx`) | `true` |
-| `cwe-search` | Ricerca e analisi vulnerabilità Common Weakness Enumeration (CWE) | Node.js (`npx`) | `true` |
+| `cwe-search` | Consultazione del catalogo CWE per classificare un rilievo e cercare mitigazioni | Node.js 24+ con `npx`; alla prima esecuzione occorre accesso HTTPS a npm e ai cataloghi MITRE. Il server riusa i dati salvati in `CWE_CACHE_DIR`. [Documentazione del server](https://github.com/cyanheads/mitre-cwe-mcp-server#configuration) | `true` |
 | `XcodeBuildMCP` | Integrazione Xcode per build e testing di app iOS/macOS | macOS con Xcode CLI Tools | `false` (Attivare su macOS) |
 | `cupertino` | Toolchain Cupertino per progetti Apple/Flutter | CLI `cupertino` installata nel `PATH` | `false` (Attivare se presente) |
 | `bigquery` | Query, esplorazione e gestione dei dati BigQuery | Remote (Google Cloud); endpoint `https://bigquery.googleapis.com/mcp` | `false` |

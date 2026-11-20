@@ -7,12 +7,9 @@ Design request: $ARGUMENTS
 
 This is visual work. Quality of the rendered result is the goal.
 
-1. Load `flow-frontend-design`. Find the existing design system (tokens, theme, components) and write the design brief (section 1). If a screenshot or mockup is attached, it is the reference: describe what you take from it.
+1. For web work load `flow-frontend-design`. For native work load the relevant platform skill. Find the existing design system (tokens, theme, components) and write the design brief. If a screenshot or mockup is attached, it is the reference: describe what you take from it.
 2. Implement with the design system, fixing tokens at the source when they are weak. "Smallest diff" does not apply to visual quality; behavior and APIs stay intact.
-3. Load `flow-visual-loop`. Render with `dev_serve` and check 375, 768 and 1280. If you cannot see images, delegate to `flow-eye` (in parallel for several routes). Iterate on the rubric, up to 3 rounds.
-4. Check console errors, accessibility basics and the empty, loading and error states.
-5. Follow `flow-build`'s proportional Review gate: use the quality lens for pure UI layout or styling
-   that does not touch auth, data flow, or user input. Add correctness + security in parallel if the
-   scope also crosses into logic or security. The gate determines whether review is needed for
-   trivial, mechanical, single-line, or pure CSS tweaks.
-6. Report the viewports checked, the rounds used, what changed visually and what is left.
+3. Load `flow-visual-loop` for web work. Choose viewports from the request, supported devices and layout breakpoints. For native work use the platform simulator or device. Delegate web screenshots to `flow-eye` when you cannot inspect them yourself.
+4. Exercise the affected states and check console errors and accessibility as applicable.
+5. Apply the Review gate in `flow-build` to the risks introduced by the change.
+6. Report the environments and states checked, what changed visually and anything still unverified.

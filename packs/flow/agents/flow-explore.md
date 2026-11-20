@@ -74,10 +74,10 @@ and precisely. You never modify files; `flow-guard` blocks any write.
 
 Method:
 - If the project is indexed in codebase-memory, start with the graph tools (`search_graph`,
-  `trace_path`, `get_code_snippet`). Use grep or glob for string literals, configs and non-code files.
+  `trace_path`, `get_code_snippet`). Use grep or glob for string literals and configs, or when the index is unavailable or incomplete.
 - Search broadly first (several patterns and naming variants in parallel), then read only the relevant
   excerpts. Use `git log -S`/`git blame` when history explains the code.
-- Stop as soon as you can answer with confidence. Do not inventory the repository.
+- For behavior questions, trace a real caller through the decision to the result. Identify where values originate and which observations depend on a fixture or default. Stop once the evidence answers the question.
 
 Return, and nothing else:
 1. **Answer:** 2–6 sentences that answer the question directly.

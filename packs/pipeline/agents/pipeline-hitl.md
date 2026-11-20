@@ -529,13 +529,14 @@ files_changed: lista dei file modificati
 base_commit: hash HEAD del baseline di sessione
 baseline_dirty: file già modificati o non tracciati prima della sessione
 assessment: il giudizio Size/Risk/Clarity/Type dall'orchestrator
+verification: comportamenti verificati, osservazioni e limiti dei controlli effettivamente eseguiti
 ```
 
 ## Procedura di raccolta dati
 
-Carica prima la skill `italiano-decente`. Raccogli le prove effettive dal repository e verifica che ogni citazione e ogni esempio siano sostenuti dai diff reali; prima di restituire il report, confronta l'intera spiegazione italiana con la checklist in cinque punti della skill e correggi ogni violazione.
+Carica prima la skill `italiano-decente`. Raccogli le prove effettive dal repository e verifica che ogni citazione e ogni esempio siano sostenuti dai diff reali; prima di restituire il report, confronta l'intera spiegazione italiana con la checklist della skill e correggi ogni violazione.
 
-0. Chiama il tool, se disponibile. Con `pipeline_state`, ricava i file modificati dalla sessione (`changed.session`), già distinti da quelli preesistenti e non attribuiti; riutilizza `base_commit` e `baseline_dirty` passati dal chiamante oppure, se mancano, prendili dalla risposta del tool, e ricorri a `HEAD` e `git status` soltanto quando il tool non è disponibile.
+0. Chiama il tool, se disponibile. Con `pipeline_state`, ricava i file modificati dalla sessione (`changed.session`), già distinti da quelli preesistenti e non attribuiti; riutilizza `base_commit` e `baseline_dirty` passati dal chiamante oppure, se mancano, prendili dalla risposta del tool. Se il tool manca, restituisce un errore o segnala `degraded: true`, usa il perimetro e il baseline forniti dal chiamante.
 
 1. **Panoramica delle modifiche**: verifica prima le fonti. Usa `base_commit`, `files_changed` e `baseline_dirty` forniti dal chiamante oppure i dati di sessione restituiti da `pipeline_state`, mantenendo distinti i cambiamenti della sessione, quelli preesistenti e quelli non attribuiti; ricorri a `HEAD` e `git status` soltanto quando mancano il baseline e il tool.
 
@@ -552,8 +553,7 @@ Carica prima la skill `italiano-decente`. Raccogli le prove effettive dal reposi
 
 2. **Diff completo**: raccogli i diff di tutti i file tracciati in `files_changed` con chiamate raggruppate:
 
-   - Fino a 12 file tracciati, usa un'unica chiamata.
-   - Per insiemi più grandi, dividi i file in due o tre gruppi logici e usa una chiamata per gruppo.
+   - Raggruppa i percorsi per modifica funzionale. Se l'output è troncato, leggi separatamente i diff mancanti.
 
    ```bash
    git diff <base_commit> -- "path/to/file1.ext" "path/to/file2.ext"
@@ -582,11 +582,11 @@ Quattro sezioni, in quest'ordine. Produci una guida didattica in **italiano** ch
 
 ### Sezione 1: il perché in parole semplici (a colpo d'occhio)
 
-In 3–6 frasi chiare, spiega il bisogno reale e l'idea di fondo della soluzione. Parti da un esempio concreto. In pratica: mostra cosa accadeva prima, perché accadeva e cosa succede ora, basandoti sui comportamenti dimostrati dal diff; se il confronto non è verificabile, dichiaralo senza inventare dettagli né attribuire al codice effetti che non risultano dimostrati.
+Spiega il bisogno reale e l'idea di fondo della soluzione. Parti da un esempio concreto. In pratica: mostra cosa accadeva prima, perché accadeva e cosa succede ora, basandoti sui comportamenti dimostrati dal diff; se il confronto non è verificabile, dichiaralo senza inventare dettagli né attribuire al codice effetti che non risultano dimostrati.
 
 ### Sezione 2: mappa visiva (`mermaid`)
 
-Mostra il flusso logico, il prima e il dopo o la collaborazione tra i componenti con un diagramma semplice in `mermaid`, scegliendo un `flowchart TD`, `flowchart LR` o `sequenceDiagram` che renda visibili le relazioni e il passaggio centrale tra i pezzi toccati. Usa etichette chiare. Evita i nomi di variabili criptici e limita il diagramma a **6–10 nodi**, così chi legge coglie subito l'idea senza perdersi nei dettagli.
+Mostra il flusso logico, il prima e il dopo o la collaborazione tra i componenti con un diagramma semplice in `mermaid`, scegliendo un `flowchart TD`, `flowchart LR` o `sequenceDiagram` che renda visibili le relazioni e il passaggio centrale tra i pezzi toccati. Usa etichette chiare. Evita i nomi di variabili criptici e includi soltanto i passaggi necessari a capire la modifica.
 
 ### Sezione 3: cosa è cambiato davvero (esempi concreti e diff essenziali)
 
@@ -600,11 +600,11 @@ Niente file interi. Riporta solo le righe decisive copiate dai diff effettivi e 
 
 ### Sezione 4: cosa tenere a mente (attenzioni pratiche)
 
-Sii concreto. Elenca in modo diretto gli effetti collaterali, i limiti o le attenzioni future che emergono dalle modifiche e spiega quando potrebbero influire sul lavoro o sull'uso previsto, senza aggiungere ipotesi che il diff non consente di verificare. Se non emergono rischi reali, scrivi: **Non emergono rischi pratici rilevanti dai cambiamenti esaminati.** Non inventare problemi teorici.
+Sii concreto. Elenca in modo diretto gli effetti collaterali, i limiti o le attenzioni future che emergono dalle modifiche e spiega quando potrebbero influire sul lavoro o sull'uso previsto, senza aggiungere ipotesi che il diff non consente di verificare. Se le verifiche lasciano un dubbio pertinente, indica quale comportamento rimane da osservare.
 
 ## Flusso di esecuzione (didattico e lineare)
 
-Carica prima la skill `italiano-decente`. Prima di restituire il report, confronta l'intera spiegazione italiana con la checklist in cinque punti, correggi ogni violazione e verifica che esempi e affermazioni siano sostenuti dalle prove raccolte, senza chiedere approvazioni o conferme nel report finale.
+Carica prima la skill `italiano-decente`. Prima di restituire il report, confronta l'intera spiegazione italiana con la checklist, correggi ogni violazione e verifica che esempi e affermazioni siano sostenuti dalle prove raccolte, senza chiedere approvazioni o conferme nel report finale.
 
 1. Raccogli i dati e i diff con gli strumenti disponibili.
 2. Restituisci il report con le quattro sezioni richieste: prima il perché, poi la mappa, gli esempi con i diff essenziali e infine le attenzioni pratiche.

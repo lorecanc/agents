@@ -24,7 +24,7 @@ import { fileURLToPath } from "node:url"
 
 import { git, gitT, repoInfo, scratchDir, snapshot } from "../.tree/tools/dev-tools/_repo.js"
 import { killTree, runCommand, runtimeEnv } from "../.tree/tools/dev-tools/_run.js"
-import { childSessionIds, finalText, gitSafety, mergeSummaries, parseExport, summarizeSession } from "./metrics.mjs"
+import { childSessionIds, finalText, gitSafety, mergeSummaries, parseExport, summarizeSession, toolParts } from "./metrics.mjs"
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const MAX_CHILD_SESSIONS = 80
@@ -84,7 +84,9 @@ export async function evaluateChecks(task, ctx) {
     let pass = false
     let detail = ""
     if (c.type === "command") {
-      const r = await runCommand(c.cmd, { cwd: ctx.dir, env: runtimeEnv(repoInfo(ctx.dir)), timeoutMs: (c.timeout_s || 120) * 1000 })
+      const env = runtimeEnv(repoInfo(ctx.dir))
+      for (const key of task.unset_env || []) delete env[key]
+      const r = await runCommand(c.cmd, { cwd: ctx.dir, env, timeoutMs: (c.timeout_s || 120) * 1000 })
       pass = r.exitCode === 0 && !r.timedOut
       detail = pass ? "exit 0" : `exit ${r.exitCode}${r.timedOut ? " (timeout)" : ""}: ${r.output.slice(-400).replace(/\s+/g, " ")}`
     } else if (c.type === "file_changed") {
@@ -148,7 +150,7 @@ export function rootSessionId(stdout) {
     if (!t.startsWith("{")) continue
     try {
       const e = JSON.parse(t)
-      const id = e.sessionID || (e.part && e.part.sessionID) || (e.properties && e.properties.sessionID)
+      const id = e.sessionID || e.data?.sessionID || (e.part && e.part.sessionID) || (e.properties && e.properties.sessionID)
       if (typeof id === "string" && id.startsWith("ses_")) return id
     } catch {
       /* not an event line */
@@ -157,7 +159,37 @@ export function rootSessionId(stdout) {
   return null
 }
 
-async function exportTree(bin, env, cwd, rootId) {
+// Native subagents can finish their tool call before the child is done. Query the actual
+// parent/child relation, including when the tool result omitted a child id.
+async function nativeChildren(bin, env, cwd, id, exp) {
+  const completed = toolParts(exp).some(({ part }) => part.tool === "subagent" && part.state?.status === "completed")
+  const ids = childSessionIds(exp)
+  if (!completed) return ids
+  const args = ["api", "--standalone", "session.list", "--param", `parentID=${id}`, "--param", `limit=${MAX_CHILD_SESSIONS}`]
+  const r = await runOpencode(bin, args, { cwd, env, timeoutMs: 120000 })
+  if (r.code !== 0 || r.timedOut) throw new Error("could not list child sessions")
+  const page = JSON.parse(r.out)
+  if (!Array.isArray(page?.data) || page.cursor?.next) throw new Error("incomplete child session list")
+  for (const child of page.data) {
+    if (child.parentID !== id || typeof child.id !== "string") throw new Error("invalid child session relation")
+    ids.push(child.id)
+  }
+  if (!ids.length) throw new Error("completed delegation has no exported child session")
+  return [...new Set(ids)]
+}
+
+function sessionError(exp, nativeV2) {
+  const lastAssistant = exp.messages.findLast((m) => m.info.role === "assistant")
+  const lastIdle = exp.messages.findLast((m) => m.info.role === "idle")
+  const outcome = exp.info.outcome ?? lastIdle?.info.outcome
+  if (outcome && outcome !== "succeeded") return `session outcome: ${outcome}`
+  if (!lastAssistant) return "session has no assistant turns"
+  if (lastAssistant.info.error) return "last assistant turn ended in error"
+  if (nativeV2 && !outcome) return "session has no terminal outcome"
+  return null
+}
+
+async function exportTree(bin, env, cwd, rootId, nativeV2) {
   const exports = []
   const seen = new Set()
   const queue = [rootId]
@@ -165,20 +197,33 @@ async function exportTree(bin, env, cwd, rootId) {
     const id = queue.shift()
     if (seen.has(id)) continue
     seen.add(id)
-    const r = await runOpencode(bin, ["export", id, "--sanitize"], { cwd, env, timeoutMs: 120000 })
-    if (r.code !== 0) {
+    const args = nativeV2 ? ["session", "export", id, "--standalone"] : ["export", id]
+    const r = await runOpencode(bin, args, { cwd, env, timeoutMs: 120000 })
+    if (r.code !== 0 || r.timedOut) {
       exports.push({ id, error: `export failed: ${r.err.slice(0, 200)}` })
       continue
     }
     try {
       const exp = parseExport(r.out)
-      exports.push({ id, exp })
-      for (const child of childSessionIds(exp)) if (!seen.has(child)) queue.push(child)
+      if (exp.info.id !== id) throw new Error("exported session id differs from the requested id")
+      const children = nativeV2 ? await nativeChildren(bin, env, cwd, id, exp) : childSessionIds(exp)
+      exports.push({ id, exp, error: sessionError(exp, nativeV2) })
+      for (const child of children) if (!seen.has(child)) queue.push(child)
     } catch (e) {
       exports.push({ id, error: e.message })
     }
   }
+  const pending = queue.find((id) => !seen.has(id))
+  if (pending) exports.push({ id: pending, error: "session export limit reached" })
   return exports
+}
+
+function cliVersion(bin) {
+  try {
+    return execFileSync(bin, ["--version"], { encoding: "utf8", timeout: 10000 }).trim()
+  } catch {
+    return null
+  }
 }
 
 // ----------------------------------------------------------------- one task
@@ -190,10 +235,14 @@ export async function runTask(task, opts) {
   const baseCommit = gitT(dir, ["rev-parse", "HEAD"])
   const before = snapshot(info)
   const agent = opts.agent || "pipeline-orchestrator"
-  const args = ["run", "--agent", agent, "--auto", "--format", "json", "--dir", dir]
+  const version = opts.version === undefined ? cliVersion(opts.bin) : opts.version
+  const nativeV2 = Number(version?.match(/\bv?(\d+)\.\d+/)?.[1]) >= 2
+  const args = ["run", "--agent", agent, "--auto", "--format", "json"]
+  if (nativeV2) args.push("--standalone")
   if (opts.model) args.push("-m", opts.model)
   args.push(task.prompt)
   const env = { ...process.env, ...(opts.configDir ? { OPENCODE_CONFIG_DIR: opts.configDir } : {}) }
+  for (const key of task.unset_env || []) delete env[key]
   const record = { task: task.id, kind: task.kind || null, agent, workspace: opts.keep ? dir : null }
   try {
     if (opts.dryRun) {
@@ -207,7 +256,7 @@ export async function runTask(task, opts) {
     let metrics = null
     let text = ""
     if (rootId) {
-      const exports = await exportTree(opts.bin, env, dir, rootId)
+      const exports = await exportTree(opts.bin, env, dir, rootId, nativeV2)
       const repo = { info, scratch: scratchDir(info) }
       const sums = exports.filter((e) => e.exp).map((e) => summarizeSession(e.exp, repo))
       record.export_errors = exports.filter((e) => e.error).map((e) => ({ session: e.id, error: e.error }))
@@ -225,11 +274,11 @@ export async function runTask(task, opts) {
     installHiddenTests(task, dir)
     record.checks = await evaluateChecks(task, { dir, baseCommit, finalText: text, metrics, agent })
     record.metrics = metrics
-    record.final_text_excerpt = text.slice(0, 600)
-    const safe = record.git.ok && (!metrics || metrics.violations.executed.length === 0)
+    const telemetryComplete = metrics?.sessions > 0 && record.export_errors.length === 0
+    const safe = record.git.ok && telemetryComplete && metrics.violations.executed.length === 0
     record.safety_ok = safe
     record.degenerate = Boolean(metrics && metrics.degenerate)
-    record.pass = record.checks.every((c) => c.pass) && safe && !record.timed_out && !record.degenerate
+    record.pass = record.exit_code === 0 && record.checks.every((c) => c.pass) && safe && !record.timed_out && !record.degenerate
     record.wall_ms = Date.now() - started
     return record
   } finally {
@@ -256,7 +305,7 @@ export function renderTable(results) {
       m ? String(m.max_parallel) : "-",
       m ? String(m.guard_blocks) : "-",
       r.git ? (r.git.ok ? "clean" : "DIRTY") : "-",
-      (r.checks || []).filter((c) => !c.pass).map((c) => c.label).join("; ") || (r.timed_out ? "timeout" : r.degenerate ? "degenerate run" : ""),
+      (r.checks || []).filter((c) => !c.pass).map((c) => c.label).join("; ") || (r.timed_out ? "timeout" : r.degenerate ? "degenerate run" : r.exit_code ? `exit ${r.exit_code}` : r.export_errors?.[0]?.error || ""),
     ])
   }
   const widths = rows[0].map((_, i) => Math.max(...rows.map((row) => String(row[i]).length)))
@@ -321,16 +370,11 @@ export async function main(argv) {
       const missing = o.tasks.filter((id) => !all.some((t) => t.id === id))
       if (missing.length) throw new Error(`unknown task(s): ${missing.join(", ")}`)
       const bin = process.env.OPENCODE_BIN || "opencode"
-      let version = null
-      try {
-        version = execFileSync(bin, ["--version"], { encoding: "utf8" }).trim()
-      } catch {
-        /* version is informational */
-      }
+      const version = cliVersion(bin)
       const results = []
       for (const t of chosen) {
         console.error(`running ${t.id} ...`)
-        results.push(await runTask(t, { ...o, bin, timeoutMs: o.timeoutMin * 60000, workRoot: os.tmpdir() }))
+        results.push(await runTask(t, { ...o, bin, version, timeoutMs: o.timeoutMin * 60000, workRoot: os.tmpdir() }))
       }
       const doc = { meta: { when: new Date().toISOString(), opencode: version, agent: o.agent, config_dir: o.configDir || null, model: o.model || null, dry_run: o.dryRun }, results }
       if (o.out) fs.writeFileSync(o.out, JSON.stringify(doc, null, 2))

@@ -18,15 +18,7 @@ const MAX_REASON = 160
 
 export const ENTER_DESCRIPTION = `Switch this conversation to plan mode (flow-plan) before a non-trivial implementation: explore read-only, ask the decisive questions, write a plan, and get the user's approval before any edit. The user confirms the switch.
 
-Use it when ANY of these applies:
-- New feature with real design choices (where it goes, how it behaves)
-- Several valid approaches (caching: in-memory vs Redis vs file; real-time: WebSocket vs SSE vs polling)
-- Changes to existing behaviour or structure, or an architectural decision
-- More than 2-3 files are likely to change
-- Unclear requirements: you must explore before you know the scope
-- The user's preferences matter and you would otherwise ask several clarifying questions
-
-Do NOT use it for: typo and few-line fixes, one function with clear requirements, tasks the user specified in detail, pure research or questions about the code, or when the user asked you to just do it.`
+Use it when the user requests a plan for approval or when a design, compatibility or migration decision needs agreement before editing. Name the decision and its consequence. Proceed directly for a settled implementation, and answer research questions directly.`
 
 export const EXIT_DESCRIPTION = `Ask the user to approve your plan and leave plan mode. Call it only when the plan file in ${PLAN_DIR}/ is complete and you have no open questions (resolve those with \`question\` first).
 
@@ -101,7 +93,7 @@ export function enteredMessage(reason) {
   return [
     "Plan mode is on: you are now flow-plan in this same conversation (read-only; you may only write",
     `${PLAN_DIR}/*.md). Reason: ${shortReason(reason)}.`,
-    "Follow the flow-plan workflow: explore (flow-explore in parallel), ask the decisive questions with",
+    "Follow the flow-plan workflow: resolve open questions with evidence, ask for missing user decisions with",
     "`question`, write the plan file, then call flow_plan_exit with its path for the user's approval.",
   ].join(" ")
 }
@@ -109,7 +101,7 @@ export function enteredMessage(reason) {
 export function approvedMessage(planFile) {
   return [
     `The user approved the plan in ${planFile}. Plan mode is off: you are flow-build again, with write access.`,
-    "Follow the approved plan in order, send the user brief progress updates as you advance, then verify and report.",
+    "Implement the approved outcomes and send brief progress updates. Verify each outcome and surface any new evidence that would change the agreed scope.",
   ].join(" ")
 }
 

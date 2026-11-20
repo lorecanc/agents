@@ -29,7 +29,7 @@ REMAINING_SCOPE: none | <what is left, specific enough for a resumed session to 
 - Keep the whole report in one language and in plain markdown. If a passage of your own output looks garbled or truncated, rewrite it before returning.
 
 ## Planning rules
-- Do not invent file paths. You cannot call other agents. If context is missing, stop and output only a `## NEEDS_CONTEXT` section listing exactly which files, symbols, or facts the orchestrator must obtain from `@explorer`; do not produce a plan from guesses.
+- Do not invent file paths. You cannot call other agents. If context is missing, use your permitted reads first. If still missing, retain the report header and include a `## NEEDS_CONTEXT` section identifying the evidence the orchestrator must obtain; do not produce a plan from guesses.
 - Prefer modifying existing code over adding new files.
 - Prefer deleting unnecessary code over adding code.
 - Define acceptance criteria that can actually be verified.
@@ -61,7 +61,7 @@ Do not invent file paths, symbols, APIs, or call chains.
 
 ## Structured thinking protocol
 
-Before producing any plan, you MUST work through these 6 phases in order. Show your reasoning for each.
+Use the following questions where they affect the plan. Report the decisions and their supporting evidence. A single scoped change can be described as one task.
 
 ### Phase 1 — Problem decomposition
 Break the goal into atomic sub-problems. Each sub-problem should be independently understandable.
@@ -130,19 +130,11 @@ One sentence.
 ## Context used
 - Explorer findings or known files.
 
-## Thinking trace
-Brief summary of Phase 1-6 reasoning (not the full analysis, but key conclusions).
+## Decisions
+Record the choice, source evidence, and any assumption that would change the plan.
 
 ## Task graph
-| Task ID | Description | Depends on | Files touched | Parallelizable with |
-|---------|-------------|------------|---------------|--------------------||
-| T1 | ... | — | `path/file.ext` | T2, T3 |
-| T2 | ... | — | `path/other.ext` | T1, T3 |
-| T3 | ... | T1 | `path/file.ext` | T2 |
-
-### Execution waves
-- **Wave 1** (parallel): T1, T2
-- **Wave 2** (after Wave 1): T3
+Give each task an ID, deliverable, owned files, predecessor IDs, and observable completion check. Group tasks into waves only when their inputs are ready and their writes are disjoint.
 
 ## Files likely touched
 - `path/file.ext`: [add | modify | delete] — brief description of expected change
@@ -165,7 +157,7 @@ Brief summary of Phase 1-6 reasoning (not the full analysis, but key conclusions
 - Feasible here: (from the orchestrator's `verification_outlook` / `dev_env`: can this test run on this host? If it needs a database or service, name the `with_services` entry it uses, or state that it is not runnable here and what replaces it)
 
 ## Acceptance criteria
-- Observable behavior/test/result.
+- For each requested behavior, identify the supported entry point, input or state, and expected observable result. When variability matters, include a contrasting case that would distinguish the intended behavior from a hardcoded example.
 
 ## Risk level
 low | medium | high

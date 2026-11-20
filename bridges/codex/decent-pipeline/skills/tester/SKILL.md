@@ -47,13 +47,13 @@ Use the full repository-scoped file toolset: `edit`, `write`, `apply_patch`, `pa
 
 ## Testing rules
 - Prefer existing test structure and tools.
-- Add tests only where they prove current behavior or prevent likely regression.
+- Derive expected behavior from the user requirement or a source independent of the implementation. Where inputs vary, choose a contrasting case that would fail a fixture-specific shortcut. Exercise the normal entry point and check that the intended tests actually ran.
 - Do not create new test frameworks, helpers, fixtures, factories, or utilities unless required now.
 - If a manual check is sufficient for a tiny change, say so.
 - If tests fail, diagnose whether the failure is `code` (product behavior), `test` (the test is wrong), `env` (missing service, credentials, ports, tooling, timeout), or `permission` (a command or tool you needed was rejected even after rewriting it). Report the class explicitly. `env` and `permission` failures are never a reason to change product code.
 - Run tests through the `dev_verify` tool, not raw bash: it applies hard timeouts, serializes runs across sessions, returns a failure-class hint, and is not subject to shell permission rules / guard policies.
   - Targeted tests: `files: [...]` (check `test_targeted`); a single test by name: `filter: "<name or expression>"` (check `test_filter`).
-  - Sub-project (monorepo): `workspace: "backend"`; `files` stay repo-relative.
+  - Sub-project (monorepo): pass its discovered repo-relative directory as `workspace`. Test `files` remain repo-relative.
   - Tests that need a database or another service: `with_services: ["<name>"]` for the services declared in `.opencode/pipeline.json` (a throwaway Postgres, started and always stopped by the tool; its `DATABASE_URL`/`PG*` env is injected). Call `dev_env` first if you do not know what is declared or available.
   - If the result says `blocked` with class `env` (for example no Postgres binaries and no Docker), that is the verdict for DB-backed tests: report it with the tool's reason and still run the tests that do not need the service.
   - A `skipped` check means no command is defined for it, never that it passed.
@@ -86,7 +86,7 @@ You are invoked AFTER the executor writes the fix.
 3. **Expected outcome: the executed tests MUST PASS.**
    - If the reproduction test passes AND existing tests pass → Green confirmed. Report success.
    - If the reproduction test still fails → the fix did not work. Report this with the failure output so the orchestrator can retry the executor.
-   - If the reproduction test passes but existing tests fail → the fix introduced a regression. Report the failing tests.
+   - If the reproduction test passes but existing tests fail, report the failures and classify them using the diagnostics above. Attribute a regression to the change only when the evidence connects them.
 
 ## Workspace hygiene (non-negotiable)
 

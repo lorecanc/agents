@@ -42,7 +42,7 @@ export interface SchemaBuilder {
   number(): ToolSchema
   boolean(): ToolSchema
   enum(values: readonly unknown[]): ToolSchema
-  array(item: ToolSchema): ToolSchema
+  array(item: ToolSchema | JsonSchema): ToolSchema
   record(value: ToolSchema): ToolSchema
   record(key: ToolSchema, value: ToolSchema): ToolSchema
 }
@@ -193,7 +193,7 @@ function createSchemaBuilder(): SchemaBuilder {
       const type = enumType(values)
       return createSchema({ type, enum: [...values] })
     },
-    array(item: ToolSchema): ToolSchema {
+    array(item: ToolSchema | JsonSchema): ToolSchema {
       return createSchema({ type: "array", items: toJsonSchema(item, "array item") })
     },
     record(key: ToolSchema | JsonSchema, value?: ToolSchema | JsonSchema): ToolSchema {

@@ -1,0 +1,58 @@
+{
+  "basedpyright": {
+    "command": "basedpyright-langserver",
+    "args": [
+      "--stdio"
+    ],
+    "extensionToLanguage": {
+      ".py": "basedpyright"
+    }
+  },
+  "ruff": {
+    "command": "ruff",
+    "args": [
+      "server"
+    ],
+    "extensionToLanguage": {
+      ".py": "ruff"
+    }
+  },
+  "html": {
+    "command": "vscode-html-language-server",
+    "args": [
+      "--stdio"
+    ],
+    "extensionToLanguage": {
+      ".html": "html",
+      ".htm": "html",
+      ".vue": "html"
+    }
+  },
+  "css": {
+    "command": "vscode-css-language-server",
+    "args": [
+      "--stdio"
+    ],
+    "extensionToLanguage": {
+      ".css": "css",
+      ".scss": "css",
+      ".less": "css"
+    }
+  },
+  "sql": {
+    "command": "sqls",
+    "extensionToLanguage": {
+      ".sql": "sql"
+    }
+  },
+  "markdown": {
+    "command": "marksman",
+    "args": [
+      "server"
+    ],
+    "extensionToLanguage": {
+      ".md": "markdown",
+      ".mdx": "markdown"
+    }
+  }
+}

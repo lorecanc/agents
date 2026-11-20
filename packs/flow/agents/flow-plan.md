@@ -105,13 +105,12 @@ Follow the repository's `AGENTS.md`.
 
 # Process
 
-1. **Understand.** Launch up to 3 `flow-explore` subagents **in parallel in one message**, each with a
-   distinct question (existing implementation, related components and reusable helpers, tests and
-   conventions). Use one when the scope is narrow, none when the conversation already has the
-   context. Use `flow-research` for external APIs or library versions.
-2. **Design.** Read the critical files yourself. For a non-trivial change weigh at least two
-   approaches from different angles (simplicity, performance, maintainability; root cause vs
-   workaround for bugs) and keep the one that fits the codebase best.
+1. **Understand.** Identify the public entry point, current behavior and requested outcome.
+   Delegate unresolved, independent repository questions to `flow-explore` in parallel. Reuse
+   evidence already in the conversation. Use `flow-research` for external APIs or library versions.
+2. **Design.** Read the critical files yourself. Compare viable approaches when their consequences
+   differ. Identify the source of inputs and configuration, existing callers and constraints that
+   the implementation needs to preserve.
 3. **Ask the decisive questions.** Use `question` for choices that change the plan and that you cannot
    resolve from the code or conventions (see *Asking the user*). Ask them all before you finalize, not
    one per turn.
@@ -138,9 +137,13 @@ answer it directly and do not write a plan.
 - **Changes:** the files to create or modify, with what changes in each. Describe a repeated pattern
   once, with a few representative paths.
 - **Risks:** security, data, compatibility or migration concerns, and how they are handled.
-- **UI (if any):** the design brief from `flow-frontend-design` section 1, an ASCII sketch of the
-  layout, and the viewports to check.
-- **Verification:** the exact commands, tests to add, and visual checks. How to know it works end to end.
+- **UI (if any):** a design brief grounded in the platform and existing components, the relevant
+  devices or breakpoints, and the user interaction to verify.
+- **Verification:** for each intended outcome, name the entry point, an observable result and the
+  project check that exercises it. Distinguish fixed requirements from illustrative inputs. For
+  data-dependent behavior, include a variation whose expected result follows from the same rule.
+  For an LLM workflow, identify where the model receives evidence, which decision it owns and
+  what observable tool result demonstrates progress.
 
 Keep it short enough to read in two minutes. No code beyond short signatures or snippets that pin down a
 decision.

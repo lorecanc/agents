@@ -91,8 +91,8 @@ export function autodetect(top) {
       smokeHint = {
         start: `PORT=\${PORT} ${run(startScript)}${portArg}`,
         ready: { port: "${PORT}", timeout_s: 60 },
-        checks: [{ name: "root responds", url: "http://127.0.0.1:${PORT}/", expect_status: 200 }],
-        note: "Draft only: many dev servers ignore PORT (e.g. pass --port). Review before saving to .opencode/pipeline.json.",
+        checks: [],
+        note: "Detected a start command. Choose the behavior to check from the project and task.",
       }
     }
   } else if (fs.existsSync(path.join(top, "go.mod"))) {
@@ -146,10 +146,21 @@ export function loadContract(top, { workspace = null } = {}) {
   const file = path.join(top, CONTRACT_PATH)
   const dir = workspace ? path.join(top, workspace) : top
   const problems = []
-  const raw = fs.existsSync(file) ? readJson(file) : null
-  if (fs.existsSync(file) && !raw) problems.push(`${CONTRACT_PATH} is not valid JSON`)
+  let raw = null
+  if (fs.existsSync(file)) {
+    try {
+      raw = JSON.parse(fs.readFileSync(file, "utf8"))
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        problems.push(`${CONTRACT_PATH} must be a JSON object`)
+        raw = null
+      }
+    } catch {
+      problems.push(`${CONTRACT_PATH} is not valid JSON`)
+    }
+  }
   const detected = autodetect(dir)
   const contract = { version: 1, setup: null, verify: {}, smoke: null, timeouts: {}, services: {}, workspace }
+  let workspaceSection = null
   let source = "none"
   if (raw && typeof raw === "object") {
     if (typeof raw.setup === "string") contract.setup = raw.setup
@@ -162,6 +173,7 @@ export function loadContract(top, { workspace = null } = {}) {
       const key = Object.keys(wsMap).find((k) => normWs(k) === workspace)
       const ws = key !== undefined ? wsMap[key] : null
       if (ws && typeof ws === "object") {
+        workspaceSection = ws
         source = "file"
         const prefix = `workspaces.${key}.`
         parseVerify(ws.verify, prefix, contract, problems)
@@ -180,6 +192,7 @@ export function loadContract(top, { workspace = null } = {}) {
     }
   }
   // Fill verify gaps from autodetect only for checks the file does not define.
+  const verifyDefined = Object.keys(contract.verify)
   let detectedUsed = false
   for (const k of CHECKS) {
     if (!contract.verify[k] && detected.verify[k]) {
@@ -189,13 +202,8 @@ export function loadContract(top, { workspace = null } = {}) {
   }
   if (source === "none" && detectedUsed) source = "autodetect"
   else if (source === "file" && detectedUsed) source = "file+autodetect"
-  contract.autodetected_smoke = contract.smoke ? null : detected.smokeHint ? {
-    start: detected.smokeHint.start,
-    ready_url: "http://127.0.0.1:${PORT}/",
-    ready_timeout_ms: 30000,
-    checks: [{ name: "root", method: "GET", path: "/", expect_status: [200, 201, 202, 204, 301, 302, 303, 307, 308] }],
-  } : null
-  return { contract, source, problems, smokeHint: contract.smoke ? null : detected.smokeHint }
+  contract.autodetected_smoke = contract.smoke ? null : detected.smokeHint
+  return { contract, source, problems, smokeHint: contract.autodetected_smoke, raw, workspaceSection, verifyDefined }
 }
 
 // ---------------------------------------------------------- processes
@@ -394,8 +402,8 @@ export function resolveWorkspace(info, workspace) {
   let isDir = false
   try {
     isDir = fs.statSync(abs).isDirectory()
-  } catch {
-    /* missing */
+  } catch (e) {
+    if (e.code === "ENOENT") return { error: `workspace ${workspace} does not exist` }
   }
   if (!isDir) return { error: `workspace ${workspace} is not an existing directory` }
   return { rel: rel || null }
@@ -467,21 +475,27 @@ export async function runVerify({
         results.push({ check, status: "skipped", reason: `no command defined (add ${where} to ${CONTRACT_PATH})` })
         continue
       }
-      if (check === "test_targeted" && !rels.length && /\{(files|packages)\}/.test(cmd)) {
-        results.push({ check, status: "skipped", reason: "no files given for the targeted command" })
-        continue
-      }
-      if (check === "test_filter") {
-        if (!hasFilter) {
+      if (check === "test_targeted" || check === "test_filter") {
+        const acceptsFiles = /\{(files|packages)\}/.test(cmd)
+        if (files.length && (!acceptsFiles || !rels.length)) {
+          const reason = !rels.length ? "all requested files were rejected" : "the configured command cannot restrict execution to the requested files"
+          results.push({ check, status: "skipped", reason })
+          continue
+        }
+        if (check === "test_targeted" && acceptsFiles && !rels.length) {
+          results.push({ check, status: "skipped", reason: "no files given for the targeted command" })
+          continue
+        }
+        if (check === "test_filter" && !hasFilter) {
           results.push({ check, status: "skipped", reason: "no filter given" })
           continue
         }
-        cmd = cmd.replaceAll("{filter}", shQuote(filter))
-      }
-      if (check === "test_targeted" || check === "test_filter") {
-        cmd = cmd
-          .replaceAll("{files}", rels.map(shQuote).join(" "))
-          .replaceAll("{packages}", rels.length ? packagesOf(rels).map(shQuote).join(" ") : "./...")
+        const substitutions = {
+          "{files}": rels.map(shQuote).join(" "),
+          "{packages}": rels.length ? packagesOf(rels).map(shQuote).join(" ") : "./...",
+          "{filter}": hasFilter ? shQuote(filter) : "{filter}",
+        }
+        cmd = cmd.replace(/\{(?:files|packages|filter)\}/g, (key) => substitutions[key])
       }
       const timeoutS = (contract.timeouts[check] || DEFAULT_TIMEOUT_S[check]) * timeoutScale
       const r = await runCommand(cmd, { cwd, env, timeoutMs: timeoutS * 1000, signal })
@@ -541,7 +555,8 @@ export async function runVerify({
   }
   const bad = results.some((r) => ["fail", "timeout", "error", "aborted"].includes(r.status))
   const ran = results.some((r) => r.status === "pass")
-  const skipped = results.some((r) => ["skipped", "not_run"].includes(r.status))
+  const skipped = results.some((r) => ["skipped", "not_run"].includes(r.status)) ||
+    (rejected.length > 0 && checks.some((check) => check === "test_targeted" || check === "test_filter"))
   return {
     status: bad ? "fail" : ran ? (skipped ? "partial" : "pass") : "inconclusive",
     ...base,
@@ -622,6 +637,9 @@ async function checkUrl(spec, subst, timeoutMs) {
     const body = await res.text()
     const wanted = Array.isArray(spec.expect_status) ? spec.expect_status : [spec.expect_status ?? 200]
     if (!wanted.includes(res.status)) return { status: "fail", detail: `expected status ${wanted.join("|")}, got ${res.status}`, body_excerpt: redact(body.slice(0, 500)) }
+    if (spec.body_contains && !body.includes(spec.body_contains)) {
+      return { status: "fail", detail: "body did not contain the expected text", body_excerpt: redact(body.slice(0, 500)) }
+    }
     if (spec.expect_body && !new RegExp(spec.expect_body).test(body)) {
       return { status: "fail", detail: `body did not match /${spec.expect_body}/`, body_excerpt: redact(body.slice(0, 500)) }
     }
@@ -687,7 +705,7 @@ export async function waitReady(ready, { portNum, subst, readLog, isExited, time
   return { ok: false, reason: `not ready after ${Math.round(timeoutMs / 1000)}s`, timeout: true, ms: Date.now() - t0 }
 }
 
-export async function runSmoke({ info, signal, owner, serviceOptions }) {
+export async function runSmoke({ info, checks = [], signal, owner, serviceOptions }) {
   const { contract, source, problems, smokeHint } = loadContract(info.top)
   const smoke = contract.smoke || contract.autodetected_smoke
   if (!smoke) {
@@ -699,6 +717,19 @@ export async function runSmoke({ info, signal, owner, serviceOptions }) {
       suggested_smoke: smokeHint,
     }
   }
+  if (!Array.isArray(checks) || checks.some((check) =>
+    !check || typeof check.path !== "string" || !check.path.startsWith("/") ||
+    (check.name !== undefined && typeof check.name !== "string") ||
+    (check.expect_status !== undefined && (!Number.isInteger(check.expect_status) || check.expect_status < 100 || check.expect_status > 599)) ||
+    (check.body_contains !== undefined && (typeof check.body_contains !== "string" || !check.body_contains.length)) ||
+    Object.keys(check).some((key) => !["path", "name", "expect_status", "body_contains"].includes(key))
+  )) {
+    return { status: "error", failure_class_hint: "harness", reason: "checks must be local HTTP assertions with a /path, optional name, HTTP expect_status and non-empty literal body_contains" }
+  }
+  if (smoke.checks !== undefined && !Array.isArray(smoke.checks)) {
+    return { status: "error", failure_class_hint: "harness", reason: "smoke.checks must be an array" }
+  }
+  const assertions = [...(smoke.checks || []), ...checks]
   const scratch = ensureScratch(info)
   const logPath = path.join(scratch, `smoke-${Date.now()}.log`)
   const detectedSmoke = !contract.smoke && contract.autodetected_smoke
@@ -767,7 +798,7 @@ export async function runSmoke({ info, signal, owner, serviceOptions }) {
       if (!ready.ok) {
         const log = readLog()
         if (ready.reason === "aborted" || (signal && signal.aborted)) {
-          const spec = (smoke.checks || [])[0]
+          const spec = assertions[0]
           if (spec) result.checks.push({ name: spec.name || spec.url || spec.cmd || "check", status: "aborted", detail: "aborted" })
           result.status = "aborted"
           result.reason = "aborted"
@@ -783,7 +814,7 @@ export async function runSmoke({ info, signal, owner, serviceOptions }) {
         return result
       }
       if (signal && signal.aborted) {
-        const spec = (smoke.checks || [])[0]
+        const spec = assertions[0]
         if (spec) result.checks.push({ name: spec.name || spec.url || spec.cmd || "check", status: "aborted", detail: "aborted" })
         result.status = "aborted"
         result.reason = "aborted"
@@ -794,7 +825,7 @@ export async function runSmoke({ info, signal, owner, serviceOptions }) {
       result.phase = "checks"
       let allPass = true
       let codeFailure = false
-      for (const rawSpec of smoke.checks || []) {
+      for (const rawSpec of assertions) {
         const spec = rawSpec.path ? { ...rawSpec, url: `http://127.0.0.1:\${PORT}${rawSpec.path}` } : rawSpec
         const name = spec.name || spec.url || spec.cmd || "check"
         if (signal && signal.aborted) {
@@ -845,7 +876,8 @@ export async function runSmoke({ info, signal, owner, serviceOptions }) {
         return result
       }
       if (allPass) {
-        result.status = "pass"
+        result.status = result.checks.length ? "pass" : "inconclusive"
+        if (!result.checks.length) result.reason = "Service reached readiness. Supply checks for the requested behavior or define smoke.checks in the project."
         result.log_tail = tail(readLog(), 600)
         return result
       }

@@ -531,9 +531,9 @@ Applies to both modes.
 1. Run `git status --porcelain=v1 -uall` and `git diff --stat`.
 2. Compute the **commit set**: files in `expected files` that are actually changed (modified, deleted, or untracked). Every other changed file is **excluded** and must never be staged.
 3. If a file in the commit set is also in `baseline_dirty`, its diff mixes pre-existing and session changes. By default exclude it and report it as `CONFLICT`. The mix is no longer unsplittable, though: when only its session hunks can be isolated, commit them through `pipeline_commit`'s `staging_patch` (preferred path above) or the `git apply --cached` fallback below. If the hunks cannot be isolated (overlapping context, binary content, ambiguous attribution), stay on the default: exclude the file, report it as `CONFLICT`, and leave the decision to the user.
-4. If anything outside the commit set is already staged, unstage it with `git restore --staged <path>`. This touches the index only, never the working tree.
+4. Inspect the index before staging. If it already contains staged changes, preserve them, leave the index untouched and report the affected paths. The manual workflow needs a clean starting index.
 5. Stage the commit set **one explicit file path at a time**, quoted (`git add "<path>"`, e.g. `git add ".github/workflows/ci.yml"`). Never stage directories, `.`, `-A`, `--all`, `-u`, `-p`, or `-i`: these are denied.
-6. Verify `git diff --staged --name-only` equals the commit set. If it does not, unstage the extras and re-verify; if it still differs, abort and report.
+6. Verify `git diff --staged --name-only` equals the commit set. If it differs, stop and report the discrepancy. Preserve any staged changes that may belong to someone else.
 
 For a mixed file (in both the commit set and `baseline_dirty`), whole-file `git add` would drag the pre-existing hunks in. When the session hunks are isolable, stage them index-only with a patch instead:
 
@@ -541,7 +541,7 @@ For a mixed file (in both the commit set and `baseline_dirty`), whole-file `git 
 - Verify it before use: `git apply --check --cached "<patch>"`.
 - Keep the patch file in `$PIPELINE_SCRATCH` — that is the recommended location; the guard additionally accepts repo-relative and `.git/opencode-scratch` paths, but never the `opencode-pipeline` state directory or anywhere else under `.git`.
 - With the index clean, apply it index-only: `git apply --cached "<patch>"`. The worktree is never touched, so HEAD stays unchanged and the pre-existing edits are not staged.
-- Verify with `git diff --cached` (or `git diff --staged`) that only the session hunks of the mixed file are staged; if anything extra is staged, remove it selectively with `git restore --staged <path>` and re-verify.
+- Verify with `git diff --cached` (or `git diff --staged`) that only the session hunks of the mixed file are staged; if anything extra is staged, stop and report the scope mismatch.
 - Typical case: the session produced five hunks across two mixed files, HEAD is unchanged and the index is clean — the patch is exactly those five hunks, applied with `git apply --cached`.
 - This fallback needs a runtime write channel to create the patch file. OpenCode's `post_session` has none (no file-write tools, and no sed/awk/printf/tee allowed): when that is the case do NOT force the split — leave the mixed file in `conflicts`, report it as `CONFLICT`, and leave the decision to the user. The `git apply --cached` fallback is for bridge runtimes that can write a file into `$PIPELINE_SCRATCH`.
 - After the commit (step 8), confirm the pre-existing changes are still in the worktree and report them as leftover changes.

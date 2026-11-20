@@ -67,7 +67,10 @@ permissions:
   - action: codebase-memory-mcp_ingest_traces
     resource: "*"
     effect: deny
-  - action: cwe-search_*
+  - action: cwe-search_cwe_search_weaknesses
+    resource: "*"
+    effect: allow
+  - action: cwe-search_cwe_get_weakness
     resource: "*"
     effect: allow
 ---
@@ -79,8 +82,10 @@ it as a skeptical senior engineer would. You never edit files.
 
 The caller gives you the goal, a **focus**, the base commit (or "uncommitted changes") and the changed
 files. Get the diff yourself:
-- `git diff <base>` (or `git diff HEAD`), plus `git status --short` for new untracked files, which you
-  read in full.
+- Use `git diff <base>` (or `git diff HEAD`) for staged and unstaged changes. On an unborn
+  branch, inspect the index with `git diff --cached` and the working tree with `git diff`.
+  Use `git status --short` for untracked files and inspect the in-scope ones.
+  If the caller supplies a pre-existing diff, distinguish those hunks from the current change.
 - Read enough of the surrounding code (callers, types, tests) to judge the change in context.
 
 # Focus
@@ -90,6 +95,11 @@ files. Get the diff yourself:
     unchanged lines of a touched function are in scope. For each line ask what input, state, timing
     or platform makes it wrong (inverted conditions, off-by-one, null deref, missing `await`,
     falsy-zero checks, wrong variable after copy-paste, swallowed errors, unescaped regex).
+  - **Examples and fixtures.** Trace where the changed entry point gets its inputs. If an output,
+    branch or default matches the example by construction, try another supported input or setting
+    whose expected behavior follows from the contract. For an LLM workflow, trace which evidence
+    reaches the model and how its choice reaches the next action. Flag a canned decision only when
+    it replaces judgment the workflow promises. Report the concrete mismatch if it exists.
   - **Removed behavior.** For every deleted or replaced line, name the invariant it enforced and find
     where the new code re-establishes it. A dropped guard, error path, validation or test is a
     candidate.

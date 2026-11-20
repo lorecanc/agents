@@ -73,9 +73,8 @@ test("dev_env reports env var presence only, never values, and never reads .env"
   assert.deepEqual(r.env_vars.files, [".env.example"])
   assert.deepEqual(r.env_vars.vars, [{ name: "DATABASE_URL", set: true }, { name: "API_TOKEN", set: true }, { name: "UNSET_ONE", set: false }])
   assert.deepEqual(r.env_vars.unset, ["UNSET_ONE"])
-  // DATABASE_URL implies postgres; without binaries or docker the db outlook says why not
-  assert.equal(r.verification_outlook.db_backed_tests.feasible, false)
-  assert.match(r.verification_outlook.db_backed_tests.reason, /postgres/)
+  assert.equal(r.verification_outlook.db_backed_tests.feasible, "unknown")
+  assert.match(r.verification_outlook.db_backed_tests.reason, /DATABASE_URL/)
 })
 
 test("dev_env detects workspaces up to depth 2 and skips vendored dirs", async () => {
@@ -105,13 +104,37 @@ test("dev_env detects workspaces up to depth 2 and skips vendored dirs", async (
   assert.match(esc.workspace.error, /outside the repository/)
 })
 
+test("dev_env reports the commands and services dev_verify can use in the requested workspace", async () => {
+  const dir = mkRepo({
+    "backend/package.json": JSON.stringify({ scripts: { test: "node --test" } }),
+    ".opencode/pipeline.json": JSON.stringify({
+      verify: { lint: "make lint-root" },
+      services: { db: { kind: "postgres" } },
+      workspaces: { "./backend/": {
+        verify: { test_fast: "make check-api", test_filter: "make all" },
+        services: { queue: { start: "node worker.js" } },
+      } },
+    }),
+  })
+  const result = await collectEnv({ directory: dir, workspace: "./backend", env: { PATH: "" } })
+  assert.deepEqual(result.contract.commands, { test_fast: "make check-api" })
+  assert.equal(result.verification_outlook.unit_tests.feasible, "unknown")
+  assert.deepEqual(result.contract.verify_defined, ["test_fast"])
+  assert.deepEqual(result.contract.verify_autodetected, [])
+  assert.deepEqual(result.contract.services.map((s) => s.name), ["db", "queue"])
+  assert.match(result.contract.problems.join(" "), /test_filter must contain/)
+  const invalid = await collectEnv({ directory: dir, workspace: "backend/package.json", env: { PATH: "" } })
+  assert.match(invalid.workspace.error, /directory/)
+  assert.equal(invalid.contract.status, "unknown")
+})
+
 test("dev_env summarizes the contract generically (services, workspaces, unknown keys, problems)", { skip: process.platform === "win32" }, async () => {
   const dir = mkRepo({
     ".opencode/pipeline.json": JSON.stringify({
       version: 1,
       verify: { test_fast: "npm test", lint: "" },
-      services: { db: { kind: "postgres", port: 5432 }, cache: { image: "redis:7" }, worker: { start: "node w.js" } },
-      workspaces: { "packages/api": { verify: { test_fast: "npm test" }, services: ["db"] } },
+      services: { db: { kind: "postgres", port: 5432 }, cache: { start: "redis-server", image: "redis:7" }, worker: { start: "node w.js" } },
+      workspaces: { "packages/api": { verify: { test_fast: "npm test" }, services: { jobs: { start: "node jobs.js" } } } },
       serve: { start: "npm run dev" },
       future_thing: true,
     }),
@@ -122,7 +145,7 @@ test("dev_env summarizes the contract generically (services, workspaces, unknown
   assert.deepEqual(r.contract.verify_defined, ["test_fast"])
   assert.deepEqual(r.contract.problems, ["verify.lint must be a non-empty string"])
   assert.deepEqual(r.contract.services, [{ name: "db", kind: "postgres" }, { name: "cache", kind: "docker", image: "redis:7" }, { name: "worker", kind: "process" }])
-  assert.deepEqual(r.contract.workspaces, [{ dir: "packages/api", verify: ["test_fast"], services: ["db"] }])
+  assert.deepEqual(r.contract.workspaces, [{ dir: "packages/api", verify: ["test_fast"], services: ["jobs"] }])
   assert.deepEqual(r.contract.other_keys, ["future_thing"])
   assert.equal(r.contract.serve, true)
   assert.equal(r.verification_outlook.unit_tests.feasible, true)

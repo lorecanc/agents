@@ -53,7 +53,7 @@ These servers are declared by the generated plugin. `npx` entries are fetched on
 | `magic` | `frontend-specialist` | Automatic via `npx -y @21st-dev/magic@latest`; requires Node.js, npm, and network access. Required environment: `TWENTYFIRST_API_KEY`. |
 | `cupertino` | `swift-specialist` | Install `cupertino` and verify it with `command -v cupertino`. [Installation guide](https://aleahim.com/blog/cupertino-09-release/). |
 | `axiom` | `swift-specialist` | Automatic via `npx -y axiom-mcp`; requires Node.js, npm, and network access. |
-| `cwe-search` | `security-auditor` | Automatic via `npx -y cwe-search-mcp@latest`; requires Node.js, npm, and network access. |
+| `cwe-search` | `security-auditor` | Automatic via `npx -y @cyanheads/mitre-cwe-mcp-server@0.3.0`; requires Node.js, npm, and network access. |
 | `bigquery` | `executor`, `explorer`, `fast-lane`, `ops` | Remote MCP endpoint (`https://bigquery.googleapis.com/mcp`); ensure network/auth access. |
 | `cloud-run` | `executor`, `explorer`, `fast-lane`, `ops` | Remote MCP endpoint (`https://run.googleapis.com/mcp`); ensure network/auth access. |
 | `cloud-logging` | `executor`, `explorer`, `fast-lane`, `ops` | Remote MCP endpoint (`https://logging.googleapis.com/mcp`); ensure network/auth access. |
@@ -217,6 +217,8 @@ Invoke a generated skill with its plugin-scoped name:
 This directory is a local marketplace named `decent-pipeline-local` that publishes the `decent-pipeline` plugin from `.`.
 
 The manager runs `claude plugin validate --strict` after each regeneration.
+
+The manager adds the marketplace and installs the plugin automatically.
 
 Manual fallback:
 

@@ -53,7 +53,7 @@
       "command": "npx",
       "args": [
         "-y",
-        "cwe-search-mcp@latest"
+        "@cyanheads/mitre-cwe-mcp-server@0.3.0"
       ]
     },
     "bigquery": {

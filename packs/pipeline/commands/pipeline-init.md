@@ -1,5 +1,5 @@
 ---
-description: Pipeline: draft and validate the .opencode/pipeline.json verification contract
+description: Draft and validate the .opencode/pipeline.json verification contract
 agent: pipeline-orchestrator
 ---
 
@@ -9,55 +9,14 @@ Task (pipeline setup): optionally draft the repository's verification contract `
 - Goal: where useful, give `dev_verify`, `dev_smoke` and `dev_serve` explicit commands, so tester and ops never improvise starts, ports or test commands through raw bash.
 - Phase 0: call `dev_env` and keep its `contract`, `workspaces_detected`, `binaries`, `docker` and `verification_outlook`.
 - Delegate `@pipeline-explorer` to collect, with file evidence (README, `AGENTS.md`, `package.json`, `pyproject.toml`, `Makefile`, `docker-compose.yml`, CI workflows, `.env.example` variable names only): per sub-project the lint, typecheck, targeted-test, single-test-by-name, fast-test, full-test and build commands; the dev/start command, its port flag and health URL; the services tests need (databases, caches) and the env variable names they read.
-- Draft the contract from that evidence only. If a command is not evidenced, leave it out (a missing check is reported as `skipped`, which is honest; a guessed one is not).
+- Draft the contract from that evidence only. If a command is not evidenced, leave it out (the tools can still autodetect checks from project files).
 - Show the draft to the user with `question` (accept / edit / cancel). Only after acceptance, delegate `@pipeline-fast_lane` to write the file exactly as accepted. If the file already exists, show a diff-style summary of changes and never drop existing keys without asking.
-- Then delegate `@pipeline-ops` (empirical-validation mode) to validate it: `dev_verify` with `checks: ["lint", "typecheck", "test_fast"]` (per workspace, with `with_services` where declared) and `dev_smoke` if a smoke section exists. Report per check: pass / fail / skipped / blocked with the class. A `blocked` (`env`) service is a host limit, not a contract error.
+- Then delegate `@pipeline-ops` (empirical-validation mode) to validate the entries actually drafted. For `dev_verify`, select check names from the draft and pass the repo-relative workspace, test files, filter and required service names when the check needs them. Use `dev_smoke` for root smoke checks and `dev_serve` for scoped startup/readiness. Report per check: pass / fail / skipped / blocked with the class. A `blocked` (`env`) service is a host limit, not a contract error.
 - Skip HITL. Offer a checkpoint commit of `.opencode/pipeline.json` only.
 
-## Contract schema (keep only what applies)
+## Contract fields
 
-```json
-{
-  "verify": {
-    "lint": "npm run lint",
-    "typecheck": "npx --no-install tsc --noEmit",
-    "test_targeted": "npx --no-install vitest run {files}",
-    "test_filter": "npx --no-install vitest run {files} -t {filter}",
-    "test_fast": "npm test --silent",
-    "test_full": "npm test --silent",
-    "build": "npm run build"
-  },
-  "timeouts": { "test_full": 900 },
-  "services": {
-    "db": { "kind": "postgres", "version": "16", "env_var": "DATABASE_URL" },
-    "cache": {
-      "start": "redis-server --port ${PORT}",
-      "ready": { "port": "${PORT}", "timeout_s": 30 },
-      "env": { "REDIS_URL": "redis://127.0.0.1:${PORT}" }
-    }
-  },
-  "workspaces": {
-    "backend": {
-      "verify": { "test_fast": "python3 -m pytest -q -x", "test_targeted": "python3 -m pytest -q {files}" },
-      "services": { "db": { "kind": "postgres" } }
-    }
-  },
-  "smoke": {
-    "start": "npm run dev -- --port ${PORT}",
-    "ready": { "port": "${PORT}", "timeout_s": 60 },
-    "services": ["db"],
-    "checks": [{ "name": "root responds", "url": "http://127.0.0.1:${PORT}/", "expect_status": 200 }]
-  }
-}
-```
-
-- Placeholders: `{files}` (repo- or workspace-relative test files), `{filter}` (test name expression; required in `test_filter`), `{packages}` (Go: `./dir` of the files), `${PORT}` (free port chosen by the tool).
-- `kind: "postgres"` is a throwaway cluster: native `initdb`/`postgres` when installed, otherwise Docker when the daemon is reachable; exported env is `DATABASE_URL` (or `env_var`) plus `PGHOST`, `PGPORT`, `PGUSER`, `PGDATABASE`. Never put credentials or real connection strings in the contract.
-
-## Repository state at session start
-
-Use this as the session baseline (`base_commit`, `baseline_dirty`).
-
-- Branch: !`git branch --show-current 2>/dev/null || echo "NO_GIT"`
-- HEAD: !`git rev-parse HEAD 2>/dev/null || echo "NO_GIT"`
-- Existing contract: !`test -f .opencode/pipeline.json && echo "present" || echo "absent"`
+- Use the current repository's commands for the applicable keys under `verify` (`lint`, `typecheck`, `test_targeted`, `test_filter`, `test_fast`, `test_full`, `build`). For a sub-project, put its settings under `workspaces` keyed by its actual repo-relative directory. Each command runs from its configured workspace.
+- Use `{files}` for selected test paths, `{filter}` for a test-name expression (required in `test_filter`), or `{packages}` for Go package selection. Add `timeouts` in seconds only where the project needs an override.
+- For backing services, use `services` keyed by a local name. A PostgreSQL entry supports `kind` set to `postgres`, optional `version` and `env_var`. A custom entry uses `start`, `ready` and an `env` mapping. Derive versions and variable names from the project. Keep credentials out of the draft.
+- A `smoke` section describes the app's `start` command, `ready` probe, any required service names and `checks`. Use `${PORT}` for the tool-selected port. Choose a request and expected response that exercise the app's actual behavior. A browser-only `serve` section can declare the same startup and readiness information without smoke checks.

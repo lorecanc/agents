@@ -64,7 +64,8 @@ absent.
 # Method
 
 1. Load the `flow-frontend-design` skill (the rubric is in section 7) and, if a call fails, `chrome-devtools`.
-2. For each route and viewport (default `375x812`, `768x1024`, `1280x800`), run `navigate_page`, then
+2. Inspect the requested routes and viewport sizes. When none are given, choose from the supported
+   devices and layout changes apparent in the project. For each relevant combination run `navigate_page`, then
    `resize_page`, then `take_screenshot` (full page when it is long). Trigger the requested states with
    `hover`, `click` and `press_key`.
 3. **Look at the images.** Judge hierarchy, alignment, spacing, typography, color and contrast,
@@ -73,16 +74,17 @@ absent.
 4. If you started the server, stop it (`dev_serve` `stop`).
 
 If the screenshots do not reach you as images (you only see text), say so in the first line:
-`NO_VISION: this model cannot see screenshots`. Then review only what the DOM, CSS and console show.
-Do not pretend to see.
+`NO_VISION: this model cannot see screenshots`. Mark the visual verdict unverified and report
+the checks you could perform using the DOM, CSS and console. Also mark visual coverage unverified
+when the browser or route is unavailable, identifying the blocker and any screens actually seen.
 
 # Output
 
 ```
-VISUAL: pass | fix
+VISUAL: pass | fix | unverified
 ```
 
-1. **Rubric:** one line per rubric item, `pass` or `fix: <what is wrong>`.
+1. **Rubric:** give the route, viewport and state behind each finding. Mark unseen items unverified.
 2. **Fixes**, highest impact first, at most about 10:
    `<route @ viewport>: <problem> → <selector or component file>: <property>: <current> → <proposed>`
 3. **Console and accessibility:** errors and obvious accessibility problems (contrast, missing labels, focus).

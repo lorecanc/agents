@@ -75,7 +75,6 @@ function readTail(file, n = 3000) {
 }
 
 const validStart = (spec) => Boolean(spec && typeof spec.start === "string" && spec.start.trim())
-const normWs = (key) => String(key).replace(/^\.\//, "").replace(/\/+$/, "")
 const SERVE_WRAPPERS = new Set(["env", "command", "time", "nohup", "builtin", "nice", "setsid", "stdbuf", "timeout", "gtimeout"])
 
 function directCommandTokens(command) {
@@ -120,22 +119,13 @@ function directCommandProblem(command) {
 
 /** The contract section used to serve: `serve`, `smoke`, or an autodetected script. */
 function serveSpec(info, { workspace = null, command, withServices = false } = {}) {
-  const { contract, problems, smokeHint } = loadContract(info.top, { workspace })
-  let raw = null
-  try {
-    raw = JSON.parse(fs.readFileSync(path.join(info.top, ".opencode", "pipeline.json"), "utf8"))
-  } catch {
-    /* optional contract */
-  }
-  const wsMap = raw?.workspaces && typeof raw.workspaces === "object" ? raw.workspaces : {}
-  const wsKey = workspace ? Object.keys(wsMap).find((key) => normWs(key) === workspace) : null
-  const wsSection = wsKey ? wsMap[wsKey] : null
+  const { contract, problems, smokeHint, raw, workspaceSection } = loadContract(info.top, { workspace })
   const configured = (section) => {
     if (validStart(section?.serve)) return { spec: section.serve, from: "serve" }
     if (validStart(section?.smoke)) return { spec: section.smoke, from: "smoke" }
     return null
   }
-  const workspaceConfigured = configured(wsSection)
+  const workspaceConfigured = configured(workspaceSection)
   const rootConfigured = configured(raw)
   if (command !== undefined && command !== null) {
     const base = workspace ? workspaceConfigured?.spec || contract.smoke || contract.autodetected_smoke : rootConfigured?.spec || contract.smoke || contract.autodetected_smoke

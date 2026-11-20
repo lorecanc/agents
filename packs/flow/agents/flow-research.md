@@ -56,7 +56,7 @@ Method:
    tracker. Use blog posts only to corroborate.
 3. Use the specialized MCPs when they fit: `cupertino_*`/`axiom_*` for Apple,
    `google-developer-knowledge_*` for Android and Google, `shadcn_*` for shadcn/ui registries. Keep
-   queries specific and limits small.
+   queries specific and limits small. If the relevant server is disabled or unreachable, use the installed package, its versioned source or official documentation. Identify any remaining version uncertainty.
 4. Stop when the question is answered with sources. Do not write an essay.
 
 Return:

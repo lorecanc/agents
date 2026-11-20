@@ -32,7 +32,7 @@ Precedence is always: the user's own words, then the project's existing system, 
 
 1. Find the existing system before inventing one: CSS variables and theme files, `tailwind.config.*` or the `@theme` block, the shadcn `components.json`, the shared `Button`/`Card`/`Input` components, and the font setup.
 2. Reuse those tokens and components. A new one-off color or radius is a smell.
-3. If the existing system is weak (random spacing, five greys, no type scale), fix the **tokens** in one place. Do not patch every component.
+3. If inconsistent tokens cause the issue, trace their consumers before adjusting them. Keep a local design change scoped to its component when a shared update would alter unrelated screens.
 4. shadcn/ui and similar libraries are a starting point, not a design. Adjust radius, density, colors and typography to the brief. Default shadcn plus a gradient is the generic look.
 
 ## 3. Systems to apply
@@ -72,8 +72,8 @@ Precedence is always: the user's own words, then the project's existing system, 
 - Watch selector specificity: a type selector and a component class both setting spacing silently undo each other.
 
 **Responsive**
-- Design at 375, 768 and 1280 widths. Mobile is a real layout, not a squeezed desktop: stack, reorder by priority, and make tap targets at least 44px.
-- Avoid horizontal scroll at 375px except for intentional carousels and tables (wrap tables in a scroll container).
+- Design for the supported width range and the transitions where the content needs a different layout. Mobile is a real layout, not a squeezed desktop: stack, reorder by priority, and make tap targets at least 44px.
+- Avoid horizontal scroll at the narrowest supported width except for intentional carousels and tables (wrap tables in a scroll container).
 
 ## 4. The generic "AI-made" look: avoid by default
 
@@ -100,7 +100,7 @@ Use these only if the user explicitly asks for them; their words always win.
 
 - **Structure is information.** Numbering, eyebrows, dividers and labels must encode something true about the content. Numbered steps only for a real sequence; an eyebrow only when it names a real category.
 - **Complete at rest.** Everything meant to be read is visible once the page loads, without scrolling to trigger it. Animate in from a visible state, never from `opacity: 0` waiting for an observer. Size a hero to its content, not to `100vh`.
-- **Realistic working state.** A tool or app opens showing what it does: the user's real data, or clearly marked example rows, a loaded sample, a plausibly filled form. An empty shell waiting for input shows nothing. Design the real empty state separately (what will appear and how to add the first item).
+- **Working data.** Connect the screen to its intended data source. Empty collections show the real empty state and a way forward. Use labeled examples for an explicit demo or prototype. For a functional change, exercise a different record or empty collection and confirm that the rendered result follows the data.
 - **Copy is design material.** Write from the user's side of the screen: name things by what people recognize, not by how the system is built (they manage "notifications", not "webhook config"). Controls say exactly what happens ("Publish", then "Published"). Errors say what went wrong and how to fix it, without apologies. Prefer specific to clever; avoid em-dash asides, "not X but Y" framing and stock phrases.
 - **Dashboards and tools** are scanned, not read: summary before detail; state encoded in form as well as numbers (a pill, a chip, a severity stripe) so what needs attention shows at a glance; charts drawn to scale with labels that name values the chart reaches; interactive elements that look interactive. Big-number tiles only when those figures are the point.
 
@@ -120,12 +120,12 @@ Use these only if the user explicitly asks for them; their words always win.
 
 ## 6. Look at it: the visual loop
 
-Load `flow-visual-loop` and iterate **until the rubric passes or 3 rounds are used**. Never declare UI work done
+Load `flow-visual-loop` and recheck the affected states against the brief. Never declare UI work done
 without at least one rendered check, unless the app cannot run. In that case, say so explicitly (`UNVERIFIED: …`).
 
 ## 7. Review rubric (also used by `flow-eye`)
 
-Score each item **pass / fix**. For every fix, give a concrete change (selector or component, then property, then value).
+Judge each applicable item against the brief and the observed screen. Give a concrete change for each defect and identify any item the available evidence could not establish.
 
 1. **Hierarchy:** the primary action and the main message are obvious within 3 seconds, and there is one focal point per view.
 2. **Alignment and spacing:** edges line up, spacing is on-scale, and sections are clearly separated with groups tight.
@@ -133,6 +133,6 @@ Score each item **pass / fix**. For every fix, give a concrete change (selector 
 4. **Color and contrast:** neutrals dominate with one accent used purposefully, and contrast meets AA (including muted text).
 5. **Consistency:** radius, borders, shadows, icons and buttons are uniform, and the design system is respected.
 6. **States:** hover, focus-visible, disabled, empty, loading and error states exist where relevant.
-7. **Responsive:** there is no overflow at 375, the layout is sensible at 768 and 1280, and tap targets are at least 44px.
+7. **Responsive:** there is no unintended overflow and the layout works across the supported widths, and tap targets are at least 44px.
 8. **Polish:** there is nothing from section 4, section 4b holds (structure means something, complete at rest, realistic state), the copy is specific and real, and no orphaned or cut-off text remains.
 9. **Accessibility basics:** labels, alt text, focus order, no keyboard traps, and the console has no errors.

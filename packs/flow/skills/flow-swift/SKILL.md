@@ -9,7 +9,7 @@ description: Apple platform work (Swift, SwiftUI, UIKit, iOS/macOS/watchOS/visio
 
 - Find the **deployment target**: `IPHONEOS_DEPLOYMENT_TARGET`/`MACOSX_DEPLOYMENT_TARGET` in the build settings, `platforms:` in `Package.swift`, or the `.xcodeproj` (`grep -r DEPLOYMENT_TARGET`). Every API decision depends on it.
 - Find the Swift version and the language mode (Swift 6 strict concurrency or not).
-- Never claim a newer iOS or Xcode version "doesn't exist". Apple went from iOS 18 to iOS 26. Defer to the docs for the latest version.
+- Match API availability to the installed SDK and deployment target. Check release documentation for version claims.
 
 ## 2. Ground APIs in docs, not memory
 
@@ -50,4 +50,4 @@ For any API newer than the deployment target, add `if #available` / `@available`
 1. Run `session_show_defaults` once and set the project, scheme and simulator if they are missing. Call `discover_projs` only when they are missing.
 2. Run `build_sim` or `build_run_sim`, then `test_sim` for the relevant tests.
 3. For UI, use `screenshot` or `snapshot_ui` and judge the result with the `flow-frontend-design` rubric (hierarchy, spacing, typography, contrast), adapted to the HIG.
-4. If the toolchain is not available, report `UNVERIFIED` with the reason.
+4. If XcodeBuildMCP is disabled, use the project’s build and test commands with the discovered scheme and destination, or `swift test` for a Swift package. State which runtime or visual checks could not run.

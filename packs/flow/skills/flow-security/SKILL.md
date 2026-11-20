@@ -77,4 +77,6 @@ Pattern matches with no reachable input are informational, not findings.
 
 `[severity] path:line: CWE-<id> <title>. <input> → <sink> → <effect>. Fix: <specific change>.`
 
-If the `cwe-search` MCP is available, use it to confirm the CWE id. If it is not, use the ids above. Never invent one.
+Base the finding on the reviewed code. When a classification helps, search the available
+`cwe-search` weakness catalog and confirm that the entry describes the observed cause. If you
+cannot confirm a match, omit the CWE ID and report the evidence and fix.

@@ -14,13 +14,13 @@ import path from "node:path"
 import { execFile } from "node:child_process"
 import { fileURLToPath } from "node:url"
 
-import { isInside, realpathLoose, repoInfo } from "./_repo.js"
+import { realpathLoose, repoInfo } from "./_repo.js"
 import { rootRecordFor } from "./_sessions.js"
-import { CHECKS, CONTRACT_PATH, autodetect } from "./_run.js"
+import { CHECKS, CONTRACT_PATH, loadContract, resolveWorkspace } from "./_run.js"
 
 export const BINARIES = [
   "psql", "pg_ctl", "initdb", "pg_isready", "postgres", "mysql", "mysqld", "redis-server", "mongod",
-  "python3", "node", "npm", "pnpm", "yarn", "bun", "go", "cargo", "java", "mvn", "gradle", "uv", "poetry", "pytest",
+  "python", "python3", "node", "npx", "npm", "pnpm", "yarn", "bun", "go", "cargo", "java", "mvn", "gradle", "uv", "poetry", "pytest",
   "docker", "podman",
 ]
 export const DEV_TOOLS = ["dev_env", "dev_verify", "dev_smoke", "dev_serve"]
@@ -156,14 +156,6 @@ async function probeDocker(env, binaries, timeoutMs) {
 
 // ----------------------------------------------------------------- contract
 
-function readJson(file) {
-  try {
-    return JSON.parse(fs.readFileSync(file, "utf8"))
-  } catch {
-    return undefined
-  }
-}
-
 function serviceKind(svc) {
   if (!svc || typeof svc !== "object") return "unknown"
   for (const k of ["kind", "type", "engine"]) if (typeof svc[k] === "string") return svc[k]
@@ -172,62 +164,36 @@ function serviceKind(svc) {
   return "unknown"
 }
 
-function probeContract(top, wsDir) {
-  const file = path.join(top, CONTRACT_PATH)
-  const exists = fs.existsSync(file)
-  const problems = []
-  let raw = null
-  if (exists) {
-    raw = readJson(file)
-    if (raw === undefined) problems.push(`${CONTRACT_PATH} is not valid JSON`)
-    else if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-      problems.push(`${CONTRACT_PATH} must be a JSON object`)
-      raw = null
-    }
-  }
-  raw = raw || {}
-  const verifyDefined = []
-  const verify = raw.verify && typeof raw.verify === "object" ? raw.verify : {}
-  for (const k of CHECKS) {
-    const v = verify[k]
-    if (v === undefined || v === null) continue
-    if (typeof v === "string" && v.trim()) verifyDefined.push(k)
-    else problems.push(`verify.${k} must be a non-empty string`)
-  }
-  let detected = { verify: {}, smokeHint: null }
-  try {
-    detected = autodetect(wsDir || top)
-  } catch (e) {
-    problems.push(`autodetect failed: ${e.message}`)
-  }
-  const verifyAutodetected = CHECKS.filter((k) => !verifyDefined.includes(k) && detected.verify[k])
-  const services = raw.services && typeof raw.services === "object" && !Array.isArray(raw.services)
-    ? Object.entries(raw.services).map(([name, svc]) => {
-      const image = svc && typeof svc.image === "string" ? svc.image : null
-      return { name, kind: serviceKind(svc), ...(image ? { image: clip(image, 120) } : {}) }
-    })
-    : []
-  const workspaces = raw.workspaces && typeof raw.workspaces === "object" && !Array.isArray(raw.workspaces) ? raw.workspaces : {}
+function probeContract(top, workspace) {
+  const { contract, raw, workspaceSection, verifyDefined, problems } = loadContract(top, { workspace })
+  const source = raw || {}
+  const verifyAutodetected = CHECKS.filter((k) => !verifyDefined.includes(k) && contract.verify[k])
+  const services = Object.entries(contract.services).map(([name, svc]) => ({
+    name,
+    kind: serviceKind(svc),
+    ...(typeof svc.image === "string" ? { image: clip(svc.image, 120) } : {}),
+  }))
+  const workspaces = source.workspaces && typeof source.workspaces === "object" && !Array.isArray(source.workspaces) ? source.workspaces : {}
   const workspaceEntries = Object.entries(workspaces).map(([dir, w]) => ({
     dir,
     verify: w && typeof w.verify === "object" && w.verify ? Object.keys(w.verify) : [],
-    services: w && Array.isArray(w.services) ? w.services.filter((x) => typeof x === "string") : [],
+    services: w?.services && typeof w.services === "object" && !Array.isArray(w.services) ? Object.keys(w.services) : [],
   }))
   return {
-    exists,
+    exists: fs.existsSync(path.join(top, CONTRACT_PATH)),
     path: CONTRACT_PATH,
     problems,
-    setup: typeof raw.setup === "string",
+    setup: typeof contract.setup === "string",
     verify_defined: verifyDefined,
     verify_autodetected: verifyAutodetected,
     verify_missing: CHECKS.filter((k) => !verifyDefined.includes(k) && !verifyAutodetected.includes(k)),
-    commands: Object.fromEntries(CHECKS.map((k) => [k, verifyDefined.includes(k) ? verify[k] : detected.verify[k]]).filter(([, v]) => v)),
+    commands: contract.verify,
     services,
-    smoke: Boolean(raw.smoke),
-    serve: Boolean(raw.serve),
-    smoke_autodetected: !raw.smoke && Boolean(detected.smokeHint),
+    smoke: Boolean(contract.smoke),
+    serve: workspace ? Boolean(workspaceSection?.serve?.start || workspaceSection?.smoke?.start) : Boolean(source.serve?.start),
+    smoke_autodetected: Boolean(contract.autodetected_smoke),
     workspaces: workspaceEntries,
-    other_keys: Object.keys(raw).filter((k) => !KNOWN_CONTRACT_KEYS.has(k)),
+    other_keys: Object.keys(source).filter((k) => !KNOWN_CONTRACT_KEYS.has(k)),
   }
 }
 
@@ -401,9 +367,9 @@ function probePipeline(info, sessionId, toolsDir) {
 // ----------------------------------------------------------------- outlook
 
 const RUNNER_BIN = [
-  [/^(npm|npx)\b/, "npm"], [/^pnpm\b/, "pnpm"], [/^yarn\b/, "yarn"], [/^bun\b/, "bun"], [/^node\b/, "node"],
-  [/^go\b/, "go"], [/^cargo\b/, "cargo"], [/^(python3?|pytest)\b/, "python3"], [/^uv\b/, "uv"], [/^poetry\b/, "poetry"],
-  [/^mvn\b/, "mvn"], [/^(gradle|\.\/gradlew)\b/, "java"],
+  [/^npm\b/, "npm"], [/^npx\b/, "npx"], [/^pnpm\b/, "pnpm"], [/^yarn\b/, "yarn"], [/^bun\b/, "bun"], [/^node\b/, "node"],
+  [/^go\b/, "go"], [/^cargo\b/, "cargo"], [/^python3\b/, "python3"], [/^python\b/, "python"], [/^pytest\b/, "pytest"], [/^uv\b/, "uv"], [/^poetry\b/, "poetry"],
+  [/^mvn\b/, "mvn"], [/^gradle\b/, "gradle"],
 ]
 
 function runnerFor(command) {
@@ -428,7 +394,7 @@ function deriveOutlook(r) {
   // unit tests
   if (!contract) outlook.unit_tests = { feasible: "unknown", reason: "contract/autodetect probe failed" }
   else {
-    const testKey = ["test_fast", "test_targeted", "test_full"].find((k) => contract.commands[k])
+    const testKey = ["test_fast", "test_targeted", "test_full", "test_filter"].find((k) => contract.commands[k])
     if (!testKey) {
       const subs = r.workspaces_detected && Array.isArray(r.workspaces_detected.dirs) ? r.workspaces_detected.dirs.filter((d) => d.dir !== ".").map((d) => d.dir) : []
       const hint = subs.length && !r.workspace ? `; sub-projects detected (${subs.slice(0, 8).join(", ")}): call dev_env with workspace=<dir>` : ""
@@ -436,7 +402,8 @@ function deriveOutlook(r) {
     }
     else {
       const bin = runnerFor(contract.commands[testKey])
-      if (bin && !bins[bin]) outlook.unit_tests = { feasible: false, reason: `${testKey} uses ${bin}, which is not on PATH` }
+      if (!bin) outlook.unit_tests = { feasible: "unknown", reason: `${testKey} is configured; its runner was not probed (${contract.commands[testKey]})` }
+      else if (!bins[bin]) outlook.unit_tests = { feasible: false, reason: `${testKey} uses ${bin}, which is not on PATH` }
       else outlook.unit_tests = { feasible: true, reason: `${testKey}: ${contract.commands[testKey]}` }
     }
   }
@@ -447,12 +414,14 @@ function deriveOutlook(r) {
   const needed = new Set()
   for (const s of declared) for (const d of DB_KINDS) if (d.re.test(s.kind) || d.re.test(s.name) || (s.image && d.re.test(s.image.split(/[:@]/)[0].split("/").pop()))) needed.add(d.kind)
   for (const n of envNames) {
-    if (/^(DATABASE_URL|PG[A-Z]*|POSTGRES_[A-Z_]*)$/.test(n)) needed.add("postgres")
+    if (/^(PG[A-Z]*|POSTGRES_[A-Z_]*)$/.test(n)) needed.add("postgres")
     else if (/^(MYSQL_[A-Z_]*)$/.test(n)) needed.add("mysql")
     else if (/^REDIS_[A-Z_]*$/.test(n)) needed.add("redis")
     else if (/^MONGO[A-Z_]*$/.test(n)) needed.add("mongo")
   }
-  if (!needed.size && !declared.length) outlook.db_backed_tests = { feasible: "n/a", reason: "no services declared and no database variables in .env.example/.env.sample" }
+  if (!needed.size && !declared.length && envNames.includes("DATABASE_URL")) {
+    outlook.db_backed_tests = { feasible: "unknown", reason: "DATABASE_URL is declared; inspect project configuration to identify the database and test prerequisites" }
+  } else if (!needed.size && !declared.length) outlook.db_backed_tests = { feasible: "n/a", reason: "no services declared and no database variables in .env.example/.env.sample" }
   else {
     const missing = []
     for (const kind of needed) {
@@ -496,13 +465,14 @@ export async function collectEnv({ directory, workspace, sessionId, toolsDir = t
   const top = info ? info.top : directory ? realpathLoose(directory) : process.cwd()
   r.repository = { top, git: Boolean(info) }
   let wsDir = null
+  let workspaceRel = null
   if (workspace) {
-    const abs = realpathLoose(path.resolve(top, workspace))
-    if (!isInside(top, abs)) r.workspace = { requested: workspace, error: "outside the repository, ignored" }
-    else if (!fs.existsSync(abs)) r.workspace = { requested: workspace, error: "does not exist, ignored" }
+    const ws = resolveWorkspace({ top }, workspace)
+    if (ws.error) r.workspace = { requested: workspace, error: ws.error }
     else {
-      wsDir = abs
-      r.workspace = { requested: workspace, dir: path.relative(top, abs).split(path.sep).join("/") || "." }
+      workspaceRel = ws.rel
+      wsDir = path.join(top, ws.rel || ".")
+      r.workspace = { requested: workspace, dir: ws.rel || "." }
     }
   }
   r.docker = null // filled below, kept first for readability
@@ -510,7 +480,9 @@ export async function collectEnv({ directory, workspace, sessionId, toolsDir = t
   const dockerP = r.binaries.found
     ? probeDocker(env, r.binaries, dockerTimeoutMs).catch((e) => unknown(`docker probe failed: ${e.message}`))
     : Promise.resolve(unknown("binaries probe failed"))
-  r.contract = safe(() => probeContract(top, wsDir), "contract")
+  r.contract = r.workspace?.error
+    ? unknown(r.workspace.error)
+    : safe(() => probeContract(top, workspaceRel), "contract")
   r.workspaces_detected = safe(() => detectWorkspaces(top), "workspaces")
   r.pipeline = safe(() => probePipeline(info, sessionId, toolsDir), "pipeline")
   r.mcp = safe(() => probeMcp(top, env), "mcp")

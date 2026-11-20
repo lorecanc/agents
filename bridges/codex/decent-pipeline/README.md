@@ -31,7 +31,7 @@ OpenCode tool names in prompts are translated where Codex has an equivalent (`to
 - `magic`: runs as `npx -y @21st-dev/magic@latest` (Node.js, npm, and network required); set `TWENTYFIRST_API_KEY`.
 - `cupertino`: install `cupertino` and verify with `command -v cupertino`; see https://aleahim.com/blog/cupertino-09-release/.
 - `axiom`: runs as `npx -y axiom-mcp` (Node.js, npm, and network required).
-- `cwe-search`: runs as `npx -y cwe-search-mcp@latest` (Node.js, npm, and network required).
+- `cwe-search`: runs as `npx -y @cyanheads/mitre-cwe-mcp-server@0.3.0` (Node.js, npm, and network required).
 - `bigquery`: remote endpoint `https://bigquery.googleapis.com/mcp` — verify remote URL reachability and authentication.
 - `cloud-run`: remote endpoint `https://run.googleapis.com/mcp` — verify remote URL reachability and authentication.
 - `cloud-logging`: remote endpoint `https://logging.googleapis.com/mcp` — verify remote URL reachability and authentication.
@@ -132,6 +132,8 @@ Primary agent: @orchestrator
 
 ## Translation warnings
 
+- [mcp] disabled server 'XcodeBuildMCP' in opencode.json is required by translated agents; emitted because the agents require it
+- [mcp] disabled server 'cupertino' in opencode.json is required by translated agents; emitted because the agents require it
 - [mcp] disabled server 'bigquery' in opencode.json is required by translated agents; emitted because the agents require it
 - [mcp] disabled server 'cloud-run' in opencode.json is required by translated agents; emitted because the agents require it
 - [mcp] disabled server 'cloud-logging' in opencode.json is required by translated agents; emitted because the agents require it

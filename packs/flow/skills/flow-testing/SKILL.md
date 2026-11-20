@@ -21,6 +21,9 @@ description: How to test changes efficiently - find and follow the project's tes
 ## New behavior
 
 - Test the public behavior, not the implementation details. Cover the main path, one or two important edge cases (empty input, a boundary, an invalid value) and the error path.
+- For behavior that depends on data or configuration, change the relevant input and predict the
+  outcome from the public contract. Exercise the normal entry point. A fixture alone cannot show
+  that a value is actually read, transformed or persisted.
 - Do not add tests for trivial getters, for framework behavior, or that re-assert mocks.
 - Use real objects where cheap. Mock only at boundaries (network, clock, randomness, external services).
 - Make tests deterministic: no sleeps, no real network, no dependence on test order.
@@ -32,7 +35,11 @@ description: How to test changes efficiently - find and follow the project's tes
 
 ## Before finishing
 
-- Run the broader suite (or `dev_verify` with `test_fast`/`full`) **once**. If it fails, decide whether your change caused it: compare with the same failure on the starting commit when in doubt.
+- Run the suite required by the repository and broaden coverage for affected callers. With
+  `dev_verify`, select `test_fast` or `test_full` as appropriate. Inspect the individual check
+  statuses and runner output, including whether relevant tests actually ran. If a check was
+  skipped or selected no tests, use the project’s documented command or report the coverage gap.
+- If a check fails, compare with the starting revision when its relation to the change is unclear.
 - Never weaken, skip or delete a test to make it pass unless the test is wrong. If you change one, say why.
 
 ## Report verification honestly

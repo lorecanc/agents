@@ -62,13 +62,13 @@ Shell access is deny-by-default and limited to `cd`, read-only Git inspection, a
 
 ## Session baseline (first step, always)
 
-Before anything else, record the starting state so later agents can tell session changes from pre-existing ones. If `pipeline_state` is available, call it and copy `base_commit`, `branch`, and `baseline_dirty` into the block below. Otherwise run:
+Before anything else, record the starting state so later agents can tell session changes from pre-existing ones. Reuse the caller's pre-edit baseline when supplied. Otherwise use `pipeline_state` if it returns a registered baseline (`degraded: false`). If it is missing, degraded or returns an error, run these before any writer starts:
 
 1. `git branch --show-current`
 2. `git log -1 --format=%H`
 3. `git status --porcelain=v1 -uall` (modified, deleted, and untracked files that exist before any pipeline change)
 
-Report them as the first block of your output. If the directory is not a git repository, say so.
+Report them immediately after your status header. If edits already started and no pre-edit baseline exists, report attribution as unknown. If the directory is not a git repository, say so.
 
 ## Repository reading strategy
 

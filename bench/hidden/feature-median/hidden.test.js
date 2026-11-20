@@ -19,4 +19,16 @@ test("median does not mutate its input and validates it", () => {
   median(input)
   assert.deepEqual(input, [3, 1, 2])
   assert.throws(() => median("x"), TypeError)
+  assert.throws(() => median([4, "5"]), TypeError)
+})
+
+test("median generalizes across orders, lengths, ties and offsets", () => {
+  for (const offset of [-11.5, 0, 1024]) {
+    for (let length = 1; length <= 16; length++) {
+      const sorted = Array.from({ length }, (_, i) => offset + Math.floor(i / 3) ** 2)
+      const middle = (sorted[Math.floor((length - 1) / 2)] + sorted[Math.floor(length / 2)]) / 2
+      const input = Object.freeze([...sorted.filter((_, i) => i % 2), ...sorted.filter((_, i) => i % 2 === 0).reverse()])
+      assert.equal(median(input), middle)
+    }
+  }
 })
