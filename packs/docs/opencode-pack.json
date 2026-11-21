@@ -7,5 +7,11 @@
     "common": "^1.0.0",
     "office-tools": "^1.0.0",
     "toolkit": "^1.0.0"
+  },
+  "archetype": {
+    "callers": [
+      "docs-orchestrator"
+    ],
+    "reference": "docs-orchestrator"
   }
 }

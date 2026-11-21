@@ -20,18 +20,24 @@
   "routingDefaults": {
     "mistral": {
       "flow-explore": "mistral/deepseek-v4-1-flash-1017#high",
+      "flow-eye": "mistral/zai-glm-5-3-flash",
       "flow-ops": "mistral/deepseek-v4-1-flash-1017#high",
       "flow-research": "mistral/deepseek-v4-1-flash-1017#high",
       "flow-review": "mistral/deepseek-v4-1-flash-1017#high"
     },
+    "openai": {
+      "flow-explore": "openai/gpt-6-luna",
+      "flow-research": "openai/gpt-6-luna"
+    },
     "opencode": {
-      "flow-explore": "opencode/deepseek-v4.1-flash-free#high",
-      "flow-ops": "opencode/deepseek-v4.1-flash-free#high",
-      "flow-research": "opencode/deepseek-v4.1-flash-free#high",
-      "flow-review": "opencode/deepseek-v4.1-flash-free#high"
+      "flow-explore": "inherit",
+      "flow-ops": "inherit",
+      "flow-research": "inherit",
+      "flow-review": "inherit"
     },
     "opencode-go": {
       "flow-explore": "opencode-go/deepseek-v4.1-flash#high",
+      "flow-eye": "opencode-go/deepseek-v4.1-flash#high",
       "flow-ops": "opencode-go/deepseek-v4.1-flash#high",
       "flow-research": "opencode-go/deepseek-v4.1-flash#high",
       "flow-review": "opencode-go/deepseek-v4.1-flash#high"

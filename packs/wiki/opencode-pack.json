@@ -5,5 +5,11 @@
   "description": "Project wiki agents (analyze, write, index, update) with the wiki command and conventions skills",
   "requires": {
     "common": "^1.0.0"
+  },
+  "archetype": {
+    "callers": [
+      "wiki-orchestrator"
+    ],
+    "reference": "wiki-orchestrator"
   }
 }
