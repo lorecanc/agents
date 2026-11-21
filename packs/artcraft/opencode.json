@@ -1,0 +1,179 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "servers": {
+      "anicraft": {
+        "type": "local",
+        "command": [
+          "anicraft-cli",
+          "mcp"
+        ],
+        "disabled": true,
+        "codemode": false
+      },
+      "cadcraft": {
+        "type": "local",
+        "command": [
+          "cadcraft-cli",
+          "mcp"
+        ],
+        "disabled": true,
+        "codemode": false
+      },
+      "craft-anything": {
+        "type": "local",
+        "command": [
+          "craft-anything-cli",
+          "mcp"
+        ],
+        "disabled": true,
+        "codemode": false
+      },
+      "deckcraft": {
+        "type": "local",
+        "command": [
+          "deckcraft-cli",
+          "mcp"
+        ],
+        "disabled": true,
+        "codemode": false
+      },
+      "designcraft": {
+        "type": "local",
+        "command": [
+          "designcraft-cli",
+          "mcp"
+        ],
+        "disabled": true,
+        "codemode": false
+      },
+      "effectcraft": {
+        "type": "local",
+        "command": [
+          "effectcraft-cli",
+          "mcp"
+        ],
+        "disabled": true,
+        "codemode": false
+      },
+      "figcraft": {
+        "type": "local",
+        "command": [
+          "figcraft-cli",
+          "mcp"
+        ],
+        "disabled": true,
+        "codemode": false
+      },
+      "filmcraft": {
+        "type": "local",
+        "command": [
+          "filmcraft-cli",
+          "mcp"
+        ],
+        "disabled": true,
+        "codemode": false
+      },
+      "gridcraft": {
+        "type": "local",
+        "command": [
+          "gridcraft-cli",
+          "mcp"
+        ],
+        "disabled": true,
+        "codemode": false
+      },
+      "lightcraft": {
+        "type": "local",
+        "command": [
+          "lightcraft-cli",
+          "mcp",
+          "--compact"
+        ],
+        "disabled": true,
+        "codemode": false
+      },
+      "mailcraft": {
+        "type": "local",
+        "command": [
+          "mailcraft-cli",
+          "mcp"
+        ],
+        "disabled": true,
+        "codemode": false
+      },
+      "materialcraft": {
+        "type": "local",
+        "command": [
+          "materialcraft-cli",
+          "mcp"
+        ],
+        "disabled": true,
+        "codemode": false
+      },
+      "pdfcraft": {
+        "type": "local",
+        "command": [
+          "pdfcraft-cli",
+          "mcp"
+        ],
+        "disabled": true,
+        "codemode": false
+      },
+      "photocraft": {
+        "type": "local",
+        "command": [
+          "photocraft-cli",
+          "mcp"
+        ],
+        "disabled": true,
+        "codemode": false
+      },
+      "solidcraft": {
+        "type": "local",
+        "command": [
+          "solidcraft-cli",
+          "mcp"
+        ],
+        "disabled": true,
+        "codemode": false
+      },
+      "soundcraft": {
+        "type": "local",
+        "command": [
+          "soundcraft-cli",
+          "mcp"
+        ],
+        "disabled": true,
+        "codemode": false
+      },
+      "texturecraft": {
+        "type": "local",
+        "command": [
+          "texturecraft-cli",
+          "mcp"
+        ],
+        "disabled": true,
+        "codemode": false
+      },
+      "vectorcraft": {
+        "type": "local",
+        "command": [
+          "vectorcraft-cli",
+          "mcp"
+        ],
+        "disabled": true,
+        "codemode": false
+      },
+      "wordcraft": {
+        "type": "local",
+        "command": [
+          "wordcraft-cli",
+          "mcp"
+        ],
+        "disabled": true,
+        "codemode": false
+      }
+    }
+  }
+}

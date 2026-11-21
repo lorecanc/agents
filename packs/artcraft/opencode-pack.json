@@ -1,0 +1,6 @@
+{
+  "contract": "1.0",
+  "name": "artcraft",
+  "version": "0.1.0",
+  "description": "ArtCraft app skills and a cross-app router, with 19 MCP servers disabled by default and enabled per project"
+}
