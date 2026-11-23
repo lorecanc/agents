@@ -35,7 +35,8 @@ ammessa tra catalogo e motore.
 - `packs/<nome>/`: un pack per directory, con `opencode-pack.json` e il layout nativo di OpenCode (`agents/`,
   `commands/`, `skills/<id>/SKILL.md`, `plugins/<nome>/index.ts`, `tools/<pack>/`, `resources/<pack>/`,
   `opencode.json`, `AGENTS.md`). Sono l'unica fonte: niente viene generato dentro `packs/`.
-  - Workflow: `flow`, `pipeline`, `docs`, `slides`, `wiki`, `general`.
+  - Workflow: `flow`, `pipeline`, `docs`, `slides`, `wiki`.
+  - Pack autonomi: `general` e `repo-showcase`.
   - Pack condivisi, elencati nei `requires` di chi li usa: `common` (MCP `codebase-memory-mcp`, skill comuni),
     `code-review`, `dev-tools` (`dev_env`, `dev_verify`, `dev_smoke`,
     `dev_serve` e gli helper `_repo.js`, `_sessions.js`, `_run.js`, ...), `office-tools` (tool `doc_*` e `slide_*`

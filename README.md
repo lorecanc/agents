@@ -13,6 +13,7 @@ Ready-made OpenCode agents, commands, skills, plugins and tools, distributed as 
 | `slides` | PowerPoint decks: templates, composition, writing, validation. | `common`, `office-tools`, `toolkit` |
 | `wiki` | Project wiki generation and upkeep. | `common` |
 | `artcraft` | 19 ArtCraft app skills (e.g. `artcraft-gridcraft`) and an `artcraft` router for app selection and handoffs. Enable MCP servers per project with `/artcraft-enable` (server names or groups). | |
+| `repo-showcase` | Interactive guides and spatial presentation decks with live app screens and demo data: `interactive-repo-guide` and `spatial-repo-deck`. | |
 | `general` | Standalone agents, commands and skills. | `integrations` |
 | `common`, `code-review`, `dev-tools`, `office-tools`, `toolkit`, `integrations` | Shared pieces the packs above require: skills, the `dev_*` and `doc_*`/`slide_*` tools with their plugins, MCP servers, LSP settings. | |
 
@@ -29,6 +30,7 @@ everyone by editing the pack (`m` on the pack folder in the manage-agents TUI).
 manage-agents source add catalog https://github.com/lorecanc/agents.git
 manage-agents source pull
 manage-agents install flow pipeline        # into ~/.config/opencode (or --target <dir>)
+manage-agents install repo-showcase        # optional: just the two showcase skills
 manage-agents status
 ```
 
