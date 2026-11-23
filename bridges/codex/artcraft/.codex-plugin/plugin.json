@@ -1,0 +1,23 @@
+{
+  "name": "artcraft",
+  "version": "1.0.0",
+  "description": "Codex workflows translated from an OpenCode pack.",
+  "author": {
+    "name": "manage-agents"
+  },
+  "interface": {
+    "displayName": "artcraft",
+    "shortDescription": "Workflows translated from an OpenCode pack.",
+    "developerName": "manage-agents",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Skills",
+      "MCP"
+    ],
+    "defaultPrompt": [
+      "Use the translated skills for this task."
+    ]
+  },
+  "skills": "./.agents/skills/",
+  "mcpServers": "./.mcp.json"
+}

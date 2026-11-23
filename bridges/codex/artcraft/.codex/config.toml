@@ -1,0 +1,94 @@
+[mcp_servers."anicraft"]
+command = "anicraft-cli"
+args = ["mcp"]
+enabled = false
+
+[mcp_servers."cadcraft"]
+command = "cadcraft-cli"
+args = ["mcp"]
+enabled = false
+
+[mcp_servers."craft-anything"]
+command = "craft-anything-cli"
+args = ["mcp"]
+enabled = false
+
+[mcp_servers."deckcraft"]
+command = "deckcraft-cli"
+args = ["mcp"]
+enabled = false
+
+[mcp_servers."designcraft"]
+command = "designcraft-cli"
+args = ["mcp"]
+enabled = false
+
+[mcp_servers."effectcraft"]
+command = "effectcraft-cli"
+args = ["mcp"]
+enabled = false
+
+[mcp_servers."figcraft"]
+command = "figcraft-cli"
+args = ["mcp"]
+enabled = false
+
+[mcp_servers."filmcraft"]
+command = "filmcraft-cli"
+args = ["mcp"]
+enabled = false
+
+[mcp_servers."gridcraft"]
+command = "gridcraft-cli"
+args = ["mcp"]
+enabled = false
+
+[mcp_servers."lightcraft"]
+command = "lightcraft-cli"
+args = ["mcp", "--compact"]
+enabled = false
+
+[mcp_servers."mailcraft"]
+command = "mailcraft-cli"
+args = ["mcp"]
+enabled = false
+
+[mcp_servers."materialcraft"]
+command = "materialcraft-cli"
+args = ["mcp"]
+enabled = false
+
+[mcp_servers."pdfcraft"]
+command = "pdfcraft-cli"
+args = ["mcp"]
+enabled = false
+
+[mcp_servers."photocraft"]
+command = "photocraft-cli"
+args = ["mcp"]
+enabled = false
+
+[mcp_servers."solidcraft"]
+command = "solidcraft-cli"
+args = ["mcp"]
+enabled = false
+
+[mcp_servers."soundcraft"]
+command = "soundcraft-cli"
+args = ["mcp"]
+enabled = false
+
+[mcp_servers."texturecraft"]
+command = "texturecraft-cli"
+args = ["mcp"]
+enabled = false
+
+[mcp_servers."vectorcraft"]
+command = "vectorcraft-cli"
+args = ["mcp"]
+enabled = false
+
+[mcp_servers."wordcraft"]
+command = "wordcraft-cli"
+args = ["mcp"]
+enabled = false

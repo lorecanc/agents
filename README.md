@@ -37,15 +37,33 @@ manage-agents status
 `manage-agents update` moves to the latest commit of the catalog; `manage-agents uninstall <pack>` removes a pack and
 the dependencies nothing else needs. Your own keys in `opencode.json` are never touched.
 
-Claude Code and Codex users can use the pipeline without OpenCode: [`bridges/claude-code/decent-pipeline`](bridges/claude-code/decent-pipeline)
-and [`bridges/codex/decent-pipeline`](bridges/codex/decent-pipeline), each with its own README.
+Pipeline is available for [Claude Code](bridges/claude-code/decent-pipeline/README.md) and [Codex](bridges/codex/decent-pipeline/README.md).
+Codex also supports [Flow](bridges/codex/flow/README.md) and the [Artcraft skills and MCP servers](bridges/codex/artcraft/README.md).
+To install all three into your personal Codex profile, run:
+
+```sh
+manage-agents install --codex pipeline flow artcraft
+```
+
+Start a new Codex session in your working project and ask for `pipeline-orchestrator`, `flow-build` or the Artcraft skill.
+Artcraft's MCP servers remain disabled until you enable the apps you need.
+
+The coordinators, planner and reasoner inherit their caller’s model and reasoning effort. Repository exploration,
+external research and documentation lookup use GPT-6 Luna. Other specialists use GPT-6.1 Terra.
+Both fixed models use medium reasoning effort. Regenerate each Codex project from the catalog root with the following commands.
+
+```sh
+manage-agents --no-auto-commit bridge --pack pipeline --target codex --name decent-pipeline
+manage-agents --no-auto-commit bridge --pack flow --target codex --name flow
+manage-agents --no-auto-commit bridge --pack artcraft --target codex --name artcraft
+```
 
 ## Layout
 
 ```text
 packs/<name>/        one pack per directory: opencode-pack.json + OpenCode-native content
 scripts/             catalog tooling: merge-packs.mjs (builds .tree/), sync-bash.mjs + bash-profiles.json
-bridges/             generated Claude Code and Codex translations of the pipeline, translation-config.json
+bridges/             generated Pipeline, Flow and Artcraft bridges, translation-config.json
 bench/ bin/ docs/    agent benchmark, opencode-wt, documentation
 .tree/               generated: every pack merged as OpenCode sees them installed (tests and bench run here)
 ```

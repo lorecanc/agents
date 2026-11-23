@@ -1,0 +1,17 @@
+{
+  "name": "artcraft-local",
+  "plugins": [
+    {
+      "name": "artcraft",
+      "source": {
+        "source": "local",
+        "path": "./"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

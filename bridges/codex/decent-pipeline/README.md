@@ -8,37 +8,47 @@ This directory is a generated translation layer from the canonical source agents
 
 Agent prompts come from the bridged pack. Translation roles, tiers, model overrides, prefix, and output options come from `bridges/translation-config.json`; MCP declarations are merged from the `opencode.json` of the pack and the packs it requires.
 
-## Contents
+## Run in Codex
 
-- `.codex-plugin/plugin.json` — Codex plugin manifest.
-- `.mcp.json` — enabled MCP servers plus servers explicitly required by translated agents.
-- `.codex/agents/` — project-scoped Codex subagent definitions.
-- `skills/` — plugin skills containing translated instructions.
-- `README.md` — this generated inventory and setup guide.
+From this directory, run `codex` and trust the project to load its local configuration, or open this directory in the Codex app.
+Ask Codex to delegate the task to the `orchestrator` subagent.
 
-Note: custom prompts in `~/.codex/prompts` are deprecated; prefer skills such as the ones generated here.
+- `.codex/agents/` contains project-scoped subagent definitions.
+- `.codex/config.toml` configures MCP for the project. Run `codex mcp list` here to inspect it.
+- `.agents/skills/` contains the pack skills, their supporting files and any translated agent prompts.
 
-OpenCode tool names in prompts are translated where Codex has an equivalent (`todowrite` → `update_plan`). Prompts that rely on OpenCode-only tools (`pipeline_*`) start with a runtime note saying they are unavailable here and that the documented fallbacks apply.
+## Install the plugin separately
+
+To use the plugin's packaged skills or MCP servers in other projects, run these commands from this directory:
+
+```sh
+codex plugin marketplace add .
+codex plugin add decent-pipeline@decent-pipeline-local
+```
+
+Custom subagents are project-scoped. To use them in another project, copy the relevant TOML files from `.codex/agents/` into that project's `.codex/agents/`.
+
+OpenCode tool names in prompts are translated where Codex has an equivalent (`todowrite` → `update_plan`). Prompts that rely on custom tools shipped by the pack start with a runtime note saying they are unavailable here and that the documented fallbacks apply.
 
 ## MCP setup
 
 `npx` servers are fetched on first use. Binary servers must already be available on `PATH`.
 
-- `codebase-memory-mcp`: install `codebase-memory-mcp` and verify with `command -v codebase-memory-mcp`; see https://github.com/DeusData/codebase-memory-mcp#quick-start.
-- `chrome-devtools`: runs as `npx -y chrome-devtools-mcp@latest` (Node.js, npm, and network required).
-- `XcodeBuildMCP`: runs as `npx -y xcodebuildmcp@latest mcp` (Node.js, npm, and network required).
-- `shadcn`: runs as `npx -y shadcn@latest mcp` (Node.js, npm, and network required).
-- `magic`: runs as `npx -y @21st-dev/magic@latest` (Node.js, npm, and network required); set `TWENTYFIRST_API_KEY`.
-- `cupertino`: install `cupertino` and verify with `command -v cupertino`; see https://aleahim.com/blog/cupertino-09-release/.
-- `axiom`: runs as `npx -y axiom-mcp` (Node.js, npm, and network required).
-- `cwe-search`: runs as `npx -y @cyanheads/mitre-cwe-mcp-server@0.3.0` (Node.js, npm, and network required).
-- `bigquery`: remote endpoint `https://bigquery.googleapis.com/mcp` — verify remote URL reachability and authentication.
-- `cloud-run`: remote endpoint `https://run.googleapis.com/mcp` — verify remote URL reachability and authentication.
-- `cloud-logging`: remote endpoint `https://logging.googleapis.com/mcp` — verify remote URL reachability and authentication.
-- `cloud-monitoring`: remote endpoint `https://monitoring.googleapis.com/mcp` — verify remote URL reachability and authentication.
-- `cloud-sql`: remote endpoint `https://sqladmin.googleapis.com/mcp` — verify remote URL reachability and authentication.
-- `cloud-storage`: remote endpoint `https://storage.googleapis.com/storage/mcp` — verify remote URL reachability and authentication.
-- `cloud-cli`: remote endpoint `https://cloudcli.googleapis.com/mcp` — verify remote URL reachability and authentication.
+- `codebase-memory-mcp` needs this setup. Make `codebase-memory-mcp` available on `PATH`.
+- `chrome-devtools` needs this setup. Runs as `npx -y chrome-devtools-mcp@latest` (Node.js, npm, and network required).
+- `XcodeBuildMCP` needs this setup. Runs as `npx -y xcodebuildmcp@latest mcp` (Node.js, npm, and network required).
+- `shadcn` needs this setup. Runs as `npx -y shadcn@latest mcp` (Node.js, npm, and network required).
+- `magic` needs this setup. Runs as `npx -y @21st-dev/magic@latest` (Node.js, npm, and network required), with `API_KEY` exported before launch.
+- `cupertino` needs this setup. Make `cupertino` available on `PATH`.
+- `axiom` needs this setup. Runs as `npx -y axiom-mcp` (Node.js, npm, and network required).
+- `cwe-search` needs this setup. Runs as `npx -y @cyanheads/mitre-cwe-mcp-server@0.3.0` (Node.js, npm, and network required).
+- `bigquery` needs this setup. Verify connectivity and authentication for `https://bigquery.googleapis.com/mcp`.
+- `cloud-run` needs this setup. Verify connectivity and authentication for `https://run.googleapis.com/mcp`.
+- `cloud-logging` needs this setup. Verify connectivity and authentication for `https://logging.googleapis.com/mcp`.
+- `cloud-monitoring` needs this setup. Verify connectivity and authentication for `https://monitoring.googleapis.com/mcp`.
+- `cloud-sql` needs this setup. Verify connectivity and authentication for `https://sqladmin.googleapis.com/mcp`.
+- `cloud-storage` needs this setup. Verify connectivity and authentication for `https://storage.googleapis.com/storage/mcp`.
+- `cloud-cli` needs this setup. Verify connectivity and authentication for `https://cloudcli.googleapis.com/mcp`.
 
 Verify the resulting connections from Codex before invoking MCP-dependent agents.
 
@@ -128,16 +138,30 @@ Codex agent files set only `sandbox_mode`: agents whose OpenCode `bash` or `edit
 
 </details>
 
-Primary agent: @orchestrator
-
 ## Translation warnings
 
-- [mcp] disabled server 'XcodeBuildMCP' in opencode.json is required by translated agents; emitted because the agents require it
-- [mcp] disabled server 'cupertino' in opencode.json is required by translated agents; emitted because the agents require it
-- [mcp] disabled server 'bigquery' in opencode.json is required by translated agents; emitted because the agents require it
-- [mcp] disabled server 'cloud-run' in opencode.json is required by translated agents; emitted because the agents require it
-- [mcp] disabled server 'cloud-logging' in opencode.json is required by translated agents; emitted because the agents require it
-- [mcp] disabled server 'cloud-monitoring' in opencode.json is required by translated agents; emitted because the agents require it
-- [mcp] disabled server 'cloud-sql' in opencode.json is required by translated agents; emitted because the agents require it
-- [mcp] disabled server 'cloud-storage' in opencode.json is required by translated agents; emitted because the agents require it
-- [mcp] disabled server 'cloud-cli' in opencode.json is required by translated agents; emitted because the agents require it
+- [mcp] tool denies for 'codebase-memory-mcp' apply to the entire Codex session
+- [mcp] disabled server 'XcodeBuildMCP' was emitted because translated agents require it
+- [mcp] 'magic' requires 'API_KEY' to be exported with the value configured in OpenCode before launching Codex
+- [mcp] disabled server 'cupertino' was emitted because translated agents require it
+- [mcp] disabled server 'bigquery' was emitted because translated agents require it
+- [mcp] tool denies for 'bigquery' apply to the entire Codex session
+- [mcp] disabled server 'cloud-run' was emitted because translated agents require it
+- [mcp] tool denies for 'cloud-run' apply to the entire Codex session
+- [mcp] disabled server 'cloud-logging' was emitted because translated agents require it
+- [mcp] disabled server 'cloud-monitoring' was emitted because translated agents require it
+- [mcp] disabled server 'cloud-sql' was emitted because translated agents require it
+- [mcp] tool denies for 'cloud-sql' apply to the entire Codex session
+- [mcp] disabled server 'cloud-storage' was emitted because translated agents require it
+- [mcp] tool denies for 'cloud-storage' apply to the entire Codex session
+- [mcp] disabled server 'cloud-cli' was emitted because translated agents require it
+- [skills] exported the chrome-devtools agent prompt as chrome-devtools-agent to preserve the source skill
+- [pipeline-chrome_devtools.md] model assignment source: default
+- [pipeline-frontend_specialist.md] model assignment source: default
+- [pipeline-hitl.md] model assignment source: default
+- [pipeline-kotlin_specialist.md] model assignment source: default
+- [pipeline-multimodal.md] model assignment source: default
+- [pipeline-ops.md] model assignment source: default
+- [pipeline-post_session.md] model assignment source: default
+- [pipeline-security_auditor.md] model assignment source: default
+- [pipeline-swift_specialist.md] model assignment source: default

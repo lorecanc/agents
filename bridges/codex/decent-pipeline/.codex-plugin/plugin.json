@@ -1,24 +1,23 @@
 {
   "name": "decent-pipeline",
   "version": "1.0.0",
-  "description": "Translated Codex agents and skills generated from the source pipeline.",
+  "description": "Codex workflows translated from an OpenCode pack.",
   "author": {
-    "name": "Lorenzo Cancellara"
+    "name": "manage-agents"
   },
   "interface": {
     "displayName": "decent-pipeline",
-    "shortDescription": "Translated pipeline skills and Codex agent configuration.",
-    "longDescription": "A generated translation layer that preserves the Copilot pipeline routing while applying the configured Sol/Luna model policy.",
-    "developerName": "Lorenzo Cancellara",
+    "shortDescription": "Workflows translated from an OpenCode pack.",
+    "developerName": "manage-agents",
     "category": "Developer Tools",
     "capabilities": [
       "Skills",
-      "Subagents"
+      "MCP"
     ],
     "defaultPrompt": [
-      "Use the translated pipeline agents and skills for this task."
+      "Use the translated skills for this task."
     ]
   },
-  "skills": "./skills/",
+  "skills": "./.agents/skills/",
   "mcpServers": "./.mcp.json"
 }

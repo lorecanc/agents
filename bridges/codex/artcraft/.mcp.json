@@ -1,0 +1,138 @@
+{
+  "mcpServers": {
+    "anicraft": {
+      "command": "anicraft-cli",
+      "args": [
+        "mcp"
+      ],
+      "enabled": false
+    },
+    "cadcraft": {
+      "command": "cadcraft-cli",
+      "args": [
+        "mcp"
+      ],
+      "enabled": false
+    },
+    "craft-anything": {
+      "command": "craft-anything-cli",
+      "args": [
+        "mcp"
+      ],
+      "enabled": false
+    },
+    "deckcraft": {
+      "command": "deckcraft-cli",
+      "args": [
+        "mcp"
+      ],
+      "enabled": false
+    },
+    "designcraft": {
+      "command": "designcraft-cli",
+      "args": [
+        "mcp"
+      ],
+      "enabled": false
+    },
+    "effectcraft": {
+      "command": "effectcraft-cli",
+      "args": [
+        "mcp"
+      ],
+      "enabled": false
+    },
+    "figcraft": {
+      "command": "figcraft-cli",
+      "args": [
+        "mcp"
+      ],
+      "enabled": false
+    },
+    "filmcraft": {
+      "command": "filmcraft-cli",
+      "args": [
+        "mcp"
+      ],
+      "enabled": false
+    },
+    "gridcraft": {
+      "command": "gridcraft-cli",
+      "args": [
+        "mcp"
+      ],
+      "enabled": false
+    },
+    "lightcraft": {
+      "command": "lightcraft-cli",
+      "args": [
+        "mcp",
+        "--compact"
+      ],
+      "enabled": false
+    },
+    "mailcraft": {
+      "command": "mailcraft-cli",
+      "args": [
+        "mcp"
+      ],
+      "enabled": false
+    },
+    "materialcraft": {
+      "command": "materialcraft-cli",
+      "args": [
+        "mcp"
+      ],
+      "enabled": false
+    },
+    "pdfcraft": {
+      "command": "pdfcraft-cli",
+      "args": [
+        "mcp"
+      ],
+      "enabled": false
+    },
+    "photocraft": {
+      "command": "photocraft-cli",
+      "args": [
+        "mcp"
+      ],
+      "enabled": false
+    },
+    "solidcraft": {
+      "command": "solidcraft-cli",
+      "args": [
+        "mcp"
+      ],
+      "enabled": false
+    },
+    "soundcraft": {
+      "command": "soundcraft-cli",
+      "args": [
+        "mcp"
+      ],
+      "enabled": false
+    },
+    "texturecraft": {
+      "command": "texturecraft-cli",
+      "args": [
+        "mcp"
+      ],
+      "enabled": false
+    },
+    "vectorcraft": {
+      "command": "vectorcraft-cli",
+      "args": [
+        "mcp"
+      ],
+      "enabled": false
+    },
+    "wordcraft": {
+      "command": "wordcraft-cli",
+      "args": [
+        "mcp"
+      ],
+      "enabled": false
+    }
+  }
+}

@@ -1,0 +1,60 @@
+[agents]
+max_depth = 2
+
+[mcp_servers."codebase-memory-mcp"]
+command = "codebase-memory-mcp"
+disabled_tools = ["delete_project", "ingest_traces", "manage_adr"]
+
+[mcp_servers."chrome-devtools"]
+command = "npx"
+args = ["-y", "chrome-devtools-mcp@latest"]
+
+[mcp_servers."XcodeBuildMCP"]
+command = "npx"
+args = ["-y", "xcodebuildmcp@latest", "mcp"]
+
+[mcp_servers."shadcn"]
+command = "npx"
+args = ["-y", "shadcn@latest", "mcp"]
+
+[mcp_servers."magic"]
+command = "npx"
+args = ["-y", "@21st-dev/magic@latest"]
+env_vars = ["API_KEY"]
+
+[mcp_servers."cupertino"]
+command = "cupertino"
+args = ["serve"]
+
+[mcp_servers."axiom"]
+command = "npx"
+args = ["-y", "axiom-mcp"]
+
+[mcp_servers."cwe-search"]
+command = "npx"
+args = ["-y", "@cyanheads/mitre-cwe-mcp-server@0.3.0"]
+
+[mcp_servers."bigquery"]
+url = "https://bigquery.googleapis.com/mcp"
+
+[mcp_servers."cloud-run"]
+url = "https://run.googleapis.com/mcp"
+enabled = false
+
+[mcp_servers."cloud-logging"]
+url = "https://logging.googleapis.com/mcp"
+
+[mcp_servers."cloud-monitoring"]
+url = "https://monitoring.googleapis.com/mcp"
+
+[mcp_servers."cloud-sql"]
+url = "https://sqladmin.googleapis.com/mcp"
+enabled = false
+
+[mcp_servers."cloud-storage"]
+url = "https://storage.googleapis.com/storage/mcp"
+enabled = false
+
+[mcp_servers."cloud-cli"]
+url = "https://cloudcli.googleapis.com/mcp"
+enabled = false

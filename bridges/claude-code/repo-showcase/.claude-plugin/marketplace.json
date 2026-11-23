@@ -1,0 +1,13 @@
+{
+  "name": "repo-showcase-local",
+  "description": "Local marketplace: Pipeline agents bridged from OpenCode (repo-showcase)",
+  "owner": {
+    "name": "manage-agents"
+  },
+  "plugins": [
+    {
+      "name": "repo-showcase",
+      "source": "."
+    }
+  ]
+}

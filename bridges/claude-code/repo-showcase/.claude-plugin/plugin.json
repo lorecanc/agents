@@ -1,0 +1,8 @@
+{
+  "name": "repo-showcase",
+  "version": "1.0.0",
+  "description": "Pipeline agents bridged from OpenCode (repo-showcase)",
+  "author": {
+    "name": "manage-agents"
+  }
+}

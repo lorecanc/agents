@@ -1,0 +1,17 @@
+{
+  "name": "decent-pipeline-local",
+  "plugins": [
+    {
+      "name": "decent-pipeline",
+      "source": {
+        "source": "local",
+        "path": "./"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

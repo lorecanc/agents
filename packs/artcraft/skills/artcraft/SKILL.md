@@ -57,11 +57,18 @@ The pack defines its servers as disabled by default. When enabling servers for a
 2. Read [the project server definitions](references/servers.json) relative to this skill.
    Replace every `<PROJECT_DIR>` in the selected objects with the absolute project root
    so file operations use the intended workspace.
-3. Merge those complete objects under `mcp.servers` in the project's `.opencode/opencode.json`,
+3. In Codex, merge each selected server into the project's `.codex/config.toml` under
+   `[mcp_servers."<server-name>"]`. Use the first element of the resolved command array as
+   `command`, the remaining elements as `args`, and set `enabled = true`. Keep each automation
+   root from the template. Preserve the other servers and project settings. From the project,
+   check the configuration with `codex mcp list`, then start a trusted session and verify the
+   selected server offers its tools in `/mcp`. To disable it, set `enabled = false`.
+   For OpenCode, follow the steps below.
+4. Merge those complete objects under `mcp.servers` in the project's `.opencode/opencode.json`,
    creating the file if needed. A project entry replaces the whole same-name server definition.
    Preserve unrelated configuration.
-4. Run `opencode mcp list` from the project to check the selected connections. If the TUI has
+5. Run `opencode mcp list` from the project to check the selected connections. If the TUI has
    yet to pick up a new config, use `/reload`. For a startup failure, check the configured CLI
    on PATH and its startup message.
-5. When asked to disable a server, set `"disabled": true` on its project entry, or remove the
+6. When asked to disable a server, set `"disabled": true` on its project entry, or remove the
    override to inherit the pack default.

@@ -45,10 +45,10 @@ When you have found a leak trace (e.g., via `memlab` output), you must identify 
 
 If `memlab` is not available, you MUST use the fallback script in the references directory to compare two `.heapsnapshot` files and identify the top growing objects and common leak types.
 
-If the active agent has `shell` access, run the script with Node.js. Otherwise, provide this command for the user or calling build/ops agent to execute:
+If the active agent has `shell` access, run the script with Node.js. Otherwise, provide this command for the user or calling build/ops agent. Resolve the script from the directory containing this SKILL.md and use absolute paths for both snapshots.
 
 ```bash
-node skills/chrome-devtools-memory-leak-debugging/references/compare_snapshots.js <baseline.heapsnapshot> <target.heapsnapshot>
+node "<skill-directory>/references/compare_snapshots.js" <baseline.heapsnapshot> <target.heapsnapshot>
 ```
 
 The script will analyze and output the top growing objects by size and highlight the 3 most common types of memory leaks (e.g., Detached DOM nodes, closures, Contexts) if they are present.

@@ -1,0 +1,90 @@
+{
+  "mcpServers": {
+    "codebase-memory-mcp": {
+      "command": "codebase-memory-mcp",
+      "disabled_tools": [
+        "delete_project",
+        "ingest_traces",
+        "manage_adr"
+      ]
+    },
+    "chrome-devtools": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "chrome-devtools-mcp@latest"
+      ]
+    },
+    "XcodeBuildMCP": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "xcodebuildmcp@latest",
+        "mcp"
+      ]
+    },
+    "shadcn": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "shadcn@latest",
+        "mcp"
+      ]
+    },
+    "magic": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@21st-dev/magic@latest"
+      ],
+      "env_vars": [
+        "API_KEY"
+      ]
+    },
+    "cupertino": {
+      "command": "cupertino",
+      "args": [
+        "serve"
+      ]
+    },
+    "axiom": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "axiom-mcp"
+      ]
+    },
+    "cwe-search": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@cyanheads/mitre-cwe-mcp-server@0.3.0"
+      ]
+    },
+    "bigquery": {
+      "url": "https://bigquery.googleapis.com/mcp"
+    },
+    "cloud-run": {
+      "url": "https://run.googleapis.com/mcp",
+      "enabled": false
+    },
+    "cloud-logging": {
+      "url": "https://logging.googleapis.com/mcp"
+    },
+    "cloud-monitoring": {
+      "url": "https://monitoring.googleapis.com/mcp"
+    },
+    "cloud-sql": {
+      "url": "https://sqladmin.googleapis.com/mcp",
+      "enabled": false
+    },
+    "cloud-storage": {
+      "url": "https://storage.googleapis.com/storage/mcp",
+      "enabled": false
+    },
+    "cloud-cli": {
+      "url": "https://cloudcli.googleapis.com/mcp",
+      "enabled": false
+    }
+  }
+}

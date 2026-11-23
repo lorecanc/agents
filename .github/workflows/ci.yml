@@ -51,4 +51,7 @@ jobs:
           XDG_CONFIG_HOME="$PWD/xdg" node engine/manage-agents.mjs source add catalog catalog
           XDG_CONFIG_HOME="$PWD/xdg" node engine/manage-agents.mjs resolve flow pipeline docs slides wiki general
       - name: Committed bridges match a fresh regeneration
-        run: node engine/manage-agents.mjs bridge check --workspace catalog
+        run: |
+          node engine/manage-agents.mjs bridge check --workspace catalog
+          node engine/manage-agents.mjs bridge check --workspace catalog --pack flow --target codex
+          node engine/manage-agents.mjs bridge check --workspace catalog --pack artcraft --target codex
