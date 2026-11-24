@@ -90,5 +90,5 @@ on this repository.
 
 ## License
 
-Project-owned agents, prompts, skills, commands, tools and documentation are MIT licensed. Third-party software and
-services keep their own licenses and terms; see `LICENSE`.
+Project-owned agents, prompts, skills, commands, tools and documentation are MIT licensed (see `LICENSE`). Third-party
+software and services (vendored files, MCP servers, LSPs) retain their own licenses and terms.
