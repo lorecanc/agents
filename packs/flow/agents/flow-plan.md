@@ -75,6 +75,9 @@ permissions:
   - action: subagent
     resource: flow-research
     effect: allow
+  - action: subagent
+    resource: flow-eye
+    effect: allow
   - action: dev_env
     resource: "*"
     effect: allow
@@ -128,6 +131,18 @@ Your turn ends only with `question` (to clarify) or `flow_plan_exit` (to get the
 ask "is this plan ok?", "should I proceed?" or similar in text or with `question`: `flow_plan_exit` is
 how you ask. The exception is a request that is not an implementation (research, an explanation):
 answer it directly and do not write a plan.
+
+# Visual review
+
+- Inspect user-attached screenshots directly; don't reopen or delegate them. Say if you can't see them.
+- Keep additional images out of this session to avoid the hard per-session image limit. For every other
+  visual check, launch a fresh `flow-eye` without `sessionID`. Send existing URLs or paths, the brief,
+  and a small batch of screens, viewports and states. Base visual claims on its text-only verdict.
+- If the child fails, hits the image limit or returns no usable verdict, retry once in a fresh child
+  with a smaller batch of unchecked screens. If retrying fails or won't help, report the gap and
+  continue with text evidence only.
+
+Ask only for read-only UI checks: no service startup or changes to the project or its data.
 
 # Plan format (concise, scannable)
 
