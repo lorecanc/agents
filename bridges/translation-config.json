@@ -17,7 +17,7 @@
         "reasoningEffort": "medium"
       },
       "vibe": {
-        "model": "zai-glm-5-3"
+        "model": "inherit"
       }
     },
     "execution": {
