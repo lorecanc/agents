@@ -7,7 +7,10 @@
         "command": [
           "npx",
           "-y",
-          "chrome-devtools-mcp@latest"
+          "chrome-devtools-mcp@latest",
+          "--executable-path={browser}",
+          "--headless",
+          "--no-usage-statistics"
         ],
         "codemode": false
       },
@@ -20,7 +23,8 @@
           "mcp"
         ],
         "codemode": false,
-        "disabled": true
+        "disabled": true,
+        "platform": "darwin"
       },
       "shadcn": {
         "type": "local",
@@ -32,18 +36,6 @@
         ],
         "codemode": false
       },
-      "magic": {
-        "type": "local",
-        "command": [
-          "npx",
-          "-y",
-          "@21st-dev/magic@latest"
-        ],
-        "environment": {
-          "API_KEY": "{env:TWENTYFIRST_API_KEY}"
-        },
-        "codemode": false
-      },
       "cupertino": {
         "type": "local",
         "command": [
@@ -51,7 +43,8 @@
           "serve"
         ],
         "codemode": false,
-        "disabled": true
+        "disabled": true,
+        "platform": "darwin"
       },
       "axiom": {
         "type": "local",
