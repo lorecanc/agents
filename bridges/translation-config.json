@@ -1,8 +1,8 @@
 {
   "version": 2,
   "target": "claude",
-  "pluginName": "decent-pipeline",
-  "prefix": "pipeline-",
+  "pluginName": "wiki",
+  "prefix": "wiki-",
   "sourceDir": "src",
   "inference": true,
   "defaultTier": "execution",
@@ -15,6 +15,9 @@
       "codex": {
         "model": "gpt-6.1-terra",
         "reasoningEffort": "medium"
+      },
+      "vibe": {
+        "model": "mistral-large-4"
       }
     },
     "execution": {
@@ -25,6 +28,9 @@
       "codex": {
         "model": "gpt-6.1-terra",
         "reasoningEffort": "medium"
+      },
+      "vibe": {
+        "model": "mistral-medium-3.5"
       }
     },
     "light": {
@@ -35,6 +41,9 @@
       "codex": {
         "model": "gpt-6.1-terra",
         "reasoningEffort": "medium"
+      },
+      "vibe": {
+        "model": "mistral-medium-3.5"
       }
     }
   },
@@ -49,6 +58,13 @@
     "refactorer": "execution",
     "tester": "execution",
     "fast_lane": "execution"
+  },
+  "vibe": {
+    "overrides": {},
+    "modelMap": {},
+    "emitSkills": true,
+    "emitReadme": true,
+    "emitMcp": true
   },
   "claude": {
     "overrides": {},

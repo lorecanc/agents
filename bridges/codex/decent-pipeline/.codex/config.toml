@@ -7,7 +7,7 @@ disabled_tools = ["delete_project", "index_repository", "ingest_traces", "manage
 
 [mcp_servers."chrome-devtools"]
 command = "npx"
-args = ["-y", "chrome-devtools-mcp@latest"]
+args = ["-y", "chrome-devtools-mcp@latest", "--headless", "--no-usage-statistics"]
 
 [mcp_servers."XcodeBuildMCP"]
 command = "npx"
@@ -16,11 +16,6 @@ args = ["-y", "xcodebuildmcp@latest", "mcp"]
 [mcp_servers."shadcn"]
 command = "npx"
 args = ["-y", "shadcn@latest", "mcp"]
-
-[mcp_servers."magic"]
-command = "npx"
-args = ["-y", "@21st-dev/magic@latest"]
-env_vars = ["API_KEY"]
 
 [mcp_servers."cupertino"]
 command = "cupertino"

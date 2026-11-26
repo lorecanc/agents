@@ -49,5 +49,5 @@ For any API newer than the deployment target, add `if #available` / `@available`
 
 1. Run `session_show_defaults` once and set the project, scheme and simulator if they are missing. Call `discover_projs` only when they are missing.
 2. Run `build_sim` or `build_run_sim`, then `test_sim` for the relevant tests.
-3. For UI, use `screenshot` or `snapshot_ui` and judge the result with the `flow-frontend-design` rubric (hierarchy, spacing, typography, contrast), adapted to the HIG.
+3. For UI, use `snapshot_ui` for the semantic tree. For visual review, save captures to the project scratch directory using a command that does not return images to the session (for example, `xcrun simctl io <udid> screenshot <path>` on iOS). Pass the paths and the relevant device and UI states to `flow-eye` for a text-only verdict against the `flow-frontend-design` rubric, adapted to the HIG. Do not open the captures yourself.
 4. If XcodeBuildMCP is disabled, use the project’s build and test commands with the discovered scheme and destination, or `swift test` for a Swift package. State which runtime or visual checks could not run.

@@ -13,7 +13,9 @@
       "command": "npx",
       "args": [
         "-y",
-        "chrome-devtools-mcp@latest"
+        "chrome-devtools-mcp@latest",
+        "--headless",
+        "--no-usage-statistics"
       ]
     },
     "XcodeBuildMCP": {
@@ -30,16 +32,6 @@
         "-y",
         "shadcn@latest",
         "mcp"
-      ]
-    },
-    "magic": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "@21st-dev/magic@latest"
-      ],
-      "env_vars": [
-        "API_KEY"
       ]
     },
     "cupertino": {

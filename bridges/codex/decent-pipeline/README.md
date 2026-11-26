@@ -35,10 +35,9 @@ OpenCode tool names in prompts are translated where Codex has an equivalent (`to
 `npx` servers are fetched on first use. Binary servers must already be available on `PATH`.
 
 - `codebase-memory-mcp` needs this setup. Make `codebase-memory-mcp` available on `PATH`.
-- `chrome-devtools` needs this setup. Runs as `npx -y chrome-devtools-mcp@latest` (Node.js, npm, and network required).
+- `chrome-devtools` needs this setup. Runs as `npx -y chrome-devtools-mcp@latest --headless --no-usage-statistics` (Node.js, npm, and network required).
 - `XcodeBuildMCP` needs this setup. Runs as `npx -y xcodebuildmcp@latest mcp` (Node.js, npm, and network required).
 - `shadcn` needs this setup. Runs as `npx -y shadcn@latest mcp` (Node.js, npm, and network required).
-- `magic` needs this setup. Runs as `npx -y @21st-dev/magic@latest` (Node.js, npm, and network required), with `API_KEY` exported before launch.
 - `cupertino` needs this setup. Make `cupertino` available on `PATH`.
 - `axiom` needs this setup. Runs as `npx -y axiom-mcp` (Node.js, npm, and network required).
 - `cwe-search` needs this setup. Runs as `npx -y @cyanheads/mitre-cwe-mcp-server@0.3.0` (Node.js, npm, and network required).
@@ -141,8 +140,8 @@ Codex agent files set only `sandbox_mode`: agents whose OpenCode `bash` or `edit
 ## Translation warnings
 
 - [mcp] tool denies for 'codebase-memory-mcp' apply to the entire Codex session
+- [mcp] 'chrome-devtools': dropped the {browser} argument; the Codex project runs the server with its own browser detection
 - [mcp] disabled server 'XcodeBuildMCP' was emitted because translated agents require it
-- [mcp] 'magic' requires 'API_KEY' to be exported with the value configured in OpenCode before launching Codex
 - [mcp] disabled server 'cupertino' was emitted because translated agents require it
 - [mcp] disabled server 'bigquery' was emitted because translated agents require it
 - [mcp] tool denies for 'bigquery' apply to the entire Codex session

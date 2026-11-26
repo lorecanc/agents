@@ -53,8 +53,6 @@ This directory is a local marketplace named `repo-showcase-local` that publishes
 
 The manager runs `claude plugin validate --strict` after each regeneration.
 
-The manager adds the marketplace and installs the plugin automatically.
-
 Manual fallback:
 
 ```bash

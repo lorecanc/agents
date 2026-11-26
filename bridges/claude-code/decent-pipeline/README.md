@@ -47,10 +47,9 @@ These servers are declared by the generated plugin. `npx` entries are fetched on
 | Server | Required by | Setup |
 |---|---|---|
 | `codebase-memory-mcp` | `chrome-devtools`, `code-reviewer`, `critic`, `docs-grounding`, `executor`, `explorer`, `fast-lane`, `frontend-specialist`, `hitl`, `kotlin-specialist`, `multimodal`, `ops`, `orchestrator`, `planner`, `reasoner`, `refactorer`, `security-auditor`, `swift-specialist`, `tester` | Install `codebase-memory-mcp` and verify it with `command -v codebase-memory-mcp`. [Installation guide](https://github.com/DeusData/codebase-memory-mcp#quick-start). |
-| `chrome-devtools` | `chrome-devtools` | Automatic via `npx -y chrome-devtools-mcp@latest`; requires Node.js, npm, and network access. |
+| `chrome-devtools` | `chrome-devtools` | Automatic via `npx -y chrome-devtools-mcp@latest --headless --no-usage-statistics`; requires Node.js, npm, and network access. |
 | `XcodeBuildMCP` | `swift-specialist` | Automatic via `npx -y xcodebuildmcp@latest mcp`; requires Node.js, npm, and network access. |
 | `shadcn` | `frontend-specialist` | Automatic via `npx -y shadcn@latest mcp`; requires Node.js, npm, and network access. |
-| `magic` | `frontend-specialist` | Automatic via `npx -y @21st-dev/magic@latest`; requires Node.js, npm, and network access. Required environment: `TWENTYFIRST_API_KEY`. |
 | `cupertino` | `swift-specialist` | Install `cupertino` and verify it with `command -v cupertino`. [Installation guide](https://aleahim.com/blog/cupertino-09-release/). |
 | `axiom` | `swift-specialist` | Automatic via `npx -y axiom-mcp`; requires Node.js, npm, and network access. |
 | `cwe-search` | `security-auditor` | Automatic via `npx -y @cyanheads/mitre-cwe-mcp-server@0.3.0`; requires Node.js, npm, and network access. |
