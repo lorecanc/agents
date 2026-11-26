@@ -1,0 +1,15 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "flow",
+  "version": "1.0.0",
+  "description": "OpenCode pack translated by manage-agents (flow): 7 agents, 22 skills.",
+  "author": {
+    "name": "manage-agents"
+  },
+  "extensions": {
+    "ai.mistral.vibe": {
+      "schemaVersion": 1,
+      "displayName": "Flow"
+    }
+  }
+}

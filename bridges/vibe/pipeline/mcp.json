@@ -1,0 +1,89 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "codebase-memory-mcp": {
+      "type": "stdio",
+      "command": "codebase-memory-mcp"
+    },
+    "chrome-devtools": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "chrome-devtools-mcp@latest",
+        "--executable-path={browser}",
+        "--headless",
+        "--no-usage-statistics"
+      ]
+    },
+    "XcodeBuildMCP": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "xcodebuildmcp@latest",
+        "mcp"
+      ]
+    },
+    "shadcn": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "shadcn@latest",
+        "mcp"
+      ]
+    },
+    "cupertino": {
+      "type": "stdio",
+      "command": "cupertino",
+      "args": [
+        "serve"
+      ]
+    },
+    "axiom": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "axiom-mcp"
+      ]
+    },
+    "cwe-search": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@cyanheads/mitre-cwe-mcp-server@0.3.0"
+      ]
+    },
+    "bigquery": {
+      "type": "streamable-http",
+      "url": "https://bigquery.googleapis.com/mcp"
+    },
+    "cloud-run": {
+      "type": "streamable-http",
+      "url": "https://run.googleapis.com/mcp"
+    },
+    "cloud-logging": {
+      "type": "streamable-http",
+      "url": "https://logging.googleapis.com/mcp"
+    },
+    "cloud-monitoring": {
+      "type": "streamable-http",
+      "url": "https://monitoring.googleapis.com/mcp"
+    },
+    "cloud-sql": {
+      "type": "streamable-http",
+      "url": "https://sqladmin.googleapis.com/mcp"
+    },
+    "cloud-storage": {
+      "type": "streamable-http",
+      "url": "https://storage.googleapis.com/storage/mcp"
+    },
+    "cloud-cli": {
+      "type": "streamable-http",
+      "url": "https://cloudcli.googleapis.com/mcp"
+    }
+  }
+}

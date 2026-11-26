@@ -1,0 +1,15 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "repo-showcase",
+  "version": "1.0.0",
+  "description": "OpenCode pack translated by manage-agents (repo-showcase): 0 agents, 2 skills.",
+  "author": {
+    "name": "manage-agents"
+  },
+  "extensions": {
+    "ai.mistral.vibe": {
+      "schemaVersion": 1,
+      "displayName": "Repo Showcase"
+    }
+  }
+}

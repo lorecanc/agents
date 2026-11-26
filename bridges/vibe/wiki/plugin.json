@@ -1,0 +1,15 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "wiki",
+  "version": "1.0.0",
+  "description": "OpenCode pack translated by manage-agents (wiki): 5 agents, 6 skills.",
+  "author": {
+    "name": "manage-agents"
+  },
+  "extensions": {
+    "ai.mistral.vibe": {
+      "schemaVersion": 1,
+      "displayName": "Wiki"
+    }
+  }
+}

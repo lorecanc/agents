@@ -1,0 +1,15 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "pipeline",
+  "version": "1.0.0",
+  "description": "OpenCode pack translated by manage-agents (pipeline): 21 agents, 14 skills.",
+  "author": {
+    "name": "manage-agents"
+  },
+  "extensions": {
+    "ai.mistral.vibe": {
+      "schemaVersion": 1,
+      "displayName": "Pipeline"
+    }
+  }
+}

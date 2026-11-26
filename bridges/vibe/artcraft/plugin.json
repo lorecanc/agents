@@ -1,0 +1,15 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "artcraft",
+  "version": "1.0.0",
+  "description": "OpenCode pack translated by manage-agents (artcraft): 0 agents, 21 skills.",
+  "author": {
+    "name": "manage-agents"
+  },
+  "extensions": {
+    "ai.mistral.vibe": {
+      "schemaVersion": 1,
+      "displayName": "Artcraft"
+    }
+  }
+}

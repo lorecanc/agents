@@ -1,0 +1,99 @@
+{
+  "servers": {
+    "anicraft": {
+      "type": "local",
+      "command": ["anicraft-cli", "mcp"],
+      "codemode": false
+    },
+    "cadcraft": {
+      "type": "local",
+      "command": ["cadcraft-cli", "mcp"],
+      "codemode": false
+    },
+    "craft-anything": {
+      "type": "local",
+      "command": ["craft-anything-cli", "mcp"],
+      "codemode": false
+    },
+    "deckcraft": {
+      "type": "local",
+      "command": ["deckcraft-cli", "mcp"],
+      "codemode": false
+    },
+    "designcraft": {
+      "type": "local",
+      "command": ["designcraft-cli", "mcp", "--automation-read-root", "<PROJECT_DIR>", "--automation-write-root", "<PROJECT_DIR>"],
+      "codemode": false
+    },
+    "effectcraft": {
+      "type": "local",
+      "command": ["effectcraft-cli", "mcp", "--automation-read-root", "<PROJECT_DIR>", "--automation-write-root", "<PROJECT_DIR>"],
+      "codemode": false
+    },
+    "figcraft": {
+      "type": "local",
+      "command": ["figcraft-cli", "mcp"],
+      "codemode": false
+    },
+    "filmcraft": {
+      "type": "local",
+      "command": ["filmcraft-cli", "mcp"],
+      "codemode": false
+    },
+    "gridcraft": {
+      "type": "local",
+      "command": ["gridcraft-cli", "mcp"],
+      "codemode": false
+    },
+    "lightcraft": {
+      "type": "local",
+      "command": ["lightcraft-cli", "mcp", "--compact"],
+      "codemode": false
+    },
+    "mailcraft": {
+      "type": "local",
+      "command": ["mailcraft-cli", "mcp"],
+      "codemode": false
+    },
+    "materialcraft": {
+      "type": "local",
+      "command": ["materialcraft-cli", "mcp", "--automation-read-root", "<PROJECT_DIR>", "--automation-write-root", "<PROJECT_DIR>"],
+      "codemode": false
+    },
+    "pdfcraft": {
+      "type": "local",
+      "command": ["pdfcraft-cli", "mcp"],
+      "codemode": false
+    },
+    "photocraft": {
+      "type": "local",
+      "command": ["photocraft-cli", "mcp", "--automation-read-root", "<PROJECT_DIR>", "--automation-write-root", "<PROJECT_DIR>"],
+      "codemode": false
+    },
+    "solidcraft": {
+      "type": "local",
+      "command": ["solidcraft-cli", "mcp"],
+      "codemode": false
+    },
+    "soundcraft": {
+      "type": "local",
+      "command": ["soundcraft-cli", "mcp", "--automation-read-root", "<PROJECT_DIR>", "--automation-write-root", "<PROJECT_DIR>"],
+      "codemode": false
+    },
+    "texturecraft": {
+      "type": "local",
+      "command": ["texturecraft-cli", "mcp", "--automation-read-root", "<PROJECT_DIR>", "--automation-write-root", "<PROJECT_DIR>"],
+      "codemode": false
+    },
+    "vectorcraft": {
+      "type": "local",
+      "command": ["vectorcraft-cli", "mcp"],
+      "codemode": false
+    },
+    "wordcraft": {
+      "type": "local",
+      "command": ["wordcraft-cli", "mcp"],
+      "codemode": false
+    }
+  }
+}
