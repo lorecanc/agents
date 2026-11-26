@@ -29,13 +29,13 @@ All agents are also spawnable subagents, named `<plugin>:<agent>` at runtime: as
 
 The plugin format ships spawnable subagents only, and a spawned subagent cannot delegate further. The translated primary agents therefore also ship as main agent profiles: install `agent-profiles/` into `~/.vibe/agents/` (the manager does this by default) and start Vibe with `vibe --agent <profile>` (or switch a live session with `/agent <profile>`).
 
-- **wiki-orchestrator** (`vibe --agent wiki-orchestrator`, model: mistral-large-4): Orchestrates wiki generation and updates. Decides flow and delegates to specialized subagents.
+- **wiki-orchestrator** (`vibe --agent wiki-orchestrator`, model: zai-glm-5-3): Orchestrates wiki generation and updates. Decides flow and delegates to specialized subagents.
 
 If your `config.toml` sets `enabled_agents`, add the profile names there or they stay hidden. Subagent profiles are rejected as `--agent`, so these main profiles are also the only way to run a specialist at the session level (for example from external tooling).
 
 ### Model connection
 
-Each agent profile pins `active_model` to a Mistral model alias (`mistral-large-4`, `mistral-medium-3.5`, ...). Vibe only accepts aliases defined in the `[[models]]` entries of its own configuration and refuses an agent file whose alias is unknown, so align the translation config `vibe` tier models with the aliases of your Vibe installation, or set a tier model to `inherit` to leave the agent on the session's model. A `plugin.agent.invalid` diagnostic in the startup warnings names any refused agent file.
+Every agent follows the Vibe session's model by default: a tier model, a `modelMap` entry or an override pins `active_model` only when the translation config says so, and `inherit` restores the default. Vibe only accepts aliases defined in the `[[models]]` entries of its own configuration and refuses an agent file whose alias is unknown, so align any pinned tier model with the aliases of your Vibe installation. A `plugin.agent.invalid` diagnostic in the startup warnings names any refused agent file.
 
 OpenCode tool names in prompts are rewritten where Vibe has an equivalent (`todowrite` → `todo`, `question` → `ask_user_question`, Task tool → `agents.spawn`, `read` → `read_file`, `write` → `write_file`). Prompts that rely on custom tools shipped by the pack start with a runtime note saying they are unavailable here and that the documented fallbacks apply. Commands were translated into user-invocable skills: their `$ARGUMENTS` placeholder became `$request`, and `!`substitutions`` became inline bash blocks.
 
@@ -81,14 +81,15 @@ Vibe agent files narrow tool use with `[tools.<name>] permission = "ask" | "neve
 
 ## Agents
 
-- **analyzer** (spawn as `wiki:analyzer`, safety `neutral`, model: mistral-medium-3.5): Analyzes a codebase structure for wiki generation. Read-only — never modifies files.
-- **indexer** (spawn as `wiki:indexer`, safety `neutral`, model: mistral-medium-3.5): Maintains wiki/index.md, wiki/log.md, and wiki/glossary.md. Sole owner of these files.
-- **orchestrator** (spawn as `wiki:orchestrator`, safety `neutral`, model: mistral-large-4): Orchestrates wiki generation and updates. Decides flow and delegates to specialized subagents.
-- **updater** (spawn as `wiki:updater`, safety `neutral`, model: mistral-medium-3.5): Analyzes git diff to determine which wiki pages need updating. Maps source file changes to wiki page impact.
-- **writer** (spawn as `wiki:writer`, safety `neutral`, model: mistral-medium-3.5): Writes and updates individual wiki pages. Reads source code and produces structured markdown documentation.
+- **analyzer** (spawn as `wiki:analyzer`, safety `neutral`, model: deepseek-v4-1-flash-1017): Analyzes a codebase structure for wiki generation. Read-only — never modifies files.
+- **indexer** (spawn as `wiki:indexer`, safety `neutral`, model: deepseek-v4-1-flash-1017): Maintains wiki/index.md, wiki/log.md, and wiki/glossary.md. Sole owner of these files.
+- **orchestrator** (spawn as `wiki:orchestrator`, safety `neutral`, model: zai-glm-5-3): Orchestrates wiki generation and updates. Decides flow and delegates to specialized subagents.
+- **updater** (spawn as `wiki:updater`, safety `neutral`, model: deepseek-v4-1-flash-1017): Analyzes git diff to determine which wiki pages need updating. Maps source file changes to wiki page impact.
+- **writer** (spawn as `wiki:writer`, safety `neutral`, model: deepseek-v4-1-flash-1017): Writes and updates individual wiki pages. Reads source code and produces structured markdown documentation.
 
 ## Translation warnings
 
+- [model-map] entry "opencode-go/deepseek-v4.1-flash" matches no source agent model
 - wiki-analyzer.md: permission 'skill' has no per-agent Vibe equivalent; dropped
 - wiki-analyzer.md: 'steps' has no per-agent Vibe equivalent; ignored
 - wiki-indexer.md: permission 'skill' has no per-agent Vibe equivalent; dropped

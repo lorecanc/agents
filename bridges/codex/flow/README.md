@@ -100,4 +100,3 @@ Codex agent files set only `sandbox_mode`: agents whose OpenCode `bash` or `edit
 - flow-build.md: unresolved delegated agent 'general'
 - [flow-eye.md] model assignment source: default
 - [flow-ops.md] model assignment source: default
-- [flow-review.md] model assignment source: default

@@ -17,7 +17,7 @@
         "reasoningEffort": "medium"
       },
       "vibe": {
-        "model": "mistral-large-4"
+        "model": "zai-glm-5-3"
       }
     },
     "execution": {
@@ -30,7 +30,7 @@
         "reasoningEffort": "medium"
       },
       "vibe": {
-        "model": "mistral-medium-3.5"
+        "model": "deepseek-v4-1-flash-1017"
       }
     },
     "light": {
@@ -43,14 +43,16 @@
         "reasoningEffort": "medium"
       },
       "vibe": {
-        "model": "mistral-medium-3.5"
+        "model": "deepseek-v4-1-flash-1017"
       }
     }
   },
   "roles": {
     "orchestrator": "planning",
     "planner": "planning",
+    "plan": "planning",
     "reasoner": "planning",
+    "review": "planning",
     "critic": "execution",
     "code_reviewer": "execution",
     "executor": "light",
@@ -61,7 +63,9 @@
   },
   "vibe": {
     "overrides": {},
-    "modelMap": {},
+    "modelMap": {
+      "opencode-go/deepseek-v4.1-flash": "deepseek-v4-1-flash-1017"
+    },
     "emitSkills": true,
     "emitReadme": true,
     "emitMcp": true

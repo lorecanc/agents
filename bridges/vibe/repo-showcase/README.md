@@ -25,9 +25,12 @@ All agents are also spawnable subagents, named `<plugin>:<agent>` at runtime: as
 
 ### Model connection
 
-Each agent profile pins `active_model` to a Mistral model alias (`mistral-large-4`, `mistral-medium-3.5`, ...). Vibe only accepts aliases defined in the `[[models]]` entries of its own configuration and refuses an agent file whose alias is unknown, so align the translation config `vibe` tier models with the aliases of your Vibe installation, or set a tier model to `inherit` to leave the agent on the session's model. A `plugin.agent.invalid` diagnostic in the startup warnings names any refused agent file.
+Every agent follows the Vibe session's model by default: a tier model, a `modelMap` entry or an override pins `active_model` only when the translation config says so, and `inherit` restores the default. Vibe only accepts aliases defined in the `[[models]]` entries of its own configuration and refuses an agent file whose alias is unknown, so align any pinned tier model with the aliases of your Vibe installation. A `plugin.agent.invalid` diagnostic in the startup warnings names any refused agent file.
 
 OpenCode tool names in prompts are rewritten where Vibe has an equivalent (`todowrite` → `todo`, `question` → `ask_user_question`, Task tool → `agents.spawn`, `read` → `read_file`, `write` → `write_file`). Prompts that rely on custom tools shipped by the pack start with a runtime note saying they are unavailable here and that the documented fallbacks apply.
 
 ## Agents
 
+## Translation warnings
+
+- [model-map] entry "opencode-go/deepseek-v4.1-flash" matches no source agent model
